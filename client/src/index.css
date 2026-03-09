@@ -197,6 +197,10 @@
  */
 @layer utilities {
 
+  .font-arabic {
+    font-family: "IBM Plex Sans Arabic", "Noto Sans Arabic", "Arial", sans-serif;
+  }
+
   /* Hide ugly search cancel button in Chrome until we can style it properly */
   input[type="search"]::-webkit-search-cancel-button {
     @apply hidden;
