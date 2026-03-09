@@ -26,65 +26,144 @@ export interface IStorage {
   }>;
 }
 
-function detectLanguage(text: string): "ar" | "en" | "mixed" {
-  const arabicPattern = /[\u0600-\u06FF]/;
-  const englishPattern = /[a-zA-Z]/;
-  const hasArabic = arabicPattern.test(text);
-  const hasEnglish = englishPattern.test(text);
-  if (hasArabic && hasEnglish) return "mixed";
-  if (hasArabic) return "ar";
-  return "en";
+const ARABIC_STOPWORDS = new Set([
+  "في", "من", "على", "إلى", "عن", "مع", "أو", "و", "أن", "كان", "كانت",
+  "هذا", "هذه", "هؤلاء", "ذلك", "تلك", "التي", "الذي", "الذين", "اللذان",
+  "لعام", "لسنة", "لعامي", "خلال", "حتى", "بعد", "قبل", "بين", "منذ",
+  "يتم", "يجب", "جميع", "كل", "بما", "حيث", "وفق", "وفقا", "وفقاً",
+  "لدى", "لهذا", "لذلك", "وكذلك", "أيضا", "أيضاً", "نحو", "نسبة",
+]);
+
+const ENGLISH_STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+  "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
+  "have", "has", "had", "do", "does", "did", "will", "would", "could",
+  "should", "may", "might", "all", "any", "this", "that", "these", "those",
+  "its", "it", "as", "up", "out", "if", "so", "no", "not",
+]);
+
+function stripArabicAffixes(word: string): string[] {
+  const variants: string[] = [word];
+  const prefixes = ["ال", "وال", "بال", "كال", "فال", "لل", "وب", "فب", "كب", "وك", "فك"];
+  for (const prefix of prefixes) {
+    if (word.startsWith(prefix) && word.length > prefix.length + 2) {
+      variants.push(word.slice(prefix.length));
+    }
+  }
+  const suffixes = ["ها", "هم", "هن", "هما", "كم", "كن", "كما", "ية", "ات"];
+  for (const suffix of suffixes) {
+    if (word.endsWith(suffix) && word.length > suffix.length + 2) {
+      variants.push(word.slice(0, word.length - suffix.length));
+    }
+  }
+  return [...new Set(variants)];
 }
 
 function tokenize(text: string): string[] {
-  return text.toLowerCase().replace(/[^\u0600-\u06FFa-zA-Z0-9\s]/g, " ").split(/\s+/).filter(t => t.length > 1);
+  return text
+    .toLowerCase()
+    .replace(/[^\u0600-\u06FFa-zA-Z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(t => t.length > 2)
+    .filter(t => !ENGLISH_STOPWORDS.has(t) && !ARABIC_STOPWORDS.has(t));
+}
+
+function expandArabicTokens(tokens: string[]): string[] {
+  const expanded: string[] = [];
+  for (const t of tokens) {
+    expanded.push(...stripArabicAffixes(t));
+  }
+  return [...new Set(expanded)];
+}
+
+function buildDocCorpus(doc: Document): string {
+  return [
+    doc.title,
+    doc.titleAr || "",
+    doc.content,
+    doc.contentAr || "",
+    (doc.tags || []).join(" "),
+    doc.department,
+    doc.departmentAr || "",
+    doc.docType,
+    doc.docTypeAr || "",
+    doc.author || "",
+    doc.authorAr || "",
+    doc.workflowStatus,
+  ].join(" ").toLowerCase();
 }
 
 function computeKeywordScore(doc: Document, queryTokens: string[]): number {
   if (queryTokens.length === 0) return 0;
-  const docText = `${doc.title} ${doc.titleAr || ""} ${doc.content} ${doc.contentAr || ""} ${(doc.tags || []).join(" ")} ${doc.department} ${doc.departmentAr || ""}`.toLowerCase();
-  const matches = queryTokens.filter(t => docText.includes(t));
-  return matches.length / queryTokens.length;
+  const docText = buildDocCorpus(doc);
+  const expandedTokens = expandArabicTokens(queryTokens);
+
+  let matchCount = 0;
+  for (const t of expandedTokens) {
+    if (docText.includes(t)) {
+      matchCount++;
+    }
+  }
+
+  return expandedTokens.length > 0 ? matchCount / expandedTokens.length : 0;
 }
+
+const SEMANTIC_GROUPS: Array<{ terms: string[]; weight: number }> = [
+  { terms: ["contract", "عقد", "عقود", "اتفاقية", "اتفاقيات", "agreement"], weight: 0.3 },
+  { terms: ["renewal", "renew", "تجديد", "تمديد", "extend", "extension"], weight: 0.3 },
+  { terms: ["maintenance", "صيانة", "service", "repair", "خدمة", "خدمات", "صيانات"], weight: 0.3 },
+  { terms: ["budget", "ميزانية", "financial", "مالية", "مالي", "finance", "إنفاق", "spending"], weight: 0.3 },
+  { terms: ["report", "تقرير", "تقارير", "analysis", "تحليل", "assessment", "تقييم", "survey"], weight: 0.3 },
+  { terms: ["hr", "human resources", "موارد بشرية", "موارد", "employee", "موظف", "موظفين", "staff", "personnel", "training", "تدريب"], weight: 0.3 },
+  { terms: ["procurement", "مشتريات", "purchase", "tender", "مناقصة", "مناقصات", "supply", "توريد", "شراء"], weight: 0.3 },
+  { terms: ["security", "أمن", "أمان", "cybersecurity", "سيبراني", "protection", "حماية", "classified", "سري"], weight: 0.3 },
+  { terms: ["digital", "رقمي", "رقمية", "transformation", "تحول", "technology", "تقنية", "tech", "ai", "ذكاء اصطناعي"], weight: 0.3 },
+  { terms: ["program", "برنامج", "project", "مشروع", "initiative", "مبادرة", "plan", "خطة", "implementation", "تنفيذ"], weight: 0.3 },
+  { terms: ["infrastructure", "بنية تحتية", "بنية", "تحتية", "network", "شبكة", "water", "مياه", "electricity", "كهرباء"], weight: 0.3 },
+  { terms: ["policy", "سياسة", "regulation", "لائحة", "guideline", "إرشاد", "procedure", "إجراء"], weight: 0.3 },
+  { terms: ["ministry", "وزارة", "authority", "هيئة", "government", "حكومة", "حكومي", "department", "قسم"], weight: 0.2 },
+  { terms: ["letter", "خطاب", "رسالة", "correspondence", "مراسلة", "memo", "مذكرة", "circular", "تعميم"], weight: 0.3 },
+  { terms: ["smart city", "مدينة ذكية", "iot", "sensor", "استشعار", "urban", "عمراني"], weight: 0.3 },
+  { terms: ["salary", "راتب", "rawi", "رواتب", "pay", "compensation", "مكافأة"], weight: 0.3 },
+  { terms: ["audit", "تدقيق", "compliance", "امتثال", "review", "مراجعة", "inspection", "تفتيش"], weight: 0.3 },
+  { terms: ["annual", "سنوي", "yearly", "سنة", "year", "عام", "quarterly", "ربع", "fiscal", "مالية"], weight: 0.2 },
+];
 
 function computeSemanticScore(doc: Document, query: string): number {
   const queryLower = query.toLowerCase();
-  const queryTokens = tokenize(query);
+  const queryTokensExpanded = expandArabicTokens(tokenize(query));
 
   const docTitle = (doc.title + " " + (doc.titleAr || "")).toLowerCase();
   const docContent = (doc.content + " " + (doc.contentAr || "")).toLowerCase();
   const docTags = (doc.tags || []).join(" ").toLowerCase();
+  const docFull = buildDocCorpus(doc);
 
   let score = 0;
 
-  const semanticGroups: Record<string, string[]> = {
-    "عقود": ["contract", "agreement", "عقد", "اتفاقية", "maintenance", "صيانة"],
-    "تجديد": ["renewal", "extend", "تمديد", "renew", "تجديد"],
-    "صيانة": ["maintenance", "service", "خدمة", "repair", "صيانة"],
-    "ميزانية": ["budget", "financial", "مالي", "finance", "spending", "إنفاق"],
-    "تقرير": ["report", "analysis", "تحليل", "assessment", "تقييم"],
-    "موارد": ["hr", "human resources", "staff", "موظف", "personnel"],
-    "مشتريات": ["procurement", "purchase", "tender", "مناقصة", "supply"],
-    "أمن": ["security", "حماية", "protection", "classified", "سري"],
-    "تحويل": ["transfer", "digital", "رقمي", "transformation", "نقل"],
-    "برنامج": ["program", "project", "مشروع", "initiative", "خطة"],
-  };
+  for (const group of SEMANTIC_GROUPS) {
+    const queryHasTerm = group.terms.some(t =>
+      queryLower.includes(t) ||
+      queryTokensExpanded.some(qt => t.includes(qt) || qt.includes(t))
+    );
 
-  for (const [key, related] of Object.entries(semanticGroups)) {
-    const groupMatch = related.some(r => queryLower.includes(r) || r.includes(queryLower));
-    if (groupMatch) {
-      const docHasRelated = related.some(r =>
-        docTitle.includes(r) || docContent.includes(r) || docTags.includes(r)
-      );
-      if (docHasRelated) score += 0.35;
+    if (queryHasTerm) {
+      const docHasTerm = group.terms.some(t => docFull.includes(t));
+      if (docHasTerm) {
+        score += group.weight;
+      }
     }
   }
 
-  const keywordMatch = computeKeywordScore(doc, queryTokens);
-  score += keywordMatch * 0.3;
+  if (doc.year && queryLower.includes(doc.year.toString())) {
+    score += 0.2;
+  }
 
-  if (doc.year && (queryLower.includes(doc.year.toString()))) {
-    score += 0.15;
+  const titleTokens = expandArabicTokens(tokenize(docTitle));
+  const titleMatches = queryTokensExpanded.filter(qt =>
+    titleTokens.some(tt => tt.includes(qt) || qt.includes(tt))
+  ).length;
+  if (titleMatches > 0) {
+    score += (titleMatches / Math.max(queryTokensExpanded.length, 1)) * 0.4;
   }
 
   return Math.min(score, 1);
@@ -461,6 +540,8 @@ export class MemStorage implements IStorage {
       if (filters.yearTo) docs = docs.filter(d => (d.year || 0) <= filters.yearTo!);
     }
 
+    const expandedQueryTokens = expandArabicTokens(queryTokens);
+
     const scored: SearchResult[] = docs.map(doc => {
       const keywordScore = computeKeywordScore(doc, queryTokens);
       const semanticScore = computeSemanticScore(doc, query);
@@ -468,27 +549,28 @@ export class MemStorage implements IStorage {
       let finalScore = 0;
       if (searchType === "keyword") finalScore = keywordScore;
       else if (searchType === "semantic") finalScore = semanticScore;
-      else finalScore = 0.45 * semanticScore + 0.45 * keywordScore + 0.1;
+      else finalScore = 0.5 * semanticScore + 0.5 * keywordScore;
 
-      const matchedTerms = queryTokens.filter(t => {
-        const combined = `${doc.title} ${doc.titleAr || ""} ${doc.content} ${(doc.tags || []).join(" ")}`.toLowerCase();
-        return combined.includes(t);
-      });
+      const docCorpus = buildDocCorpus(doc);
+      const matchedTerms = [...new Set(
+        expandedQueryTokens.filter(t => t.length > 2 && docCorpus.includes(t))
+      )];
 
-      const snippet = extractSnippet(doc.content, queryTokens);
-      const snippetAr = doc.contentAr ? extractSnippet(doc.contentAr, queryTokens) : undefined;
+      const snippet = extractSnippet(doc.content, expandedQueryTokens);
+      const snippetAr = doc.contentAr ? extractSnippet(doc.contentAr, expandedQueryTokens) : undefined;
 
       return {
         document: doc,
-        score: Math.min(finalScore + (matchedTerms.length > 0 ? 0.15 : 0), 1),
-        scoreBreakdown: { semantic: semanticScore, keyword: keywordScore, metadata: 0.1 },
+        score: Math.min(finalScore, 1),
+        scoreBreakdown: { semantic: semanticScore, keyword: keywordScore, metadata: 0 },
         snippet,
         snippetAr,
         matchedTerms,
       };
     });
 
-    const filtered = scored.filter(r => r.score > 0.05).sort((a, b) => b.score - a.score);
+    const minScore = searchType === "keyword" ? 0.1 : 0.05;
+    const filtered = scored.filter(r => r.score > minScore).sort((a, b) => b.score - a.score);
     const total = filtered.length;
     const results = filtered.slice((page - 1) * limit, page * limit);
 
