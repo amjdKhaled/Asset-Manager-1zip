@@ -1,7 +1,16 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { searchRequestSchema, insertAuditLogSchema } from "@shared/schema";
+import { searchRequestSchema } from "@shared/schema";
+import {
+  getLaserficheConfig,
+  getLaserficheToken,
+  laserficheSimpleSearch,
+  laserficheListEntries,
+  laserficheGetEntry,
+  laserficheGetEntryFields,
+  naturalLanguageToLFSearchCommand,
+} from "./laserfiche";
 import { z } from "zod";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -9,7 +18,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const docs = await storage.getDocuments();
       res.json(docs);
-    } catch (e) {
+    } catch {
       res.status(500).json({ error: "Failed to fetch documents" });
     }
   });
@@ -19,7 +28,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const doc = await storage.getDocument(req.params.id);
       if (!doc) return res.status(404).json({ error: "Document not found" });
       res.json(doc);
-    } catch (e) {
+    } catch {
       res.status(500).json({ error: "Failed to fetch document" });
     }
   });
@@ -44,7 +53,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
 
       res.json(results);
-    } catch (e) {
+    } catch {
       res.status(500).json({ error: "Search failed" });
     }
   });
@@ -54,7 +63,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const limit = parseInt(req.query.limit as string) || 100;
       const logs = await storage.getAuditLogs(limit);
       res.json(logs);
-    } catch (e) {
+    } catch {
       res.status(500).json({ error: "Failed to fetch audit logs" });
     }
   });
@@ -63,8 +72,163 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const stats = await storage.getDashboardStats();
       res.json(stats);
-    } catch (e) {
+    } catch {
       res.status(500).json({ error: "Failed to fetch stats" });
+    }
+  });
+
+  app.get("/api/laserfiche/status", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) {
+      return res.json({
+        connected: false,
+        configured: false,
+        message: "Laserfiche credentials not configured. Please set LF_SERVER_URL, LF_REPO_ID, LF_USERNAME, LF_PASSWORD environment secrets.",
+      });
+    }
+
+    try {
+      const token = await getLaserficheToken(config);
+      res.json({
+        connected: true,
+        configured: true,
+        serverUrl: config.serverUrl,
+        repositoryId: config.repositoryId,
+        username: config.username,
+        message: "Successfully connected to Laserfiche",
+      });
+    } catch (err: any) {
+      res.json({
+        connected: false,
+        configured: true,
+        serverUrl: config.serverUrl,
+        message: `Connection failed: ${err.message}`,
+      });
+    }
+  });
+
+  app.post("/api/laserfiche/search", async (req, res) => {
+    const { query, searchCommand, maxResults = 50 } = req.body;
+
+    const config = getLaserficheConfig();
+    if (!config) {
+      return res.status(503).json({
+        error: "Laserfiche not configured",
+        hint: "Set LF_SERVER_URL, LF_REPO_ID, LF_USERNAME, LF_PASSWORD in environment secrets",
+      });
+    }
+
+    try {
+      const finalCommand = searchCommand || naturalLanguageToLFSearchCommand(query || "").command;
+      const nlResult = naturalLanguageToLFSearchCommand(query || finalCommand);
+
+      const token = await getLaserficheToken(config);
+      const entries = await laserficheSimpleSearch(config, token, finalCommand, maxResults);
+
+      await storage.createAuditLog({
+        query: query || finalCommand,
+        queryLanguage: /[\u0600-\u06FF]/.test(query || "") ? "ar" : "en",
+        userId: "demo-user",
+        username: "demo.user",
+        resultsCount: entries.length,
+        searchType: "laserfiche",
+        filters: { lfCommand: finalCommand },
+        ipAddress: req.ip || "127.0.0.1",
+        department: "Laserfiche",
+      });
+
+      res.json({
+        entries,
+        total: entries.length,
+        searchCommand: finalCommand,
+        nlTranslation: nlResult,
+        query,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/laserfiche/translate", async (req, res) => {
+    const { query } = req.body;
+    if (!query) return res.status(400).json({ error: "Query is required" });
+
+    const result = naturalLanguageToLFSearchCommand(query);
+    res.json(result);
+  });
+
+  app.post("/api/laserfiche/sync", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) {
+      return res.status(503).json({
+        error: "Laserfiche not configured",
+        hint: "Set LF_SERVER_URL, LF_REPO_ID, LF_USERNAME, LF_PASSWORD in environment secrets",
+      });
+    }
+
+    try {
+      const token = await getLaserficheToken(config);
+      const { folderId = 1, limit = 50 } = req.body;
+
+      const entries = await laserficheListEntries(config, token, folderId, limit);
+      const imported: any[] = [];
+
+      for (const entry of entries) {
+        if (entry.entryType === "Document") {
+          let fields: Record<string, string> = {};
+          try {
+            fields = await laserficheGetEntryFields(config, token, entry.id);
+          } catch {}
+
+          const doc = await storage.createDocument({
+            title: entry.name,
+            titleAr: fields["Arabic Title"] || fields["العنوان"] || null,
+            department: fields["Department"] || fields["الجهة"] || fields["القسم"] || "Laserfiche",
+            departmentAr: fields["الجهة"] || fields["القسم"] || null,
+            classification: fields["Classification"] || fields["التصنيف"] || "Official",
+            securityLevel: fields["Security Level"] || fields["مستوى الأمان"] || "Internal",
+            docType: entry.extension?.toUpperCase() || "Document",
+            docTypeAr: null,
+            author: entry.creator || null,
+            authorAr: fields["Arabic Author"] || fields["المؤلف"] || null,
+            workflowStatus: fields["Workflow Status"] || fields["حالة المعاملة"] || "Active",
+            tags: Object.values(fields).filter(Boolean).slice(0, 5),
+            content: entry.fullPath || entry.name,
+            contentAr: fields["Arabic Content"] || fields["المحتوى"] || null,
+            fileSizeKb: entry.electronicDocumentSize ? Math.round(entry.electronicDocumentSize / 1024) : null,
+            pageCount: entry.pageCount || null,
+            laserficheId: `LF-${entry.id}`,
+            year: entry.creationTime ? new Date(entry.creationTime).getFullYear() : null,
+          });
+
+          imported.push({ id: doc.id, name: entry.name, laserficheEntryId: entry.id });
+        }
+      }
+
+      res.json({
+        success: true,
+        imported: imported.length,
+        total: entries.length,
+        documents: imported,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/laserfiche/browse", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) {
+      return res.status(503).json({ error: "Laserfiche not configured" });
+    }
+
+    try {
+      const token = await getLaserficheToken(config);
+      const { folderId = 1, limit = 50 } = req.body;
+      const entries = await laserficheListEntries(config, token, folderId, limit);
+      res.json({ entries, folderId });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

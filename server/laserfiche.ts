@@ -1,0 +1,267 @@
+export interface LaserficheConfig {
+  serverUrl: string;
+  repositoryId: string;
+  username: string;
+  password: string;
+}
+
+export interface LFEntry {
+  id: number;
+  name: string;
+  entryType: string;
+  fullPath: string;
+  creator: string;
+  creationTime?: string;
+  lastModifiedTime?: string;
+  templateName?: string;
+  fields?: Record<string, string | number | boolean | null>;
+  tags?: string[];
+  volumeName?: string;
+  extension?: string;
+  pageCount?: number;
+  electronicDocumentSize?: number;
+}
+
+export interface LFSearchResult {
+  entryId: number;
+  name: string;
+  fullPath: string;
+  entryType: string;
+  score?: number;
+  contextHits?: string[];
+}
+
+export interface LFSearchResponse {
+  entries?: LFEntry[];
+  nextLink?: string;
+  count?: number;
+}
+
+export function getLaserficheConfig(): LaserficheConfig | null {
+  const serverUrl = process.env.LF_SERVER_URL;
+  const repositoryId = process.env.LF_REPO_ID;
+  const username = process.env.LF_USERNAME;
+  const password = process.env.LF_PASSWORD;
+
+  if (!serverUrl || !repositoryId || !username || !password) {
+    return null;
+  }
+
+  return { serverUrl: serverUrl.replace(/\/$/, ""), repositoryId, username, password };
+}
+
+export async function getLaserficheToken(config: LaserficheConfig): Promise<string> {
+  const tokenUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Token`;
+
+  const params = new URLSearchParams();
+  params.append("grant_type", "password");
+  params.append("username", config.username);
+  params.append("password", config.password);
+
+  const res = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Laserfiche authentication failed: ${res.status} ${text}`);
+  }
+
+  const data = await res.json() as { access_token: string };
+  if (!data.access_token) {
+    throw new Error("No access token returned from Laserfiche");
+  }
+
+  return data.access_token;
+}
+
+export async function laserficheSimpleSearch(
+  config: LaserficheConfig,
+  token: string,
+  searchCommand: string,
+  maxResults = 100
+): Promise<LFEntry[]> {
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/SimpleSearches`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ searchCommand }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Laserfiche search failed: ${res.status} ${text}`);
+  }
+
+  const data = await res.json() as LFSearchResponse;
+  return data.entries || [];
+}
+
+export async function laserficheGetEntry(
+  config: LaserficheConfig,
+  token: string,
+  entryId: number
+): Promise<LFEntry> {
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { "Authorization": `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to get Laserfiche entry ${entryId}: ${res.status}`);
+  }
+
+  return await res.json() as LFEntry;
+}
+
+export async function laserficheGetEntryFields(
+  config: LaserficheConfig,
+  token: string,
+  entryId: number
+): Promise<Record<string, string>> {
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/Fields`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { "Authorization": `Bearer ${token}` },
+  });
+
+  if (!res.ok) return {};
+
+  const data = await res.json() as { value?: Array<{ fieldName: string; values: string[] }> };
+  const fields: Record<string, string> = {};
+  for (const f of data.value || []) {
+    fields[f.fieldName] = f.values?.join(", ") || "";
+  }
+  return fields;
+}
+
+export async function laserficheListEntries(
+  config: LaserficheConfig,
+  token: string,
+  folderId = 1,
+  limit = 50
+): Promise<LFEntry[]> {
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${folderId}/Folder/Children?$top=${limit}&$select=id,name,entryType,creator,creationTime,lastModifiedTime,extension,pageCount,electronicDocumentSize`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { "Authorization": `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to list Laserfiche entries: ${res.status} ${text}`);
+  }
+
+  const data = await res.json() as { value?: LFEntry[] };
+  return data.value || [];
+}
+
+export function naturalLanguageToLFSearchCommand(query: string): {
+  command: string;
+  explanation: string;
+  extractedTerms: string[];
+} {
+  const q = query.trim();
+
+  const extractedTerms: string[] = [];
+  let command = "";
+  let explanation = "";
+
+  const namePatterns = [
+    /اسم\s+(\S+)/g,
+    /باسم\s+(\S+)/g,
+    /يحتوي.*?اسم\s+(\S+)/g,
+    /contains?\s+name\s+(\S+)/gi,
+    /named?\s+(\S+)/gi,
+    /author[:\s]+(\S+)/gi,
+    /كاتب\s+(\S+)/g,
+    /منشئ\s+(\S+)/g,
+  ];
+
+  const nameMatches: string[] = [];
+  for (const pattern of namePatterns) {
+    let m;
+    while ((m = pattern.exec(q)) !== null) {
+      nameMatches.push(m[1]);
+    }
+  }
+
+  const datePatterns = [
+    /(\d{4})/g,
+    /عام\s+(\d{4})/g,
+    /سنة\s+(\d{4})/g,
+    /year\s+(\d{4})/gi,
+  ];
+
+  const years: string[] = [];
+  for (const pattern of datePatterns) {
+    let m;
+    while ((m = pattern.exec(q)) !== null) {
+      if (parseInt(m[1]) >= 2000 && parseInt(m[1]) <= 2030) {
+        years.push(m[1]);
+      }
+    }
+  }
+
+  const stopwordsAr = ["عطني", "اعطني", "أعطني", "جميع", "كل", "اللتي", "التي", "الذي", "الذين",
+    "المعاملات", "الوثائق", "المستندات", "الملفات", "في", "من", "على", "عن", "مع", "تحتوي",
+    "تحتوى", "يحتوي", "التي", "بتاريخ", "خلال", "حتى", "بعد", "قبل", "اريد", "أريد", "أحتاج", "احتاج"];
+  const stopwordsEn = ["give", "me", "all", "the", "documents", "files", "transactions", "that",
+    "contain", "contains", "with", "in", "and", "or", "show", "find", "search", "get"];
+
+  const cleanedTokens = q.replace(/[^\u0600-\u06FFa-zA-Z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(t => t.length > 2)
+    .filter(t => !stopwordsAr.includes(t) && !stopwordsEn.includes(t.toLowerCase()))
+    .filter(t => !years.includes(t));
+
+  extractedTerms.push(...cleanedTokens, ...years);
+
+  const parts: string[] = [];
+
+  if (nameMatches.length > 0) {
+    for (const name of nameMatches) {
+      parts.push(`{LF:Basic~="${name}"}`);
+      if (!extractedTerms.includes(name)) extractedTerms.push(name);
+    }
+    explanation = `Full-text search for name: ${nameMatches.join(", ")}`;
+  } else if (cleanedTokens.length > 0) {
+    const mainTerms = cleanedTokens.slice(0, 3);
+    if (mainTerms.length === 1) {
+      parts.push(`{LF:Basic~="${mainTerms[0]}"}`);
+    } else {
+      parts.push(`{LF:Basic~="${mainTerms.join(" ")}"}`);
+    }
+    explanation = `Full-text search for: ${mainTerms.join(", ")}`;
+  }
+
+  if (years.length > 0) {
+    const year = years[0];
+    parts.push(`{LF:Modified>="${year}-01-01"}`);
+    parts.push(`{LF:Modified<="${year}-12-31"}`);
+    explanation += (explanation ? " | " : "") + `Year filter: ${year}`;
+  }
+
+  if (parts.length === 0) {
+    const fallbackTerms = q.replace(/[^\u0600-\u06FFa-zA-Z0-9\s]/g, " ").trim().split(/\s+/).slice(0, 3);
+    command = `{LF:Basic~="${fallbackTerms.join(" ")}"}`;
+    explanation = `Full-text search for: ${fallbackTerms.join(", ")}`;
+    extractedTerms.push(...fallbackTerms);
+  } else {
+    command = parts.join(" & ");
+  }
+
+  return { command, explanation, extractedTerms: [...new Set(extractedTerms)] };
+}
+
+export type { LaserficheConfig as LFConfig };

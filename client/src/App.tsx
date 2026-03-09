@@ -12,6 +12,7 @@ import DocumentPage from "@/pages/document";
 import DashboardPage from "@/pages/dashboard";
 import AuditPage from "@/pages/audit";
 import ArchivePage from "@/pages/archive";
+import LaserfichePage from "@/pages/laserfiche";
 import { Moon, Sun } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -54,6 +55,7 @@ function PageHeader() {
     "/dashboard": { title: "Analytics Dashboard", titleAr: "لوحة التحليلات" },
     "/archive": { title: "Document Archive", titleAr: "أرشيف المستندات" },
     "/audit": { title: "Audit Log", titleAr: "سجل التدقيق" },
+    "/laserfiche": { title: "Laserfiche Connect", titleAr: "ربط Laserfiche" },
   };
 
   const isDocPage = location.startsWith("/document/");
@@ -82,6 +84,7 @@ function Router() {
       <Route path="/archive" component={ArchivePage} />
       <Route path="/audit" component={AuditPage} />
       <Route path="/document/:id" component={DocumentPage} />
+      <Route path="/laserfiche" component={LaserfichePage} />
       <Route component={NotFound} />
     </Switch>
   );
