@@ -11,7 +11,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { Search, LayoutDashboard, FileText, Shield, Database, ChevronRight, Link2 } from "lucide-react";
+import { Search, LayoutDashboard, FileText, Shield, Database, ChevronRight, Link2, Bot } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const navItems = [
@@ -20,6 +20,7 @@ const navItems = [
   { title: "Document Archive", titleAr: "أرشيف المستندات", url: "/archive", icon: FileText },
   { title: "Audit Log", titleAr: "سجل التدقيق", url: "/audit", icon: Shield },
   { title: "Laserfiche Connect", titleAr: "ربط Laserfiche", url: "/laserfiche", icon: Link2 },
+  { title: "AI Assistant", titleAr: "المساعد الذكي", url: "/chat", icon: Bot },
 ];
 
 export function AppSidebar() {

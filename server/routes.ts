@@ -11,6 +11,13 @@ import {
   laserficheGetEntryFields,
   naturalLanguageToLFSearchCommand,
 } from "./laserfiche";
+import {
+  checkOllamaStatus,
+  ollamaChat,
+  buildSystemPrompt,
+  buildContextBlock,
+  type OllamaMessage,
+} from "./ollama";
 import { z } from "zod";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -214,6 +221,98 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  app.get("/api/chat/status", async (req, res) => {
+    const status = await checkOllamaStatus();
+    res.json(status);
+  });
+
+  app.post("/api/chat", async (req, res) => {
+    const { messages, query } = req.body as {
+      messages: OllamaMessage[];
+      query: string;
+    };
+
+    if (!query && (!messages || messages.length === 0)) {
+      return res.status(400).json({ error: "query or messages required" });
+    }
+
+    const status = await checkOllamaStatus();
+    if (!status.running) {
+      return res.status(503).json({
+        error: "Ollama is not running",
+        hint: "Start Ollama with: ollama serve",
+        setup: "Install from https://ollama.com then run: ollama pull qwen2.5:7b",
+      });
+    }
+
+    const userQuery = query || messages.filter((m) => m.role === "user").slice(-1)[0]?.content || "";
+    const lang = /[\u0600-\u06FF]/.test(userQuery) ? "ar" : "en";
+
+    let contextDocs: any[] = [];
+    try {
+      const searchResult = await storage.searchDocuments({
+        query: userQuery,
+        searchType: "hybrid",
+        page: 1,
+        limit: 5,
+      });
+      contextDocs = searchResult.results.map((r) => r.document);
+    } catch {}
+
+    const contextBlock = buildContextBlock(contextDocs, lang);
+    const systemPrompt = buildSystemPrompt(lang);
+
+    const fullSystemPrompt = `${systemPrompt}\n\n${contextBlock}`;
+
+    const chatMessages: OllamaMessage[] = [
+      { role: "system", content: fullSystemPrompt },
+      ...(messages || []).filter((m) => m.role !== "system"),
+      ...(query ? [{ role: "user" as const, content: query }] : []),
+    ];
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    const sourceDocs = contextDocs.map((d) => ({
+      id: d.id,
+      title: d.title,
+      titleAr: d.titleAr,
+      department: d.department,
+      year: d.year,
+    }));
+
+    res.write(`data: ${JSON.stringify({ type: "sources", sources: sourceDocs })}\n\n`);
+
+    try {
+      await ollamaChat(
+        chatMessages,
+        (token) => {
+          res.write(`data: ${JSON.stringify({ type: "token", token })}\n\n`);
+        },
+        req.signal
+      );
+      res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+    } catch (err: any) {
+      res.write(`data: ${JSON.stringify({ type: "error", error: err.message })}\n\n`);
+    } finally {
+      res.end();
+    }
+
+    await storage.createAuditLog({
+      query: userQuery,
+      queryLanguage: lang,
+      userId: "demo-user",
+      username: "demo.user",
+      resultsCount: contextDocs.length,
+      searchType: "chat",
+      filters: null,
+      ipAddress: req.ip || "127.0.0.1",
+      department: "Chat",
+    });
   });
 
   app.post("/api/laserfiche/browse", async (req, res) => {

@@ -20,6 +20,8 @@ AI-powered semantic search platform for government document archives integrated 
 - **Analytics Dashboard**: Charts for search activity, doc types, departments, top queries
 - **Audit Log**: All search queries logged for compliance (with IP, user, timestamp)
 - **Dark Mode**: Full light/dark theme toggle
+- **AI Chatbot**: Fully local RAG chatbot using Ollama + Qwen2.5; answers document questions in Arabic/English with streaming responses and source citations
+- **Laserfiche Integration**: NL→LF query translator, direct search, document sync
 
 ## Data Model (shared/schema.ts)
 
@@ -34,6 +36,8 @@ AI-powered semantic search platform for government document archives integrated 
 - `/archive` — Document Archive (browse + filter)
 - `/audit` — Audit Log (compliance)
 - `/document/:id` — Document Detail
+- `/chat` — AI Assistant chatbot (Ollama + Qwen2.5)
+- `/laserfiche` — Laserfiche ECM integration
 
 ## API Routes (server/routes.ts)
 
@@ -42,6 +46,21 @@ AI-powered semantic search platform for government document archives integrated 
 - `POST /api/search` — Semantic/keyword/hybrid search
 - `GET /api/audit-logs` — Audit trail
 - `GET /api/dashboard/stats` — Dashboard statistics
+- `GET /api/chat/status` — Check Ollama connection
+- `POST /api/chat` — SSE streaming chat with RAG (searches docs → builds context → Ollama)
+- `GET /api/laserfiche/status` — Check Laserfiche connection
+- `POST /api/laserfiche/search` — NL → LF query search
+- `POST /api/laserfiche/translate` — Translate NL to LF command
+- `POST /api/laserfiche/sync` — Import Laserfiche documents
+- `POST /api/laserfiche/browse` — Browse repository folder
+
+## Local AI Setup (Ollama)
+
+- Install: https://ollama.com/download
+- Pull model: `ollama pull qwen2.5:7b`  (recommended for Arabic + English)
+- Start: `ollama serve`
+- Override host: `OLLAMA_HOST` env var (default: http://localhost:11434)
+- Override model: `OLLAMA_MODEL` env var (default: qwen2.5:7b)
 
 ## Key Design Decisions
 
