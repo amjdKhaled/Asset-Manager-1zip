@@ -1,0 +1,316 @@
+You are a Senior AI Architect, Enterprise Software Architect, and Government Digital Transformation Consultant.
+
+Your task is to design a complete technical solution for an internal AI-powered semantic search platform for government document archives integrated with Laserfiche ECM.
+
+The system will be deployed in a secure internal environment (on-premise) and must not send any data to external APIs.
+
+Produce a comprehensive technical documentation suitable for starting development of an MVP and later scaling it to an enterprise system.
+
+The platform goal is to allow government employees to search documents using natural language and semantic meaning rather than exact keywords.
+
+Example user query:
+"معاملات تجديد عقود الصيانة لعام 2023"
+
+Even if the exact sentence does not exist in the document, the system should retrieve semantically relevant documents.
+
+--------------------------------
+
+SYSTEM CONTEXT
+
+The organization uses Laserfiche as their Enterprise Content Management (ECM) system.
+
+Documents include:
+
+- Government letters
+- Contracts
+- Internal memos
+- Reports
+- Attachments
+- Scanned documents
+- PDFs
+- Word documents
+- Images
+
+Documents are stored with metadata such as:
+
+- Document ID
+- Title
+- Department
+- Classification
+- Security level
+- Creation date
+- Tags
+- Workflow status
+
+The AI search system must integrate with this archive.
+
+--------------------------------
+
+LANGUAGE REQUIREMENTS
+
+The system must support Arabic primarily and English secondarily.
+
+Arabic semantic understanding is critical.
+
+--------------------------------
+
+SECURITY REQUIREMENTS
+
+This is a government internal system, therefore:
+
+- No external APIs
+- No cloud LLM calls
+- All models must run locally
+- Must respect user permissions from Laserfiche
+- Users must only see documents they have access to
+- Must log all search queries (audit log)
+- Sensitive document classification must be respected
+
+--------------------------------
+
+GOAL OF THE SYSTEM
+
+Provide an AI powered document discovery platform that includes:
+
+Semantic search
+Hybrid search
+Metadata filtering
+Arabic understanding
+High relevance ranking
+Document preview
+Permission enforcement
+
+--------------------------------
+
+DELIVERABLE STRUCTURE
+
+Write the documentation in the following structured sections.
+
+--------------------------------
+
+1. Executive Summary
+
+Explain the purpose of the platform and how it improves document discovery in government environments.
+
+--------------------------------
+
+2. Business Problem
+
+Explain the limitations of traditional keyword search in document archives.
+
+Describe the pain points:
+
+- Slow information retrieval
+- Duplicate work
+- Hidden knowledge in documents
+- Inconsistent metadata
+
+--------------------------------
+
+3. Proposed Solution
+
+Describe the AI Semantic Search Platform and its core capabilities.
+
+Include:
+
+- semantic search
+- vector search
+- hybrid search
+- metadata filtering
+- document preview
+- relevance ranking
+
+--------------------------------
+
+4. System Architecture
+
+Provide a high level architecture including components such as:
+
+Document ingestion service  
+OCR processing service  
+Text extraction  
+Chunking pipeline  
+Embedding generation  
+Vector database  
+Keyword index  
+Search API  
+Permission filter service  
+User interface
+
+Describe how each component communicates.
+
+--------------------------------
+
+5. Data Processing Pipeline
+
+Describe the full pipeline from document ingestion to search indexing.
+
+Steps should include:
+
+Document extraction from Laserfiche  
+Metadata extraction  
+OCR for scanned files  
+Text cleaning  
+Text chunking  
+Embedding generation  
+Vector storage  
+Keyword indexing
+
+--------------------------------
+
+6. Search Workflow
+
+Explain the full workflow when a user performs a search.
+
+Include:
+
+User query processing  
+Query embedding generation  
+Vector search  
+Keyword search  
+Metadata filtering  
+Permission filtering  
+Result ranking  
+Snippet generation  
+Return results
+
+--------------------------------
+
+7. AI Models
+
+Recommend models suitable for on-premise deployment.
+
+Include:
+
+Embedding models  
+LLM models (optional)  
+Arabic support models
+
+Explain why they are suitable.
+
+--------------------------------
+
+8. Technology Stack
+
+Recommend technologies for:
+
+Backend
+Vector database
+Search engine
+OCR
+AI frameworks
+Frontend
+Authentication
+Deployment
+
+--------------------------------
+
+9. Hybrid Search Strategy
+
+Explain how to combine:
+
+Semantic search  
+Keyword search  
+Metadata filtering
+
+Explain ranking strategies.
+
+--------------------------------
+
+10. Security Architecture
+
+Explain how to enforce:
+
+Role based access control  
+Document permission filtering  
+Audit logging  
+Data encryption  
+Secure model deployment
+
+--------------------------------
+
+11. Scalability Design
+
+Explain how the system can scale from:
+
+10k documents
+to
+10 million documents
+
+--------------------------------
+
+12. Performance Considerations
+
+Explain:
+
+Indexing performance  
+Search latency  
+Caching strategies  
+Vector index optimization
+
+--------------------------------
+
+13. MVP Scope
+
+Define the Minimum Viable Product.
+
+Include only essential features required for the first release.
+
+--------------------------------
+
+14. Implementation Roadmap
+
+Provide a phased roadmap such as:
+
+Phase 1 — Data ingestion  
+Phase 2 — Indexing pipeline  
+Phase 3 — Search engine  
+Phase 4 — UI  
+Phase 5 — Testing and evaluation
+
+--------------------------------
+
+15. Evaluation Metrics
+
+Explain how to evaluate search quality.
+
+Include metrics such as:
+
+Precision
+Recall
+Top-k relevance
+Search latency
+
+--------------------------------
+
+16. Risks and Challenges
+
+Explain potential risks such as:
+
+OCR accuracy
+Arabic language complexity
+Poor metadata
+Permission complexity
+
+--------------------------------
+
+17. Future Enhancements
+
+Describe potential future features such as:
+
+AI document summarization  
+Chat with documents  
+Automated document classification  
+Smart workflow routing
+
+--------------------------------
+
+OUTPUT FORMAT
+
+Write the documentation in professional technical style suitable for:
+
+Engineering teams
+Enterprise architects
+Government digital transformation projects
+
+Use clear sections, diagrams explanation, and structured bullet points where appropriate.
