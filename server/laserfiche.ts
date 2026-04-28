@@ -305,10 +305,11 @@ export async function testLaserficheConnection(config: LaserficheConfig): Promis
     return { ok: false, message: `Authentication failed: ${msg}`, ...base };
   }
 
+  const versions = ["v1", "v2"] as const;
   let lastStatus = 0;
   let lastBody = "";
-  for (const version of ["v1", "v2"] as const) {
-    const url = `${config.serverUrl}/${version}/Repositories/${config.repositoryId}/Entries?$top=1`;
+  for (const version of versions) {
+    const url = `${config.serverUrl}/${version}/Repositories/${config.repositoryId}/Entries`;
     try {
       const res = await fetch(url, {
         method: "GET",
