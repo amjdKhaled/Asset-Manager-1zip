@@ -10,6 +10,9 @@ import {
   laserficheGetEntry,
   laserficheGetEntryFields,
   naturalLanguageToLFSearchCommand,
+  saveLaserficheConfig,
+  clearLaserficheConfig,
+  testLaserficheConnection,
 } from "./laserfiche";
 import {
   checkOllamaStatus,
@@ -81,6 +84,88 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(stats);
     } catch {
       res.status(500).json({ error: "Failed to fetch stats" });
+    }
+  });
+
+  app.get("/api/laserfiche/config", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) {
+      return res.json({
+        configured: false,
+        serverUrl: "",
+        repositoryId: "",
+        username: "",
+        passwordSet: false,
+      });
+    }
+    res.json({
+      configured: true,
+      serverUrl: config.serverUrl,
+      repositoryId: config.repositoryId,
+      username: config.username,
+      passwordSet: true,
+    });
+  });
+
+  const laserficheConfigSchema = z.object({
+    serverUrl: z.string().trim().url("Server URL must be a valid URL").refine(
+      (v) => /^https?:\/\//i.test(v),
+      "Server URL must start with http(s)://"
+    ),
+    repositoryId: z.string().trim().min(1, "Repository ID is required"),
+    username: z.string().trim().min(1, "Username is required"),
+    password: z.string().min(1, "Password is required"),
+  });
+
+  app.post("/api/laserfiche/config", async (req, res) => {
+    const parsed = laserficheConfigSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten().fieldErrors,
+      });
+    }
+
+    try {
+      saveLaserficheConfig(parsed.data);
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, message: `Failed to save: ${err?.message || err}` });
+    }
+
+    const result = await testLaserficheConnection(parsed.data);
+    res.json(result);
+  });
+
+  app.post("/api/laserfiche/test", async (req, res) => {
+    let configToTest;
+    if (req.body && req.body.serverUrl) {
+      const parsed = laserficheConfigSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          ok: false,
+          message: "Validation failed",
+          errors: parsed.error.flatten().fieldErrors,
+        });
+      }
+      configToTest = parsed.data;
+    } else {
+      const saved = getLaserficheConfig();
+      if (!saved) {
+        return res.status(400).json({ ok: false, message: "No saved configuration to test" });
+      }
+      configToTest = saved;
+    }
+    const result = await testLaserficheConnection(configToTest);
+    res.json(result);
+  });
+
+  app.delete("/api/laserfiche/config", async (req, res) => {
+    try {
+      clearLaserficheConfig();
+      res.json({ ok: true, message: "Configuration cleared" });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, message: err?.message || String(err) });
     }
   });
 

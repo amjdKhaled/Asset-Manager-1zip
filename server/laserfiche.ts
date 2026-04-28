@@ -1,9 +1,68 @@
+import fs from "fs";
+import path from "path";
+
 export interface LaserficheConfig {
   serverUrl: string;
   repositoryId: string;
   username: string;
   password: string;
 }
+
+const SECRETS_DIR = path.join(process.cwd(), ".local-secrets");
+const CONFIG_PATH = path.join(SECRETS_DIR, "laserfiche.json");
+
+function loadSavedConfig(): LaserficheConfig | null {
+  try {
+    if (!fs.existsSync(CONFIG_PATH)) return null;
+    const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
+    const data = JSON.parse(raw) as Partial<LaserficheConfig>;
+    if (!data.serverUrl || !data.repositoryId || !data.username || !data.password) return null;
+    return {
+      serverUrl: data.serverUrl.replace(/\/$/, ""),
+      repositoryId: data.repositoryId,
+      username: data.username,
+      password: data.password,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveLaserficheConfig(config: LaserficheConfig): void {
+  if (!fs.existsSync(SECRETS_DIR)) {
+    fs.mkdirSync(SECRETS_DIR, { recursive: true, mode: 0o700 });
+  }
+  const normalized: LaserficheConfig = {
+    serverUrl: config.serverUrl.replace(/\/$/, ""),
+    repositoryId: config.repositoryId,
+    username: config.username,
+    password: config.password,
+  };
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(normalized, null, 2), { mode: 0o600 });
+  process.env.LF_SERVER_URL = normalized.serverUrl;
+  process.env.LF_REPO_ID = normalized.repositoryId;
+  process.env.LF_USERNAME = normalized.username;
+  process.env.LF_PASSWORD = normalized.password;
+}
+
+export function clearLaserficheConfig(): void {
+  if (fs.existsSync(CONFIG_PATH)) {
+    fs.unlinkSync(CONFIG_PATH);
+  }
+  delete process.env.LF_SERVER_URL;
+  delete process.env.LF_REPO_ID;
+  delete process.env.LF_USERNAME;
+  delete process.env.LF_PASSWORD;
+}
+
+(function hydrateEnvFromSavedConfig() {
+  const saved = loadSavedConfig();
+  if (!saved) return;
+  if (!process.env.LF_SERVER_URL) process.env.LF_SERVER_URL = saved.serverUrl;
+  if (!process.env.LF_REPO_ID) process.env.LF_REPO_ID = saved.repositoryId;
+  if (!process.env.LF_USERNAME) process.env.LF_USERNAME = saved.username;
+  if (!process.env.LF_PASSWORD) process.env.LF_PASSWORD = saved.password;
+})();
 
 export interface LFEntry {
   id: number;
@@ -75,6 +134,52 @@ export async function getLaserficheToken(config: LaserficheConfig): Promise<stri
   }
 
   return data.access_token;
+}
+
+export interface LaserficheTestResult {
+  ok: boolean;
+  status?: number;
+  message: string;
+  serverUrl: string;
+  repositoryId: string;
+  username: string;
+}
+
+export async function testLaserficheConnection(config: LaserficheConfig): Promise<LaserficheTestResult> {
+  const base = {
+    serverUrl: config.serverUrl,
+    repositoryId: config.repositoryId,
+    username: config.username,
+  };
+
+  let token: string;
+  try {
+    token = await getLaserficheToken(config);
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (msg.includes("401")) {
+      return { ok: false, status: 401, message: "Invalid credentials (401 Unauthorized)", ...base };
+    }
+    return { ok: false, message: `Authentication failed: ${msg}`, ...base };
+  }
+
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries?$top=1`;
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) {
+      return { ok: false, status: 401, message: "Invalid credentials (401 Unauthorized)", ...base };
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { ok: false, status: res.status, message: `Server responded ${res.status} ${text.slice(0, 200)}`, ...base };
+    }
+    return { ok: true, status: res.status, message: "Connected successfully to Laserfiche", ...base };
+  } catch (err: any) {
+    return { ok: false, message: `Connection error: ${err?.message || String(err)}`, ...base };
+  }
 }
 
 export async function laserficheSimpleSearch(

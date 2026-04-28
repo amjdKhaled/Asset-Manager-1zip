@@ -38,6 +38,7 @@ AI-powered semantic search platform for government document archives integrated 
 - `/document/:id` — Document Detail
 - `/chat` — AI Assistant chatbot (Ollama + Qwen2.5)
 - `/laserfiche` — Laserfiche ECM integration
+- `/laserfiche/settings` — Configure Laserfiche server URL, repo, username & password (saved server-side, password never returned to UI)
 
 ## API Routes (server/routes.ts)
 
@@ -49,6 +50,10 @@ AI-powered semantic search platform for government document archives integrated 
 - `GET /api/chat/status` — Check Ollama connection
 - `POST /api/chat` — SSE streaming chat with RAG (searches docs → builds context → Ollama)
 - `GET /api/laserfiche/status` — Check Laserfiche connection
+- `GET /api/laserfiche/config` — Read saved LF config (no password returned)
+- `POST /api/laserfiche/config` — Save & persist LF credentials (validated, then connection-tested)
+- `POST /api/laserfiche/test` — Test connection (uses provided values or saved values)
+- `DELETE /api/laserfiche/config` — Remove saved credentials
 - `POST /api/laserfiche/search` — NL → LF query search
 - `POST /api/laserfiche/translate` — Translate NL to LF command
 - `POST /api/laserfiche/sync` — Import Laserfiche documents

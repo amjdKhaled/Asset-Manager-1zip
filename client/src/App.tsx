@@ -13,6 +13,7 @@ import DashboardPage from "@/pages/dashboard";
 import AuditPage from "@/pages/audit";
 import ArchivePage from "@/pages/archive";
 import LaserfichePage from "@/pages/laserfiche";
+import LaserficheSettingsPage from "@/pages/laserfiche-settings";
 import ChatPage from "@/pages/chat";
 import { Moon, Sun } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -57,6 +58,7 @@ function PageHeader() {
     "/archive": { title: "Document Archive", titleAr: "أرشيف المستندات" },
     "/audit": { title: "Audit Log", titleAr: "سجل التدقيق" },
     "/laserfiche": { title: "Laserfiche Connect", titleAr: "ربط Laserfiche" },
+    "/laserfiche/settings": { title: "Laserfiche Settings", titleAr: "إعدادات Laserfiche" },
     "/chat": { title: "AI Assistant", titleAr: "المساعد الذكي" },
   };
 
@@ -86,6 +88,7 @@ function Router() {
       <Route path="/archive" component={ArchivePage} />
       <Route path="/audit" component={AuditPage} />
       <Route path="/document/:id" component={DocumentPage} />
+      <Route path="/laserfiche/settings" component={LaserficheSettingsPage} />
       <Route path="/laserfiche" component={LaserfichePage} />
       <Route path="/chat" component={ChatPage} />
       <Route component={NotFound} />
