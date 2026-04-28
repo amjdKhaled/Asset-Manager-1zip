@@ -290,27 +290,12 @@ export async function testLaserficheConnection(config: LaserficheConfig): Promis
     }
     return { ok: false, message: `Authentication failed: ${msg}`, ...base };
   }
-
-  const url = buildLaserficheEntriesUrl(config, "v1");
-  try {
-    const res = await fetch(url, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.status === 404) {
-      return { ok: false, status: 404, message: `No entries endpoint at ${url}`, ...base };
-    }
-    if (res.status === 401) {
-      return { ok: false, status: 401, message: "Invalid credentials (401 Unauthorized)", ...base };
-    }
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return { ok: false, status: res.status, message: `Server responded ${res.status} ${text.slice(0, 200)}`, ...base };
-    }
-    return { ok: true, status: res.status, message: `Connected successfully to Laserfiche (v1 API)`, ...base };
-  } catch (err: any) {
-    return { ok: false, message: `Connection error: ${err?.message || String(err)}`, ...base };
-  }
+  return {
+    ok: true,
+    status: 200,
+    message: "Connected successfully to Laserfiche (token authentication succeeded)",
+    ...base,
+  };
 }
 
 export async function laserficheSimpleSearch(
