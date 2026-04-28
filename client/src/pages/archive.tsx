@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
-  Clock, Tag, Search, Filter, ChevronRight
+  Clock, Tag, Search, Filter, ChevronRight, Eye, Server, Database, User, Lock, FileSearch
 } from "lucide-react";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
@@ -98,13 +98,35 @@ function DocCard({ doc }: { doc: Document }) {
   );
 }
 
+type LaserfichePreview = {
+  entry: {
+    id: number;
+    name: string;
+    entryType: string;
+    fullPath: string;
+    creator?: string;
+    creationTime?: string;
+    lastModifiedTime?: string;
+    extension?: string;
+    pageCount?: number;
+  };
+  fields: Record<string, string>;
+};
+
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterDept, setFilterDept] = useState("all");
+  const [laserficheEntryId, setLaserficheEntryId] = useState("1");
+  const [showLaserfichePreview, setShowLaserfichePreview] = useState(false);
 
   const { data: docs, isLoading } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
+  });
+
+  const { data: preview, isLoading: previewLoading, error: previewError, refetch: refetchPreview } = useQuery<LaserfichePreview>({
+    queryKey: ["/api/laserfiche/preview", laserficheEntryId],
+    enabled: false,
   });
 
   const filtered = docs?.filter(d => {
@@ -116,6 +138,11 @@ export default function ArchivePage() {
 
   const departments = docs ? [...new Set(docs.map(d => d.department))] : [];
   const docTypes = docs ? [...new Set(docs.map(d => d.docType))] : [];
+
+  const openPreview = async () => {
+    setShowLaserfichePreview(true);
+    await refetchPreview();
+  };
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -162,22 +189,93 @@ export default function ArchivePage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-6 py-5">
-        {isLoading ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-28 rounded-md" />)}
+      <div className="flex-1 overflow-hidden px-6 py-5">
+        <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5">
+          <div className="overflow-auto">
+            {isLoading ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-28 rounded-md" />)}
+              </div>
+            ) : filtered && filtered.length > 0 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 max-w-5xl">
+                {filtered.map(doc => <DocCard key={doc.id} doc={doc} />)}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-64 text-center">
+                <FileText className="w-12 h-12 text-muted-foreground/30 mb-4" />
+                <h3 className="font-medium text-foreground mb-1">No documents found</h3>
+                <p className="text-sm text-muted-foreground">Try adjusting your filters.</p>
+              </div>
+            )}
           </div>
-        ) : filtered && filtered.length > 0 ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 max-w-5xl">
-            {filtered.map(doc => <DocCard key={doc.id} doc={doc} />)}
+
+          <div className="overflow-auto">
+            <div className="bg-card border border-card-border rounded-md p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <Eye className="w-4 h-4 text-primary" />
+                <h2 className="text-sm font-semibold">Laserfiche Preview</h2>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Preview an entry from the same repo saved in LF Settings.
+              </p>
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">Entry ID</label>
+                <Input
+                  value={laserficheEntryId}
+                  onChange={(e) => setLaserficheEntryId(e.target.value)}
+                  placeholder="1"
+                  data-testid="input-laserfiche-entry-id"
+                />
+                <Button
+                  type="button"
+                  onClick={openPreview}
+                  className="w-full"
+                  data-testid="button-preview-laserfiche"
+                >
+                  <FileSearch className="w-4 h-4 mr-2" />
+                  Preview Entry
+                </Button>
+              </div>
+
+              {showLaserfichePreview && (
+                <div className="border border-border rounded-md p-3 space-y-3">
+                  {previewLoading ? (
+                    <Skeleton className="h-28 w-full" />
+                  ) : previewError ? (
+                    <div className="text-xs text-red-600">Could not load preview.</div>
+                  ) : preview ? (
+                    <>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">{preview.entry.name}</p>
+                        <p className="text-xs text-muted-foreground break-all">{preview.entry.fullPath}</p>
+                      </div>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between gap-2"><span>Type</span><span>{preview.entry.entryType}</span></div>
+                        <div className="flex justify-between gap-2"><span>Creator</span><span>{preview.entry.creator || "—"}</span></div>
+                        <div className="flex justify-between gap-2"><span>Pages</span><span>{preview.entry.pageCount || "—"}</span></div>
+                      </div>
+                      {Object.keys(preview.fields).length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground">Fields</p>
+                          <div className="space-y-1">
+                            {Object.entries(preview.fields).map(([key, value]) => (
+                              <div key={key} className="flex justify-between gap-2 text-xs">
+                                <span className="text-muted-foreground">{key}</span>
+                                <span className="text-foreground text-right break-all">{value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-xs text-muted-foreground">Click preview to load an entry.</div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-64 text-center">
-            <FileText className="w-12 h-12 text-muted-foreground/30 mb-4" />
-            <h3 className="font-medium text-foreground mb-1">No documents found</h3>
-            <p className="text-sm text-muted-foreground">Try adjusting your filters.</p>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

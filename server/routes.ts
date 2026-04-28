@@ -329,6 +329,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/laserfiche/preview/:entryId", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) {
+      return res.status(503).json({ error: "Laserfiche not configured" });
+    }
+
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) {
+      return res.status(400).json({ error: "Invalid entry id" });
+    }
+
+    try {
+      const token = await getLaserficheToken(config);
+      const entry = await laserficheGetEntry(config, token, entryId);
+      let fields: Record<string, string> = {};
+      try {
+        fields = await laserficheGetEntryFields(config, token, entryId);
+      } catch {}
+
+      res.json({
+        entry,
+        fields,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/chat/status", async (req, res) => {
     const status = await checkOllamaStatus();
     res.json(status);
