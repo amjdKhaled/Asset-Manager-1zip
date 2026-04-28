@@ -327,16 +327,16 @@ export default function LaserficheSettingsPage() {
                 }`}
                 data-testid="discover-result"
               >
-                <p className={`font-medium ${
+                <div className={`font-medium flex items-start gap-2 flex-wrap ${
                   discovered.ok && discovered.repos.length > 0
                     ? "text-emerald-800 dark:text-emerald-200"
                     : "text-amber-800 dark:text-amber-200"
                 }`}>
-                  {discovered.message}
+                  <span className="flex-1 min-w-0">{discovered.message}</span>
                   {discovered.apiVersion && (
-                    <Badge variant="outline" className="ml-2 text-[10px] py-0">{discovered.apiVersion.toUpperCase()}</Badge>
+                    <Badge variant="outline" className="text-[10px] py-0 flex-shrink-0">{discovered.apiVersion.toUpperCase()}</Badge>
                   )}
-                </p>
+                </div>
                 {discovered.repos.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {discovered.repos.map((r) => (

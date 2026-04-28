@@ -122,7 +122,7 @@ export async function getLaserficheToken(config: LaserficheConfig): Promise<stri
     const tokenUrl = `${config.serverUrl}/${version}/Repositories/${config.repositoryId}/Token`;
     const res = await fetch(tokenUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
       body: params.toString(),
     });
 
@@ -133,11 +133,25 @@ export async function getLaserficheToken(config: LaserficheConfig): Promise<stri
     }
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Laserfiche authentication failed: ${res.status} ${text}`);
+      const text = await res.text().catch(() => "");
+      throw new Error(`Laserfiche authentication failed: ${res.status} ${text.slice(0, 200)}`);
     }
 
-    const data = (await res.json()) as { access_token?: string };
+    const ct = res.headers.get("content-type") || "";
+    const bodyText = await res.text();
+    if (!/json/i.test(ct) || /^\s*</.test(bodyText)) {
+      throw new Error(
+        `Server replied with non-JSON content (likely an HTML login page). ` +
+        `Your Laserfiche server may require Windows Authentication (NTLM) or be sitting behind an SSO/reverse proxy that doesn't allow basic password auth.`
+      );
+    }
+
+    let data: { access_token?: string };
+    try {
+      data = JSON.parse(bodyText);
+    } catch {
+      throw new Error(`Server returned invalid JSON from token endpoint: ${bodyText.slice(0, 200)}`);
+    }
     if (!data.access_token) {
       throw new Error("No access token returned from Laserfiche");
     }
@@ -173,21 +187,62 @@ export async function discoverLaserficheRepos(serverUrl: string): Promise<Laserf
     const url = `${base}/${version}/Repositories`;
     tried.push(url);
     try {
-      const res = await fetch(url, { method: "GET" });
+      const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
       if (res.status === 404) continue;
 
+      const ct = res.headers.get("content-type") || "";
+      const bodyText = await res.text();
+
+      if (res.status === 401) {
+        return {
+          ok: false,
+          serverUrl: base,
+          repos: [],
+          status: 401,
+          apiVersion: version,
+          message: `Server at ${url} requires authentication just to list repositories. ` +
+            `This usually means Windows Authentication (NTLM) is enforced — basic password auth from a remote app won't work.`,
+        };
+      }
+
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
         return {
           ok: false,
           serverUrl: base,
           repos: [],
           status: res.status,
-          message: `Server responded ${res.status} at ${url}: ${text.slice(0, 200)}`,
+          message: `Server responded ${res.status} at ${url}: ${bodyText.slice(0, 200)}`,
         };
       }
 
-      const data: any = await res.json().catch(() => null);
+      if (!/json/i.test(ct) || /^\s*</.test(bodyText)) {
+        return {
+          ok: false,
+          serverUrl: base,
+          repos: [],
+          status: res.status,
+          apiVersion: version,
+          message:
+            `Server at ${url} returned an HTML page instead of JSON. ` +
+            `This is typically an IIS or SSO login page — the URL is reachable but the API itself isn't responding. ` +
+            `Confirm LFRepositoryAPI is installed at this path and that anonymous (or token) auth is enabled.`,
+        };
+      }
+
+      let data: any = null;
+      try {
+        data = JSON.parse(bodyText);
+      } catch {
+        return {
+          ok: false,
+          serverUrl: base,
+          repos: [],
+          status: res.status,
+          apiVersion: version,
+          message: `Server returned invalid JSON: ${bodyText.slice(0, 200)}`,
+        };
+      }
+
       const list: any[] = Array.isArray(data) ? data : (data?.value || data?.Repositories || []);
       const repos: LaserficheRepoInfo[] = list.map((r) => ({
         repoName: r.repoName || r.RepoName || r.name || r.Name || r.repositoryName || r.RepositoryName || "",
@@ -196,13 +251,13 @@ export async function discoverLaserficheRepos(serverUrl: string): Promise<Laserf
       })).filter((r) => r.repoName);
 
       return {
-        ok: true,
+        ok: repos.length > 0,
         apiVersion: version,
         serverUrl: base,
         repos,
         message: repos.length > 0
           ? `Found ${repos.length} repository(ies) on ${version} API`
-          : `Connected to ${version} API but no repositories returned`,
+          : `Connected to ${version} API but no repositories returned. The server may hide repos until you authenticate.`,
       };
     } catch (err: any) {
       return {
