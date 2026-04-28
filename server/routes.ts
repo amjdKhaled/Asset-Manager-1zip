@@ -13,6 +13,7 @@ import {
   saveLaserficheConfig,
   clearLaserficheConfig,
   testLaserficheConnection,
+  discoverLaserficheRepos,
 } from "./laserfiche";
 import {
   checkOllamaStatus,
@@ -157,6 +158,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       configToTest = saved;
     }
     const result = await testLaserficheConnection(configToTest);
+    res.json(result);
+  });
+
+  app.post("/api/laserfiche/discover", async (req, res) => {
+    const serverUrlSchema = z.object({
+      serverUrl: z.string().trim().url("Server URL must be a valid URL").refine(
+        (v) => /^https?:\/\//i.test(v),
+        "Server URL must start with http(s)://"
+      ),
+    });
+    const parsed = serverUrlSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        repos: [],
+        message: "Invalid server URL",
+        errors: parsed.error.flatten().fieldErrors,
+      });
+    }
+    const result = await discoverLaserficheRepos(parsed.data.serverUrl);
     res.json(result);
   });
 

@@ -110,30 +110,117 @@ export function getLaserficheConfig(): LaserficheConfig | null {
 }
 
 export async function getLaserficheToken(config: LaserficheConfig): Promise<string> {
-  const tokenUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Token`;
-
   const params = new URLSearchParams();
   params.append("grant_type", "password");
   params.append("username", config.username);
   params.append("password", config.password);
 
-  const res = await fetch(tokenUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params.toString(),
-  });
+  let lastError = "";
+  let lastStatus = 0;
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Laserfiche authentication failed: ${res.status} ${text}`);
+  for (const version of ["v1", "v2"] as const) {
+    const tokenUrl = `${config.serverUrl}/${version}/Repositories/${config.repositoryId}/Token`;
+    const res = await fetch(tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+
+    if (res.status === 404) {
+      lastError = `No token endpoint at ${tokenUrl}`;
+      lastStatus = 404;
+      continue;
+    }
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Laserfiche authentication failed: ${res.status} ${text}`);
+    }
+
+    const data = (await res.json()) as { access_token?: string };
+    if (!data.access_token) {
+      throw new Error("No access token returned from Laserfiche");
+    }
+    return data.access_token;
   }
 
-  const data = await res.json() as { access_token: string };
-  if (!data.access_token) {
-    throw new Error("No access token returned from Laserfiche");
+  throw new Error(
+    `Laserfiche authentication failed: ${lastStatus} ${lastError}. ` +
+    `Verify the repository name (LF_REPO_ID) — use Discover to list available repositories.`
+  );
+}
+
+export interface LaserficheRepoInfo {
+  repoName: string;
+  repoId?: string;
+  webClientUrl?: string;
+}
+
+export interface LaserficheDiscoverResult {
+  ok: boolean;
+  apiVersion?: "v1" | "v2";
+  serverUrl: string;
+  repos: LaserficheRepoInfo[];
+  message: string;
+  status?: number;
+}
+
+export async function discoverLaserficheRepos(serverUrl: string): Promise<LaserficheDiscoverResult> {
+  const base = serverUrl.replace(/\/$/, "");
+  const tried: string[] = [];
+
+  for (const version of ["v1", "v2"] as const) {
+    const url = `${base}/${version}/Repositories`;
+    tried.push(url);
+    try {
+      const res = await fetch(url, { method: "GET" });
+      if (res.status === 404) continue;
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        return {
+          ok: false,
+          serverUrl: base,
+          repos: [],
+          status: res.status,
+          message: `Server responded ${res.status} at ${url}: ${text.slice(0, 200)}`,
+        };
+      }
+
+      const data: any = await res.json().catch(() => null);
+      const list: any[] = Array.isArray(data) ? data : (data?.value || data?.Repositories || []);
+      const repos: LaserficheRepoInfo[] = list.map((r) => ({
+        repoName: r.repoName || r.RepoName || r.name || r.Name || r.repositoryName || r.RepositoryName || "",
+        repoId: r.repoId || r.RepoId || r.id || r.Id || undefined,
+        webClientUrl: r.webClientUrl || r.WebClientUrl || undefined,
+      })).filter((r) => r.repoName);
+
+      return {
+        ok: true,
+        apiVersion: version,
+        serverUrl: base,
+        repos,
+        message: repos.length > 0
+          ? `Found ${repos.length} repository(ies) on ${version} API`
+          : `Connected to ${version} API but no repositories returned`,
+      };
+    } catch (err: any) {
+      return {
+        ok: false,
+        serverUrl: base,
+        repos: [],
+        message: `Cannot reach server: ${err?.message || String(err)}`,
+      };
+    }
   }
 
-  return data.access_token;
+  return {
+    ok: false,
+    serverUrl: base,
+    repos: [],
+    status: 404,
+    message: `No /Repositories endpoint found on this server. Tried: ${tried.join(", ")}`,
+  };
 }
 
 export interface LaserficheTestResult {
@@ -163,23 +250,33 @@ export async function testLaserficheConnection(config: LaserficheConfig): Promis
     return { ok: false, message: `Authentication failed: ${msg}`, ...base };
   }
 
-  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries?$top=1`;
-  try {
-    const res = await fetch(url, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.status === 401) {
-      return { ok: false, status: 401, message: "Invalid credentials (401 Unauthorized)", ...base };
+  let lastStatus = 0;
+  let lastBody = "";
+  for (const version of ["v1", "v2"] as const) {
+    const url = `${config.serverUrl}/${version}/Repositories/${config.repositoryId}/Entries?$top=1`;
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 404) {
+        lastStatus = 404;
+        lastBody = `No entries endpoint at ${url}`;
+        continue;
+      }
+      if (res.status === 401) {
+        return { ok: false, status: 401, message: "Invalid credentials (401 Unauthorized)", ...base };
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        return { ok: false, status: res.status, message: `Server responded ${res.status} ${text.slice(0, 200)}`, ...base };
+      }
+      return { ok: true, status: res.status, message: `Connected successfully to Laserfiche (${version} API)`, ...base };
+    } catch (err: any) {
+      return { ok: false, message: `Connection error: ${err?.message || String(err)}`, ...base };
     }
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return { ok: false, status: res.status, message: `Server responded ${res.status} ${text.slice(0, 200)}`, ...base };
-    }
-    return { ok: true, status: res.status, message: "Connected successfully to Laserfiche", ...base };
-  } catch (err: any) {
-    return { ok: false, message: `Connection error: ${err?.message || String(err)}`, ...base };
   }
+  return { ok: false, status: lastStatus, message: lastBody || "Entries endpoint not found on v1 or v2", ...base };
 }
 
 export async function laserficheSimpleSearch(

@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   Settings, Server, Database, User, Lock, Eye, EyeOff,
-  CheckCircle, XCircle, AlertCircle, Save, Plug, Trash2, ShieldCheck,
+  CheckCircle, XCircle, AlertCircle, Save, Plug, Trash2, ShieldCheck, Search,
 } from "lucide-react";
 
 type ConfigResponse = {
@@ -28,6 +28,15 @@ type TestResponse = {
   repositoryId?: string;
   username?: string;
   errors?: Record<string, string[] | undefined>;
+};
+
+type DiscoverResponse = {
+  ok: boolean;
+  apiVersion?: "v1" | "v2";
+  serverUrl: string;
+  repos: { repoName: string; repoId?: string; webClientUrl?: string }[];
+  message: string;
+  status?: number;
 };
 
 const PASSWORD_PLACEHOLDER = "********";
@@ -53,6 +62,7 @@ export default function LaserficheSettingsPage() {
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [lastResult, setLastResult] = useState<TestResponse | null>(null);
+  const [discovered, setDiscovered] = useState<DiscoverResponse | null>(null);
 
   const { data: config, isLoading } = useQuery<ConfigResponse>({
     queryKey: ["/api/laserfiche/config"],
@@ -130,6 +140,32 @@ export default function LaserficheSettingsPage() {
     },
   });
 
+  const discoverMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/laserfiche/discover", {
+        serverUrl: form.serverUrl.trim(),
+      });
+      return res.json() as Promise<DiscoverResponse>;
+    },
+    onSuccess: (data) => {
+      setDiscovered(data);
+      if (data.ok && data.repos.length > 0) {
+        toast({ title: "Repositories found", description: data.message });
+        if (data.repos.length === 1) {
+          setForm((f) => ({ ...f, repositoryId: data.repos[0].repoName }));
+          setErrors((e) => ({ ...e, repositoryId: "" }));
+        }
+      } else {
+        toast({ title: "No repositories found", description: data.message, variant: "destructive" });
+      }
+    },
+    onError: (err: any) => {
+      const message = err?.message || "Discovery failed";
+      setDiscovered({ ok: false, serverUrl: form.serverUrl, repos: [], message });
+      toast({ title: "Discovery failed", description: message, variant: "destructive" });
+    },
+  });
+
   const clearMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("DELETE", "/api/laserfiche/config");
@@ -170,7 +206,7 @@ export default function LaserficheSettingsPage() {
     if (key === "password") setPasswordTouched(true);
   };
 
-  const isBusy = saveMutation.isPending || testMutation.isPending || clearMutation.isPending;
+  const isBusy = saveMutation.isPending || testMutation.isPending || clearMutation.isPending || discoverMutation.isPending;
   const allFilled =
     form.serverUrl.trim() && form.repositoryId.trim() && form.username.trim() && form.password.trim();
 
@@ -249,11 +285,25 @@ export default function LaserficheSettingsPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="repositoryId" className="flex items-center gap-1.5 text-sm">
-              <Database className="w-3.5 h-3.5 text-muted-foreground" />
-              LF_REPO_ID
-              <span className="text-xs text-muted-foreground font-normal">— Repository name or ID</span>
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="repositoryId" className="flex items-center gap-1.5 text-sm">
+                <Database className="w-3.5 h-3.5 text-muted-foreground" />
+                LF_REPO_ID
+                <span className="text-xs text-muted-foreground font-normal">— Repository name or ID</span>
+              </Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!form.serverUrl.trim() || isBusy}
+                onClick={() => discoverMutation.mutate()}
+                className="h-7 text-xs"
+                data-testid="button-discover"
+              >
+                <Search className="w-3 h-3 mr-1" />
+                {discoverMutation.isPending ? "Discovering..." : "Discover"}
+              </Button>
+            </div>
             <Input
               id="repositoryId"
               value={form.repositoryId}
@@ -267,6 +317,49 @@ export default function LaserficheSettingsPage() {
             />
             {errors.repositoryId && (
               <p className="text-xs text-red-600" data-testid="error-repo-id">{errors.repositoryId}</p>
+            )}
+            {discovered && (
+              <div
+                className={`mt-1 rounded-md border px-3 py-2 text-xs ${
+                  discovered.ok && discovered.repos.length > 0
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/50"
+                    : "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/50"
+                }`}
+                data-testid="discover-result"
+              >
+                <p className={`font-medium ${
+                  discovered.ok && discovered.repos.length > 0
+                    ? "text-emerald-800 dark:text-emerald-200"
+                    : "text-amber-800 dark:text-amber-200"
+                }`}>
+                  {discovered.message}
+                  {discovered.apiVersion && (
+                    <Badge variant="outline" className="ml-2 text-[10px] py-0">{discovered.apiVersion.toUpperCase()}</Badge>
+                  )}
+                </p>
+                {discovered.repos.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {discovered.repos.map((r) => (
+                      <button
+                        key={r.repoName}
+                        type="button"
+                        onClick={() => {
+                          setForm((f) => ({ ...f, repositoryId: r.repoName }));
+                          setErrors((e) => ({ ...e, repositoryId: "" }));
+                        }}
+                        className={`px-2 py-1 rounded border text-xs font-mono transition-colors ${
+                          form.repositoryId === r.repoName
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-card text-foreground border-border hover-elevate"
+                        }`}
+                        data-testid={`button-pick-repo-${r.repoName}`}
+                      >
+                        {r.repoName}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
