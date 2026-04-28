@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { type Document } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
-  Clock, Tag, Search, Filter, ChevronRight, Eye, Server, Database, User, Lock, FileSearch
+  Clock, Tag, Search, Filter, ChevronRight, Eye, Server, Database, User, Lock, Folder, FolderOpen, FileSearch
 } from "lucide-react";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
@@ -99,7 +99,8 @@ function DocCard({ doc }: { doc: Document }) {
 }
 
 type LaserfichePreview = {
-  entry: {
+  folderId: number;
+  children: Array<{
     id: number;
     name: string;
     entryType: string;
@@ -109,23 +110,21 @@ type LaserfichePreview = {
     lastModifiedTime?: string;
     extension?: string;
     pageCount?: number;
-  };
-  fields: Record<string, string>;
+  }>;
 };
 
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterDept, setFilterDept] = useState("all");
-  const [laserficheEntryId, setLaserficheEntryId] = useState("1");
-  const [showLaserfichePreview, setShowLaserfichePreview] = useState(false);
+  const [selectedFolderId, setSelectedFolderId] = useState("17");
 
   const { data: docs, isLoading } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
   });
 
   const { data: preview, isLoading: previewLoading, error: previewError, refetch: refetchPreview } = useQuery<LaserfichePreview>({
-    queryKey: ["/api/laserfiche/preview", laserficheEntryId],
+    queryKey: ["/api/laserfiche/folders", selectedFolderId, "children"],
     enabled: false,
   });
 
@@ -139,8 +138,18 @@ export default function ArchivePage() {
   const departments = docs ? [...new Set(docs.map(d => d.department))] : [];
   const docTypes = docs ? [...new Set(docs.map(d => d.docType))] : [];
 
-  const openPreview = async () => {
-    setShowLaserfichePreview(true);
+  const folders = useMemo(() => {
+    const items = preview?.children || [];
+    return items.filter((item) => item.entryType?.toLowerCase().includes("folder"));
+  }, [preview]);
+
+  const files = useMemo(() => {
+    const items = preview?.children || [];
+    return items.filter((item) => !item.entryType?.toLowerCase().includes("folder"));
+  }, [preview]);
+
+  const openFolder = async (folderId: string) => {
+    setSelectedFolderId(folderId);
     await refetchPreview();
   };
 
@@ -210,69 +219,65 @@ export default function ArchivePage() {
           </div>
 
           <div className="overflow-auto">
-            <div className="bg-card border border-card-border rounded-md p-4 space-y-4">
-              <div className="flex items-center gap-2">
-                <Eye className="w-4 h-4 text-primary" />
-                <h2 className="text-sm font-semibold">Laserfiche Preview</h2>
+            <div className="bg-card border border-card-border rounded-md h-full flex flex-col">
+              <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+                <Folder className="w-4 h-4 text-primary" />
+                <h2 className="text-sm font-semibold">Laserfiche Repository</h2>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Preview an entry from the same repo saved in LF Settings.
-              </p>
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">Entry ID</label>
-                <Input
-                  value={laserficheEntryId}
-                  onChange={(e) => setLaserficheEntryId(e.target.value)}
-                  placeholder="1"
-                  data-testid="input-laserfiche-entry-id"
-                />
-                <Button
-                  type="button"
-                  onClick={openPreview}
-                  className="w-full"
-                  data-testid="button-preview-laserfiche"
-                >
-                  <FileSearch className="w-4 h-4 mr-2" />
-                  Preview Entry
-                </Button>
-              </div>
-
-              {showLaserfichePreview && (
-                <div className="border border-border rounded-md p-3 space-y-3">
-                  {previewLoading ? (
-                    <Skeleton className="h-28 w-full" />
-                  ) : previewError ? (
-                    <div className="text-xs text-red-600">Could not load preview.</div>
-                  ) : preview ? (
-                    <>
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium">{preview.entry.name}</p>
-                        <p className="text-xs text-muted-foreground break-all">{preview.entry.fullPath}</p>
-                      </div>
-                      <div className="space-y-1 text-xs">
-                        <div className="flex justify-between gap-2"><span>Type</span><span>{preview.entry.entryType}</span></div>
-                        <div className="flex justify-between gap-2"><span>Creator</span><span>{preview.entry.creator || "—"}</span></div>
-                        <div className="flex justify-between gap-2"><span>Pages</span><span>{preview.entry.pageCount || "—"}</span></div>
-                      </div>
-                      {Object.keys(preview.fields).length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-xs font-medium text-muted-foreground">Fields</p>
-                          <div className="space-y-1">
-                            {Object.entries(preview.fields).map(([key, value]) => (
-                              <div key={key} className="flex justify-between gap-2 text-xs">
-                                <span className="text-muted-foreground">{key}</span>
-                                <span className="text-foreground text-right break-all">{value}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="text-xs text-muted-foreground">Click preview to load an entry.</div>
-                  )}
+              <div className="p-4 border-b border-border space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">Current Folder ID</label>
+                <div className="flex gap-2">
+                  <Input value={selectedFolderId} onChange={(e) => setSelectedFolderId(e.target.value)} data-testid="input-folder-id" />
+                  <Button type="button" onClick={() => openFolder(selectedFolderId)} data-testid="button-open-folder">
+                    Open
+                  </Button>
                 </div>
-              )}
+              </div>
+              <div className="flex-1 overflow-auto p-3">
+                {previewLoading ? (
+                  <Skeleton className="h-64 w-full" />
+                ) : previewError ? (
+                  <div className="text-xs text-red-600">Could not load folders.</div>
+                ) : preview ? (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-2">Folders</p>
+                      <div className="space-y-1">
+                        {folders.map((folder) => (
+                          <button
+                            key={folder.id}
+                            type="button"
+                            onClick={() => openFolder(String(folder.id))}
+                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted text-left"
+                            data-testid={`folder-row-${folder.id}`}
+                          >
+                            <FolderOpen className="w-4 h-4 text-amber-500" />
+                            <span className="text-sm">{folder.name}</span>
+                          </button>
+                        ))}
+                        {folders.length === 0 && <div className="text-xs text-muted-foreground">No folders.</div>}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-2">Files</p>
+                      <div className="divide-y divide-border rounded-md border border-border">
+                        {files.map((file) => (
+                          <div key={file.id} className="px-3 py-2 flex items-center justify-between gap-3" data-testid={`file-row-${file.id}`}>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{file.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{file.fullPath}</p>
+                            </div>
+                            <div className="text-xs text-muted-foreground whitespace-nowrap">{file.entryType}</div>
+                          </div>
+                        ))}
+                        {files.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground">Click open to load the selected folder.</div>
+                )}
+              </div>
             </div>
           </div>
         </div>

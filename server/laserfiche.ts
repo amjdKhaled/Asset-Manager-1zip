@@ -365,6 +365,27 @@ export async function laserficheGetEntryFields(
   return fields;
 }
 
+export async function laserficheGetFolderChildren(
+  config: LaserficheConfig,
+  token: string,
+  folderEntryId: number
+): Promise<LFEntry[]> {
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${folderEntryId}/Laserfiche.Repository.Folder/children`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { "Authorization": `Bearer ${token}`, Accept: "application/json" },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to list folder children: ${res.status} ${text}`);
+  }
+
+  const data = await res.json() as { value?: LFEntry[] } | LFEntry[];
+  return Array.isArray(data) ? data : data.value || [];
+}
+
 export async function laserficheListEntries(
   config: LaserficheConfig,
   token: string,

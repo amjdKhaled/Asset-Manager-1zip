@@ -7,6 +7,7 @@ import {
   getLaserficheToken,
   laserficheSimpleSearch,
   laserficheListEntries,
+  laserficheGetFolderChildren,
   laserficheGetEntry,
   laserficheGetEntryFields,
   naturalLanguageToLFSearchCommand,
@@ -329,29 +330,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.get("/api/laserfiche/preview/:entryId", async (req, res) => {
+  app.get("/api/laserfiche/folders/:folderId/children", async (req, res) => {
     const config = getLaserficheConfig();
     if (!config) {
       return res.status(503).json({ error: "Laserfiche not configured" });
     }
 
-    const entryId = Number(req.params.entryId);
-    if (!Number.isFinite(entryId)) {
-      return res.status(400).json({ error: "Invalid entry id" });
+    const folderId = Number(req.params.folderId);
+    if (!Number.isFinite(folderId)) {
+      return res.status(400).json({ error: "Invalid folder id" });
     }
 
     try {
       const token = await getLaserficheToken(config);
-      const entry = await laserficheGetEntry(config, token, entryId);
-      let fields: Record<string, string> = {};
-      try {
-        fields = await laserficheGetEntryFields(config, token, entryId);
-      } catch {}
-
-      res.json({
-        entry,
-        fields,
-      });
+      const children = await laserficheGetFolderChildren(config, token, folderId);
+      res.json({ folderId, children });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
