@@ -179,6 +179,10 @@ export interface LaserficheDiscoverResult {
   status?: number;
 }
 
+export function buildLaserficheEntriesUrl(config: LaserficheConfig, version: "v1" | "v2") {
+  return `${config.serverUrl}/${version}/Repositories/${config.repositoryId}/Entries`;
+}
+
 export async function discoverLaserficheRepos(serverUrl: string): Promise<LaserficheDiscoverResult> {
   const base = serverUrl.replace(/\/$/, "");
   const tried: string[] = [];
@@ -305,11 +309,19 @@ export async function testLaserficheConnection(config: LaserficheConfig): Promis
     return { ok: false, message: `Authentication failed: ${msg}`, ...base };
   }
 
-  const versions = ["v1", "v2"] as const;
   let lastStatus = 0;
   let lastBody = "";
+  const versions: ("v1" | "v2")[] = [];
+  const discoveredApiVersion = await (async () => {
+    const discovery = await discoverLaserficheRepos(config.serverUrl);
+    return discovery.ok && discovery.apiVersion ? discovery.apiVersion : null;
+  })();
+  if (discoveredApiVersion) versions.push(discoveredApiVersion);
+  if (!versions.includes("v1")) versions.push("v1");
+  if (!versions.includes("v2")) versions.push("v2");
+
   for (const version of versions) {
-    const url = `${config.serverUrl}/${version}/Repositories/${config.repositoryId}/Entries`;
+    const url = buildLaserficheEntriesUrl(config, version);
     try {
       const res = await fetch(url, {
         method: "GET",
