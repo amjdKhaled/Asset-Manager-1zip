@@ -145,6 +145,12 @@ type LaserficheSummary = {
   contentAr: string;
 };
 
+type LaserficheField = {
+  fieldName?: string;
+  values?: string[];
+  value?: string;
+};
+
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -164,11 +170,6 @@ export default function ArchivePage() {
 
   const { data: details, isLoading: detailsLoading, error: detailsError, refetch: refetchDetails } = useQuery<LaserficheDetails>({
     queryKey: ["/api/laserfiche/entries", selectedEntryId, "details"],
-    enabled: false,
-  });
-
-  const { data: summary, isLoading: summaryLoading, error: summaryError, refetch: refetchSummary } = useQuery<LaserficheSummary>({
-    queryKey: ["/api/laserfiche/entries", selectedEntryId, "summarize"],
     enabled: false,
   });
 
@@ -213,7 +214,6 @@ export default function ArchivePage() {
   const openDocument = async (entryId: number) => {
     setSelectedEntryId(entryId);
     await refetchDetails();
-    await refetchSummary();
   };
 
   return (
