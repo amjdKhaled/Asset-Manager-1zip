@@ -1,0 +1,72 @@
+"@odata.context": "http://localhost/LFRepositoryAPI/v1/$metadata#Collection(Laserfiche.Repository.EntryFieldValue)",
+    "value": [
+        {
+            "@odata.type": "#Laserfiche.Repository.FieldValue",
+            "fieldId": 32,
+            "fieldName": "إجراء الوثيقة",
+            "fieldType": "List",
+            "isMultiValue": false,
+            "isRequired": false,
+            "hasMoreValues": false,
+            "groupId": 0,
+            "values": [
+                {
+                    "value": "قبول",
+                    "position@odata.type": "#Int64",
+                    "position": 0
+                }
+            ]
+        },
+        {
+            "@odata.type": "#Laserfiche.Repository.FieldValue",
+            "fieldId": 27,
+            "fieldName": "تتبع حاله الوثيقة",
+            "fieldType": "String",
+            "isMultiValue": false,
+            "isRequired": false,
+            "hasMoreValues": false,
+            "groupId": 0,
+            "values": [
+                {
+                    "value": null,
+                    "position@odata.type": "#Int64",
+                    "position": 0
+                }
+            ]
+        },
+        {
+            "@odata.type": "#Laserfiche.Repository.FieldValue",
+            "fieldId": 31,
+            "fieldName": "حالة الوثيقة1",
+            "fieldType": "String",
+            "isMultiValue": false,
+            "isRequired": false,
+            "hasMoreValues": false,
+            "groupId": 0,
+            "values": [
+                {
+                    "value": "asd",
+                    "position@odata.type": "#Int64",
+                    "position": 0
+                }
+            ]
+        },
+        {
+            "@odata.type": "#Laserfiche.Repository.FieldValue",
+            "fieldId": 29,
+            "fieldName": "ملاحظة",
+            "fieldType": "String",
+            "isMultiValue": false,
+            "isRequired": false,
+            "hasMoreValues": false,
+            "groupId": 0,
+            "values": [
+                {
+                    "value": "aaaaaa",
+                    "position@odata.type": "#Int64",
+                    "position": 0
+                }
+            ]
+        }
+    ]
+}

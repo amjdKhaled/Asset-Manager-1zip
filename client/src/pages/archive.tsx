@@ -119,7 +119,19 @@ type TrailItem = {
 };
 
 type LaserficheDetails = {
-  [key: string]: string | number | null | undefined;
+  value?: Array<{
+    fieldId: number;
+    fieldName: string;
+    fieldType: string;
+    isMultiValue: boolean;
+    isRequired: boolean;
+    hasMoreValues: boolean;
+    groupId: number;
+    values: Array<{
+      value: string | null;
+      position: number;
+    }>;
+  }>;
 };
 
 type LaserficheSummary = {
@@ -192,7 +204,7 @@ export default function ArchivePage() {
     await refetchDetails();
   };
 
-  const fieldEntries = details ? Object.entries(details).filter(([key, value]) => key !== "value" && value !== undefined && value !== null && value !== "") : [];
+  const fieldEntries = details?.value || [];
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -347,13 +359,15 @@ export default function ArchivePage() {
                           <Skeleton className="h-40 w-full" />
                         ) : detailsError ? (
                           <div className="text-xs text-red-600">Could not load document details.</div>
-                        ) : details && fieldEntries.length > 0 ? (
+                        ) : fieldEntries.length > 0 ? (
                           <div className="space-y-3">
                             <div className="grid grid-cols-1 gap-2 text-xs">
-                              {fieldEntries.map(([key, value]) => (
-                                <div key={key} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
-                                  <span className="text-muted-foreground shrink-0">{key}</span>
-                                  <span className="text-foreground text-right break-all">{String(value)}</span>
+                              {fieldEntries.map((field) => (
+                                <div key={field.fieldId} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
+                                  <span className="text-muted-foreground shrink-0">{field.fieldName}</span>
+                                  <span className="text-foreground text-right break-all">
+                                    {(field.values || []).map((item) => item.value).filter(Boolean).join(", ") || "—"}
+                                  </span>
                                 </div>
                               ))}
                             </div>
