@@ -471,6 +471,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
 
     try {
+      res.setHeader("Cache-Control", "no-store");
       const token = await getLaserficheToken(config);
       const [entry, fields] = await Promise.all([
         laserficheGetEntry(config, token, entryId),
@@ -523,6 +524,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
 
     try {
+      res.setHeader("Cache-Control", "no-store");
       const token = await getLaserficheToken(config);
       const [entry, fields] = await Promise.all([
         laserficheGetEntry(config, token, entryId),
