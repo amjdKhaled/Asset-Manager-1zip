@@ -57,6 +57,29 @@ export type InsertDocument = z.infer<typeof insertDocumentSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 
+export const laserficheSaveSchema = z.object({
+  title: z.string(),
+  titleAr: z.string().nullable().optional(),
+  department: z.string(),
+  departmentAr: z.string().nullable().optional(),
+  classification: z.string(),
+  securityLevel: z.string(),
+  docType: z.string(),
+  docTypeAr: z.string().nullable().optional(),
+  author: z.string().nullable().optional(),
+  authorAr: z.string().nullable().optional(),
+  workflowStatus: z.string(),
+  tags: z.array(z.string()).optional(),
+  content: z.string(),
+  contentAr: z.string().nullable().optional(),
+  fileSizeKb: z.number().nullable().optional(),
+  pageCount: z.number().nullable().optional(),
+  laserficheId: z.string().nullable().optional(),
+  year: z.number().nullable().optional(),
+});
+
+export type LaserficheSave = z.infer<typeof laserficheSaveSchema>;
+
 export const searchRequestSchema = z.object({
   query: z.string().min(1),
   searchType: z.enum(["semantic", "keyword", "hybrid"]).default("hybrid"),
