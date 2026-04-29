@@ -145,12 +145,6 @@ type LaserficheSummary = {
   contentAr: string;
 };
 
-type LaserficheField = {
-  fieldName?: string;
-  values?: string[];
-  value?: string;
-};
-
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -169,7 +163,7 @@ export default function ArchivePage() {
   });
 
   const { data: details, isLoading: detailsLoading, error: detailsError, refetch: refetchDetails } = useQuery<LaserficheDetails>({
-    queryKey: ["/api/laserfiche/entries", selectedEntryId, "details"],
+    queryKey: ["/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries", selectedEntryId, "fields?formatValue=false"],
     enabled: false,
   });
 
