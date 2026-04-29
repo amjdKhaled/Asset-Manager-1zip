@@ -348,7 +348,7 @@ export async function laserficheGetEntryFields(
   token: string,
   entryId: number
 ): Promise<Record<string, string>> {
-  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/Fields`;
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/fields?formatValue=false`;
 
   const res = await fetch(url, {
     method: "GET",
