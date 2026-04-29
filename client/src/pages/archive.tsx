@@ -359,9 +359,9 @@ export default function ArchivePage() {
                           <FileText className="w-4 h-4 text-primary" />
                           <p className="text-sm font-semibold">Document Details</p>
                         </div>
-                        {detailsLoading || summaryLoading ? (
+                        {detailsLoading ? (
                           <Skeleton className="h-40 w-full" />
-                        ) : detailsError || summaryError ? (
+                        ) : detailsError ? (
                           <div className="text-xs text-red-600">Could not load document details.</div>
                         ) : details ? (
                           <div className="space-y-3">
@@ -379,12 +379,12 @@ export default function ArchivePage() {
                             </div>
                             <div className="space-y-1">
                               <p className="text-xs font-medium text-muted-foreground">Document Content</p>
-                              <p className="text-sm leading-relaxed">{summary?.content || details.content}</p>
+                              <p className="text-sm leading-relaxed">{details.content}</p>
                             </div>
-                            {(summary?.contentAr || details.contentAr) && (
+                            {details.contentAr && (
                               <div className="space-y-1">
                                 <p className="text-xs font-medium text-muted-foreground">محتوى الوثيقة العربية</p>
-                                <p className="text-sm leading-relaxed font-arabic text-right" dir="rtl">{summary?.contentAr || details.contentAr}</p>
+                                <p className="text-sm leading-relaxed font-arabic text-right" dir="rtl">{details.contentAr}</p>
                               </div>
                             )}
                             {details.tags.length > 0 && (
