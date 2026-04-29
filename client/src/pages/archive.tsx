@@ -113,11 +113,17 @@ type LaserfichePreview = {
   }>;
 };
 
+type TrailItem = {
+  id: number;
+  name: string;
+};
+
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterDept, setFilterDept] = useState("all");
-  const [selectedFolderId, setSelectedFolderId] = useState("17");
+  const [selectedFolderId, setSelectedFolderId] = useState("1");
+  const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
 
   const { data: docs, isLoading } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
@@ -125,7 +131,7 @@ export default function ArchivePage() {
 
   const { data: preview, isLoading: previewLoading, error: previewError, refetch: refetchPreview } = useQuery<LaserfichePreview>({
     queryKey: ["/api/laserfiche/folders", selectedFolderId, "children"],
-    enabled: false,
+    enabled: true,
   });
 
   const filtered = docs?.filter(d => {
@@ -148,8 +154,21 @@ export default function ArchivePage() {
     return items.filter((item) => !item.entryType?.toLowerCase().includes("folder"));
   }, [preview]);
 
-  const openFolder = async (folderId: string) => {
+  const openFolder = async (folderId: string, folderName?: string) => {
     setSelectedFolderId(folderId);
+    setTrail((current) => {
+      const index = current.findIndex((item) => String(item.id) === folderId);
+      if (index >= 0) return current.slice(0, index + 1);
+      return [...current, { id: Number(folderId), name: folderName || `Folder ${folderId}` }];
+    });
+    await refetchPreview();
+  };
+
+  const openTrail = async (index: number) => {
+    const next = trail[index];
+    if (!next) return;
+    setSelectedFolderId(String(next.id));
+    setTrail(trail.slice(0, index + 1));
     await refetchPreview();
   };
 
@@ -232,6 +251,20 @@ export default function ArchivePage() {
                     Open
                   </Button>
                 </div>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground overflow-x-auto">
+                  {trail.map((item, index) => (
+                    <button
+                      key={`${item.id}-${index}`}
+                      type="button"
+                      className="hover:text-foreground"
+                      onClick={() => openTrail(index)}
+                      data-testid={`trail-folder-${item.id}`}
+                    >
+                      {index > 0 && <span className="mx-1">/</span>}
+                      {item.name}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="flex-1 overflow-auto p-3">
                 {previewLoading ? (
@@ -247,7 +280,7 @@ export default function ArchivePage() {
                           <button
                             key={folder.id}
                             type="button"
-                            onClick={() => openFolder(String(folder.id))}
+                            onClick={() => openFolder(String(folder.id), folder.name)}
                             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted text-left"
                             data-testid={`folder-row-${folder.id}`}
                           >
