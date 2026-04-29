@@ -339,19 +339,22 @@ export default function ArchivePage() {
                       <p className="text-xs text-muted-foreground mb-2">Files</p>
                       <div className="divide-y divide-border rounded-md border border-border">
                         {files.map((file) => (
-                          <button
-                            key={file.id}
-                            type="button"
-                            onClick={() => openDocument(file.id)}
-                            className="w-full px-3 py-2 flex items-center justify-between gap-3 text-left hover:bg-muted"
-                            data-testid={`file-row-${file.id}`}
-                          >
-                            <div className="min-w-0">
+                          <div key={file.id} className="w-full px-3 py-2 flex items-center justify-between gap-3 text-left hover:bg-muted" data-testid={`file-row-${file.id}`}>
+                            <button
+                              type="button"
+                              onClick={() => openDocument(file.id)}
+                              className="min-w-0 text-left flex-1"
+                              data-testid={`button-open-document-${file.id}`}
+                            >
                               <p className="text-sm font-medium truncate">{file.name}</p>
                               <p className="text-xs text-muted-foreground truncate">{file.fullPath}</p>
-                            </div>
-                            <div className="text-xs text-muted-foreground whitespace-nowrap">{file.entryType}</div>
-                          </button>
+                            </button>
+                            <Link href={`/document/${file.id}`}>
+                              <Button type="button" variant="outline" size="sm" data-testid={`button-view-document-${file.id}`}>
+                                Open
+                              </Button>
+                            </Link>
+                          </div>
                         ))}
                         {files.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
                       </div>
