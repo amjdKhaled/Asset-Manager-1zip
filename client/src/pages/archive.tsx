@@ -50,11 +50,11 @@ function DocCard({ doc }: { doc: Document }) {
           <Icon className="w-4 h-4 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
-          <Link href={`/document/${doc.id}`}>
+          <button type="button" className="text-left w-full" data-testid={`button-open-document-card-${doc.id}`}>
             <h3 className="text-sm font-semibold text-foreground leading-tight hover:text-primary transition-colors cursor-pointer line-clamp-1 mb-0.5">
               {doc.title}
             </h3>
-          </Link>
+          </button>
           {doc.titleAr && (
             <p className="text-xs text-muted-foreground leading-tight line-clamp-1 mb-2 font-arabic" dir="rtl">{doc.titleAr}</p>
           )}
@@ -86,11 +86,9 @@ function DocCard({ doc }: { doc: Document }) {
                 {doc.workflowStatus}
               </span>
             </div>
-            <Link href={`/document/${doc.id}`}>
-              <Button size="icon" variant="ghost" className="h-7 w-7 flex-shrink-0" data-testid={`archive-view-${doc.id}`}>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </Button>
-            </Link>
+            <Button size="icon" variant="ghost" className="h-7 w-7 flex-shrink-0" data-testid={`archive-view-${doc.id}`}>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Button>
           </div>
         </div>
       </div>
@@ -358,7 +356,7 @@ export default function ArchivePage() {
                         {detailsLoading ? (
                           <Skeleton className="h-40 w-full" />
                         ) : detailsError ? (
-                          <div className="text-xs text-red-600">Could not load document details.</div>
+                          <div className="text-xs text-red-600">Could not load Laserfiche fields.</div>
                         ) : fieldEntries.length > 0 ? (
                           <div className="space-y-3">
                             <div className="grid grid-cols-1 gap-2 text-xs">
