@@ -118,12 +118,35 @@ type TrailItem = {
   name: string;
 };
 
+type LaserficheDetails = {
+  entryId: number;
+  title: string;
+  titleAr?: string;
+  department: string;
+  departmentAr?: string;
+  classification: string;
+  securityLevel: string;
+  docType: string;
+  docTypeAr?: string;
+  author?: string;
+  authorAr?: string;
+  workflowStatus: string;
+  tags: string[];
+  content: string;
+  contentAr?: string;
+  fileSizeKb?: number | null;
+  pageCount?: number | null;
+  laserficheId: string;
+  year?: number | null;
+};
+
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterDept, setFilterDept] = useState("all");
   const [selectedFolderId, setSelectedFolderId] = useState("1");
   const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
+  const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
 
   const { data: docs, isLoading } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
@@ -132,6 +155,11 @@ export default function ArchivePage() {
   const { data: preview, isLoading: previewLoading, error: previewError, refetch: refetchPreview } = useQuery<LaserfichePreview>({
     queryKey: ["/api/laserfiche/folders", selectedFolderId, "children"],
     enabled: true,
+  });
+
+  const { data: details, isLoading: detailsLoading, error: detailsError, refetch: refetchDetails } = useQuery<LaserficheDetails>({
+    queryKey: ["/api/laserfiche/entries", selectedEntryId, "details"],
+    enabled: false,
   });
 
   const filtered = docs?.filter(d => {
@@ -170,6 +198,11 @@ export default function ArchivePage() {
     setSelectedFolderId(String(next.id));
     setTrail(trail.slice(0, index + 1));
     await refetchPreview();
+  };
+
+  const openDocument = async (entryId: number) => {
+    setSelectedEntryId(entryId);
+    await refetchDetails();
   };
 
   return (
@@ -295,17 +328,73 @@ export default function ArchivePage() {
                       <p className="text-xs text-muted-foreground mb-2">Files</p>
                       <div className="divide-y divide-border rounded-md border border-border">
                         {files.map((file) => (
-                          <div key={file.id} className="px-3 py-2 flex items-center justify-between gap-3" data-testid={`file-row-${file.id}`}>
+                          <button
+                            key={file.id}
+                            type="button"
+                            onClick={() => openDocument(file.id)}
+                            className="w-full px-3 py-2 flex items-center justify-between gap-3 text-left hover:bg-muted"
+                            data-testid={`file-row-${file.id}`}
+                          >
                             <div className="min-w-0">
                               <p className="text-sm font-medium truncate">{file.name}</p>
                               <p className="text-xs text-muted-foreground truncate">{file.fullPath}</p>
                             </div>
                             <div className="text-xs text-muted-foreground whitespace-nowrap">{file.entryType}</div>
-                          </div>
+                          </button>
                         ))}
                         {files.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
                       </div>
                     </div>
+                    {selectedEntryId && (
+                      <div className="border border-border rounded-md p-3 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-primary" />
+                          <p className="text-sm font-semibold">Document Details</p>
+                        </div>
+                        {detailsLoading ? (
+                          <Skeleton className="h-40 w-full" />
+                        ) : detailsError ? (
+                          <div className="text-xs text-red-600">Could not load document details.</div>
+                        ) : details ? (
+                          <div className="space-y-3">
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium">{details.title}</p>
+                              {details.titleAr && <p className="text-sm text-muted-foreground font-arabic" dir="rtl">{details.titleAr}</p>}
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div><span className="text-muted-foreground">Department:</span> {details.department}</div>
+                              <div><span className="text-muted-foreground">Type:</span> {details.docType}</div>
+                              <div><span className="text-muted-foreground">Classification:</span> {details.classification}</div>
+                              <div><span className="text-muted-foreground">Status:</span> {details.workflowStatus}</div>
+                              <div><span className="text-muted-foreground">Author:</span> {details.author || "—"}</div>
+                              <div><span className="text-muted-foreground">Pages:</span> {details.pageCount ?? "—"}</div>
+                            </div>
+                            <div className="space-y-1">
+                              <p className="text-xs font-medium text-muted-foreground">Document Content</p>
+                              <p className="text-sm leading-relaxed">{details.content}</p>
+                            </div>
+                            {details.contentAr && (
+                              <div className="space-y-1">
+                                <p className="text-xs font-medium text-muted-foreground">محتوى الوثيقة العربية</p>
+                                <p className="text-sm leading-relaxed font-arabic text-right" dir="rtl">{details.contentAr}</p>
+                              </div>
+                            )}
+                            {details.tags.length > 0 && (
+                              <div className="space-y-1">
+                                <p className="text-xs font-medium text-muted-foreground">Tags</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {details.tags.map((tag) => (
+                                    <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">Select a file to view document details.</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-xs text-muted-foreground">Click open to load the selected folder.</div>

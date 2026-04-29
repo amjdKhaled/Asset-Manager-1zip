@@ -458,5 +458,57 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/laserfiche/entries/:entryId/details", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) {
+      return res.status(503).json({ error: "Laserfiche not configured" });
+    }
+
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) {
+      return res.status(400).json({ error: "Invalid entry id" });
+    }
+
+    try {
+      const token = await getLaserficheToken(config);
+      const [entry, fields] = await Promise.all([
+        laserficheGetEntry(config, token, entryId),
+        laserficheGetEntryFields(config, token, entryId),
+      ]);
+
+      const tags = Object.values(fields).filter(Boolean).slice(0, 10);
+      const pick = (...keys: string[]) => {
+        for (const key of keys) {
+          if (fields[key]) return fields[key];
+        }
+        return "";
+      };
+
+      res.json({
+        entryId,
+        title: entry.name,
+        titleAr: pick("Arabic Title", "العنوان"),
+        department: pick("Department", "الجهة", "القسم") || "Laserfiche",
+        departmentAr: pick("الجهة", "القسم"),
+        classification: pick("Classification", "التصنيف") || "Official",
+        securityLevel: pick("Security Level", "مستوى الأمان") || "Internal",
+        docType: entry.extension?.toUpperCase() || "Document",
+        docTypeAr: pick("Arabic Document Type", "نوع المستند"),
+        author: entry.creator || "",
+        authorAr: pick("Arabic Author", "المؤلف"),
+        workflowStatus: pick("Workflow Status", "حالة المعاملة") || "Active",
+        tags,
+        content: entry.fullPath || entry.name,
+        contentAr: pick("Arabic Content", "المحتوى"),
+        fileSizeKb: entry.electronicDocumentSize ? Math.round(entry.electronicDocumentSize / 1024) : null,
+        pageCount: entry.pageCount || null,
+        laserficheId: `LF-${entry.id}`,
+        year: entry.creationTime ? new Date(entry.creationTime).getFullYear() : null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return httpServer;
 }
