@@ -119,25 +119,7 @@ type TrailItem = {
 };
 
 type LaserficheDetails = {
-  entryId: number;
-  title: string;
-  titleAr?: string;
-  department: string;
-  departmentAr?: string;
-  classification: string;
-  securityLevel: string;
-  docType: string;
-  docTypeAr?: string;
-  author?: string;
-  authorAr?: string;
-  workflowStatus: string;
-  tags: string[];
-  content: string;
-  contentAr?: string;
-  fileSizeKb?: number | null;
-  pageCount?: number | null;
-  laserficheId: string;
-  year?: number | null;
+  [key: string]: string | number | null | undefined;
 };
 
 type LaserficheSummary = {
@@ -209,6 +191,8 @@ export default function ArchivePage() {
     setSelectedEntryId(entryId);
     await refetchDetails();
   };
+
+  const fieldEntries = details ? Object.entries(details).filter(([key, value]) => key !== "value" && value !== undefined && value !== null && value !== "") : [];
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -363,40 +347,16 @@ export default function ArchivePage() {
                           <Skeleton className="h-40 w-full" />
                         ) : detailsError ? (
                           <div className="text-xs text-red-600">Could not load document details.</div>
-                        ) : details ? (
+                        ) : details && fieldEntries.length > 0 ? (
                           <div className="space-y-3">
-                            <div className="space-y-1">
-                              <p className="text-sm font-medium">{details.title}</p>
-                              {details.titleAr && <p className="text-sm text-muted-foreground font-arabic" dir="rtl">{details.titleAr}</p>}
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                              <div><span className="text-muted-foreground">Department:</span> {details.department}</div>
-                              <div><span className="text-muted-foreground">Type:</span> {details.docType}</div>
-                              <div><span className="text-muted-foreground">Classification:</span> {details.classification}</div>
-                              <div><span className="text-muted-foreground">Status:</span> {details.workflowStatus}</div>
-                              <div><span className="text-muted-foreground">Author:</span> {details.author || "—"}</div>
-                              <div><span className="text-muted-foreground">Pages:</span> {details.pageCount ?? "—"}</div>
-                            </div>
-                            <div className="space-y-1">
-                              <p className="text-xs font-medium text-muted-foreground">Document Content</p>
-                              <p className="text-sm leading-relaxed">{details.content}</p>
-                            </div>
-                            {details.contentAr && (
-                              <div className="space-y-1">
-                                <p className="text-xs font-medium text-muted-foreground">محتوى الوثيقة العربية</p>
-                                <p className="text-sm leading-relaxed font-arabic text-right" dir="rtl">{details.contentAr}</p>
-                              </div>
-                            )}
-                            {details.tags.length > 0 && (
-                              <div className="space-y-1">
-                                <p className="text-xs font-medium text-muted-foreground">Tags</p>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {details.tags.map((tag) => (
-                                    <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
-                                  ))}
+                            <div className="grid grid-cols-1 gap-2 text-xs">
+                              {fieldEntries.map(([key, value]) => (
+                                <div key={key} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
+                                  <span className="text-muted-foreground shrink-0">{key}</span>
+                                  <span className="text-foreground text-right break-all">{String(value)}</span>
                                 </div>
-                              </div>
-                            )}
+                              ))}
+                            </div>
                           </div>
                         ) : (
                           <div className="text-xs text-muted-foreground">Select a file to view document details.</div>
