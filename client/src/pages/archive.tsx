@@ -215,12 +215,37 @@ export default function ArchivePage() {
   const fieldEntries = details?.value || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const res = await fetch(`/api/laserfiche/entries/${entryId}/fields`);
-    const payload = await res.json().catch(() => null);
-    if (!res.ok) {
-      throw new Error(payload?.error || `Failed to load Laserfiche fields: ${res.status}`);
+    const endpoints = [
+      `/api/laserfiche/entries/${entryId}/fields`,
+      `http://localhost:5000/api/laserfiche/entries/${entryId}/fields`,
+    ];
+
+    let lastError = "Could not load metadata.";
+
+    for (const endpoint of endpoints) {
+      try {
+        const res = await fetch(endpoint, {
+          headers: { Accept: "application/json" },
+        });
+
+        const contentType = res.headers.get("content-type") || "";
+        const payload = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          throw new Error(payload?.error || `Failed to load Laserfiche fields: ${res.status}`);
+        }
+
+        if (!contentType.includes("application/json") || !payload || !Array.isArray(payload.value)) {
+          throw new Error("Metadata API returned unexpected HTML/non-JSON response.");
+        }
+
+        return payload as LaserficheDetails;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : "Could not load metadata.";
+      }
     }
-    return payload as LaserficheDetails;
+
+    throw new Error(`${lastError} Ensure backend is running on port 5000 and Laserfiche settings are configured.`);
   };
 
   return (
@@ -374,7 +399,10 @@ export default function ArchivePage() {
                                   type="button"
                                   variant="outline"
                                   size="sm"
-                                  onClick={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openDocument(file.id);
+                                  }}
                                   data-testid={`button-view-document-${file.id}`}
                                 >
                                   Open
