@@ -109,6 +109,12 @@ type LaserfichePreview = {
     extension?: string;
     pageCount?: number;
   }>;
+  fieldDefinitions?: Array<{
+    id: number;
+    name: string;
+    fieldType?: string;
+    isRequired?: boolean;
+  }>;
 };
 
 type TrailItem = {
@@ -129,6 +135,12 @@ type LaserficheDetails = {
       value: string | null;
       position: number;
     }>;
+  }>;
+  fieldDefinitions?: Array<{
+    id: number;
+    name: string;
+    fieldType?: string;
+    isRequired?: boolean;
   }>;
 };
 
@@ -213,6 +225,7 @@ export default function ArchivePage() {
   };
 
   const fieldEntries = details?.value || [];
+  const fieldDefinitions = details?.fieldDefinitions || [];
 
   const loadLaserficheFields = async (entryId: number) => {
     const endpoints = [
@@ -433,6 +446,18 @@ export default function ArchivePage() {
                                   <span className="text-foreground text-right break-all">
                                     {(field.values || []).map((item) => item.value).filter(Boolean).join(", ") || "—"}
                                   </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : fieldDefinitions.length > 0 ? (
+                          <div className="space-y-2">
+                            <p className="text-xs text-muted-foreground">No field values on this document. Showing available repository metadata fields:</p>
+                            <div className="grid grid-cols-1 gap-2 text-xs">
+                              {fieldDefinitions.slice(0, 20).map((field) => (
+                                <div key={field.id} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
+                                  <span className="text-muted-foreground shrink-0">{field.name}</span>
+                                  <span className="text-foreground text-right break-all">{field.fieldType || "Field"}</span>
                                 </div>
                               ))}
                             </div>
