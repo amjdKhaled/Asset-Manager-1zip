@@ -229,16 +229,19 @@ export default function ArchivePage() {
 
   const loadLaserficheFields = async (entryId: number) => {
     const endpoints = [
-      `/api/laserfiche/entries/${entryId}/fields`,
-      `http://localhost:5000/api/laserfiche/entries/${entryId}/fields`,
+      `/lfapi/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`,
     ];
 
     let lastError = "Could not load metadata.";
 
     for (const endpoint of endpoints) {
       try {
+        const bearerToken = localStorage.getItem("laserficheBearerToken") || import.meta.env.VITE_LF_BEARER_TOKEN;
         const res = await fetch(endpoint, {
-          headers: { Accept: "application/json" },
+          headers: {
+            Accept: "application/json",
+            ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+          },
         });
 
         const contentType = res.headers.get("content-type") || "";
@@ -252,13 +255,16 @@ export default function ArchivePage() {
           throw new Error("Metadata API returned unexpected HTML/non-JSON response.");
         }
 
-        return payload as LaserficheDetails;
+        return {
+          value: payload.value,
+          fieldDefinitions: [],
+        } as LaserficheDetails;
       } catch (error) {
         lastError = error instanceof Error ? error.message : "Could not load metadata.";
       }
     }
 
-    throw new Error(`${lastError} Ensure backend is running on port 5000 and Laserfiche settings are configured.`);
+    throw new Error(`${lastError} Ensure Laserfiche Bearer token is valid and Laserfiche API authorization is active.`);
   };
 
   return (

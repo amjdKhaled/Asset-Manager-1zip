@@ -37,6 +37,11 @@ export default defineConfig({
         target: "http://localhost:5000",
         changeOrigin: true,
       },
+      "/lfapi": {
+        target: "http://localhost",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/lfapi/, "/LFRepositoryAPI"),
+      },
     },
     fs: {
       strict: true,
