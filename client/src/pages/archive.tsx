@@ -228,7 +228,7 @@ export default function ArchivePage() {
   const fieldDefinitions = details?.fieldDefinitions || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const endpoints = [`http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`];
+    const endpoints = [`/api/laserfiche/entries/${entryId}/fields`];
 
     let lastError = "Could not load metadata.";
 
@@ -247,7 +247,7 @@ export default function ArchivePage() {
 
         if (!res.ok) {
           if (res.status === 401) {
-            throw new Error("Failed to load Laserfiche fields: 401 Unauthorized from Laserfiche API endpoint.");
+            throw new Error("Failed to load Laserfiche fields: 401 Unauthorized from Laserfiche. Re-open Laserfiche Settings and save valid username/password to refresh server token.");
           }
           throw new Error(payload?.error || `Failed to load Laserfiche fields: ${res.status}`);
         }
@@ -267,7 +267,7 @@ export default function ArchivePage() {
       }
     }
 
-    throw new Error(`${lastError} Root cause: direct Laserfiche API call requires valid authentication/session on localhost.`);
+    throw new Error(`${lastError} Root cause: Laserfiche credentials/token are invalid or expired on server.`);
   };
 
   return (
