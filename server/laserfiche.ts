@@ -365,6 +365,44 @@ export async function laserficheGetEntryFields(
   return fields;
 }
 
+
+export interface LFRawFieldValue {
+  value: string | null;
+  position: number;
+}
+
+export interface LFRawField {
+  fieldId: number;
+  fieldName: string;
+  fieldType: string;
+  isMultiValue: boolean;
+  isRequired: boolean;
+  hasMoreValues: boolean;
+  groupId: number;
+  values: LFRawFieldValue[];
+}
+
+export async function laserficheGetEntryFieldsRaw(
+  config: LaserficheConfig,
+  token: string,
+  entryId: number
+): Promise<LFRawField[]> {
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/fields?formatValue=false`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { "Authorization": `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get Laserfiche fields for entry ${entryId}: ${res.status} ${text.slice(0, 200)}`);
+  }
+
+  const data = await res.json() as { value?: LFRawField[] };
+  return data.value || [];
+}
+
 export async function laserficheGetFolderChildren(
   config: LaserficheConfig,
   token: string,
