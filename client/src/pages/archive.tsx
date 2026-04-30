@@ -228,7 +228,11 @@ export default function ArchivePage() {
   const fieldDefinitions = details?.fieldDefinitions || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const endpoints = [`/api/laserfiche/entries/${entryId}/fields`];
+    const backendBaseUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+    const endpoints = [
+      `${backendBaseUrl}/api/laserfiche/entries/${entryId}/fields`,
+      `/api/laserfiche/entries/${entryId}/fields`,
+    ];
 
     let lastError = "Could not load metadata.";
 
@@ -253,7 +257,7 @@ export default function ArchivePage() {
         }
 
         if (!contentType.includes("application/json") || !payload || !Array.isArray(payload.value)) {
-          throw new Error("Metadata API returned unexpected HTML/non-JSON response.");
+          throw new Error("Metadata API returned HTML/non-JSON (frontend route hit). Verify VITE_BACKEND_URL points to backend API server.");
         }
 
         console.log("[Laserfiche] Metadata payload received", { entryId, count: payload.value.length });
