@@ -137,7 +137,6 @@ type LaserficheSummary = {
   contentAr: string;
 };
 
-const LASERFICHE_TOKEN = "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0L0xGUmVwb3NpdG9yeUFQSS92MS9SZXBvc2l0b3JpZXMvVGVzdEVtcGxveWVlL1Rva2VuIiwiZXhwIjoxNzc3NDcyNTQ4LCJ1c3JpZCI6IjU5STlETjR5aUNON2ljaG5uVGh4MFNNR3dqUDZ5dnhJbjhHVkxsamFIQTA9IiwicmlkIjoiVGVzdEVtcGxveWVlIiwibmFtZSI6IkFETUlOIiwiaWF0IjoxNzc3NDcxNjQ4LCJuYmYiOjE3Nzc0NzE2NDh9.PkSWE_qZ72xo1QnpyBRJIa7sDtY34xr6-ILh1ViF6B1-DamsNClLt3Dhmctmcv8e6m9t9SnXkQwVCsUXE3lEKw";
 
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
@@ -146,6 +145,9 @@ export default function ArchivePage() {
   const [selectedFolderId, setSelectedFolderId] = useState("1");
   const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
+  const [details, setDetails] = useState<LaserficheDetails | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
 
   const { data: docs, isLoading } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
@@ -156,10 +158,6 @@ export default function ArchivePage() {
     enabled: true,
   });
 
-  const { data: details, isLoading: detailsLoading, error: detailsError, refetch: refetchDetails } = useQuery<LaserficheDetails>({
-    queryKey: ["/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries", selectedEntryId, "fields?formatValue=false"],
-    enabled: false,
-  });
 
   const filtered = docs?.filter(d => {
     const matchesSearch = !localSearch || d.title.toLowerCase().includes(localSearch.toLowerCase()) || (d.titleAr || "").includes(localSearch);
@@ -168,8 +166,8 @@ export default function ArchivePage() {
     return matchesSearch && matchesType && matchesDept;
   });
 
-  const departments = docs ? [...new Set(docs.map(d => d.department))] : [];
-  const docTypes = docs ? [...new Set(docs.map(d => d.docType))] : [];
+  const departments = docs ? Array.from(new Set(docs.map(d => d.department))) : [];
+  const docTypes = docs ? Array.from(new Set(docs.map(d => d.docType))) : [];
 
   const folders = useMemo(() => {
     const items = preview?.children || [];
@@ -201,20 +199,28 @@ export default function ArchivePage() {
 
   const openDocument = async (entryId: number) => {
     setSelectedEntryId(entryId);
-    const data = await loadLaserficheFields(entryId);
-    (details as any) = data;
+    setDetailsLoading(true);
+    setDetailsError(null);
+    try {
+      const data = await loadLaserficheFields(entryId);
+      setDetails(data);
+    } catch (error) {
+      setDetails(null);
+      setDetailsError(error instanceof Error ? error.message : "Could not load Laserfiche fields.");
+    } finally {
+      setDetailsLoading(false);
+    }
   };
 
   const fieldEntries = details?.value || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const res = await fetch(`http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`, {
-      headers: {
-        Authorization: `Bearer ${LASERFICHE_TOKEN}`,
-      },
-    });
-    if (!res.ok) throw new Error(`Failed to load Laserfiche fields: ${res.status}`);
-    return await res.json() as LaserficheDetails;
+    const res = await fetch(`/api/laserfiche/entries/${entryId}/fields`);
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(payload?.error || `Failed to load Laserfiche fields: ${res.status}`);
+    }
+    return payload as LaserficheDetails;
   };
 
   return (
@@ -369,7 +375,7 @@ export default function ArchivePage() {
                         {detailsLoading ? (
                           <Skeleton className="h-40 w-full" />
                         ) : detailsError ? (
-                          <div className="text-xs text-red-600">Could not load Laserfiche fields.</div>
+                          <div className="text-xs text-red-600">{detailsError}</div>
                         ) : fieldEntries.length > 0 ? (
                           <div className="space-y-3">
                             <div className="grid grid-cols-1 gap-2 text-xs">
