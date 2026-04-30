@@ -230,6 +230,7 @@ export default function ArchivePage() {
   const loadLaserficheFields = async (entryId: number) => {
     const endpoints = [
       `http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`,
+      `/api/laserfiche/entries/${entryId}/fields`,
     ];
 
     let lastError = "Could not load metadata.";
@@ -250,6 +251,9 @@ export default function ArchivePage() {
         const payload = await res.json().catch(() => null);
 
         if (!res.ok) {
+          if (res.status === 401) {
+            throw new Error("Failed to load Laserfiche fields: 401 Unauthorized. Direct IIS API requires a valid Bearer token.");
+          }
           throw new Error(payload?.error || `Failed to load Laserfiche fields: ${res.status}`);
         }
 
@@ -268,7 +272,7 @@ export default function ArchivePage() {
       }
     }
 
-    throw new Error(`${lastError} Ensure Laserfiche Bearer token is valid and Laserfiche API authorization is active.`);
+    throw new Error(`${lastError} Root cause: direct IIS call needs Bearer token. Fix by setting localStorage token or using configured backend /api/laserfiche endpoint.`);
   };
 
   return (
