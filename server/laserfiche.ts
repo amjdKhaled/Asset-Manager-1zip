@@ -348,7 +348,7 @@ export async function laserficheGetEntryFields(
   token: string,
   entryId: number
 ): Promise<Record<string, string>> {
-  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/fields?formatValue=false`;
+  const url = `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Entries/${entryId}/Fields`;
 
   const res = await fetch(url, {
     method: "GET",
@@ -387,7 +387,7 @@ export async function laserficheGetEntryFieldsRaw(
   token: string,
   entryId: number
 ): Promise<LFRawField[]> {
-  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/fields?formatValue=false`;
+  const url = `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Entries/${entryId}/Fields`;
 
   const res = await fetch(url, {
     method: "GET",
