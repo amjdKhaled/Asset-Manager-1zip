@@ -115,7 +115,7 @@ export async function getLaserficheToken(config: LaserficheConfig): Promise<stri
   params.append("username", config.username);
   params.append("password", config.password);
 
-  const tokenUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Token`;
+  const tokenUrl = `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Token`;
   const res = await fetch(tokenUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -348,7 +348,7 @@ export async function laserficheGetEntryFields(
   token: string,
   entryId: number
 ): Promise<Record<string, string>> {
-  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/fields?formatValue=false`;
+  const url = `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Entries/${entryId}/Fields`;
 
   const res = await fetch(url, {
     method: "GET",
@@ -387,7 +387,7 @@ export async function laserficheGetEntryFieldsRaw(
   token: string,
   entryId: number
 ): Promise<LFRawField[]> {
-  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/fields?formatValue=false`;
+  const url = `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Entries/${entryId}/Fields`;
 
   const res = await fetch(url, {
     method: "GET",
@@ -401,36 +401,6 @@ export async function laserficheGetEntryFieldsRaw(
 
   const data = await res.json() as { value?: LFRawField[] };
   return data.value || [];
-}
-
-
-export interface LFFieldDefinition {
-  id: number;
-  name: string;
-  fieldType?: string;
-  isRequired?: boolean;
-}
-
-export async function laserficheGetFieldDefinitions(
-  config: LaserficheConfig,
-  token: string
-): Promise<LFFieldDefinition[]> {
-  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/FieldDefinitions`;
-
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { "Authorization": `Bearer ${token}`, Accept: "application/json" },
-  });
-
-  if (!res.ok) return [];
-
-  const data = await res.json() as { value?: Array<{ id: number; name: string; fieldType?: string; isRequired?: boolean }> };
-  return (data.value || []).map((f) => ({
-    id: f.id,
-    name: f.name,
-    fieldType: f.fieldType,
-    isRequired: f.isRequired,
-  }));
 }
 
 export async function laserficheGetFolderChildren(
