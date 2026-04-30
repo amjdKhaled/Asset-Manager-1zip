@@ -10,6 +10,8 @@ import {
   laserficheGetFolderChildren,
   laserficheGetEntry,
   laserficheGetEntryFields,
+  laserficheGetEntryFieldsRaw,
+  laserficheGetFieldDefinitions,
   naturalLanguageToLFSearchCommand,
   saveLaserficheConfig,
   clearLaserficheConfig,
@@ -507,6 +509,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         laserficheId: `LF-${entry.id}`,
         year: entry.creationTime ? new Date(entry.creationTime).getFullYear() : null,
       });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
+  app.get("/api/laserfiche/entries/:entryId/fields", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) {
+      return res.status(503).json({ error: "Laserfiche not configured" });
+    }
+
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) {
+      return res.status(400).json({ error: "Invalid entry id" });
+    }
+
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      const token = await getLaserficheToken(config);
+      const [fields, fieldDefinitions] = await Promise.all([
+        laserficheGetEntryFieldsRaw(config, token, entryId),
+        laserficheGetFieldDefinitions(config, token),
+      ]);
+      res.json({ entryId, value: fields, fieldDefinitions });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
