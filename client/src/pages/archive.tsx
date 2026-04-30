@@ -228,7 +228,10 @@ export default function ArchivePage() {
   const fieldDefinitions = details?.fieldDefinitions || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const endpoints = [`/api/laserfiche/entries/${entryId}/fields`];
+    const endpoints = [
+      `/api/laserfiche/entries/${entryId}/fields`,
+      `http://localhost:5000/api/laserfiche/entries/${entryId}/fields`,
+    ];
 
     let lastError = "Could not load metadata.";
 
@@ -255,7 +258,7 @@ export default function ArchivePage() {
       }
     }
 
-    throw new Error(`${lastError} Ensure backend API and Laserfiche settings are configured.`);
+    throw new Error(`${lastError} Ensure backend is running on port 5000 and Laserfiche settings are configured.`);
   };
 
   return (

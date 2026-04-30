@@ -11,7 +11,6 @@ import {
   laserficheGetEntry,
   laserficheGetEntryFields,
   laserficheGetEntryFieldsRaw,
-  laserficheGetFieldDefinitions,
   naturalLanguageToLFSearchCommand,
   saveLaserficheConfig,
   clearLaserficheConfig,
@@ -529,11 +528,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       res.setHeader("Cache-Control", "no-store");
       const token = await getLaserficheToken(config);
-      const [fields, fieldDefinitions] = await Promise.all([
-        laserficheGetEntryFieldsRaw(config, token, entryId),
-        laserficheGetFieldDefinitions(config, token),
-      ]);
-      res.json({ entryId, value: fields, fieldDefinitions });
+      const fields = await laserficheGetEntryFieldsRaw(config, token, entryId);
+      res.json({ entryId, value: fields });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
