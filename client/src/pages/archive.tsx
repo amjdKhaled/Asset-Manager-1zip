@@ -229,13 +229,14 @@ export default function ArchivePage() {
 
   const loadLaserficheFields = async (entryId: number) => {
     const endpoints = [
-      `/lfapi/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`,
+      `http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`,
     ];
 
     let lastError = "Could not load metadata.";
 
     for (const endpoint of endpoints) {
       try {
+        console.log("[Laserfiche] Fetching metadata", { entryId, endpoint });
         const bearerToken = localStorage.getItem("laserficheBearerToken") || import.meta.env.VITE_LF_BEARER_TOKEN;
         const res = await fetch(endpoint, {
           headers: {
@@ -245,6 +246,7 @@ export default function ArchivePage() {
         });
 
         const contentType = res.headers.get("content-type") || "";
+        console.log("[Laserfiche] Metadata response status", { entryId, endpoint, status: res.status, contentType });
         const payload = await res.json().catch(() => null);
 
         if (!res.ok) {
@@ -255,12 +257,14 @@ export default function ArchivePage() {
           throw new Error("Metadata API returned unexpected HTML/non-JSON response.");
         }
 
+        console.log("[Laserfiche] Metadata payload received", { entryId, count: payload.value.length });
         return {
           value: payload.value,
           fieldDefinitions: [],
         } as LaserficheDetails;
       } catch (error) {
         lastError = error instanceof Error ? error.message : "Could not load metadata.";
+        console.error("[Laserfiche] Metadata fetch failed", { entryId, endpoint, error: lastError });
       }
     }
 
