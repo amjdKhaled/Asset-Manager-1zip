@@ -228,7 +228,7 @@ export default function ArchivePage() {
   const fieldDefinitions = details?.fieldDefinitions || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const endpoints = [`/api/laserfiche/entries/${entryId}/fields`];
+    const endpoints = [`http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`];
 
     let lastError = "Could not load metadata.";
 
@@ -260,7 +260,7 @@ export default function ArchivePage() {
         console.log("[Laserfiche] Metadata payload received", { entryId, count: payload.value.length });
         return {
           value: payload.value,
-          fieldDefinitions: Array.isArray(payload.fieldDefinitions) ? payload.fieldDefinitions : [],
+          fieldDefinitions: [],
         } as LaserficheDetails;
       } catch (error) {
         lastError = error instanceof Error ? error.message : "Could not load metadata.";
