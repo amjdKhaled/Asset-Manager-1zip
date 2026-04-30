@@ -137,7 +137,6 @@ type LaserficheSummary = {
   contentAr: string;
 };
 
-const LASERFICHE_TOKEN = "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0L0xGUmVwb3NpdG9yeUFQSS92MS9SZXBvc2l0b3JpZXMvVGVzdEVtcGxveWVlL1Rva2VuIiwiZXhwIjoxNzc3NDcyNTQ4LCJ1c3JpZCI6IjU5STlETjR5aUNON2ljaG5uVGh4MFNNR3dqUDZ5dnhJbjhHVkxsamFIQTA9IiwicmlkIjoiVGVzdEVtcGxveWVlIiwibmFtZSI6IkFETUlOIiwiaWF0IjoxNzc3NDcxNjQ4LCJuYmYiOjE3Nzc0NzE2NDh9.PkSWE_qZ72xo1QnpyBRJIa7sDtY34xr6-ILh1ViF6B1-DamsNClLt3Dhmctmcv8e6m9t9SnXkQwVCsUXE3lEKw";
 
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
@@ -216,13 +215,12 @@ export default function ArchivePage() {
   const fieldEntries = details?.value || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const res = await fetch(`http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`, {
-      headers: {
-        Authorization: `Bearer ${LASERFICHE_TOKEN}`,
-      },
-    });
-    if (!res.ok) throw new Error(`Failed to load Laserfiche fields: ${res.status}`);
-    return await res.json() as LaserficheDetails;
+    const res = await fetch(`/api/laserfiche/entries/${entryId}/fields`);
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(payload?.error || `Failed to load Laserfiche fields: ${res.status}`);
+    }
+    return payload as LaserficheDetails;
   };
 
   return (
