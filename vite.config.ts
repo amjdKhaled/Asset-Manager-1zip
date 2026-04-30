@@ -32,6 +32,17 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    proxy: {
+      "/api": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+      },
+      "/lfapi": {
+        target: "http://localhost",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/lfapi/, "/LFRepositoryAPI"),
+      },
+    },
     fs: {
       strict: true,
       deny: ["**/.*"],
