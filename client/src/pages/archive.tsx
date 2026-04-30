@@ -215,21 +215,11 @@ export default function ArchivePage() {
   const fieldEntries = details?.value || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const res = await fetch(`/api/laserfiche/entries/${entryId}/fields`, {
-      headers: { Accept: "application/json" },
-    });
-
-    const contentType = res.headers.get("content-type") || "";
+    const res = await fetch(`/api/laserfiche/entries/${entryId}/fields`);
     const payload = await res.json().catch(() => null);
-
     if (!res.ok) {
       throw new Error(payload?.error || `Failed to load Laserfiche fields: ${res.status}`);
     }
-
-    if (!contentType.includes("application/json") || !payload || !Array.isArray(payload.value)) {
-      throw new Error("Metadata API returned unexpected HTML/non-JSON response. Please run the app backend server (not Vite-only) and retry.");
-    }
-
     return payload as LaserficheDetails;
   };
 
