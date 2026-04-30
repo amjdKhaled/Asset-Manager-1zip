@@ -115,7 +115,7 @@ export async function getLaserficheToken(config: LaserficheConfig): Promise<stri
   params.append("username", config.username);
   params.append("password", config.password);
 
-  const tokenUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Token`;
+  const tokenUrl = `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Token`;
   const res = await fetch(tokenUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -348,7 +348,7 @@ export async function laserficheGetEntryFields(
   token: string,
   entryId: number
 ): Promise<Record<string, string>> {
-  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/fields?formatValue=false`;
+  const url = `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Entries/${entryId}/Fields`;
 
   const res = await fetch(url, {
     method: "GET",
