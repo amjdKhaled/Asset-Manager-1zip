@@ -346,21 +346,41 @@ export default function ArchivePage() {
                       <p className="text-xs text-muted-foreground mb-2">Files</p>
                       <div className="divide-y divide-border rounded-md border border-border">
                         {files.map((file) => (
-                          <div key={file.id} className="w-full px-3 py-2 flex items-center justify-between gap-3 text-left hover:bg-muted" data-testid={`file-row-${file.id}`}>
-                            <button
-                              type="button"
-                              onClick={() => openDocument(file.id)}
-                              className="min-w-0 text-left flex-1"
-                              data-testid={`button-open-document-${file.id}`}
-                            >
+                          <div
+                            key={file.id}
+                            className="w-full px-3 py-2 flex items-center justify-between gap-3 text-left hover:bg-muted cursor-pointer"
+                            data-testid={`file-row-${file.id}`}
+                            onClick={() => openDocument(file.id)}
+                          >
+                            <div className="min-w-0 text-left flex-1">
                               <p className="text-sm font-medium truncate">{file.name}</p>
                               <p className="text-xs text-muted-foreground truncate">{file.fullPath}</p>
-                            </button>
-                            <Link href={`/document/${file.id}`}>
-                              <Button type="button" variant="outline" size="sm" data-testid={`button-view-document-${file.id}`}>
-                                Open
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openDocument(file.id);
+                                }}
+                                data-testid={`button-open-document-${file.id}`}
+                              >
+                                Metadata
                               </Button>
-                            </Link>
+                              <Link href={`/document/${file.id}`}>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => e.stopPropagation()}
+                                  data-testid={`button-view-document-${file.id}`}
+                                >
+                                  Open
+                                </Button>
+                              </Link>
+                            </div>
                           </div>
                         ))}
                         {files.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
