@@ -228,11 +228,7 @@ export default function ArchivePage() {
   const fieldDefinitions = details?.fieldDefinitions || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const backendBaseUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
-    const endpoints = [
-      `${backendBaseUrl}/api/laserfiche/entries/${entryId}/fields`,
-      `/api/laserfiche/entries/${entryId}/fields`,
-    ];
+    const endpoints = [`http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`];
 
     let lastError = "Could not load metadata.";
 
@@ -243,6 +239,7 @@ export default function ArchivePage() {
           headers: {
             Accept: "application/json",
           },
+          credentials: "include",
         });
 
         const contentType = res.headers.get("content-type") || "";
@@ -271,7 +268,7 @@ export default function ArchivePage() {
       }
     }
 
-    throw new Error(`${lastError} Root cause: Laserfiche credentials/token are invalid or expired on server.`);
+    throw new Error(`${lastError} Root cause: direct Laserfiche API authorization (cookie/session or token) is missing/expired.`);
   };
 
   return (
@@ -457,7 +454,7 @@ export default function ArchivePage() {
                                 <div key={field.fieldId} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
                                   <span className="text-muted-foreground shrink-0">{field.fieldName}</span>
                                   <span className="text-foreground text-right break-all">
-                                    {(field.values || []).map((item) => item.value).filter(Boolean).join(", ") || "—"}
+                                    {(field.values || []).map((item: any) => item?.value ?? JSON.stringify(item)).filter(Boolean).join(", ") || "—"}
                                   </span>
                                 </div>
                               ))}
