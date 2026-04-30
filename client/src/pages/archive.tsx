@@ -109,6 +109,12 @@ type LaserfichePreview = {
     extension?: string;
     pageCount?: number;
   }>;
+  fieldDefinitions?: Array<{
+    id: number;
+    name: string;
+    fieldType?: string;
+    isRequired?: boolean;
+  }>;
 };
 
 type TrailItem = {
@@ -130,6 +136,12 @@ type LaserficheDetails = {
       position: number;
     }>;
   }>;
+  fieldDefinitions?: Array<{
+    id: number;
+    name: string;
+    fieldType?: string;
+    isRequired?: boolean;
+  }>;
 };
 
 type LaserficheSummary = {
@@ -137,7 +149,6 @@ type LaserficheSummary = {
   contentAr: string;
 };
 
-const LASERFICHE_TOKEN = "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0L0xGUmVwb3NpdG9yeUFQSS92MS9SZXBvc2l0b3JpZXMvVGVzdEVtcGxveWVlL1Rva2VuIiwiZXhwIjoxNzc3NDcyNTQ4LCJ1c3JpZCI6IjU5STlETjR5aUNON2ljaG5uVGh4MFNNR3dqUDZ5dnhJbjhHVkxsamFIQTA9IiwicmlkIjoiVGVzdEVtcGxveWVlIiwibmFtZSI6IkFETUlOIiwiaWF0IjoxNzc3NDcxNjQ4LCJuYmYiOjE3Nzc0NzE2NDh9.PkSWE_qZ72xo1QnpyBRJIa7sDtY34xr6-ILh1ViF6B1-DamsNClLt3Dhmctmcv8e6m9t9SnXkQwVCsUXE3lEKw";
 
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
@@ -146,6 +157,9 @@ export default function ArchivePage() {
   const [selectedFolderId, setSelectedFolderId] = useState("1");
   const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
+  const [details, setDetails] = useState<LaserficheDetails | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
 
   const { data: docs, isLoading } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
@@ -156,10 +170,6 @@ export default function ArchivePage() {
     enabled: true,
   });
 
-  const { data: details, isLoading: detailsLoading, error: detailsError, refetch: refetchDetails } = useQuery<LaserficheDetails>({
-    queryKey: ["/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries", selectedEntryId, "fields?formatValue=false"],
-    enabled: false,
-  });
 
   const filtered = docs?.filter(d => {
     const matchesSearch = !localSearch || d.title.toLowerCase().includes(localSearch.toLowerCase()) || (d.titleAr || "").includes(localSearch);
@@ -168,8 +178,8 @@ export default function ArchivePage() {
     return matchesSearch && matchesType && matchesDept;
   });
 
-  const departments = docs ? [...new Set(docs.map(d => d.department))] : [];
-  const docTypes = docs ? [...new Set(docs.map(d => d.docType))] : [];
+  const departments = docs ? Array.from(new Set(docs.map(d => d.department))) : [];
+  const docTypes = docs ? Array.from(new Set(docs.map(d => d.docType))) : [];
 
   const folders = useMemo(() => {
     const items = preview?.children || [];
@@ -201,20 +211,60 @@ export default function ArchivePage() {
 
   const openDocument = async (entryId: number) => {
     setSelectedEntryId(entryId);
-    const data = await loadLaserficheFields(entryId);
-    (details as any) = data;
+    setDetailsLoading(true);
+    setDetailsError(null);
+    try {
+      const data = await loadLaserficheFields(entryId);
+      setDetails(data);
+    } catch (error) {
+      setDetails(null);
+      setDetailsError(error instanceof Error ? error.message : "Could not load Laserfiche fields.");
+    } finally {
+      setDetailsLoading(false);
+    }
   };
 
   const fieldEntries = details?.value || [];
+  const fieldDefinitions = details?.fieldDefinitions || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const res = await fetch(`http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`, {
-      headers: {
-        Authorization: `Bearer ${LASERFICHE_TOKEN}`,
-      },
-    });
-    if (!res.ok) throw new Error(`Failed to load Laserfiche fields: ${res.status}`);
-    return await res.json() as LaserficheDetails;
+    const endpoints = [
+      `/lfapi/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`,
+    ];
+
+    let lastError = "Could not load metadata.";
+
+    for (const endpoint of endpoints) {
+      try {
+        const bearerToken = localStorage.getItem("laserficheBearerToken") || import.meta.env.VITE_LF_BEARER_TOKEN;
+        const res = await fetch(endpoint, {
+          headers: {
+            Accept: "application/json",
+            ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+          },
+        });
+
+        const contentType = res.headers.get("content-type") || "";
+        const payload = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          throw new Error(payload?.error || `Failed to load Laserfiche fields: ${res.status}`);
+        }
+
+        if (!contentType.includes("application/json") || !payload || !Array.isArray(payload.value)) {
+          throw new Error("Metadata API returned unexpected HTML/non-JSON response.");
+        }
+
+        return {
+          value: payload.value,
+          fieldDefinitions: [],
+        } as LaserficheDetails;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : "Could not load metadata.";
+      }
+    }
+
+    throw new Error(`${lastError} Ensure Laserfiche Bearer token is valid and Laserfiche API authorization is active.`);
   };
 
   return (
@@ -340,21 +390,44 @@ export default function ArchivePage() {
                       <p className="text-xs text-muted-foreground mb-2">Files</p>
                       <div className="divide-y divide-border rounded-md border border-border">
                         {files.map((file) => (
-                          <div key={file.id} className="w-full px-3 py-2 flex items-center justify-between gap-3 text-left hover:bg-muted" data-testid={`file-row-${file.id}`}>
-                            <button
-                              type="button"
-                              onClick={() => openDocument(file.id)}
-                              className="min-w-0 text-left flex-1"
-                              data-testid={`button-open-document-${file.id}`}
-                            >
+                          <div
+                            key={file.id}
+                            className="w-full px-3 py-2 flex items-center justify-between gap-3 text-left hover:bg-muted cursor-pointer"
+                            data-testid={`file-row-${file.id}`}
+                            onClick={() => openDocument(file.id)}
+                          >
+                            <div className="min-w-0 text-left flex-1">
                               <p className="text-sm font-medium truncate">{file.name}</p>
                               <p className="text-xs text-muted-foreground truncate">{file.fullPath}</p>
-                            </button>
-                            <Link href={`/document/${file.id}`}>
-                              <Button type="button" variant="outline" size="sm" data-testid={`button-view-document-${file.id}`}>
-                                Open
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openDocument(file.id);
+                                }}
+                                data-testid={`button-open-document-${file.id}`}
+                              >
+                                Metadata
                               </Button>
-                            </Link>
+                              <Link href={`/document/${file.id}`}>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openDocument(file.id);
+                                  }}
+                                  data-testid={`button-view-document-${file.id}`}
+                                >
+                                  Open
+                                </Button>
+                              </Link>
+                            </div>
                           </div>
                         ))}
                         {files.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
@@ -369,7 +442,7 @@ export default function ArchivePage() {
                         {detailsLoading ? (
                           <Skeleton className="h-40 w-full" />
                         ) : detailsError ? (
-                          <div className="text-xs text-red-600">Could not load Laserfiche fields.</div>
+                          <div className="text-xs text-red-600">{detailsError}</div>
                         ) : fieldEntries.length > 0 ? (
                           <div className="space-y-3">
                             <div className="grid grid-cols-1 gap-2 text-xs">
@@ -379,6 +452,18 @@ export default function ArchivePage() {
                                   <span className="text-foreground text-right break-all">
                                     {(field.values || []).map((item) => item.value).filter(Boolean).join(", ") || "—"}
                                   </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : fieldDefinitions.length > 0 ? (
+                          <div className="space-y-2">
+                            <p className="text-xs text-muted-foreground">No field values on this document. Showing available repository metadata fields:</p>
+                            <div className="grid grid-cols-1 gap-2 text-xs">
+                              {fieldDefinitions.slice(0, 20).map((field) => (
+                                <div key={field.id} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
+                                  <span className="text-muted-foreground shrink-0">{field.name}</span>
+                                  <span className="text-foreground text-right break-all">{field.fieldType || "Field"}</span>
                                 </div>
                               ))}
                             </div>
