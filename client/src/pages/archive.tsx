@@ -10,7 +10,6 @@ import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
   Clock, Tag, Search, Filter, ChevronRight, Eye, Server, Database, User, Lock, Folder, FolderOpen, FileSearch
 } from "lucide-react";
-import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 
 const classificationColor = (cls: string) => {
@@ -150,6 +149,39 @@ type LaserficheSummary = {
 };
 
 
+type LaserficheRawFieldValue = {
+  value?: unknown;
+  [key: string]: unknown;
+};
+
+function normalizeLaserficheFieldValue(input: unknown): string {
+  if (input === null || input === undefined) return "";
+
+  if (typeof input === "object") {
+    const raw = input as LaserficheRawFieldValue;
+    if ("value" in raw) {
+      if (raw.value === null || raw.value === undefined) return "";
+      return normalizeLaserficheFieldValue(raw.value);
+    }
+
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      return "";
+    }
+  }
+
+  if (input instanceof Date) return input.toISOString();
+  return String(input);
+}
+
+function formatLaserficheFieldValues(values: unknown[]): string {
+  return values
+    .map((item) => normalizeLaserficheFieldValue(item))
+    .filter((value) => value !== "")
+    .join(", ");
+}
+
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -228,19 +260,16 @@ export default function ArchivePage() {
   const fieldDefinitions = details?.fieldDefinitions || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const endpoints = [`http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`];
+    const endpoint = `/api/laserfiche/entries/${entryId}/fields`;
 
-    let lastError = "Could not load metadata.";
-
-    for (const endpoint of endpoints) {
-      try {
-        console.log("[Laserfiche] Fetching metadata", { entryId, endpoint });
-        const res = await fetch(endpoint, {
-          headers: {
-            Accept: "application/json",
-          },
-          credentials: "include",
-        });
+    try {
+      console.log("[Laserfiche] Fetching metadata", { entryId, endpoint });
+      const res = await fetch(endpoint, {
+        headers: {
+          Accept: "application/json",
+        },
+        credentials: "include",
+      });
 
         const contentType = res.headers.get("content-type") || "";
         console.log("[Laserfiche] Metadata response status", { entryId, endpoint, status: res.status, contentType });
@@ -257,18 +286,16 @@ export default function ArchivePage() {
           throw new Error("Metadata API returned HTML/non-JSON (frontend route hit). Verify VITE_BACKEND_URL points to backend API server.");
         }
 
-        console.log("[Laserfiche] Metadata payload received", { entryId, count: payload.value.length });
-        return {
-          value: payload.value,
-          fieldDefinitions: [],
-        } as LaserficheDetails;
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : "Could not load metadata.";
-        console.error("[Laserfiche] Metadata fetch failed", { entryId, endpoint, error: lastError });
-      }
+      console.log("[Laserfiche] Metadata payload received", { entryId, count: payload.value.length });
+      return {
+        value: payload.value,
+        fieldDefinitions: payload.fieldDefinitions || [],
+      } as LaserficheDetails;
+    } catch (error) {
+      const lastError = error instanceof Error ? error.message : "Could not load metadata.";
+      console.error("[Laserfiche] Metadata fetch failed", { entryId, endpoint, error: lastError });
+      throw new Error(`${lastError} Root cause: backend Laserfiche token acquisition failed or expired.`);
     }
-
-    throw new Error(`${lastError} Root cause: direct Laserfiche API authorization (cookie/session or token) is missing/expired.`);
   };
 
   return (
@@ -417,20 +444,6 @@ export default function ArchivePage() {
                               >
                                 Metadata
                               </Button>
-                              <Link href={`/document/${file.id}`}>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openDocument(file.id);
-                                  }}
-                                  data-testid={`button-view-document-${file.id}`}
-                                >
-                                  Open
-                                </Button>
-                              </Link>
                             </div>
                           </div>
                         ))}
@@ -454,7 +467,7 @@ export default function ArchivePage() {
                                 <div key={field.fieldId} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
                                   <span className="text-muted-foreground shrink-0">{field.fieldName}</span>
                                   <span className="text-foreground text-right break-all">
-                                    {(field.values || []).map((item: any) => item?.value ?? JSON.stringify(item)).filter(Boolean).join(", ") || "—"}
+                                    {formatLaserficheFieldValues(field.values || []) || "—"}
                                   </span>
                                 </div>
                               ))}
