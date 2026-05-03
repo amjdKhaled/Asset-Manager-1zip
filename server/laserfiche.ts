@@ -574,4 +574,64 @@ export function naturalLanguageToLFSearchCommand(query: string): {
   return { command, explanation, extractedTerms: [...new Set(extractedTerms)] };
 }
 
+export interface LFTag {
+  id: number;
+  name: string;
+  description?: string;
+}
+
+export async function laserficheGetEntryTags(
+  config: LaserficheConfig,
+  token: string,
+  entryId: number
+): Promise<string[]> {
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/tags`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  if (!res.ok) return [];
+  const data = await res.json() as { value?: Array<{ name?: string; tagName?: string }> };
+  return (data.value || []).map((t) => t.name || t.tagName || "").filter(Boolean);
+}
+
+export interface LFPage {
+  pageNumber: number;
+  width?: number;
+  height?: number;
+}
+
+export async function laserficheGetEntryPages(
+  config: LaserficheConfig,
+  token: string,
+  entryId: number
+): Promise<LFPage[]> {
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/pages`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  if (!res.ok) return [];
+  const data = await res.json() as { value?: LFPage[] };
+  return (data.value || []).map((p, i) => ({
+    pageNumber: p.pageNumber ?? i + 1,
+    width: p.width,
+    height: p.height,
+  }));
+}
+
+export async function laserficheGetPageImage(
+  config: LaserficheConfig,
+  token: string,
+  entryId: number,
+  pageNumber: number
+): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/pages/${pageNumber}/imageComponents/fullRes`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "image/*" },
+  });
+  if (!res.ok) return null;
+  const contentType = res.headers.get("content-type") || "image/png";
+  const arrayBuffer = await res.arrayBuffer();
+  return { buffer: Buffer.from(arrayBuffer), contentType };
+}
+
 export type { LaserficheConfig as LFConfig };

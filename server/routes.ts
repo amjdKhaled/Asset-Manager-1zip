@@ -12,6 +12,9 @@ import {
   laserficheGetEntryFields,
   laserficheGetEntryFieldsRaw,
   laserficheGetFieldDefinitions,
+  laserficheGetEntryTags,
+  laserficheGetEntryPages,
+  laserficheGetPageImage,
   naturalLanguageToLFSearchCommand,
   saveLaserficheConfig,
   clearLaserficheConfig,
@@ -643,6 +646,79 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Document analysis failed" });
+    }
+  });
+
+  // ── Document Viewer API ────────────────────────────────────────────────────
+  app.get("/api/document/:entryId", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) return res.status(400).json({ error: "Invalid entry id" });
+    try {
+      const token = await getLaserficheToken(config);
+      const [entry, rawFields, tags] = await Promise.all([
+        laserficheGetEntry(config, token, entryId),
+        laserficheGetEntryFieldsRaw(config, token, entryId),
+        laserficheGetEntryTags(config, token, entryId),
+      ]);
+      const metadata = rawFields.map((f) => ({
+        fieldId: f.fieldId,
+        fieldName: f.fieldName,
+        fieldType: f.fieldType,
+        value: (f.values || [])
+          .map((v) => (v.value === null || v.value === undefined ? "" : String(v.value)))
+          .filter((v) => v !== "")
+          .join(", "),
+      })).filter((f) => f.value !== "");
+      res.json({
+        id: entry.id,
+        name: entry.name,
+        path: entry.fullPath,
+        createdDate: entry.creationTime || null,
+        creator: entry.creator || null,
+        extension: entry.extension || null,
+        pageCount: entry.pageCount || null,
+        metadata,
+        tags,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/document/:entryId/image", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) return res.status(400).json({ error: "Invalid entry id" });
+    try {
+      const token = await getLaserficheToken(config);
+      const pages = await laserficheGetEntryPages(config, token, entryId);
+      const pageUrls = pages.map((p) => `/api/document/${entryId}/image/${p.pageNumber}`);
+      res.json({ entryId, pageCount: pages.length, pages: pageUrls });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/document/:entryId/image/:pageNumber", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const entryId = Number(req.params.entryId);
+    const pageNumber = Number(req.params.pageNumber);
+    if (!Number.isFinite(entryId) || !Number.isFinite(pageNumber)) {
+      return res.status(400).json({ error: "Invalid entry id or page number" });
+    }
+    try {
+      const token = await getLaserficheToken(config);
+      const result = await laserficheGetPageImage(config, token, entryId, pageNumber);
+      if (!result) return res.status(404).json({ error: "Page image not found" });
+      res.setHeader("Content-Type", result.contentType);
+      res.setHeader("Cache-Control", "public, max-age=300");
+      res.send(result.buffer);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

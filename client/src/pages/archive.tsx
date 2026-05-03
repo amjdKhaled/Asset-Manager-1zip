@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { type Document } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
-  Clock, Tag, Search, Filter, ChevronRight, Eye, Server, Database, User, Lock, Folder, FolderOpen, FileSearch
+  Clock, Tag, Search, ChevronRight, Folder, FolderOpen, ExternalLink
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -471,27 +472,44 @@ export default function ArchivePage() {
                         {files.map((file) => (
                           <div
                             key={file.id}
-                            className="w-full px-3 py-2 flex items-center justify-between gap-3 text-left hover:bg-muted cursor-pointer"
+                            className={cn(
+                              "w-full px-3 py-2 flex items-center justify-between gap-2 text-left hover:bg-muted",
+                              selectedEntryId === file.id && "bg-primary/5"
+                            )}
                             data-testid={`file-row-${file.id}`}
-                            onClick={() => openDocument(file.id)}
                           >
-                            <div className="min-w-0 text-left flex-1">
+                            <button
+                              type="button"
+                              className="min-w-0 text-left flex-1"
+                              onClick={() => openDocument(file.id)}
+                              data-testid={`button-metadata-${file.id}`}
+                            >
                               <p className="text-sm font-medium truncate">{file.name}</p>
                               <p className="text-xs text-muted-foreground truncate">{file.fullPath}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
+                            </button>
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openDocument(file.id);
-                                }}
-                                data-testid={`button-open-document-${file.id}`}
+                                className="h-7 text-xs px-2"
+                                onClick={() => openDocument(file.id)}
+                                data-testid={`button-metadata-panel-${file.id}`}
                               >
                                 Metadata
                               </Button>
+                              <Link href={`/lf-document/${file.id}`}>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs px-2 gap-1"
+                                  data-testid={`button-open-document-${file.id}`}
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                  Open
+                                </Button>
+                              </Link>
                             </div>
                           </div>
                         ))}

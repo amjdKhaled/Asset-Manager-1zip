@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import NotFound from "@/pages/not-found";
 import SearchPage from "@/pages/search";
 import DocumentPage from "@/pages/document";
+import LFDocumentPage from "@/pages/lf-document";
 import DashboardPage from "@/pages/dashboard";
 import AuditPage from "@/pages/audit";
 import ArchivePage from "@/pages/archive";
@@ -88,6 +89,7 @@ function Router() {
       <Route path="/archive" component={ArchivePage} />
       <Route path="/audit" component={AuditPage} />
       <Route path="/document/:id" component={DocumentPage} />
+      <Route path="/lf-document/:entryId" component={LFDocumentPage} />
       <Route path="/laserfiche/settings" component={LaserficheSettingsPage} />
       <Route path="/laserfiche" component={LaserfichePage} />
       <Route path="/chat" component={ChatPage} />

@@ -1,0 +1,152 @@
+I have a React + TypeScript application connected to Laserfiche Repository API.
+
+I want to enhance the Document Archive page by adding a full document viewer feature.
+
+========================
+1. UI CHANGES
+========================
+
+- In the Laserfiche Repository "Files" list:
+  Add a new button called "Open" beside the "Metadata" label for each document.
+
+Example:
+[ Document Name ]   [ Metadata ]   [ Open ]
+
+- The button should be styled consistently with existing UI.
+
+========================
+2. OPEN BUTTON BEHAVIOR
+========================
+
+When the user clicks "Open":
+
+- Navigate to a new page OR open a right-side panel (preferred)
+- Pass the document entryId
+
+========================
+3. BACKEND APIs (CREATE THESE)
+========================
+
+Create a backend using Node.js + Express.
+
+--------------------------------
+A) Get Document Details
+--------------------------------
+GET /api/document/:entryId
+
+- Call Laserfiche API:
+GET http://localhost/LFRepositoryAPI/v1/Repositories/{repoId}/Entries/{entryId}?$select=*
+
+- Return:
+{
+  id,
+  name,
+  path,
+  createdDate,
+  metadata (fields),
+  tags (see below),
+  imageUrl (see image API)
+}
+
+--------------------------------
+B) Get Tags
+--------------------------------
+Use existing API:
+GET http://localhost/LFRepositoryAPI/v1/Repositories/{repoId}/TagDefinitions
+
+- Map tag IDs (if present) to tag names
+- Attach tags to the document response
+
+--------------------------------
+C) IMAGE API (IMPORTANT)
+--------------------------------
+Create a new API:
+
+GET /api/document/:entryId/image
+
+This API should:
+
+1. Call Laserfiche API to get document content:
+   GET /v1/Repositories/{repoId}/Entries/{entryId}/Pages
+
+2. Return:
+- First page image OR
+- List of page image URLs
+
+Example response:
+{
+  pages: [
+    "http://localhost/api/document/19/image/1",
+    "http://localhost/api/document/19/image/2"
+  ]
+}
+
+--------------------------------
+D) Serve Image Endpoint
+--------------------------------
+GET /api/document/:entryId/image/:pageNumber
+
+- Fetch page binary from Laserfiche
+- Return as image (Content-Type: image/png or image/jpeg)
+
+========================
+4. FRONTEND (REACT)
+========================
+
+Create a Document Viewer component:
+
+Features:
+- Show document title
+- Show metadata fields (cleaned, no null objects)
+- Show tags (badges)
+- Show document image preview (pages)
+
+Example layout:
+
+--------------------------------
+| Document Name               |
+--------------------------------
+| [Tag1] [Tag2]              |
+--------------------------------
+| Metadata                   |
+| - Status: Approved         |
+| - Department: HR           |
+--------------------------------
+| Document Preview           |
+| [ Image Page 1 ]           |
+| [ Image Page 2 ]           |
+--------------------------------
+
+========================
+5. DATA CLEANING
+========================
+
+Fix metadata values:
+If field value is:
+{ "value": null, ... }
+
+Return empty string ""
+
+========================
+6. EXTRA FEATURES (BONUS)
+========================
+
+- Add loading spinner while fetching
+- Handle errors (document not found, no pages)
+- Cache document response
+- Support Arabic + English layout (RTL support)
+
+========================
+7. CODE REQUIREMENTS
+========================
+
+Provide:
+- Full React component (DocumentViewer.tsx)
+- Updated Files list with Open button
+- Express backend routes
+- Helper functions for:
+  - Fetching Laserfiche API
+  - Cleaning metadata
+  - Mapping tags
+
+Keep code clean, modular, and production-ready.
