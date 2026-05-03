@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, FileText, Tag, Calendar, User, FolderOpen,
-  Hash, File, ChevronLeft, ChevronRight, AlertTriangle, ImageOff
+  Hash, File, ChevronLeft, ChevronRight, AlertTriangle, ImageOff,
+  ServerOff, Settings, Info
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -86,7 +87,7 @@ function PageViewer({ entryId }: { entryId: number }) {
       <div className="flex flex-col items-center justify-center h-48 border border-dashed border-border rounded-md gap-2 text-muted-foreground">
         <ImageOff className="w-8 h-8" />
         <p className="text-sm">No pages available for preview</p>
-        {error && <p className="text-xs text-red-500">{(error as Error).message}</p>}
+        {error && <p className="text-xs text-red-500 text-center px-2">{friendlyError((error as Error).message)}</p>}
       </div>
     );
   }
@@ -142,6 +143,80 @@ function PageViewer({ entryId }: { entryId: number }) {
   );
 }
 
+/** Turn a raw backend error into a user-friendly one-liner */
+function friendlyError(msg: string): string {
+  if (!msg) return "Unknown error";
+  if (/not configured/i.test(msg)) return "Laserfiche is not configured. Go to LF Settings to set it up.";
+  if (/html page instead of json/i.test(msg) || /Unexpected token.*DOCTYPE/i.test(msg))
+    return "The Laserfiche server returned a login/error page. Check your server URL or authentication settings.";
+  if (/authentication failed/i.test(msg)) return "Laserfiche authentication failed. Verify your username and password.";
+  if (/fetch failed|ECONNREFUSED|ENOTFOUND/i.test(msg)) return "Cannot reach the Laserfiche server. Check the server URL and network.";
+  if (/404/i.test(msg)) return "This entry was not found in Laserfiche (Entry may have been moved or deleted).";
+  if (msg.length > 120) return msg.slice(0, 120) + "…";
+  return msg;
+}
+
+function ErrorState({ entryId, error }: { entryId: number; error: Error | null }) {
+  const msg = error ? error.message : "";
+  const isNotConfigured = /not configured/i.test(msg);
+  const isHtmlResponse = /html page instead of json/i.test(msg) || /Unexpected token.*DOCTYPE/i.test(msg);
+  const isAuthError = /authentication failed/i.test(msg);
+  const isNetworkError = /fetch failed|ECONNREFUSED|ENOTFOUND/i.test(msg);
+
+  const showSettingsLink = isNotConfigured || isHtmlResponse || isAuthError || isNetworkError;
+  const friendly = friendlyError(msg);
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center text-center px-6 gap-4">
+      {isNotConfigured || isNetworkError ? (
+        <ServerOff className="w-14 h-14 text-muted-foreground/30" />
+      ) : (
+        <AlertTriangle className="w-14 h-14 text-muted-foreground/30" />
+      )}
+
+      <div className="space-y-1.5">
+        <h2 className="text-lg font-semibold text-foreground">
+          {isNotConfigured ? "Laserfiche not configured" : "Could not load document"}
+        </h2>
+        <p className="text-sm text-muted-foreground max-w-sm">{friendly}</p>
+        {isHtmlResponse && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 max-w-sm mt-1 font-arabic" dir="rtl">
+            قد يحتاج الخادم إلى مصادقة Windows أو SSO
+          </p>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap justify-center">
+        <Link href="/archive">
+          <Button variant="outline" size="sm" data-testid="back-to-archive">
+            <ArrowLeft className="w-4 h-4 mr-1.5" />
+            Back to Archive
+          </Button>
+        </Link>
+        {showSettingsLink && (
+          <Link href="/laserfiche/settings">
+            <Button variant="default" size="sm" data-testid="go-to-lf-settings">
+              <Settings className="w-4 h-4 mr-1.5" />
+              LF Settings
+            </Button>
+          </Link>
+        )}
+      </div>
+
+      {!isNotConfigured && msg && (
+        <details className="max-w-sm w-full text-left">
+          <summary className="text-xs text-muted-foreground cursor-pointer flex items-center gap-1">
+            <Info className="w-3 h-3" /> Technical details
+          </summary>
+          <div className="mt-1 bg-muted rounded-md px-3 py-2 text-xs font-mono text-muted-foreground break-all">
+            {msg}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 export default function LFDocumentPage() {
   const params = useParams<{ entryId: string }>();
   const entryId = Number(params.entryId);
@@ -151,32 +226,30 @@ export default function LFDocumentPage() {
     queryFn: async () => {
       const res = await fetch(`/api/document/${entryId}`);
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Failed to load document: ${res.status}`);
+        const ct = res.headers.get("content-type") || "";
+        if (/json/i.test(ct)) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `Failed to load document: ${res.status}`);
+        }
+        throw new Error(`Server returned non-JSON response (status ${res.status}). Laserfiche may not be reachable.`);
+      }
+      const ct = res.headers.get("content-type") || "";
+      if (!/json/i.test(ct)) {
+        throw new Error(`Server returned HTML instead of document data. Verify the Laserfiche backend URL.`);
       }
       return res.json();
     },
-    enabled: Number.isFinite(entryId),
+    enabled: Number.isFinite(entryId) && entryId > 0,
   });
+
+  if (!Number.isFinite(entryId) || entryId <= 0) {
+    return <ErrorState entryId={0} error={new Error("Invalid document ID in URL.")} />;
+  }
 
   if (isLoading) return <DocumentDetailSkeleton />;
 
   if (error || !doc) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-center px-6 gap-4">
-        <AlertTriangle className="w-14 h-14 text-muted-foreground/30" />
-        <h2 className="text-lg font-semibold text-foreground">Document not found</h2>
-        <p className="text-sm text-muted-foreground max-w-sm">
-          {error ? (error as Error).message : "The requested document could not be loaded from Laserfiche."}
-        </p>
-        <Link href="/archive">
-          <Button variant="outline" data-testid="back-to-archive">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Archive
-          </Button>
-        </Link>
-      </div>
-    );
+    return <ErrorState entryId={entryId} error={error as Error | null} />;
   }
 
   const createdDate = doc.createdDate

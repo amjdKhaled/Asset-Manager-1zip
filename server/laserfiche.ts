@@ -324,6 +324,24 @@ export async function laserficheSimpleSearch(
   return data.entries || [];
 }
 
+/** Parse JSON from a Response, throwing a descriptive error if the body is HTML */
+async function safeJson<T>(res: Response, context: string): Promise<T> {
+  const ct = res.headers.get("content-type") || "";
+  const body = await res.text();
+  if (!/json/i.test(ct) || /^\s*</.test(body)) {
+    throw new Error(
+      `Laserfiche server returned an HTML page instead of JSON for ${context}. ` +
+      `This usually means the server is behind an SSO/proxy login wall, or the URL is wrong. ` +
+      `Server: ${res.url} — Status: ${res.status}`
+    );
+  }
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new Error(`Laserfiche API returned invalid JSON for ${context}: ${body.slice(0, 200)}`);
+  }
+}
+
 export async function laserficheGetEntry(
   config: LaserficheConfig,
   token: string,
@@ -333,14 +351,15 @@ export async function laserficheGetEntry(
 
   const res = await fetch(url, {
     method: "GET",
-    headers: { "Authorization": `Bearer ${token}` },
+    headers: { "Authorization": `Bearer ${token}`, Accept: "application/json" },
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to get Laserfiche entry ${entryId}: ${res.status}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get Laserfiche entry ${entryId}: ${res.status} ${text.slice(0, 200)}`);
   }
 
-  return await res.json() as LFEntry;
+  return await safeJson<LFEntry>(res, `entry ${entryId}`);
 }
 
 export async function laserficheGetEntryFields(
@@ -399,7 +418,7 @@ export async function laserficheGetEntryFieldsRaw(
     throw new Error(`Failed to get Laserfiche fields for entry ${entryId}: ${res.status} ${text.slice(0, 200)}`);
   }
 
-  const data = await res.json() as { value?: LFRawField[] };
+  const data = await safeJson<{ value?: LFRawField[] }>(res, `entry ${entryId} fields`);
   return data.value || [];
 }
 
@@ -450,7 +469,7 @@ export async function laserficheGetFolderChildren(
     throw new Error(`Failed to list folder children: ${res.status} ${text}`);
   }
 
-  const data = await res.json() as { value?: LFEntry[] } | LFEntry[];
+  const data = await safeJson<{ value?: LFEntry[] } | LFEntry[]>(res, `folder ${folderEntryId} children`);
   return Array.isArray(data) ? data : data.value || [];
 }
 
@@ -472,7 +491,7 @@ export async function laserficheListEntries(
     throw new Error(`Failed to list Laserfiche entries: ${res.status} ${text}`);
   }
 
-  const data = await res.json() as { value?: LFEntry[] };
+  const data = await safeJson<{ value?: LFEntry[] }>(res, `folder ${folderId} list`);
   return data.value || [];
 }
 

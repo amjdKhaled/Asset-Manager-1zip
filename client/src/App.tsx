@@ -64,7 +64,12 @@ function PageHeader() {
   };
 
   const isDocPage = location.startsWith("/document/");
-  const info = isDocPage ? { title: "Document Detail", titleAr: "تفاصيل الوثيقة" } : (pageInfo[location] || pageInfo["/"]);
+  const isLFDocPage = location.startsWith("/lf-document/");
+  const info = isLFDocPage
+    ? { title: "Laserfiche Document", titleAr: "وثيقة Laserfiche" }
+    : isDocPage
+    ? { title: "Document Detail", titleAr: "تفاصيل الوثيقة" }
+    : (pageInfo[location] || pageInfo["/"]);
 
   return (
     <header className="flex items-center justify-between px-4 py-2 border-b border-border bg-background flex-shrink-0 h-12">
