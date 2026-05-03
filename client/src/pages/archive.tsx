@@ -308,42 +308,53 @@ export default function ArchivePage() {
   const fieldEntries = details?.value || [];
   const fieldDefinitions = details?.fieldDefinitions || [];
 
+  const getLFClientConfig = async () => {
+    console.log("[Laserfiche] Getting client config via /api/laserfiche/status");
+    const res = await fetch(`/api/laserfiche/status?_t=${Date.now()}`, {
+      credentials: "include",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) {
+      throw new Error("Server returned HTML instead of JSON — check backend is running.");
+    }
+    const body = await res.json() as { connected?: boolean; configured?: boolean; serverUrl?: string; repositoryId?: string; token?: string; message?: string };
+    if (!body.configured) throw new Error("Laserfiche is not configured. Go to LF Settings.");
+    if (!body.connected || !body.token) throw new Error(body.message || "Could not connect to Laserfiche.");
+    return { serverUrl: body.serverUrl!, repositoryId: body.repositoryId!, token: body.token! };
+  };
+
   const loadLaserficheFields = async (entryId: number) => {
-    const endpoint = `/api/laserfiche/entries/${entryId}/fields`;
-
     try {
-      console.log("[Laserfiche] Fetching metadata", { entryId, endpoint });
-      const res = await fetch(endpoint, {
-        headers: {
-          Accept: "application/json",
-        },
-        credentials: "include",
+      const cfg = await getLFClientConfig();
+      const url = `${cfg.serverUrl}/v1/Repositories/${cfg.repositoryId}/Entries/${entryId}/fields?formatValue=false`;
+      console.log("[Laserfiche] Fetching fields directly:", url);
+
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${cfg.token}`, Accept: "application/json" },
       });
+      const ct = res.headers.get("content-type") || "";
+      console.log("[Laserfiche] Fields response:", res.status, ct);
 
-        const contentType = res.headers.get("content-type") || "";
-        console.log("[Laserfiche] Metadata response status", { entryId, endpoint, status: res.status, contentType });
-        const payload = await res.json().catch(() => null);
+      if (res.status === 401) throw new Error("Unauthorized (401) — re-save credentials in LF Settings.");
+      if (res.status === 404) throw new Error("Entry not found (404).");
+      if (!ct.includes("application/json")) throw new Error(`Laserfiche returned HTML (status ${res.status}) — wrong endpoint or server down.`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(body.message || `Laserfiche error ${res.status}`);
+      }
 
-        if (!res.ok) {
-          if (res.status === 401) {
-            throw new Error("Failed to load Laserfiche fields: 401 Unauthorized from Laserfiche. Re-open Laserfiche Settings and save valid username/password to refresh server token.");
-          }
-          throw new Error(payload?.error || `Failed to load Laserfiche fields: ${res.status}`);
-        }
-
-        if (!contentType.includes("application/json") || !payload || !Array.isArray(payload.value)) {
-          throw new Error("Metadata API returned HTML/non-JSON (frontend route hit). Verify VITE_BACKEND_URL points to backend API server.");
-        }
-
-      console.log("[Laserfiche] Metadata payload received", { entryId, count: payload.value.length });
+      const payload = await res.json() as { value?: LaserficheDetails["value"]; "@odata.context"?: string };
+      console.log("[Laserfiche] Fields received:", payload.value?.length ?? 0, "fields");
       return {
-        value: payload.value,
-        fieldDefinitions: payload.fieldDefinitions || [],
+        value: payload.value || [],
+        fieldDefinitions: [],
       } as LaserficheDetails;
     } catch (error) {
-      const lastError = error instanceof Error ? error.message : "Could not load metadata.";
-      console.error("[Laserfiche] Metadata fetch failed", { entryId, endpoint, error: lastError });
-      throw new Error(`${lastError} Root cause: backend Laserfiche token acquisition failed or expired.`);
+      const msg = error instanceof Error ? error.message : "Could not load metadata.";
+      console.error("[Laserfiche] Fields fetch failed:", msg);
+      throw new Error(msg);
     }
   };
 
