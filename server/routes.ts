@@ -586,5 +586,65 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  const analyzeDocumentSchema = z.object({
+    entryId: z.number().int().positive(),
+    name: z.string().optional(),
+    fullPath: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  });
+
+  app.post("/api/analyze-document", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) {
+      return res.status(503).json({ error: "Laserfiche not configured" });
+    }
+
+    const parsed = analyzeDocumentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+    }
+
+    try {
+      const token = await getLaserficheToken(config);
+      const { entryId } = parsed.data;
+      const [entry, fields] = await Promise.all([
+        laserficheGetEntry(config, token, entryId),
+        laserficheGetEntryFields(config, token, entryId),
+      ]);
+
+      const metadata = { ...(parsed.data.metadata || {}), ...fields };
+      const content = metadata["Content"] || metadata["Text"] || metadata["Body"] || "";
+
+      const summary = await summarizeDocumentContent({
+        title: entry.name,
+        titleAr: "",
+        department: String(metadata["Department"] || "Laserfiche"),
+        departmentAr: "",
+        classification: String(metadata["Classification"] || "Official"),
+        securityLevel: String(metadata["Security Level"] || "Internal"),
+        docType: entry.extension?.toUpperCase() || "Document",
+        docTypeAr: "",
+        author: entry.creator || "",
+        authorAr: "",
+        workflowStatus: String(metadata["Workflow Status"] || "Active"),
+        tags: Object.values(metadata).filter(Boolean).map(String).slice(0, 10),
+        fullPath: entry.fullPath || parsed.data.fullPath || entry.name,
+        entryId,
+      });
+
+      res.json({
+        entryId,
+        title: entry.name,
+        createdDate: entry.creationTime || null,
+        fullPath: entry.fullPath,
+        metadata,
+        content,
+        summary,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Document analysis failed" });
+    }
+  });
+
   return httpServer;
 }

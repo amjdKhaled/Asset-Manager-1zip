@@ -10,7 +10,6 @@ import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
   Clock, Tag, Search, Filter, ChevronRight, Eye, Server, Database, User, Lock, Folder, FolderOpen, FileSearch
 } from "lucide-react";
-import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 
 const classificationColor = (cls: string) => {
@@ -149,6 +148,49 @@ type LaserficheSummary = {
   contentAr: string;
 };
 
+type DocumentAnalysis = {
+  entryId: number;
+  title: string;
+  createdDate: string | null;
+  fullPath: string;
+  metadata: Record<string, unknown>;
+  content: string;
+  summary: LaserficheSummary;
+};
+
+
+type LaserficheRawFieldValue = {
+  value?: unknown;
+  [key: string]: unknown;
+};
+
+function normalizeLaserficheFieldValue(input: unknown): string {
+  if (input === null || input === undefined) return "";
+
+  if (typeof input === "object") {
+    const raw = input as LaserficheRawFieldValue;
+    if ("value" in raw) {
+      if (raw.value === null || raw.value === undefined) return "";
+      return normalizeLaserficheFieldValue(raw.value);
+    }
+
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      return "";
+    }
+  }
+
+  if (input instanceof Date) return input.toISOString();
+  return String(input);
+}
+
+function formatLaserficheFieldValues(values: unknown[]): string {
+  return values
+    .map((item) => normalizeLaserficheFieldValue(item))
+    .filter((value) => value !== "")
+    .join(", ");
+}
 
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
@@ -160,6 +202,9 @@ export default function ArchivePage() {
   const [details, setDetails] = useState<LaserficheDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [analysisByEntryId, setAnalysisByEntryId] = useState<Record<number, DocumentAnalysis>>({});
+  const [analysisLoadingEntryId, setAnalysisLoadingEntryId] = useState<number | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const { data: docs, isLoading } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
@@ -224,23 +269,55 @@ export default function ArchivePage() {
     }
   };
 
+  const analyzeDocument = async (file: LaserfichePreview["children"][number]) => {
+    setSelectedEntryId(file.id);
+    setAnalysisError(null);
+    if (analysisByEntryId[file.id]) return;
+
+    setAnalysisLoadingEntryId(file.id);
+    try {
+      const metadata = details?.value?.reduce<Record<string, string>>((acc, field) => {
+        const formatted = formatLaserficheFieldValues(field.values || []);
+        if (formatted) acc[field.fieldName] = formatted;
+        return acc;
+      }, {}) || {};
+
+      const res = await fetch("/api/analyze-document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          entryId: file.id,
+          name: file.name,
+          fullPath: file.fullPath,
+          metadata,
+        }),
+      });
+
+      const payload = await res.json().catch(() => null);
+      if (!res.ok || !payload) throw new Error(payload?.error || `Analyze failed: ${res.status}`);
+      setAnalysisByEntryId((current) => ({ ...current, [file.id]: payload as DocumentAnalysis }));
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : "Document analysis failed.");
+    } finally {
+      setAnalysisLoadingEntryId(null);
+    }
+  };
+
   const fieldEntries = details?.value || [];
   const fieldDefinitions = details?.fieldDefinitions || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const endpoints = [`http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`];
+    const endpoint = `/api/laserfiche/entries/${entryId}/fields`;
 
-    let lastError = "Could not load metadata.";
-
-    for (const endpoint of endpoints) {
-      try {
-        console.log("[Laserfiche] Fetching metadata", { entryId, endpoint });
-        const res = await fetch(endpoint, {
-          headers: {
-            Accept: "application/json",
-          },
-          credentials: "include",
-        });
+    try {
+      console.log("[Laserfiche] Fetching metadata", { entryId, endpoint });
+      const res = await fetch(endpoint, {
+        headers: {
+          Accept: "application/json",
+        },
+        credentials: "include",
+      });
 
         const contentType = res.headers.get("content-type") || "";
         console.log("[Laserfiche] Metadata response status", { entryId, endpoint, status: res.status, contentType });
@@ -257,18 +334,16 @@ export default function ArchivePage() {
           throw new Error("Metadata API returned HTML/non-JSON (frontend route hit). Verify VITE_BACKEND_URL points to backend API server.");
         }
 
-        console.log("[Laserfiche] Metadata payload received", { entryId, count: payload.value.length });
-        return {
-          value: payload.value,
-          fieldDefinitions: [],
-        } as LaserficheDetails;
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : "Could not load metadata.";
-        console.error("[Laserfiche] Metadata fetch failed", { entryId, endpoint, error: lastError });
-      }
+      console.log("[Laserfiche] Metadata payload received", { entryId, count: payload.value.length });
+      return {
+        value: payload.value,
+        fieldDefinitions: payload.fieldDefinitions || [],
+      } as LaserficheDetails;
+    } catch (error) {
+      const lastError = error instanceof Error ? error.message : "Could not load metadata.";
+      console.error("[Laserfiche] Metadata fetch failed", { entryId, endpoint, error: lastError });
+      throw new Error(`${lastError} Root cause: backend Laserfiche token acquisition failed or expired.`);
     }
-
-    throw new Error(`${lastError} Root cause: direct Laserfiche API authorization (cookie/session or token) is missing/expired.`);
   };
 
   return (
@@ -417,20 +492,19 @@ export default function ArchivePage() {
                               >
                                 Metadata
                               </Button>
-                              <Link href={`/document/${file.id}`}>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openDocument(file.id);
-                                  }}
-                                  data-testid={`button-view-document-${file.id}`}
-                                >
-                                  Open
-                                </Button>
-                              </Link>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void analyzeDocument(file);
+                                }}
+                                disabled={analysisLoadingEntryId === file.id}
+                                data-testid={`button-analyze-document-${file.id}`}
+                              >
+                                🤖 Analyze
+                              </Button>
                             </div>
                           </div>
                         ))}
@@ -454,7 +528,7 @@ export default function ArchivePage() {
                                 <div key={field.fieldId} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
                                   <span className="text-muted-foreground shrink-0">{field.fieldName}</span>
                                   <span className="text-foreground text-right break-all">
-                                    {(field.values || []).map((item: any) => item?.value ?? JSON.stringify(item)).filter(Boolean).join(", ") || "—"}
+                                    {formatLaserficheFieldValues(field.values || []) || "—"}
                                   </span>
                                 </div>
                               ))}
@@ -474,6 +548,28 @@ export default function ArchivePage() {
                           </div>
                         ) : (
                           <div className="text-xs text-muted-foreground">Select a file to view document details.</div>
+                        )}
+                      </div>
+                    )}
+                    {selectedEntryId && (
+                      <div className="border border-border rounded-md p-3 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">🤖</span>
+                          <p className="text-sm font-semibold">AI Analysis</p>
+                        </div>
+                        {analysisLoadingEntryId === selectedEntryId ? (
+                          <Skeleton className="h-24 w-full" />
+                        ) : analysisError ? (
+                          <div className="text-xs text-red-600">{analysisError}</div>
+                        ) : analysisByEntryId[selectedEntryId] ? (
+                          <div className="space-y-2 text-xs">
+                            <p className="text-muted-foreground">{analysisByEntryId[selectedEntryId].summary.content}</p>
+                            {analysisByEntryId[selectedEntryId].content ? null : (
+                              <p className="text-amber-600">No document content was available; summary is based on metadata.</p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">Click Analyze to run AI analysis for this document.</div>
                         )}
                       </div>
                     )}
