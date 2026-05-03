@@ -197,29 +197,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.get("/api/laserfiche/get-token", async (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    const config = getLaserficheConfig();
-    if (!config) {
-      return res.status(503).json({
-        error: "Laserfiche not configured",
-        hint: "Go to LF Settings and enter your Laserfiche server URL, repository, username and password.",
-      });
-    }
-    try {
-      const token = await getLaserficheToken(config);
-      return res.json({
-        serverUrl: config.serverUrl,
-        repositoryId: config.repositoryId,
-        token,
-      });
-    } catch (err: any) {
-      return res.status(502).json({ error: `Could not authenticate with Laserfiche: ${err.message}` });
-    }
-  });
-
   app.get("/api/laserfiche/status", async (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
     const config = getLaserficheConfig();
     if (!config) {
       return res.json({
@@ -237,7 +215,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         serverUrl: config.serverUrl,
         repositoryId: config.repositoryId,
         username: config.username,
-        token,
         message: "Successfully connected to Laserfiche",
       });
     } catch (err: any) {
