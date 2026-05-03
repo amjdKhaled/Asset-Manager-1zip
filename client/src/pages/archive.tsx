@@ -206,6 +206,7 @@ export default function ArchivePage() {
   const [analysisByEntryId, setAnalysisByEntryId] = useState<Record<number, DocumentAnalysis>>({});
   const [analysisLoadingEntryId, setAnalysisLoadingEntryId] = useState<number | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [edocLoadingId, setEdocLoadingId] = useState<number | null>(null);
 
   const { data: docs, isLoading } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
@@ -267,6 +268,32 @@ export default function ArchivePage() {
       setDetailsError(error instanceof Error ? error.message : "Could not load Laserfiche fields.");
     } finally {
       setDetailsLoading(false);
+    }
+  };
+
+  const openEdoc = async (entryId: number) => {
+    setEdocLoadingId(entryId);
+    try {
+      const res = await fetch(`/api/laserfiche/entries/${entryId}/edoc`, {
+        headers: { Accept: "application/json" },
+        credentials: "include",
+      });
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("Laserfiche returned HTML (authentication issue)");
+      }
+      const payload = await res.json();
+      if (!res.ok) {
+        if (res.status === 401) throw new Error("Session expired or unauthorized");
+        throw new Error(payload?.error || `Could not open document (${res.status})`);
+      }
+      if (!payload?.url) throw new Error("No document URL returned from server");
+      window.open(payload.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      console.error("[Laserfiche] openEdoc failed", err);
+      alert(err instanceof Error ? err.message : "Could not open document.");
+    } finally {
+      setEdocLoadingId(null);
     }
   };
 
@@ -498,18 +525,18 @@ export default function ArchivePage() {
                               >
                                 Metadata
                               </Button>
-                              <Link href={`/lf-document/${file.id}`}>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 text-xs px-2 gap-1"
-                                  data-testid={`button-open-document-${file.id}`}
-                                >
-                                  <ExternalLink className="w-3 h-3" />
-                                  Open
-                                </Button>
-                              </Link>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs px-2 gap-1"
+                                disabled={edocLoadingId === file.id}
+                                onClick={() => openEdoc(file.id)}
+                                data-testid={`button-open-document-${file.id}`}
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                {edocLoadingId === file.id ? "Opening…" : "Open"}
+                              </Button>
                             </div>
                           </div>
                         ))}

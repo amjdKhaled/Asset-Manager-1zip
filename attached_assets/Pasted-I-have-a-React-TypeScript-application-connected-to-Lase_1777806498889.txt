@@ -1,0 +1,147 @@
+I have a React + TypeScript application connected to Laserfiche.
+
+Currently I have a problem:
+
+- The frontend is calling Laserfiche API directly using:
+  http://localhost/LFRepositoryAPI/...
+
+- This causes:
+  ❌ 401 Unauthorized (token not included)
+  ❌ HTML login page returned instead of JSON
+  ❌ "Unexpected token < !DOCTYPE" errors
+  ❌ Document viewer fails
+
+================================
+GOAL
+================================
+
+Fix the architecture and implement a proper "Open Document" feature using:
+http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/{entryId}/Laserfiche.Repository.Document/edoc
+
+================================
+REQUIREMENTS
+================================
+
+1. ❗ REMOVE DIRECT CALLS FROM FRONTEND
+
+- Remove ALL fetch calls like:
+  http://localhost/LFRepositoryAPI/...
+
+- Frontend must ONLY call backend:
+  /api/laserfiche/...
+
+================================
+2. ✅ CREATE BACKEND PROXY (IMPORTANT)
+================================
+
+Create Express routes:
+
+--------------------------------
+A) Get Metadata
+--------------------------------
+GET /api/laserfiche/entries/:entryId/fields
+
+- Call:
+  /v1/Repositories/{repoId}/Entries/{entryId}/fields?formatValue=false
+
+- Use server-side token (getLaserficheToken)
+- Return clean metadata
+- DO NOT remove fieldDefinitions (keep them)
+
+--------------------------------
+B) Get Document EDoc URL
+--------------------------------
+GET /api/laserfiche/entries/:entryId/edoc
+
+- Return:
+{
+  "url": "http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/{entryId}/Laserfiche.Repository.Document/edoc"
+}
+
+- Do NOT call edoc from frontend directly without authentication handling
+
+================================
+3. ✅ FIX FRONTEND (archive.tsx)
+================================
+
+A) Replace this WRONG code:
+
+const endpoints = [
+  `http://localhost/LFRepositoryAPI/...`
+];
+
+👉 WITH:
+
+fetch(`/api/laserfiche/entries/${entryId}/fields`)
+
+--------------------------------
+B) FIX metadata response handling
+
+DO NOT do this:
+fieldDefinitions: []
+
+👉 Instead:
+return actual fieldDefinitions from API
+
+--------------------------------
+C) FIX Open Button behavior
+
+When user clicks "Open":
+
+1. Call:
+   /api/laserfiche/entries/:entryId/edoc
+
+2. Open document using:
+
+Option 1 (recommended):
+👉 open in iframe viewer
+
+<iframe src={edocUrl} />
+
+Option 2:
+👉 open in new tab
+
+window.open(edocUrl, "_blank")
+
+================================
+4. ✅ HANDLE AUTH PROPERLY
+================================
+
+- Backend must attach Authorization token
+- Frontend must NOT handle token
+
+================================
+5. ✅ ADD RESPONSE VALIDATION
+================================
+
+Before parsing response:
+
+if content-type is NOT application/json:
+→ throw error:
+"Laserfiche returned HTML (authentication issue)"
+
+================================
+6. ✅ ERROR HANDLING
+================================
+
+- 401 → "Session expired or unauthorized"
+- HTML response → "Wrong API or authentication"
+- No fields → show fieldDefinitions fallback
+
+================================
+7. EXPECTED RESULT
+================================
+
+- Metadata loads correctly
+- No more 401 errors
+- No HTML response issues
+- Open button works
+- Document opens using EDoc viewer
+
+================================
+IMPORTANT
+================================
+
+- Do NOT change UI design
+- Fix ONLY API architecture and data flow
+- Ensure backend is the only layer calling Laserfiche

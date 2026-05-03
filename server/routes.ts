@@ -702,6 +702,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── GET /api/laserfiche/entries/:entryId/edoc ────────────────────────────
+  // Returns the backend-proxy URL for the electronic document.
+  // The frontend must NEVER call the raw Laserfiche URL directly — it uses
+  // this endpoint to discover the correct backend URL (which handles auth).
+  app.get("/api/laserfiche/entries/:entryId/edoc", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) return res.status(400).json({ error: "Invalid entry id" });
+
+    try {
+      // Verify the entry actually has an electronic document before returning URL.
+      // We call the LF API with a HEAD-like approach: if it 404s we know there's no edoc.
+      const token = await getLaserficheToken(config);
+      const lfEdocUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/Laserfiche.Repository.Document/edoc`;
+      const probe = await fetch(lfEdocUrl, {
+        method: "HEAD",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (probe.status === 404) {
+        return res.status(404).json({ error: "No electronic document attached to this entry." });
+      }
+
+      if (!probe.ok && probe.status !== 405) {
+        // 405 Method Not Allowed means HEAD isn't supported but GET might still work — allow it
+        return res.status(probe.status).json({ error: `Laserfiche returned ${probe.status} for this entry.` });
+      }
+
+      // Return the backend proxy URL — the frontend never needs the raw LF address.
+      const proxyUrl = `/api/document/${entryId}/edoc`;
+      res.json({ entryId, url: proxyUrl });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/api/laserfiche/entries/:entryId/summarize", async (req, res) => {
     const config = getLaserficheConfig();
     if (!config) {
