@@ -150,6 +150,39 @@ type LaserficheSummary = {
 };
 
 
+type LaserficheRawFieldValue = {
+  value?: unknown;
+  [key: string]: unknown;
+};
+
+function normalizeLaserficheFieldValue(input: unknown): string {
+  if (input === null || input === undefined) return "";
+
+  if (typeof input === "object") {
+    const raw = input as LaserficheRawFieldValue;
+    if ("value" in raw) {
+      if (raw.value === null || raw.value === undefined) return "";
+      return normalizeLaserficheFieldValue(raw.value);
+    }
+
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      return "";
+    }
+  }
+
+  if (input instanceof Date) return input.toISOString();
+  return String(input);
+}
+
+function formatLaserficheFieldValues(values: unknown[]): string {
+  return values
+    .map((item) => normalizeLaserficheFieldValue(item))
+    .filter((value) => value !== "")
+    .join(", ");
+}
+
 export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -449,7 +482,7 @@ export default function ArchivePage() {
                                 <div key={field.fieldId} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
                                   <span className="text-muted-foreground shrink-0">{field.fieldName}</span>
                                   <span className="text-foreground text-right break-all">
-                                    {(field.values || []).map((item: any) => item?.value ?? JSON.stringify(item)).filter(Boolean).join(", ") || "—"}
+                                    {formatLaserficheFieldValues(field.values || []) || "—"}
                                   </span>
                                 </div>
                               ))}
