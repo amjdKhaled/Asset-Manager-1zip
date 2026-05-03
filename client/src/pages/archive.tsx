@@ -148,6 +148,49 @@ type LaserficheSummary = {
   contentAr: string;
 };
 
+type DocumentAnalysis = {
+  entryId: number;
+  title: string;
+  createdDate: string | null;
+  fullPath: string;
+  metadata: Record<string, unknown>;
+  content: string;
+  summary: LaserficheSummary;
+};
+
+
+type LaserficheRawFieldValue = {
+  value?: unknown;
+  [key: string]: unknown;
+};
+
+function normalizeLaserficheFieldValue(input: unknown): string {
+  if (input === null || input === undefined) return "";
+
+  if (typeof input === "object") {
+    const raw = input as LaserficheRawFieldValue;
+    if ("value" in raw) {
+      if (raw.value === null || raw.value === undefined) return "";
+      return normalizeLaserficheFieldValue(raw.value);
+    }
+
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      return "";
+    }
+  }
+
+  if (input instanceof Date) return input.toISOString();
+  return String(input);
+}
+
+function formatLaserficheFieldValues(values: unknown[]): string {
+  return values
+    .map((item) => normalizeLaserficheFieldValue(item))
+    .filter((value) => value !== "")
+    .join(", ");
+}
 
 type LaserficheRawFieldValue = {
   value?: unknown;
@@ -192,6 +235,9 @@ export default function ArchivePage() {
   const [details, setDetails] = useState<LaserficheDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [analysisByEntryId, setAnalysisByEntryId] = useState<Record<number, DocumentAnalysis>>({});
+  const [analysisLoadingEntryId, setAnalysisLoadingEntryId] = useState<number | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const { data: docs, isLoading } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
@@ -253,6 +299,41 @@ export default function ArchivePage() {
       setDetailsError(error instanceof Error ? error.message : "Could not load Laserfiche fields.");
     } finally {
       setDetailsLoading(false);
+    }
+  };
+
+  const analyzeDocument = async (file: LaserfichePreview["children"][number]) => {
+    setSelectedEntryId(file.id);
+    setAnalysisError(null);
+    if (analysisByEntryId[file.id]) return;
+
+    setAnalysisLoadingEntryId(file.id);
+    try {
+      const metadata = details?.value?.reduce<Record<string, string>>((acc, field) => {
+        const formatted = formatLaserficheFieldValues(field.values || []);
+        if (formatted) acc[field.fieldName] = formatted;
+        return acc;
+      }, {}) || {};
+
+      const res = await fetch("/api/analyze-document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          entryId: file.id,
+          name: file.name,
+          fullPath: file.fullPath,
+          metadata,
+        }),
+      });
+
+      const payload = await res.json().catch(() => null);
+      if (!res.ok || !payload) throw new Error(payload?.error || `Analyze failed: ${res.status}`);
+      setAnalysisByEntryId((current) => ({ ...current, [file.id]: payload as DocumentAnalysis }));
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : "Document analysis failed.");
+    } finally {
+      setAnalysisLoadingEntryId(null);
     }
   };
 
@@ -487,6 +568,28 @@ export default function ArchivePage() {
                           </div>
                         ) : (
                           <div className="text-xs text-muted-foreground">Select a file to view document details.</div>
+                        )}
+                      </div>
+                    )}
+                    {selectedEntryId && (
+                      <div className="border border-border rounded-md p-3 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">🤖</span>
+                          <p className="text-sm font-semibold">AI Analysis</p>
+                        </div>
+                        {analysisLoadingEntryId === selectedEntryId ? (
+                          <Skeleton className="h-24 w-full" />
+                        ) : analysisError ? (
+                          <div className="text-xs text-red-600">{analysisError}</div>
+                        ) : analysisByEntryId[selectedEntryId] ? (
+                          <div className="space-y-2 text-xs">
+                            <p className="text-muted-foreground">{analysisByEntryId[selectedEntryId].summary.content}</p>
+                            {analysisByEntryId[selectedEntryId].content ? null : (
+                              <p className="text-amber-600">No document content was available; summary is based on metadata.</p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">Click Analyze to run AI analysis for this document.</div>
                         )}
                       </div>
                     )}
