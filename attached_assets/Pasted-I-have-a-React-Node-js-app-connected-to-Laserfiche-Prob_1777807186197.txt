@@ -1,0 +1,114 @@
+I have a React + Node.js app connected to Laserfiche.
+
+Problem:
+When clicking "Open", I get:
+"Laserfiche returned HTML (authentication issue)"
+
+Reason:
+The frontend is opening Laserfiche edoc URL directly without authentication.
+
+================================
+GOAL
+================================
+
+Implement a secure token-based proxy (gateway) so ALL requests pass through backend.
+
+Token should act like a "door":
+- Any request must go through backend
+- Backend attaches token
+- Then forwards request to Laserfiche
+
+================================
+REQUIREMENTS
+================================
+
+1. ❗ DO NOT OPEN LASERFICHE DIRECTLY FROM FRONTEND
+
+Remove:
+window.open("http://localhost/LFRepositoryAPI/.../edoc")
+
+================================
+2. ✅ CREATE BACKEND PROXY FOR EDOC
+================================
+
+Create route:
+
+GET /api/laserfiche/entries/:entryId/open
+
+Inside:
+
+1. Get access token using:
+getLaserficheToken()
+
+2. Call Laserfiche:
+
+GET http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/{entryId}/Laserfiche.Repository.Document/edoc
+
+Headers:
+Authorization: Bearer {token}
+
+3. Return response as stream:
+
+- Preserve content-type (text/html)
+- Pipe response to client
+
+Example (Node.js):
+
+const response = await fetch(url, {
+  headers: {
+    Authorization: `Bearer ${token}`
+  }
+});
+
+res.setHeader("Content-Type", response.headers.get("content-type"));
+response.body.pipe(res);
+
+================================
+3. ✅ FRONTEND FIX
+================================
+
+When clicking "Open":
+
+DO THIS:
+
+window.open(`/api/laserfiche/entries/${entryId}/open`, "_blank");
+
+================================
+4. ✅ TOKEN AS DOOR CONCEPT
+================================
+
+ALL these must go through backend:
+
+- metadata
+- fields
+- document open (edoc)
+- images
+
+Frontend must NEVER call:
+http://localhost/LFRepositoryAPI directly
+
+================================
+5. ✅ ERROR HANDLING
+================================
+
+If token fails:
+→ return 401 JSON
+
+If Laserfiche returns HTML login:
+→ show "Authentication failed"
+
+================================
+EXPECTED RESULT
+================================
+
+- Clicking "Open" opens document correctly
+- No HTML login page
+- No authentication error
+- Token is always used automatically
+
+================================
+IMPORTANT
+================================
+
+Do NOT change UI
+Fix ONLY API flow and authentication handling

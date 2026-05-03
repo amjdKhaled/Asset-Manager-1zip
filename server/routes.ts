@@ -703,40 +703,69 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── GET /api/laserfiche/entries/:entryId/edoc ────────────────────────────
-  // Returns the backend-proxy URL for the electronic document.
-  // The frontend must NEVER call the raw Laserfiche URL directly — it uses
-  // this endpoint to discover the correct backend URL (which handles auth).
+  // Returns the backend-proxy URL for the electronic document (JSON).
   app.get("/api/laserfiche/entries/:entryId/edoc", async (req, res) => {
     const config = getLaserficheConfig();
     if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
-
     const entryId = Number(req.params.entryId);
     if (!Number.isFinite(entryId)) return res.status(400).json({ error: "Invalid entry id" });
+    res.json({ entryId, url: `/api/laserfiche/entries/${entryId}/open` });
+  });
+
+  // ── GET /api/laserfiche/entries/:entryId/open ─────────────────────────────
+  // Streams the actual Laserfiche edoc file through the backend with auth.
+  // The browser navigates directly to this URL — no intermediate JSON step.
+  // Token is fetched server-side; the frontend never touches a raw LF URL.
+  app.get("/api/laserfiche/entries/:entryId/open", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) {
+      return res.status(503).send("Laserfiche is not configured on this server.");
+    }
+
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) {
+      return res.status(400).send("Invalid entry id.");
+    }
 
     try {
-      // Verify the entry actually has an electronic document before returning URL.
-      // We call the LF API with a HEAD-like approach: if it 404s we know there's no edoc.
       const token = await getLaserficheToken(config);
-      const lfEdocUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/Laserfiche.Repository.Document/edoc`;
-      const probe = await fetch(lfEdocUrl, {
-        method: "HEAD",
-        headers: { Authorization: `Bearer ${token}` },
+      const lfUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/Laserfiche.Repository.Document/edoc`;
+
+      const lfRes = await fetch(lfUrl, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "*/*" },
       });
 
-      if (probe.status === 404) {
-        return res.status(404).json({ error: "No electronic document attached to this entry." });
+      if (!lfRes.ok) {
+        const text = await lfRes.text();
+        const isHtml = /<!DOCTYPE|<html/i.test(text);
+        if (lfRes.status === 401 || isHtml) {
+          return res.status(401).send("Authentication failed — Laserfiche rejected the token. Re-save your credentials in LF Settings.");
+        }
+        if (lfRes.status === 404) {
+          return res.status(404).send("No electronic document is attached to this entry.");
+        }
+        return res.status(lfRes.status).send(`Laserfiche returned an error: ${lfRes.status}`);
       }
 
-      if (!probe.ok && probe.status !== 405) {
-        // 405 Method Not Allowed means HEAD isn't supported but GET might still work — allow it
-        return res.status(probe.status).json({ error: `Laserfiche returned ${probe.status} for this entry.` });
+      const contentType = lfRes.headers.get("content-type") || "application/octet-stream";
+      const disposition = lfRes.headers.get("content-disposition") || "";
+      const contentLength = lfRes.headers.get("content-length");
+
+      // If LF returned an HTML login page with a 200 status, catch it here
+      if (/text\/html/i.test(contentType)) {
+        return res.status(401).send("Authentication failed — Laserfiche returned a login page instead of the document. Re-save your credentials in LF Settings.");
       }
 
-      // Return the backend proxy URL — the frontend never needs the raw LF address.
-      const proxyUrl = `/api/document/${entryId}/edoc`;
-      res.json({ entryId, url: proxyUrl });
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Content-Disposition", disposition || `inline; filename="document-${entryId}"`);
+      if (contentLength) res.setHeader("Content-Length", contentLength);
+      res.setHeader("Cache-Control", "private, max-age=300");
+
+      // Stream the file body directly to the client
+      const { Readable } = await import("stream");
+      Readable.fromWeb(lfRes.body as any).pipe(res);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).send(`Server error: ${err.message}`);
     }
   });
 
