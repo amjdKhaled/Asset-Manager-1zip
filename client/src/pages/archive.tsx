@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { type Document } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
@@ -307,12 +308,12 @@ export default function ArchivePage() {
     }
   };
 
+  const [, navigate] = useLocation();
+
   const openViewer = (file: LaserficheFileEntry) => {
-    setViewerEntry(file);
-    // Also load metadata for this entry if not already loaded
-    if (selectedEntryId !== file.id) {
-      openDocument(file.id);
-    }
+    const ext = (file.extension || "").toLowerCase().replace(/^\./, "");
+    const name = encodeURIComponent(file.name || `document-${file.id}`);
+    navigate(`/viewer/${file.id}?name=${name}&ext=${ext}`);
   };
 
   const closeViewer = () => setViewerEntry(null);

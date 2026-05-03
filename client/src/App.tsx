@@ -16,6 +16,7 @@ import ArchivePage from "@/pages/archive";
 import LaserfichePage from "@/pages/laserfiche";
 import LaserficheSettingsPage from "@/pages/laserfiche-settings";
 import ChatPage from "@/pages/chat";
+import DocumentViewerPage from "@/pages/viewer";
 import { Moon, Sun } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -103,26 +104,44 @@ function Router() {
   );
 }
 
-function App() {
+function AppShell() {
+  const [location] = useLocation();
+  const isViewer = location.startsWith("/viewer/");
+
+  // Full-screen viewer — no sidebar, no header
+  if (isViewer) {
+    return (
+      <Switch>
+        <Route path="/viewer/:entryId" component={DocumentViewerPage} />
+      </Switch>
+    );
+  }
+
   const style = {
     "--sidebar-width": "18rem",
     "--sidebar-width-icon": "3rem",
   };
 
   return (
+    <SidebarProvider style={style as React.CSSProperties}>
+      <div className="flex h-screen w-full overflow-hidden">
+        <AppSidebar />
+        <div className="flex flex-col flex-1 min-w-0">
+          <PageHeader />
+          <main className="flex-1 overflow-hidden">
+            <Router />
+          </main>
+        </div>
+      </div>
+    </SidebarProvider>
+  );
+}
+
+function App() {
+  return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <SidebarProvider style={style as React.CSSProperties}>
-          <div className="flex h-screen w-full overflow-hidden">
-            <AppSidebar />
-            <div className="flex flex-col flex-1 min-w-0">
-              <PageHeader />
-              <main className="flex-1 overflow-hidden">
-                <Router />
-              </main>
-            </div>
-          </div>
-        </SidebarProvider>
+        <AppShell />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
