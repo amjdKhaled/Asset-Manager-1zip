@@ -161,16 +161,26 @@ function formatLaserficheFieldValues(values: unknown[]): string {
 }
 
 // ── Smart inline document viewer ──────────────────────────────────────────────
+// The iframe src points to /api/laserfiche/entries/:id/content which streams
+// the binary with Content-Disposition: inline — the browser renders it natively.
+// PDFs, images, and most binary types all display correctly inside an iframe.
+// Only truly non-renderable types (e.g. .docx) fall back to a download prompt.
+const DOWNLOAD_ONLY_TYPES = new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx", "zip", "rar", "7z"]);
+
 function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: () => void }) {
   const contentUrl = `/api/laserfiche/entries/${entry.id}/content`;
   const ext = (entry.extension || "").toLowerCase().replace(/^\./, "");
-  const isPdf = ext === "pdf";
-  const isImage = ["jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp"].includes(ext);
-  const isOffice = ["doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(ext);
+  const canRenderInline = !DOWNLOAD_ONLY_TYPES.has(ext);
+
+  const fileIcon = ext === "pdf"
+    ? <FileText className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+    : ["jpg","jpeg","png","gif","tiff","tif","bmp","webp"].includes(ext)
+      ? <ImageIcon className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+      : <FileDown className="w-3.5 h-3.5 text-primary flex-shrink-0" />;
 
   return (
     <div className="h-full flex flex-col bg-card border border-card-border rounded-md overflow-hidden" data-testid="doc-viewer-panel">
-      {/* Viewer toolbar */}
+      {/* Toolbar */}
       <div className="flex-shrink-0 px-4 py-2.5 border-b border-border flex items-center gap-2">
         <button
           type="button"
@@ -183,20 +193,11 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
         </button>
         <div className="w-px h-4 bg-border" />
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          {isPdf ? <FileText className="w-3.5 h-3.5 text-primary flex-shrink-0" /> :
-            isImage ? <ImageIcon className="w-3.5 h-3.5 text-primary flex-shrink-0" /> :
-              <FileDown className="w-3.5 h-3.5 text-primary flex-shrink-0" />}
+          {fileIcon}
           <span className="text-xs font-medium text-foreground truncate">{entry.name}</span>
-          {ext && (
-            <Badge variant="secondary" className="text-xs uppercase flex-shrink-0">{ext}</Badge>
-          )}
+          {ext && <Badge variant="secondary" className="text-xs uppercase flex-shrink-0">{ext}</Badge>}
         </div>
-        <a
-          href={contentUrl}
-          download={entry.name || `document-${entry.id}`}
-          className="flex-shrink-0"
-          data-testid="viewer-download"
-        >
+        <a href={contentUrl} download={entry.name || `document-${entry.id}`} className="flex-shrink-0" data-testid="viewer-download">
           <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 px-2">
             <Download className="w-3 h-3" />
             Download
@@ -204,38 +205,16 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
         </a>
       </div>
 
-      {/* Viewer body */}
+      {/* Viewer body — iframe for everything renderable */}
       <div className="flex-1 overflow-hidden bg-muted/20">
-        {isPdf ? (
+        {canRenderInline ? (
           <iframe
+            key={entry.id}
             src={contentUrl}
             className="w-full h-full border-none"
             title={entry.name}
-            data-testid="viewer-iframe-pdf"
+            data-testid="viewer-iframe"
           />
-        ) : isImage ? (
-          <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
-            <img
-              src={contentUrl}
-              alt={entry.name}
-              className="max-w-full h-auto rounded shadow-sm"
-              data-testid="viewer-img"
-            />
-          </div>
-        ) : isOffice ? (
-          // Office files — try iframe first, show download if it can't render
-          <div className="flex flex-col h-full">
-            <iframe
-              src={contentUrl}
-              className="w-full flex-1 border-none"
-              title={entry.name}
-              data-testid="viewer-iframe-office"
-            />
-            <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
-              <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">If the document doesn't display, use Download above.</span>
-            </div>
-          </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
             <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
