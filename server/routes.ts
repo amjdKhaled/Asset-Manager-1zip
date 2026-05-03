@@ -26,6 +26,8 @@ import {
   ollamaChat,
   buildSystemPrompt,
   buildContextBlock,
+  buildLFSummarizePrompt,
+  buildLFSearchPrompt,
   summarizeDocumentContent,
   type OllamaMessage,
 } from "./ollama";
@@ -361,6 +363,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(status);
   });
 
+  // Regex patterns to detect "summarize document N" intent
+  const SUMMARIZE_PATTERNS = [
+    /(?:لخص?|ملخص|تلخيص|صف|حلل|وصف)[\s\w]*?(?:رقم|#|id)?\s*(\d+)/iu,
+    /(?:summarize|summary|analyze|describe|explain)\s+(?:document|doc|entry|file|no\.?)?\s*#?(\d+)/i,
+    /(?:document|entry|file|وثيقة|الوثيقة|المعاملة|معاملة)\s*(?:رقم|number|no|#|id)?\s*(\d+)/iu,
+    /\b(\d+)\s*(?:وثيقة|ملف|معاملة)/iu,
+  ];
+
+  function extractEntryId(text: string): number | null {
+    for (const pat of SUMMARIZE_PATTERNS) {
+      const m = text.match(pat);
+      if (m) {
+        const n = parseInt(m[1]);
+        if (n > 0) return n;
+      }
+    }
+    return null;
+  }
+
+  function sseHeaders(res: any) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+  }
+
   app.post("/api/chat", async (req, res) => {
     const { messages, query } = req.body as {
       messages: OllamaMessage[];
@@ -381,23 +409,80 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
 
     const userQuery = query || messages.filter((m) => m.role === "user").slice(-1)[0]?.content || "";
-    const lang = /[\u0600-\u06FF]/.test(userQuery) ? "ar" : "en";
+    const lang: "ar" | "en" = /[\u0600-\u06FF]/.test(userQuery) ? "ar" : "en";
 
+    sseHeaders(res);
+
+    // ── Detect Laserfiche summarize intent ────────────────────────────────
+    const lfConfig = getLaserficheConfig();
+    const lfEntryId = extractEntryId(userQuery);
+
+    if (lfEntryId && lfConfig) {
+      try {
+        const token = await getLaserficheToken(lfConfig);
+        const [entry, rawFields, tags] = await Promise.all([
+          laserficheGetEntry(lfConfig, token, lfEntryId),
+          laserficheGetEntryFieldsRaw(lfConfig, token, lfEntryId),
+          laserficheGetEntryTags(lfConfig, token, lfEntryId),
+        ]);
+
+        const fields = rawFields.map((f) => ({
+          fieldName: f.fieldName,
+          value: (f.values || []).map((v) => (v.value ?? "")).filter(Boolean).join(", "),
+        })).filter((f) => f.value);
+
+        const prompt = buildLFSummarizePrompt(
+          { id: entry.id, name: entry.name, path: entry.fullPath, creationTime: entry.creationTime, creator: entry.creator },
+          fields, tags, lang
+        );
+
+        // Emit LF entry context event for frontend
+        res.write(`data: ${JSON.stringify({ type: "lf-entry", entryId: lfEntryId, name: entry.name })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: "sources", sources: [] })}\n\n`);
+
+        await ollamaChat(
+          [{ role: "user", content: prompt }],
+          (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
+          req.signal
+        );
+        res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+      } catch (err: any) {
+        res.write(`data: ${JSON.stringify({ type: "error", error: err.message })}\n\n`);
+      } finally {
+        res.end();
+      }
+      return;
+    }
+
+    // ── Detect Laserfiche natural-language search intent ──────────────────
+    const lfSearchKeywords = /وثيقة|معاملة|ملف|أرشيف|document|archive|file|report|contract|سجل|تقرير|عقد/iu;
+    let lfContextBlock = "";
+    let lfEntries: any[] = [];
+
+    if (lfConfig && lfSearchKeywords.test(userQuery)) {
+      try {
+        const token = await getLaserficheToken(lfConfig);
+        const entries = await laserficheGetFolderChildren(lfConfig, token, 1);
+        lfEntries = entries.slice(0, 30);
+        if (lfEntries.length > 0) {
+          lfContextBlock = buildLFSearchPrompt(
+            lfEntries.map((e) => ({ id: e.id, name: e.name, path: e.fullPath })),
+            userQuery, lang
+          );
+        }
+      } catch {}
+    }
+
+    // ── Fall back: local document DB context ──────────────────────────────
     let contextDocs: any[] = [];
     try {
-      const searchResult = await storage.searchDocuments({
-        query: userQuery,
-        searchType: "hybrid",
-        page: 1,
-        limit: 5,
-      });
+      const searchResult = await storage.searchDocuments({ query: userQuery, searchType: "hybrid", page: 1, limit: 5 });
       contextDocs = searchResult.results.map((r) => r.document);
     } catch {}
 
-    const contextBlock = buildContextBlock(contextDocs, lang);
     const systemPrompt = buildSystemPrompt(lang);
-
-    const fullSystemPrompt = `${systemPrompt}\n\n${contextBlock}`;
+    const localContext = buildContextBlock(contextDocs, lang);
+    const fullSystemPrompt = `${systemPrompt}\n\n${lfContextBlock || localContext}`;
 
     const chatMessages: OllamaMessage[] = [
       { role: "system", content: fullSystemPrompt },
@@ -405,27 +490,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       ...(query ? [{ role: "user" as const, content: query }] : []),
     ];
 
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-
-    const sourceDocs = contextDocs.map((d) => ({
-      id: d.id,
-      title: d.title,
-      titleAr: d.titleAr,
-      department: d.department,
-      year: d.year,
-    }));
-
+    const sourceDocs = contextDocs.map((d) => ({ id: d.id, title: d.title, titleAr: d.titleAr, department: d.department, year: d.year }));
     res.write(`data: ${JSON.stringify({ type: "sources", sources: sourceDocs })}\n\n`);
 
     try {
       await ollamaChat(
         chatMessages,
-        (token) => {
-          res.write(`data: ${JSON.stringify({ type: "token", token })}\n\n`);
-        },
+        (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
         req.signal
       );
       res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
@@ -446,6 +517,94 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       ipAddress: req.ip || "127.0.0.1",
       department: "Chat",
     });
+  });
+
+  // ── POST /api/ai/summarize/:entryId ────────────────────────────────────
+  app.post("/api/ai/summarize/:entryId", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+
+    const status = await checkOllamaStatus();
+    if (!status.running) return res.status(503).json({ error: "Ollama is not running" });
+
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) return res.status(400).json({ error: "Invalid entry id" });
+
+    const lang: "ar" | "en" = /[\u0600-\u06FF]/.test(req.body?.lang || "") || req.body?.lang === "ar" ? "ar" : "en";
+
+    sseHeaders(res);
+
+    try {
+      const token = await getLaserficheToken(config);
+      const [entry, rawFields, tags] = await Promise.all([
+        laserficheGetEntry(config, token, entryId),
+        laserficheGetEntryFieldsRaw(config, token, entryId),
+        laserficheGetEntryTags(config, token, entryId),
+      ]);
+
+      const fields = rawFields.map((f) => ({
+        fieldName: f.fieldName,
+        value: (f.values || []).map((v) => (v.value ?? "")).filter(Boolean).join(", "),
+      })).filter((f) => f.value);
+
+      const prompt = buildLFSummarizePrompt(
+        { id: entry.id, name: entry.name, path: entry.fullPath, creationTime: entry.creationTime, creator: entry.creator },
+        fields, tags, lang
+      );
+
+      res.write(`data: ${JSON.stringify({ type: "lf-entry", entryId, name: entry.name, path: entry.fullPath, tags, fields })}\n\n`);
+
+      await ollamaChat(
+        [{ role: "user", content: prompt }],
+        (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
+        req.signal
+      );
+      res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+    } catch (err: any) {
+      res.write(`data: ${JSON.stringify({ type: "error", error: err.message })}\n\n`);
+    } finally {
+      res.end();
+    }
+  });
+
+  // ── POST /api/ai/search ───────────────────────────────────────────────
+  app.post("/api/ai/search", async (req, res) => {
+    const { query, folderId = 1 } = req.body as { query: string; folderId?: number };
+    if (!query) return res.status(400).json({ error: "query required" });
+
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+
+    const status = await checkOllamaStatus();
+    if (!status.running) return res.status(503).json({ error: "Ollama is not running" });
+
+    const lang: "ar" | "en" = /[\u0600-\u06FF]/.test(query) ? "ar" : "en";
+
+    sseHeaders(res);
+
+    try {
+      const token = await getLaserficheToken(config);
+      const entries = await laserficheGetFolderChildren(config, token, folderId);
+      const topEntries = entries.slice(0, 30);
+
+      res.write(`data: ${JSON.stringify({ type: "lf-entries", entries: topEntries.map((e) => ({ id: e.id, name: e.name, path: e.fullPath })) })}\n\n`);
+
+      const prompt = buildLFSearchPrompt(
+        topEntries.map((e) => ({ id: e.id, name: e.name, path: e.fullPath })),
+        query, lang
+      );
+
+      await ollamaChat(
+        [{ role: "user", content: prompt }],
+        (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
+        req.signal
+      );
+      res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+    } catch (err: any) {
+      res.write(`data: ${JSON.stringify({ type: "error", error: err.message })}\n\n`);
+    } finally {
+      res.end();
+    }
   });
 
   app.post("/api/laserfiche/browse", async (req, res) => {

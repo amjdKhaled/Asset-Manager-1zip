@@ -1,0 +1,169 @@
+I have a React + TypeScript application connected to Laserfiche Repository API.
+The connection to Laserfiche is already working correctly.
+
+I want to add an AI Chatbot using Ollama that supports:
+1. Smart Summary (automatic description of a document)
+2. Natural Language Search across documents
+
+================================
+1. ADD AI CHATBOT UI
+================================
+
+- Add a new page or side panel called "AI Assistant"
+- Chat-style UI:
+  - Input field (user message)
+  - Messages list (user + AI)
+- Button: "Send"
+
+================================
+2. BACKEND (Node.js + Express)
+================================
+
+Create AI endpoints:
+
+--------------------------------
+A) Smart Summary API
+--------------------------------
+POST /api/ai/summarize/:entryId
+
+Steps:
+1. Call Laserfiche API:
+   GET http://localhost/LFRepositoryAPI/v1/Repositories/{repoId}/Entries/{entryId}?$select=*
+
+2. Extract:
+   - document name
+   - metadata fields
+   - dates
+   - department
+   - status
+
+3. Clean metadata:
+   If value = null → return ""
+
+4. Send data to Ollama:
+
+POST http://localhost:11434/api/generate
+
+Body:
+{
+  "model": "llama3",
+  "prompt": "
+  حلل هذه الوثيقة:
+
+  {metadata JSON}
+
+  المطلوب:
+  1. اكتب ملخص بسيط وواضح
+  2. اشرح حالة الوثيقة
+  3. هل توجد مشاكل او تناقضات؟
+  4. اقترح تصنيف
+  5. اقترح Tags
+  ",
+  "stream": false
+}
+
+5. Return AI response
+
+--------------------------------
+B) Natural Search API
+--------------------------------
+POST /api/ai/search
+
+Input:
+{
+  "query": "user question"
+}
+
+Steps:
+
+1. Fetch documents list from Laserfiche:
+   GET /v1/Repositories/{repoId}/Entries/{folderId}
+
+2. Extract for each document:
+   - name
+   - metadata
+   - status
+   - department
+   - dates
+
+3. Send to Ollama:
+
+Prompt example:
+"
+لدي قائمة وثائق:
+
+{documents JSON}
+
+سؤال المستخدم:
+{query}
+
+المطلوب:
+- ابحث عن الوثائق المناسبة
+- ارجع أفضل النتائج
+- اشرح لماذا تم اختيارها
+"
+
+4. Return filtered results
+
+================================
+3. FRONTEND INTEGRATION
+================================
+
+Chat behavior:
+
+If user writes:
+- "لخص الوثيقة 19"
+→ call: /api/ai/summarize/19
+
+Otherwise:
+→ call: /api/ai/search
+
+Display AI response in chat UI.
+
+================================
+4. HELPER FUNCTIONS
+================================
+
+Create reusable functions:
+
+- fetchLaserficheEntry(entryId)
+- cleanMetadata(fields)
+- callOllama(prompt)
+
+================================
+5. ERROR HANDLING
+================================
+
+- If Laserfiche fails → show "Error fetching document"
+- If Ollama fails → show "AI service not available"
+- Handle empty results
+
+================================
+6. PERFORMANCE (IMPORTANT)
+================================
+
+- Limit documents sent to AI (max 20–50)
+- Cache responses (optional)
+
+================================
+7. UI IMPROVEMENTS
+================================
+
+- Show loading indicator "AI is thinking..."
+- Support Arabic (RTL)
+- Format AI response nicely (sections, bullets)
+
+================================
+EXPECTED RESULT
+================================
+
+User can:
+- Ask: "لخص الوثيقة رقم 123"
+→ get smart summary
+
+- Ask: "وين المعاملات المتأخرة في المالية؟"
+→ get filtered documents
+
+IMPORTANT:
+Do NOT change existing UI design.
+Only add AI features and integrate with current Laserfiche data.

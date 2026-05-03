@@ -8,7 +8,8 @@ import { Link } from "wouter";
 import {
   Bot, Send, User, FileText, Loader2, AlertCircle, CheckCircle,
   RefreshCw, Trash2, ChevronDown, ChevronUp, Sparkles, Server,
-  BookOpen, MessageSquare, ExternalLink, Copy, Check, StopCircle
+  BookOpen, MessageSquare, ExternalLink, Copy, Check, StopCircle,
+  Zap, Search, Hash
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -29,27 +30,45 @@ type SourceDoc = {
   year?: number | null;
 };
 
+type LFEntryRef = {
+  entryId: number;
+  name: string;
+};
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   sources?: SourceDoc[];
+  lfEntry?: LFEntryRef;
   isStreaming?: boolean;
   lang?: "ar" | "en";
 };
 
+const SUGGESTIONS_LF_AR = [
+  "لخص الوثيقة رقم 19",
+  "ابحث عن المعاملات المتأخرة",
+  "ما هي الوثائق في قسم QA؟",
+  "حلل الوثيقة رقم 17",
+];
+
+const SUGGESTIONS_LF_EN = [
+  "Summarize document 19",
+  "Find all contracts in the archive",
+  "What documents are in the QA folder?",
+  "Analyze document 17",
+];
+
 const SUGGESTIONS_AR = [
-  "لخص لي أهم الوثائق المتعلقة بالميزانية",
+  "لخص أهم وثائق الميزانية",
   "ما هي المعاملات التي تحتوي على عقود صيانة؟",
   "اعطني معلومات عن التقارير المالية لعام 2023",
-  "ما هي قرارات مجلس الوزراء المتاحة؟",
 ];
 
 const SUGGESTIONS_EN = [
   "Summarize the budget-related documents",
   "What contracts are in the archive?",
-  "Find all documents from the Ministry of Finance",
-  "What are the available annual reports?",
+  "Find documents from the Ministry of Finance",
 ];
 
 function TypingDots() {
@@ -63,6 +82,63 @@ function TypingDots() {
         />
       ))}
     </span>
+  );
+}
+
+function renderMarkdown(text: string): React.ReactNode[] {
+  const lines = text.split("\n");
+  const result: React.ReactNode[] = [];
+  let key = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (/^###\s/.test(line)) {
+      result.push(<p key={key++} className="font-semibold text-foreground mt-3 mb-1 text-sm">{line.replace(/^###\s/, "")}</p>);
+    } else if (/^##\s/.test(line)) {
+      result.push(<p key={key++} className="font-bold text-foreground mt-4 mb-1">{line.replace(/^##\s/, "")}</p>);
+    } else if (/^#\s/.test(line)) {
+      result.push(<p key={key++} className="font-bold text-foreground text-base mt-4 mb-1">{line.replace(/^#\s/, "")}</p>);
+    } else if (/^\*\*(.+?)\*\*:?/.test(line)) {
+      const clean = line.replace(/^\d+\.\s*/, "").replace(/\*\*(.+?)\*\*/g, "$1");
+      const [label, ...rest] = clean.split(":");
+      result.push(
+        <p key={key++} className="mt-2">
+          <span className="font-semibold text-foreground">{label.trim()}</span>
+          {rest.length ? <span className="text-foreground/90">: {rest.join(":").trim()}</span> : null}
+        </p>
+      );
+    } else if (/^[-•*]\s/.test(line)) {
+      result.push(
+        <div key={key++} className="flex items-start gap-2 mt-1">
+          <span className="text-primary mt-1 flex-shrink-0">•</span>
+          <span>{inlineFormat(line.replace(/^[-•*]\s/, ""))}</span>
+        </div>
+      );
+    } else if (/^\d+\.\s/.test(line)) {
+      const num = line.match(/^(\d+)\./)?.[1];
+      const content = line.replace(/^\d+\.\s/, "");
+      result.push(
+        <div key={key++} className="flex items-start gap-2 mt-1.5">
+          <span className="text-primary font-semibold text-xs mt-0.5 flex-shrink-0 w-4">{num}.</span>
+          <span>{inlineFormat(content)}</span>
+        </div>
+      );
+    } else if (line.trim() === "") {
+      if (i > 0 && lines[i - 1].trim() !== "") result.push(<div key={key++} className="h-2" />);
+    } else {
+      result.push(<p key={key++} className="leading-relaxed">{inlineFormat(line)}</p>);
+    }
+  }
+  return result;
+}
+
+function inlineFormat(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) =>
+    /^\*\*[^*]+\*\*$/.test(part)
+      ? <strong key={i} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>
+      : part
   );
 }
 
@@ -107,6 +183,25 @@ function SourcesList({ sources, lang }: { sources: SourceDoc[]; lang: "ar" | "en
   );
 }
 
+function LFEntryCard({ entry, lang }: { entry: LFEntryRef; lang: "ar" | "en" }) {
+  const label = lang === "ar" ? "عرض الوثيقة" : "Open Document";
+  return (
+    <div className="mt-3 border-t border-border/50 pt-2">
+      <Link href={`/lf-document/${entry.entryId}`}>
+        <div className="flex items-center gap-2 p-2 rounded-md bg-primary/5 border border-primary/20 hover:bg-primary/10 transition-colors group cursor-pointer" data-testid={`lf-entry-${entry.entryId}`}>
+          <FileText className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-primary truncate">{entry.name}</p>
+            <p className="text-xs text-muted-foreground">Entry #{entry.entryId}</p>
+          </div>
+          <ExternalLink className="w-3 h-3 text-primary opacity-60 group-hover:opacity-100 flex-shrink-0" />
+          <span className="text-xs text-primary font-medium">{label}</span>
+        </div>
+      </Link>
+    </div>
+  );
+}
+
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   const [copied, setCopied] = useState(false);
   const isUser = msg.role === "user";
@@ -132,16 +227,29 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4 text-primary" />}
       </div>
 
-      <div className={cn("flex-1 max-w-[80%]", isUser ? "items-end" : "items-start", "flex flex-col")}>
+      <div className={cn("flex-1 max-w-[82%]", isUser ? "items-end" : "items-start", "flex flex-col")}>
         <div className={cn(
           "rounded-2xl px-4 py-3 text-sm leading-relaxed relative",
           isUser
             ? "bg-primary text-primary-foreground rounded-tr-sm"
             : "bg-card border border-card-border rounded-tl-sm",
-          isArabic && "font-arabic text-base"
+          isArabic && !isUser && "font-arabic text-base"
         )} dir={isArabic ? "rtl" : "ltr"}>
-          {msg.content}
-          {msg.isStreaming && <TypingDots />}
+
+          {isUser ? (
+            <span>{msg.content}</span>
+          ) : msg.isStreaming && !msg.content ? (
+            <span className="text-muted-foreground text-xs flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              {isArabic ? "الذكاء الاصطناعي يفكر" : "AI is thinking"}
+              <TypingDots />
+            </span>
+          ) : (
+            <div className="space-y-0.5">
+              {renderMarkdown(msg.content)}
+              {msg.isStreaming && <TypingDots />}
+            </div>
+          )}
 
           {!isUser && !msg.isStreaming && msg.content && (
             <button
@@ -153,13 +261,29 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
           )}
         </div>
 
-        {!isUser && msg.sources && msg.sources.length > 0 && !msg.isStreaming && (
-          <div className="mt-1 w-full px-1">
-            <SourcesList sources={msg.sources} lang={msg.lang || "en"} />
-          </div>
+        {!isUser && !msg.isStreaming && (
+          <>
+            {msg.lfEntry && <div className="mt-1 w-full px-1"><LFEntryCard entry={msg.lfEntry} lang={msg.lang || "en"} /></div>}
+            {msg.sources && msg.sources.length > 0 && (
+              <div className="mt-1 w-full px-1"><SourcesList sources={msg.sources} lang={msg.lang || "en"} /></div>
+            )}
+          </>
         )}
       </div>
     </div>
+  );
+}
+
+function QuickAction({ icon: Icon, label, onClick }: { icon: any; label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-card hover:border-primary/40 hover:bg-primary/5 text-sm text-muted-foreground hover:text-foreground transition-all"
+      data-testid={`quick-action-${label.slice(0, 10)}`}
+    >
+      <Icon className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+      <span className="truncate">{label}</span>
+    </button>
   );
 }
 
@@ -239,7 +363,6 @@ export default function ChatPage() {
 
   const isArabicInput = /[\u0600-\u06FF]/.test(input);
   const lang = isArabicInput ? "ar" : "en";
-  const suggestions = lang === "ar" ? SUGGESTIONS_AR : SUGGESTIONS_EN;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -248,19 +371,22 @@ export default function ChatPage() {
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) return;
 
+    const detectedLang: "ar" | "en" = /[\u0600-\u06FF]/.test(text) ? "ar" : "en";
+
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
       content: text.trim(),
-      lang: /[\u0600-\u06FF]/.test(text) ? "ar" : "en",
+      lang: detectedLang,
     };
 
+    const assistantId = crypto.randomUUID();
     const assistantMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: assistantId,
       role: "assistant",
       content: "",
       isStreaming: true,
-      lang: userMsg.lang,
+      lang: detectedLang,
     };
 
     setMessages(prev => [...prev, userMsg, assistantMsg]);
@@ -286,7 +412,7 @@ export default function ChatPage() {
         const err = await res.json().catch(() => ({ error: "Request failed" }));
         if (err.error === "Ollama is not running") {
           refetchStatus();
-          setMessages(prev => prev.filter(m => m.id !== assistantMsg.id));
+          setMessages(prev => prev.filter(m => m.id !== assistantId));
           toast({ title: "Ollama not running", description: err.hint, variant: "destructive" });
           return;
         }
@@ -296,6 +422,7 @@ export default function ChatPage() {
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let sources: SourceDoc[] = [];
+      let lfEntry: LFEntryRef | undefined;
       let fullText = "";
 
       while (true) {
@@ -306,19 +433,24 @@ export default function ChatPage() {
           if (!line.startsWith("data: ")) continue;
           try {
             const ev = JSON.parse(line.slice(6));
-            if (ev.type === "sources") {
-              sources = ev.sources;
+            if (ev.type === "lf-entry") {
+              lfEntry = { entryId: ev.entryId, name: ev.name };
               setMessages(prev => prev.map(m =>
-                m.id === assistantMsg.id ? { ...m, sources } : m
+                m.id === assistantId ? { ...m, lfEntry } : m
+              ));
+            } else if (ev.type === "sources") {
+              sources = ev.sources || [];
+              setMessages(prev => prev.map(m =>
+                m.id === assistantId ? { ...m, sources } : m
               ));
             } else if (ev.type === "token") {
               fullText += ev.token;
               setMessages(prev => prev.map(m =>
-                m.id === assistantMsg.id ? { ...m, content: fullText } : m
+                m.id === assistantId ? { ...m, content: fullText } : m
               ));
             } else if (ev.type === "done") {
               setMessages(prev => prev.map(m =>
-                m.id === assistantMsg.id ? { ...m, isStreaming: false } : m
+                m.id === assistantId ? { ...m, isStreaming: false } : m
               ));
             } else if (ev.type === "error") {
               throw new Error(ev.error);
@@ -329,13 +461,13 @@ export default function ChatPage() {
     } catch (err: any) {
       if (err.name === "AbortError") {
         setMessages(prev => prev.map(m =>
-          m.id === assistantMsg.id
-            ? { ...m, content: m.content || "(stopped)", isStreaming: false }
+          m.id === assistantId
+            ? { ...m, content: m.content || (detectedLang === "ar" ? "(تم الإيقاف)" : "(stopped)"), isStreaming: false }
             : m
         ));
       } else {
         setMessages(prev => prev.map(m =>
-          m.id === assistantMsg.id
+          m.id === assistantId
             ? { ...m, content: `Error: ${err.message}`, isStreaming: false }
             : m
         ));
@@ -354,16 +486,22 @@ export default function ChatPage() {
     }
   };
 
-  const stopStreaming = () => {
-    abortRef.current?.abort();
-  };
-
-  const clearChat = () => {
-    setMessages([]);
-    inputRef.current?.focus();
-  };
+  const stopStreaming = () => abortRef.current?.abort();
+  const clearChat = () => { setMessages([]); inputRef.current?.focus(); };
 
   const ready = ollamaStatus?.running && ollamaStatus?.modelReady;
+
+  const quickActions = lang === "ar"
+    ? [
+        { icon: Zap, label: "لخص وثيقة رقم 19", text: "لخص الوثيقة رقم 19" },
+        { icon: Search, label: "ابحث في الأرشيف", text: "ابحث عن المعاملات المتأخرة في الأرشيف" },
+        { icon: Hash, label: "وثائق QA", text: "ما هي الوثائق الموجودة في مجلد QA؟" },
+      ]
+    : [
+        { icon: Zap, label: "Summarize doc 19", text: "Summarize document 19" },
+        { icon: Search, label: "Search archive", text: "Find all contracts in the archive" },
+        { icon: Hash, label: "QA documents", text: "What documents are in the QA folder?" },
+      ];
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -375,7 +513,7 @@ export default function ChatPage() {
             </div>
             <div>
               <h1 className="text-base font-semibold text-foreground leading-tight">AI Archive Assistant</h1>
-              <p className="text-xs text-muted-foreground font-arabic" dir="rtl">المساعد الذكي للأرشيف</p>
+              <p className="text-xs text-muted-foreground font-arabic" dir="rtl">المساعد الذكي للأرشيف · Laserfiche + Ollama</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -415,41 +553,60 @@ export default function ChatPage() {
         <>
           <div className="flex-1 overflow-y-auto px-6 py-4">
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-4">
+              <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-5">
                 <div className="text-center">
                   <Sparkles className="w-10 h-10 text-primary/40 mx-auto mb-3" />
                   <h2 className="text-lg font-semibold text-foreground">
                     {lang === "ar" ? "كيف يمكنني مساعدتك؟" : "How can I help you?"}
                   </h2>
                   <p className="text-sm text-muted-foreground mt-1 font-arabic" dir="rtl">
-                    اسألني عن أي وثيقة أو موضوع في الأرشيف
+                    لخص الوثائق، ابحث في الأرشيف، أو اسألني أي سؤال
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    Ask me anything about the document archive
+                    Summarize documents, search the archive, or ask anything
                   </p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-xl w-full mt-2">
-                  {SUGGESTIONS_AR.slice(0, 2).map(s => (
-                    <button
-                      key={s}
-                      onClick={() => sendMessage(s)}
-                      className="text-right text-sm font-arabic bg-card border border-card-border rounded-xl px-4 py-3 text-muted-foreground hover-elevate transition-all hover:text-foreground hover:border-primary/40"
-                      dir="rtl"
-                      data-testid={`suggestion-${s.slice(0, 10)}`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                  {SUGGESTIONS_EN.slice(0, 2).map(s => (
-                    <button
-                      key={s}
-                      onClick={() => sendMessage(s)}
-                      className="text-left text-sm bg-card border border-card-border rounded-xl px-4 py-3 text-muted-foreground hover-elevate transition-all hover:text-foreground hover:border-primary/40"
-                      data-testid={`suggestion-${s.slice(0, 10)}`}
-                    >
-                      {s}
-                    </button>
-                  ))}
+
+                <div className="w-full max-w-xl space-y-3">
+                  <p className="text-xs text-muted-foreground text-center uppercase tracking-wide">
+                    {lang === "ar" ? "اقتراحات سريعة" : "Quick Actions"}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {quickActions.map(a => (
+                      <QuickAction key={a.label} icon={a.icon} label={a.label} onClick={() => sendMessage(a.text)} />
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    {(lang === "ar" ? SUGGESTIONS_LF_AR : SUGGESTIONS_LF_EN).slice(0, 2).map(s => (
+                      <button
+                        key={s}
+                        onClick={() => sendMessage(s)}
+                        className={cn(
+                          "text-sm bg-card border border-card-border rounded-xl px-4 py-3 text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/5 transition-all",
+                          lang === "ar" ? "text-right font-arabic" : "text-left"
+                        )}
+                        dir={lang === "ar" ? "rtl" : "ltr"}
+                        data-testid={`suggestion-${s.slice(0, 10)}`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                    {(lang === "ar" ? SUGGESTIONS_AR : SUGGESTIONS_EN).slice(0, 2).map(s => (
+                      <button
+                        key={s}
+                        onClick={() => sendMessage(s)}
+                        className={cn(
+                          "text-sm bg-card border border-card-border rounded-xl px-4 py-3 text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/5 transition-all",
+                          lang === "ar" ? "text-right font-arabic" : "text-left"
+                        )}
+                        dir={lang === "ar" ? "rtl" : "ltr"}
+                        data-testid={`suggestion-${s.slice(0, 10)}`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -474,7 +631,11 @@ export default function ChatPage() {
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   dir={isArabicInput ? "rtl" : "ltr"}
-                  placeholder={lang === "ar" ? "اسأل عن أي وثيقة أو موضوع... (Enter للإرسال)" : "Ask about any document or topic... (Enter to send)"}
+                  placeholder={
+                    lang === "ar"
+                      ? 'مثال: "لخص الوثيقة رقم 19" أو "ابحث عن العقود" (Enter للإرسال)'
+                      : 'e.g. "Summarize document 19" or "Find all contracts" (Enter to send)'
+                  }
                   className={cn(
                     "flex-1 bg-transparent text-foreground placeholder:text-muted-foreground resize-none outline-none text-sm leading-relaxed min-h-[24px] max-h-40",
                     isArabicInput && "font-arabic text-base"
@@ -507,8 +668,8 @@ export default function ChatPage() {
               </div>
               <p className="text-center text-xs text-muted-foreground mt-2">
                 {lang === "ar"
-                  ? "يعمل محلياً بالكامل — لا بيانات تُرسل خارجياً"
-                  : "Fully local — no data sent externally · Powered by Ollama + Qwen2.5"}
+                  ? "يعمل محلياً بالكامل — لا بيانات تُرسل خارجياً · Ollama + Laserfiche"
+                  : "Fully local — no data sent externally · Powered by Ollama + Laserfiche"}
               </p>
             </div>
           </div>

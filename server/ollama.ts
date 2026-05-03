@@ -127,6 +127,108 @@ export function buildContextBlock(docs: Array<{ title: string; titleAr?: string 
   return parts.join("\n");
 }
 
+export function buildLFSummarizePrompt(
+  entry: { id: number; name: string; path?: string; creationTime?: string; creator?: string },
+  fields: Array<{ fieldName: string; value: string }>,
+  tags: string[],
+  lang: "ar" | "en"
+): string {
+  const metaLines = fields
+    .filter((f) => f.value)
+    .map((f) => `  - ${f.fieldName}: ${f.value}`)
+    .join("\n");
+
+  const tagLine = tags.length ? tags.join(", ") : (lang === "ar" ? "لا توجد تاغات" : "None");
+
+  if (lang === "ar") {
+    return `أنت محلل وثائق حكومي متخصص. حلّل الوثيقة التالية وقدّم تقريراً شاملاً باللغة العربية.
+
+معلومات الوثيقة:
+  - الاسم: ${entry.name}
+  - المسار: ${entry.path || "—"}
+  - المنشئ: ${entry.creator || "—"}
+  - تاريخ الإنشاء: ${entry.creationTime ? new Date(entry.creationTime).toLocaleDateString("ar") : "—"}
+  - الوسوم: ${tagLine}
+
+حقول البيانات الوصفية:
+${metaLines || "  (لا توجد حقول)"}
+
+المطلوب:
+1. **ملخص الوثيقة**: اكتب ملخصاً واضحاً ومختصراً (3-4 جمل)
+2. **حالة الوثيقة**: اشرح الحالة الحالية والوضع التشغيلي
+3. **النقاط الرئيسية**: استخرج أهم المعلومات (قائمة نقطية)
+4. **الملاحظات**: هل توجد مشاكل أو تناقضات أو معلومات ناقصة؟
+5. **التصنيف المقترح**: ما التصنيف المناسب لهذه الوثيقة؟
+
+أجب بشكل منظم ومنسق.`;
+  }
+
+  return `You are a government document analyst. Analyze the following document and provide a comprehensive report in English.
+
+Document Information:
+  - Name: ${entry.name}
+  - Path: ${entry.path || "—"}
+  - Creator: ${entry.creator || "—"}
+  - Created: ${entry.creationTime ? new Date(entry.creationTime).toLocaleDateString("en-GB") : "—"}
+  - Tags: ${tagLine}
+
+Metadata Fields:
+${metaLines || "  (no fields)"}
+
+Required Analysis:
+1. **Summary**: Write a clear, concise summary (3-4 sentences)
+2. **Document Status**: Explain the current status and operational state
+3. **Key Points**: Extract the most important information (bullet list)
+4. **Observations**: Are there any issues, contradictions, or missing information?
+5. **Suggested Classification**: What classification best fits this document?
+
+Respond in a structured, well-formatted way.`;
+}
+
+export function buildLFSearchPrompt(
+  entries: Array<{ id: number; name: string; path?: string; fields?: Record<string, string>; tags?: string[] }>,
+  query: string,
+  lang: "ar" | "en"
+): string {
+  const docList = entries.slice(0, 30).map((e, i) => {
+    const meta = e.fields ? Object.entries(e.fields).slice(0, 5).map(([k, v]) => `${k}: ${v}`).join(" | ") : "";
+    const tags = e.tags?.length ? `[${e.tags.join(", ")}]` : "";
+    return `[${i + 1}] ID:${e.id} | ${e.name} ${tags}${meta ? ` | ${meta}` : ""}`;
+  }).join("\n");
+
+  if (lang === "ar") {
+    return `أنت مساعد بحث ذكي في أرشيف وثائق حكومي.
+
+قائمة الوثائق المتاحة:
+${docList}
+
+سؤال المستخدم: "${query}"
+
+المطلوب:
+1. ابحث في القائمة عن الوثائق الأنسب للسؤال
+2. اذكر رقم الوثيقة (ID) واسمها لكل نتيجة
+3. اشرح لماذا اخترت كل وثيقة
+4. إذا لم تجد نتائج مناسبة، أخبر المستخدم بذلك بوضوح
+
+رتّب النتائج من الأكثر إلى الأقل صلة.`;
+  }
+
+  return `You are an intelligent document archive search assistant.
+
+Available Documents:
+${docList}
+
+User Query: "${query}"
+
+Required:
+1. Search the list for documents most relevant to the query
+2. For each result, mention the document ID and name
+3. Explain why you chose each document
+4. If no relevant documents found, clearly state that
+
+Sort results from most to least relevant.`;
+}
+
 export async function summarizeDocumentContent(input: {
   title: string;
   titleAr?: string | null;
