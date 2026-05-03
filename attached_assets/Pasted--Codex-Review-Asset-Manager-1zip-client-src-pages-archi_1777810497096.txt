@@ -1,0 +1,115 @@
+💡 Codex Review
+Asset-Manager-1zip/client/src/pages/archive.tsx
+
+Line XXX
+
+const edocUrl = `http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/Laserfiche.Repository.Document/edoc`;
+
+P1 Badge Fetch document content via backend route
+
+The current implementation calls the Laserfiche edoc endpoint directly from the frontend using http://localhost/LFRepositoryAPI/..., which bypasses the server-side authentication flow (getLaserficheToken). This causes Laserfiche to return an HTML login page or fail to render the document because the request is missing the Authorization token.
+
+As a result:
+- Document viewer fails to load
+- Authentication is inconsistent across environments
+- The "token as gateway" architecture is broken
+
+The edoc endpoint returns binary content (PDF, TIFF, etc.), not JSON, so it must be handled differently from metadata.
+
+--------------------------------
+Required Fix
+--------------------------------
+
+1. Remove ALL direct calls from frontend to:
+
+http://localhost/LFRepositoryAPI/...
+
+2. Create a backend proxy route:
+
+GET /api/laserfiche/entries/:entryId/content
+
+--------------------------------
+Backend Implementation
+--------------------------------
+
+- Use getLaserficheToken() to retrieve access token
+- Call Laserfiche edoc endpoint:
+
+GET /v1/Repositories/{repoId}/Entries/{entryId}/Laserfiche.Repository.Document/edoc
+
+- Attach Authorization header:
+
+Authorization: Bearer {token}
+
+- Validate response:
+If content-type includes "text/html":
+→ return 401 (authentication failure)
+
+- Forward binary response:
+
+res.setHeader("Content-Type", response.headers.get("content-type") || "application/octet-stream");
+res.setHeader("Content-Disposition", "inline");
+
+const buffer = await response.arrayBuffer();
+res.send(Buffer.from(buffer));
+
+--------------------------------
+Frontend Fix
+--------------------------------
+
+Replace:
+
+const edocUrl = `http://localhost/LFRepositoryAPI/...`;
+
+WITH:
+
+const edocUrl = `/api/laserfiche/entries/${entryId}/content`;
+
+--------------------------------
+Rendering Fix (IMPORTANT)
+--------------------------------
+
+The edoc endpoint returns binary content, NOT JSON.
+
+DO NOT use:
+fetch().json()
+
+Instead render using iframe:
+
+<iframe
+  src={edocUrl}
+  style={{
+    width: "100%",
+    height: "100%",
+    border: "none"
+  }}
+/>
+
+--------------------------------
+P2 Badge Ensure document is displayed, not downloaded
+--------------------------------
+
+Ensure backend sets:
+
+Content-Disposition: inline
+
+This prevents the browser from downloading the file and forces rendering inside the page.
+
+--------------------------------
+Expected Result
+--------------------------------
+
+- Document loads inside viewer correctly
+- No authentication errors
+- No HTML response issues
+- Token flow is preserved (backend as gateway)
+- Works in all environments (not just localhost session)
+
+--------------------------------
+Important
+--------------------------------
+
+- Do NOT modify metadata logic
+- Do NOT change UI structure
+- Apply the SAME backend proxy pattern used in metadata API
+- Treat edoc as binary stream, not JSON

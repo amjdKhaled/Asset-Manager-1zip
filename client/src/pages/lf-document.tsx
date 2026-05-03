@@ -63,7 +63,7 @@ function DocumentViewer({ entryId, extension }: { entryId: number; extension: st
   const isPdf = extension?.toLowerCase() === "pdf";
   const isDoc = /^docx?$/i.test(extension || "");
 
-  const edocUrl = `/api/document/${entryId}/edoc`;
+  const edocUrl = `/api/laserfiche/entries/${entryId}/content`;
 
   if (!showImages && (isPdf || isDoc || !extension)) {
     return (
@@ -365,7 +365,7 @@ export default function LFDocumentPage() {
 
           {/* Header actions */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            <a href={`/api/document/${entryId}/edoc`} download>
+            <a href={`/api/laserfiche/entries/${entryId}/content`} download>
               <Button variant="outline" size="sm" className="gap-1.5" data-testid="header-download">
                 <Download className="w-3.5 h-3.5" />
                 Download
