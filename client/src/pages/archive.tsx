@@ -10,7 +10,6 @@ import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
   Clock, Tag, Search, Filter, ChevronRight, Eye, Server, Database, User, Lock, Folder, FolderOpen, FileSearch
 } from "lucide-react";
-import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 
 const classificationColor = (cls: string) => {
@@ -445,20 +444,6 @@ export default function ArchivePage() {
                               >
                                 Metadata
                               </Button>
-                              <Link href={`/document/${file.id}`}>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openDocument(file.id);
-                                  }}
-                                  data-testid={`button-view-document-${file.id}`}
-                                >
-                                  Open
-                                </Button>
-                              </Link>
                             </div>
                           </div>
                         ))}
