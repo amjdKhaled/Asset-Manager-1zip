@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, FileText, Tag, Calendar, User, FolderOpen,
   Hash, File, ChevronLeft, ChevronRight, AlertTriangle, ImageOff,
-  ServerOff, Settings, Info
+  ServerOff, Settings, Info, Download, Eye, ExternalLink
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -48,8 +48,8 @@ function DocumentDetailSkeleton() {
               </div>
             ))}
           </div>
-          <div className="w-72 space-y-4">
-            <Skeleton className="h-64 w-full rounded-md" />
+          <div className="w-80 space-y-4">
+            <Skeleton className="h-96 w-full rounded-md" />
           </div>
         </div>
       </div>
@@ -57,7 +57,59 @@ function DocumentDetailSkeleton() {
   );
 }
 
-function PageViewer({ entryId }: { entryId: number }) {
+/** Inline document viewer: tries iframe first, falls back to page images */
+function DocumentViewer({ entryId, extension }: { entryId: number; extension: string | null }) {
+  const [showImages, setShowImages] = useState(false);
+  const isPdf = extension?.toLowerCase() === "pdf";
+  const isDoc = /^docx?$/i.test(extension || "");
+
+  const edocUrl = `/api/document/${entryId}/edoc`;
+
+  if (!showImages && (isPdf || isDoc || !extension)) {
+    return (
+      <div className="space-y-3">
+        {/* Inline viewer */}
+        <div className="border border-border rounded-md overflow-hidden bg-muted/30">
+          <iframe
+            src={edocUrl}
+            className="w-full"
+            style={{ height: "600px" }}
+            title={`Document ${entryId}`}
+            data-testid="doc-iframe"
+            onError={() => setShowImages(true)}
+          />
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <a href={edocUrl} download>
+            <Button variant="outline" size="sm" className="gap-1.5" data-testid="download-edoc">
+              <Download className="w-3.5 h-3.5" />
+              Download
+            </Button>
+          </a>
+          <a href={edocUrl} target="_blank" rel="noreferrer">
+            <Button variant="ghost" size="sm" className="gap-1.5" data-testid="open-edoc-tab">
+              <ExternalLink className="w-3.5 h-3.5" />
+              Open in new tab
+            </Button>
+          </a>
+          <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setShowImages(true)} data-testid="switch-to-images">
+            <Eye className="w-3.5 h-3.5" />
+            Page images
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return <PageImageViewer entryId={entryId} edocUrl={edocUrl} extension={extension} onSwitchToDoc={() => setShowImages(false)} />;
+}
+
+function PageImageViewer({ entryId, edocUrl, extension, onSwitchToDoc }: {
+  entryId: number;
+  edocUrl: string;
+  extension: string | null;
+  onSwitchToDoc: () => void;
+}) {
   const [currentPage, setCurrentPage] = useState(1);
   const [imgError, setImgError] = useState(false);
 
@@ -74,20 +126,30 @@ function PageViewer({ entryId }: { entryId: number }) {
   });
 
   if (isLoading) {
-    return (
-      <div className="space-y-2">
-        <Skeleton className="h-80 w-full rounded-md" />
-        <Skeleton className="h-8 w-40 mx-auto rounded-md" />
-      </div>
-    );
+    return <Skeleton className="h-80 w-full rounded-md" />;
   }
 
   if (error || !pageData || pageData.pages.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-48 border border-dashed border-border rounded-md gap-2 text-muted-foreground">
-        <ImageOff className="w-8 h-8" />
-        <p className="text-sm">No pages available for preview</p>
-        {error && <p className="text-xs text-red-500 text-center px-2">{friendlyError((error as Error).message)}</p>}
+      <div className="space-y-3">
+        <div className="flex flex-col items-center justify-center h-48 border border-dashed border-border rounded-md gap-2 text-muted-foreground">
+          <ImageOff className="w-8 h-8" />
+          <p className="text-sm">No page images available</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <a href={edocUrl} download>
+            <Button variant="outline" size="sm" className="gap-1.5" data-testid="download-edoc-fallback">
+              <Download className="w-3.5 h-3.5" />
+              Download file
+            </Button>
+          </a>
+          {/^pdf$/i.test(extension || "") && (
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={onSwitchToDoc} data-testid="switch-to-doc">
+              <Eye className="w-3.5 h-3.5" />
+              Try inline viewer
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
@@ -114,23 +176,20 @@ function PageViewer({ entryId }: { entryId: number }) {
           />
         )}
       </div>
+
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-3">
           <Button
-            variant="outline"
-            size="sm"
+            variant="outline" size="sm"
             onClick={() => { setCurrentPage((p) => Math.max(1, p - 1)); setImgError(false); }}
             disabled={currentPage === 1}
             data-testid="page-prev"
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {currentPage} of {totalPages}
-          </span>
+          <span className="text-sm text-muted-foreground">Page {currentPage} of {totalPages}</span>
           <Button
-            variant="outline"
-            size="sm"
+            variant="outline" size="sm"
             onClick={() => { setCurrentPage((p) => Math.min(totalPages, p + 1)); setImgError(false); }}
             disabled={currentPage === totalPages}
             data-testid="page-next"
@@ -139,6 +198,21 @@ function PageViewer({ entryId }: { entryId: number }) {
           </Button>
         </div>
       )}
+
+      <div className="flex gap-2 flex-wrap border-t border-border pt-2">
+        <a href={edocUrl} download>
+          <Button variant="outline" size="sm" className="gap-1.5" data-testid="download-edoc-images">
+            <Download className="w-3.5 h-3.5" />
+            Download
+          </Button>
+        </a>
+        <a href={edocUrl} target="_blank" rel="noreferrer">
+          <Button variant="ghost" size="sm" className="gap-1.5" data-testid="open-edoc-tab-images">
+            <ExternalLink className="w-3.5 h-3.5" />
+            Open in new tab
+          </Button>
+        </a>
+      </div>
     </div>
   );
 }
@@ -151,7 +225,7 @@ function friendlyError(msg: string): string {
     return "The Laserfiche server returned a login/error page. Check your server URL or authentication settings.";
   if (/authentication failed/i.test(msg)) return "Laserfiche authentication failed. Verify your username and password.";
   if (/fetch failed|ECONNREFUSED|ENOTFOUND/i.test(msg)) return "Cannot reach the Laserfiche server. Check the server URL and network.";
-  if (/404/i.test(msg)) return "This entry was not found in Laserfiche (Entry may have been moved or deleted).";
+  if (/404/i.test(msg)) return "This entry was not found in Laserfiche (may have been moved or deleted).";
   if (msg.length > 120) return msg.slice(0, 120) + "…";
   return msg;
 }
@@ -159,33 +233,22 @@ function friendlyError(msg: string): string {
 function ErrorState({ entryId, error }: { entryId: number; error: Error | null }) {
   const msg = error ? error.message : "";
   const isNotConfigured = /not configured/i.test(msg);
-  const isHtmlResponse = /html page instead of json/i.test(msg) || /Unexpected token.*DOCTYPE/i.test(msg);
-  const isAuthError = /authentication failed/i.test(msg);
   const isNetworkError = /fetch failed|ECONNREFUSED|ENOTFOUND/i.test(msg);
-
-  const showSettingsLink = isNotConfigured || isHtmlResponse || isAuthError || isNetworkError;
+  const showSettingsLink = isNotConfigured || /html page|authentication failed|ECONN|ENOTFOUND/i.test(msg) || isNetworkError;
   const friendly = friendlyError(msg);
 
   return (
     <div className="h-full flex flex-col items-center justify-center text-center px-6 gap-4">
-      {isNotConfigured || isNetworkError ? (
-        <ServerOff className="w-14 h-14 text-muted-foreground/30" />
-      ) : (
-        <AlertTriangle className="w-14 h-14 text-muted-foreground/30" />
-      )}
-
+      {isNotConfigured || isNetworkError
+        ? <ServerOff className="w-14 h-14 text-muted-foreground/30" />
+        : <AlertTriangle className="w-14 h-14 text-muted-foreground/30" />
+      }
       <div className="space-y-1.5">
         <h2 className="text-lg font-semibold text-foreground">
           {isNotConfigured ? "Laserfiche not configured" : "Could not load document"}
         </h2>
         <p className="text-sm text-muted-foreground max-w-sm">{friendly}</p>
-        {isHtmlResponse && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 max-w-sm mt-1 font-arabic" dir="rtl">
-            قد يحتاج الخادم إلى مصادقة Windows أو SSO
-          </p>
-        )}
       </div>
-
       <div className="flex items-center gap-2 flex-wrap justify-center">
         <Link href="/archive">
           <Button variant="outline" size="sm" data-testid="back-to-archive">
@@ -202,7 +265,6 @@ function ErrorState({ entryId, error }: { entryId: number; error: Error | null }
           </Link>
         )}
       </div>
-
       {!isNotConfigured && msg && (
         <details className="max-w-sm w-full text-left">
           <summary className="text-xs text-muted-foreground cursor-pointer flex items-center gap-1">
@@ -233,10 +295,6 @@ export default function LFDocumentPage() {
         }
         throw new Error(`Server returned non-JSON response (status ${res.status}). Laserfiche may not be reachable.`);
       }
-      const ct = res.headers.get("content-type") || "";
-      if (!/json/i.test(ct)) {
-        throw new Error(`Server returned HTML instead of document data. Verify the Laserfiche backend URL.`);
-      }
       return res.json();
     },
     enabled: Number.isFinite(entryId) && entryId > 0,
@@ -247,10 +305,7 @@ export default function LFDocumentPage() {
   }
 
   if (isLoading) return <DocumentDetailSkeleton />;
-
-  if (error || !doc) {
-    return <ErrorState entryId={entryId} error={error as Error | null} />;
-  }
+  if (error || !doc) return <ErrorState entryId={entryId} error={error as Error | null} />;
 
   const createdDate = doc.createdDate
     ? new Date(doc.createdDate).toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })
@@ -307,9 +362,18 @@ export default function LFDocumentPage() {
               </p>
             )}
           </div>
+
+          {/* Header actions */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <a href={`/api/document/${entryId}/edoc`} download>
+              <Button variant="outline" size="sm" className="gap-1.5" data-testid="header-download">
+                <Download className="w-3.5 h-3.5" />
+                Download
+              </Button>
+            </a>
+          </div>
         </div>
 
-        {/* Tags */}
         {doc.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-3" data-testid="doc-tags">
             {doc.tags.map((tag) => (
@@ -324,11 +388,10 @@ export default function LFDocumentPage() {
 
       {/* Body */}
       <div className="flex-1 overflow-auto">
-        <div className="max-w-5xl px-6 py-5 flex gap-6">
+        <div className="max-w-6xl px-6 py-5 flex gap-6">
 
           {/* Left: Metadata */}
-          <div className="flex-1 min-w-0 space-y-5">
-            {/* Quick info */}
+          <div className="w-72 flex-shrink-0 space-y-5">
             <div className="bg-card border border-card-border rounded-md">
               <div className="px-4 py-3 border-b border-border flex items-center gap-2">
                 <FileText className="w-4 h-4 text-primary" />
@@ -365,13 +428,12 @@ export default function LFDocumentPage() {
               </div>
             </div>
 
-            {/* Metadata fields */}
             {doc.metadata.length > 0 && (
               <div className="bg-card border border-card-border rounded-md">
                 <div className="px-4 py-3 border-b border-border flex items-center gap-2">
                   <Hash className="w-4 h-4 text-primary" />
                   <span className="text-sm font-medium">Metadata Fields</span>
-                  <span className="ml-auto text-xs text-muted-foreground">{doc.metadata.length} fields</span>
+                  <span className="ml-auto text-xs text-muted-foreground">{doc.metadata.length}</span>
                 </div>
                 <div className="divide-y divide-border px-4" data-testid="metadata-fields">
                   {doc.metadata.map((field) => (
@@ -380,12 +442,12 @@ export default function LFDocumentPage() {
                       className="flex items-start justify-between gap-4 py-2.5"
                       data-testid={`metadata-field-${field.fieldId}`}
                     >
-                      <span className="text-xs text-muted-foreground flex-shrink-0 w-1/3 pt-0.5">
+                      <span className="text-xs text-muted-foreground flex-shrink-0 w-2/5 pt-0.5">
                         {field.fieldName}
                       </span>
                       <span
                         className={cn(
-                          "text-sm text-foreground text-right break-all flex-1",
+                          "text-xs text-foreground text-right break-all flex-1",
                           isArabic(field.value) && "font-arabic"
                         )}
                         dir={isArabic(field.value) ? "rtl" : "ltr"}
@@ -399,21 +461,24 @@ export default function LFDocumentPage() {
             )}
 
             {doc.metadata.length === 0 && (
-              <div className="text-center py-10 text-muted-foreground text-sm border border-dashed border-border rounded-md">
-                No metadata fields found for this document.
+              <div className="text-center py-8 text-muted-foreground text-sm border border-dashed border-border rounded-md">
+                No metadata fields found.
               </div>
             )}
           </div>
 
-          {/* Right: Document Preview */}
-          <div className="w-80 flex-shrink-0 space-y-4">
+          {/* Right: Document Viewer */}
+          <div className="flex-1 min-w-0 space-y-4">
             <div className="bg-card border border-card-border rounded-md">
               <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-                <FileText className="w-4 h-4 text-primary" />
+                <Eye className="w-4 h-4 text-primary" />
                 <span className="text-sm font-medium">Document Preview</span>
+                {doc.extension && (
+                  <Badge variant="outline" className="text-xs uppercase ml-auto">{doc.extension}</Badge>
+                )}
               </div>
               <div className="p-4">
-                <PageViewer entryId={entryId} />
+                <DocumentViewer entryId={entryId} extension={doc.extension} />
               </div>
             </div>
           </div>

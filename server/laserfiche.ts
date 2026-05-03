@@ -653,4 +653,22 @@ export async function laserficheGetPageImage(
   return { buffer: Buffer.from(arrayBuffer), contentType };
 }
 
+export async function laserficheGetEdoc(
+  config: LaserficheConfig,
+  token: string,
+  entryId: number
+): Promise<{ buffer: Buffer; contentType: string; fileName: string } | null> {
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/Laserfiche.Repository.Document/edoc`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "*/*" },
+  });
+  if (!res.ok) return null;
+  const contentType = res.headers.get("content-type") || "application/octet-stream";
+  const disposition = res.headers.get("content-disposition") || "";
+  const fileNameMatch = disposition.match(/filename[^;=\n]*=["']?([^"';\n]+)["']?/i);
+  const fileName = fileNameMatch?.[1]?.trim() || `document-${entryId}`;
+  const arrayBuffer = await res.arrayBuffer();
+  return { buffer: Buffer.from(arrayBuffer), contentType, fileName };
+}
+
 export type { LaserficheConfig as LFConfig };

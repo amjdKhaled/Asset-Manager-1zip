@@ -15,6 +15,7 @@ import {
   laserficheGetEntryTags,
   laserficheGetEntryPages,
   laserficheGetPageImage,
+  laserficheGetEdoc,
   naturalLanguageToLFSearchCommand,
   saveLaserficheConfig,
   clearLaserficheConfig,
@@ -856,6 +857,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const pages = await laserficheGetEntryPages(config, token, entryId);
       const pageUrls = pages.map((p) => `/api/document/${entryId}/image/${p.pageNumber}`);
       res.json({ entryId, pageCount: pages.length, pages: pageUrls });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/document/:entryId/edoc ──────────────────────────────────────
+  // Proxies the actual electronic document file from Laserfiche
+  app.get("/api/document/:entryId/edoc", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) return res.status(400).json({ error: "Invalid entry id" });
+    try {
+      const token = await getLaserficheToken(config);
+      const result = await laserficheGetEdoc(config, token, entryId);
+      if (!result) return res.status(404).json({ error: "Electronic document not found for this entry" });
+      res.setHeader("Content-Type", result.contentType);
+      res.setHeader("Content-Length", result.buffer.length);
+      res.setHeader("Content-Disposition", `inline; filename="${result.fileName}"`);
+      res.setHeader("Cache-Control", "public, max-age=300");
+      res.send(result.buffer);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
