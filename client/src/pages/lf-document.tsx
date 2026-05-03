@@ -65,7 +65,7 @@ function DocumentViewer({ entryId, extension }: { entryId: number; extension: st
 
   const edocUrl = `/api/laserfiche/entries/${entryId}/content`;
 
-  if (!showImages && (isPdf || isDoc || !extension)) {
+  if (!showImages) {
     return (
       <div className="space-y-3">
         {/* Inline viewer */}
