@@ -228,19 +228,16 @@ export default function ArchivePage() {
   const fieldDefinitions = details?.fieldDefinitions || [];
 
   const loadLaserficheFields = async (entryId: number) => {
-    const endpoints = [`http://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/${entryId}/fields?formatValue=false`];
+    const endpoint = `/api/laserfiche/entries/${entryId}/fields`;
 
-    let lastError = "Could not load metadata.";
-
-    for (const endpoint of endpoints) {
-      try {
-        console.log("[Laserfiche] Fetching metadata", { entryId, endpoint });
-        const res = await fetch(endpoint, {
-          headers: {
-            Accept: "application/json",
-          },
-          credentials: "include",
-        });
+    try {
+      console.log("[Laserfiche] Fetching metadata", { entryId, endpoint });
+      const res = await fetch(endpoint, {
+        headers: {
+          Accept: "application/json",
+        },
+        credentials: "include",
+      });
 
         const contentType = res.headers.get("content-type") || "";
         console.log("[Laserfiche] Metadata response status", { entryId, endpoint, status: res.status, contentType });
@@ -257,18 +254,16 @@ export default function ArchivePage() {
           throw new Error("Metadata API returned HTML/non-JSON (frontend route hit). Verify VITE_BACKEND_URL points to backend API server.");
         }
 
-        console.log("[Laserfiche] Metadata payload received", { entryId, count: payload.value.length });
-        return {
-          value: payload.value,
-          fieldDefinitions: [],
-        } as LaserficheDetails;
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : "Could not load metadata.";
-        console.error("[Laserfiche] Metadata fetch failed", { entryId, endpoint, error: lastError });
-      }
+      console.log("[Laserfiche] Metadata payload received", { entryId, count: payload.value.length });
+      return {
+        value: payload.value,
+        fieldDefinitions: payload.fieldDefinitions || [],
+      } as LaserficheDetails;
+    } catch (error) {
+      const lastError = error instanceof Error ? error.message : "Could not load metadata.";
+      console.error("[Laserfiche] Metadata fetch failed", { entryId, endpoint, error: lastError });
+      throw new Error(`${lastError} Root cause: backend Laserfiche token acquisition failed or expired.`);
     }
-
-    throw new Error(`${lastError} Root cause: direct Laserfiche API authorization (cookie/session or token) is missing/expired.`);
   };
 
   return (
