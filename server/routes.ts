@@ -769,6 +769,51 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── GET /api/laserfiche/entries/:entryId/content ─────────────────────────
+  // Streams the binary edoc to the client with the correct Content-Type.
+  // Frontend uses this URL directly as the `src` of an iframe / img tag —
+  // the browser never calls Laserfiche; the backend attaches the auth token.
+  app.get("/api/laserfiche/entries/:entryId/content", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).send("Laserfiche is not configured on this server.");
+
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) return res.status(400).send("Invalid entry id.");
+
+    try {
+      const token = await getLaserficheToken(config);
+      const lfUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}/Laserfiche.Repository.Document/edoc`;
+
+      const lfRes = await fetch(lfUrl, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "*/*" },
+      });
+
+      if (!lfRes.ok) {
+        const text = await lfRes.text();
+        const isHtml = /<!DOCTYPE|<html/i.test(text);
+        if (lfRes.status === 401 || isHtml) return res.status(401).send("Authentication failed — re-save credentials in LF Settings.");
+        if (lfRes.status === 404) return res.status(404).send("No electronic document attached to this entry.");
+        return res.status(lfRes.status).send(`Laserfiche error: ${lfRes.status}`);
+      }
+
+      const contentType = lfRes.headers.get("content-type") || "application/octet-stream";
+      if (/text\/html/i.test(contentType)) return res.status(401).send("Authentication failed — Laserfiche returned a login page.");
+
+      const disposition = lfRes.headers.get("content-disposition") || `inline; filename="document-${entryId}"`;
+      const contentLength = lfRes.headers.get("content-length");
+
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Content-Disposition", disposition);
+      if (contentLength) res.setHeader("Content-Length", contentLength);
+      res.setHeader("Cache-Control", "private, max-age=300");
+
+      const { Readable } = await import("stream");
+      Readable.fromWeb(lfRes.body as any).pipe(res);
+    } catch (err: any) {
+      res.status(500).send(`Server error: ${err.message}`);
+    }
+  });
+
   app.post("/api/laserfiche/entries/:entryId/summarize", async (req, res) => {
     const config = getLaserficheConfig();
     if (!config) {

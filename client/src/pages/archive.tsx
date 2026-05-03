@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
 import { type Document } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
-  Clock, Tag, Search, ChevronRight, Folder, FolderOpen, ExternalLink
+  Clock, Tag, Search, ChevronRight, Folder, FolderOpen,
+  ArrowLeft, Download, Image as ImageIcon, FileDown, Eye
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -58,7 +58,6 @@ function DocCard({ doc }: { doc: Document }) {
           {doc.titleAr && (
             <p className="text-xs text-muted-foreground leading-tight line-clamp-1 mb-2 font-arabic" dir="rtl">{doc.titleAr}</p>
           )}
-
           <div className="flex flex-wrap gap-1 mb-3">
             <Badge variant="outline" className={cn("text-xs border py-0", classificationColor(doc.classification))}>
               {doc.classification}
@@ -71,7 +70,6 @@ function DocCard({ doc }: { doc: Document }) {
               </Badge>
             )}
           </div>
-
           <div className="flex items-center justify-between gap-2">
             <div className="flex flex-wrap gap-x-3 gap-y-1">
               <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -96,31 +94,25 @@ function DocCard({ doc }: { doc: Document }) {
   );
 }
 
-type LaserfichePreview = {
-  folderId: number;
-  children: Array<{
-    id: number;
-    name: string;
-    entryType: string;
-    fullPath: string;
-    creator?: string;
-    creationTime?: string;
-    lastModifiedTime?: string;
-    extension?: string;
-    pageCount?: number;
-  }>;
-  fieldDefinitions?: Array<{
-    id: number;
-    name: string;
-    fieldType?: string;
-    isRequired?: boolean;
-  }>;
-};
-
-type TrailItem = {
+type LaserficheFileEntry = {
   id: number;
   name: string;
+  entryType: string;
+  fullPath: string;
+  creator?: string;
+  creationTime?: string;
+  lastModifiedTime?: string;
+  extension?: string;
+  pageCount?: number;
 };
+
+type LaserfichePreview = {
+  folderId: number;
+  children: LaserficheFileEntry[];
+  fieldDefinitions?: Array<{ id: number; name: string; fieldType?: string; isRequired?: boolean }>;
+};
+
+type TrailItem = { id: number; name: string };
 
 type LaserficheDetails = {
   value?: Array<{
@@ -131,23 +123,12 @@ type LaserficheDetails = {
     isRequired: boolean;
     hasMoreValues: boolean;
     groupId: number;
-    values: Array<{
-      value: string | null;
-      position: number;
-    }>;
+    values: Array<{ value: string | null; position: number }>;
   }>;
-  fieldDefinitions?: Array<{
-    id: number;
-    name: string;
-    fieldType?: string;
-    isRequired?: boolean;
-  }>;
+  fieldDefinitions?: Array<{ id: number; name: string; fieldType?: string; isRequired?: boolean }>;
 };
 
-type LaserficheSummary = {
-  content: string;
-  contentAr: string;
-};
+type LaserficheSummary = { content: string; contentAr: string };
 
 type DocumentAnalysis = {
   entryId: number;
@@ -159,38 +140,124 @@ type DocumentAnalysis = {
   summary: LaserficheSummary;
 };
 
-
-type LaserficheRawFieldValue = {
-  value?: unknown;
-  [key: string]: unknown;
-};
+type LaserficheRawFieldValue = { value?: unknown; [key: string]: unknown };
 
 function normalizeLaserficheFieldValue(input: unknown): string {
   if (input === null || input === undefined) return "";
   if (input instanceof Date) return input.toISOString();
-
   if (typeof input === "object") {
     const raw = input as LaserficheRawFieldValue;
     if ("value" in raw) {
       if (raw.value === null || raw.value === undefined) return "";
       return normalizeLaserficheFieldValue(raw.value);
     }
-
-    try {
-      return JSON.stringify(raw);
-    } catch {
-      return "";
-    }
+    try { return JSON.stringify(raw); } catch { return ""; }
   }
-
   return String(input);
 }
 
 function formatLaserficheFieldValues(values: unknown[]): string {
-  return values
-    .map((item) => normalizeLaserficheFieldValue(item))
-    .filter((value) => value !== "")
-    .join(", ");
+  return values.map((item) => normalizeLaserficheFieldValue(item)).filter((v) => v !== "").join(", ");
+}
+
+// ── Smart inline document viewer ──────────────────────────────────────────────
+function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: () => void }) {
+  const contentUrl = `/api/laserfiche/entries/${entry.id}/content`;
+  const ext = (entry.extension || "").toLowerCase().replace(/^\./, "");
+  const isPdf = ext === "pdf";
+  const isImage = ["jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp"].includes(ext);
+  const isOffice = ["doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(ext);
+
+  return (
+    <div className="h-full flex flex-col bg-card border border-card-border rounded-md overflow-hidden" data-testid="doc-viewer-panel">
+      {/* Viewer toolbar */}
+      <div className="flex-shrink-0 px-4 py-2.5 border-b border-border flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          data-testid="viewer-close"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Back
+        </button>
+        <div className="w-px h-4 bg-border" />
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          {isPdf ? <FileText className="w-3.5 h-3.5 text-primary flex-shrink-0" /> :
+            isImage ? <ImageIcon className="w-3.5 h-3.5 text-primary flex-shrink-0" /> :
+              <FileDown className="w-3.5 h-3.5 text-primary flex-shrink-0" />}
+          <span className="text-xs font-medium text-foreground truncate">{entry.name}</span>
+          {ext && (
+            <Badge variant="secondary" className="text-xs uppercase flex-shrink-0">{ext}</Badge>
+          )}
+        </div>
+        <a
+          href={contentUrl}
+          download={entry.name || `document-${entry.id}`}
+          className="flex-shrink-0"
+          data-testid="viewer-download"
+        >
+          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 px-2">
+            <Download className="w-3 h-3" />
+            Download
+          </Button>
+        </a>
+      </div>
+
+      {/* Viewer body */}
+      <div className="flex-1 overflow-hidden bg-muted/20">
+        {isPdf ? (
+          <iframe
+            src={contentUrl}
+            className="w-full h-full border-none"
+            title={entry.name}
+            data-testid="viewer-iframe-pdf"
+          />
+        ) : isImage ? (
+          <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
+            <img
+              src={contentUrl}
+              alt={entry.name}
+              className="max-w-full h-auto rounded shadow-sm"
+              data-testid="viewer-img"
+            />
+          </div>
+        ) : isOffice ? (
+          // Office files — try iframe first, show download if it can't render
+          <div className="flex flex-col h-full">
+            <iframe
+              src={contentUrl}
+              className="w-full flex-1 border-none"
+              title={entry.name}
+              data-testid="viewer-iframe-office"
+            />
+            <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
+              <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">If the document doesn't display, use Download above.</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
+            <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
+              <FileDown className="w-7 h-7 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground mb-1">Preview not available</p>
+              <p className="text-xs text-muted-foreground">
+                {ext ? `".${ext}" files` : "This file type"} cannot be displayed in the browser.
+              </p>
+            </div>
+            <a href={contentUrl} download={entry.name || `document-${entry.id}`} data-testid="viewer-download-fallback">
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <Download className="w-3.5 h-3.5" />
+                Download file
+              </Button>
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function ArchivePage() {
@@ -206,16 +273,14 @@ export default function ArchivePage() {
   const [analysisByEntryId, setAnalysisByEntryId] = useState<Record<number, DocumentAnalysis>>({});
   const [analysisLoadingEntryId, setAnalysisLoadingEntryId] = useState<number | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [viewerEntry, setViewerEntry] = useState<LaserficheFileEntry | null>(null);
 
-  const { data: docs, isLoading } = useQuery<Document[]>({
-    queryKey: ["/api/documents"],
-  });
+  const { data: docs, isLoading } = useQuery<Document[]>({ queryKey: ["/api/documents"] });
 
   const { data: preview, isLoading: previewLoading, error: previewError, refetch: refetchPreview } = useQuery<LaserfichePreview>({
     queryKey: ["/api/laserfiche/folders", selectedFolderId, "children"],
     enabled: true,
   });
-
 
   const filtered = docs?.filter(d => {
     const matchesSearch = !localSearch || d.title.toLowerCase().includes(localSearch.toLowerCase()) || (d.titleAr || "").includes(localSearch);
@@ -227,15 +292,8 @@ export default function ArchivePage() {
   const departments = docs ? Array.from(new Set(docs.map(d => d.department))) : [];
   const docTypes = docs ? Array.from(new Set(docs.map(d => d.docType))) : [];
 
-  const folders = useMemo(() => {
-    const items = preview?.children || [];
-    return items.filter((item) => item.entryType?.toLowerCase().includes("folder"));
-  }, [preview]);
-
-  const files = useMemo(() => {
-    const items = preview?.children || [];
-    return items.filter((item) => !item.entryType?.toLowerCase().includes("folder"));
-  }, [preview]);
+  const folders = useMemo(() => (preview?.children || []).filter(i => i.entryType?.toLowerCase().includes("folder")), [preview]);
+  const files = useMemo(() => (preview?.children || []).filter(i => !i.entryType?.toLowerCase().includes("folder")), [preview]);
 
   const openFolder = async (folderId: string, folderName?: string) => {
     setSelectedFolderId(folderId);
@@ -270,13 +328,17 @@ export default function ArchivePage() {
     }
   };
 
-  const openEdoc = (entryId: number) => {
-    // Backend streams the file with Bearer token auth — browser opens it directly.
-    // No fetch needed: window.open navigates to the proxy endpoint which handles auth.
-    window.open(`/api/laserfiche/entries/${entryId}/open`, "_blank", "noopener,noreferrer");
+  const openViewer = (file: LaserficheFileEntry) => {
+    setViewerEntry(file);
+    // Also load metadata for this entry if not already loaded
+    if (selectedEntryId !== file.id) {
+      openDocument(file.id);
+    }
   };
 
-  const analyzeDocument = async (file: LaserfichePreview["children"][number]) => {
+  const closeViewer = () => setViewerEntry(null);
+
+  const analyzeDocument = async (file: LaserficheFileEntry) => {
     setSelectedEntryId(file.id);
     setAnalysisError(null);
     if (analysisByEntryId[file.id]) return;
@@ -293,12 +355,7 @@ export default function ArchivePage() {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          entryId: file.id,
-          name: file.name,
-          fullPath: file.fullPath,
-          metadata,
-        }),
+        body: JSON.stringify({ entryId: file.id, name: file.name, fullPath: file.fullPath, metadata }),
       });
 
       const payload = await res.json().catch(() => null);
@@ -316,51 +373,33 @@ export default function ArchivePage() {
 
   const loadLaserficheFields = async (entryId: number) => {
     const endpoint = `/api/laserfiche/entries/${entryId}/fields`;
-
     try {
-      console.log("[Laserfiche] Fetching metadata", { entryId, endpoint });
-      const res = await fetch(endpoint, {
-        headers: {
-          Accept: "application/json",
-        },
-        credentials: "include",
-      });
+      const res = await fetch(endpoint, { headers: { Accept: "application/json" }, credentials: "include" });
+      const contentType = res.headers.get("content-type") || "";
+      const payload = await res.json().catch(() => null);
 
-        const contentType = res.headers.get("content-type") || "";
-        console.log("[Laserfiche] Metadata response status", { entryId, endpoint, status: res.status, contentType });
-        const payload = await res.json().catch(() => null);
-
-        if (!res.ok) {
-          if (res.status === 401) {
-            throw new Error("Failed to load Laserfiche fields: 401 Unauthorized from Laserfiche. Re-open Laserfiche Settings and save valid username/password to refresh server token.");
-          }
-          throw new Error(payload?.error || `Failed to load Laserfiche fields: ${res.status}`);
-        }
-
-        if (!contentType.includes("application/json") || !payload || !Array.isArray(payload.value)) {
-          throw new Error("Metadata API returned HTML/non-JSON (frontend route hit). Verify VITE_BACKEND_URL points to backend API server.");
-        }
-
-      console.log("[Laserfiche] Metadata payload received", { entryId, count: payload.value.length });
-      return {
-        value: payload.value,
-        fieldDefinitions: payload.fieldDefinitions || [],
-      } as LaserficheDetails;
+      if (!res.ok) {
+        if (res.status === 401) throw new Error("Failed to load Laserfiche fields: 401 Unauthorized. Re-open LF Settings and save valid credentials.");
+        throw new Error(payload?.error || `Failed to load Laserfiche fields: ${res.status}`);
+      }
+      if (!contentType.includes("application/json") || !payload || !Array.isArray(payload.value)) {
+        throw new Error("Metadata API returned HTML/non-JSON. Verify backend is running and LF is configured.");
+      }
+      return { value: payload.value, fieldDefinitions: payload.fieldDefinitions || [] } as LaserficheDetails;
     } catch (error) {
       const lastError = error instanceof Error ? error.message : "Could not load metadata.";
-      console.error("[Laserfiche] Metadata fetch failed", { entryId, endpoint, error: lastError });
-      throw new Error(`${lastError} Root cause: backend Laserfiche token acquisition failed or expired.`);
+      throw new Error(lastError);
     }
   };
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      {/* Header */}
       <div className="flex-shrink-0 bg-background border-b border-border px-6 py-5">
         <div className="mb-4">
           <h1 className="text-xl font-semibold text-foreground">Document Archive</h1>
           <p className="text-sm text-muted-foreground mt-0.5 font-arabic" dir="rtl">أرشيف المستندات الحكومية</p>
         </div>
-
         <div className="flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -398,10 +437,17 @@ export default function ArchivePage() {
         </div>
       </div>
 
+      {/* Body */}
       <div className="flex-1 overflow-hidden px-6 py-5">
         <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5">
-          <div className="overflow-auto">
-            {isLoading ? (
+
+          {/* LEFT — Document grid OR inline viewer */}
+          <div className="overflow-auto min-h-0">
+            {viewerEntry ? (
+              <div className="h-full">
+                <SmartViewer entry={viewerEntry} onClose={closeViewer} />
+              </div>
+            ) : isLoading ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-28 rounded-md" />)}
               </div>
@@ -418,7 +464,8 @@ export default function ArchivePage() {
             )}
           </div>
 
-          <div className="overflow-auto">
+          {/* RIGHT — Laserfiche repository browser + metadata */}
+          <div className="overflow-auto min-h-0">
             <div className="bg-card border border-card-border rounded-md h-full flex flex-col">
               <div className="px-4 py-3 border-b border-border flex items-center gap-2">
                 <Folder className="w-4 h-4 text-primary" />
@@ -428,9 +475,7 @@ export default function ArchivePage() {
                 <label className="text-xs font-medium text-muted-foreground">Current Folder ID</label>
                 <div className="flex gap-2">
                   <Input value={selectedFolderId} onChange={(e) => setSelectedFolderId(e.target.value)} data-testid="input-folder-id" />
-                  <Button type="button" onClick={() => openFolder(selectedFolderId)} data-testid="button-open-folder">
-                    Open
-                  </Button>
+                  <Button type="button" onClick={() => openFolder(selectedFolderId)} data-testid="button-open-folder">Open</Button>
                 </div>
                 <div className="flex items-center gap-1 text-xs text-muted-foreground overflow-x-auto">
                   {trail.map((item, index) => (
@@ -447,6 +492,7 @@ export default function ArchivePage() {
                   ))}
                 </div>
               </div>
+
               <div className="flex-1 overflow-auto p-3">
                 {previewLoading ? (
                   <Skeleton className="h-64 w-full" />
@@ -454,6 +500,7 @@ export default function ArchivePage() {
                   <div className="text-xs text-red-600">Could not load folders.</div>
                 ) : preview ? (
                   <div className="space-y-4">
+                    {/* Folders */}
                     <div>
                       <p className="text-xs text-muted-foreground mb-2">Folders</p>
                       <div className="space-y-1">
@@ -472,6 +519,8 @@ export default function ArchivePage() {
                         {folders.length === 0 && <div className="text-xs text-muted-foreground">No folders.</div>}
                       </div>
                     </div>
+
+                    {/* Files */}
                     <div>
                       <p className="text-xs text-muted-foreground mb-2">Files</p>
                       <div className="divide-y divide-border rounded-md border border-border">
@@ -509,10 +558,10 @@ export default function ArchivePage() {
                                 variant="outline"
                                 size="sm"
                                 className="h-7 text-xs px-2 gap-1"
-                                onClick={() => openEdoc(file.id)}
+                                onClick={() => openViewer(file)}
                                 data-testid={`button-open-document-${file.id}`}
                               >
-                                <ExternalLink className="w-3 h-3" />
+                                <Eye className="w-3 h-3" />
                                 Open
                               </Button>
                             </div>
@@ -521,6 +570,8 @@ export default function ArchivePage() {
                         {files.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
                       </div>
                     </div>
+
+                    {/* Metadata details */}
                     {selectedEntryId && (
                       <div className="border border-border rounded-md p-3 space-y-3">
                         <div className="flex items-center gap-2">
@@ -532,21 +583,19 @@ export default function ArchivePage() {
                         ) : detailsError ? (
                           <div className="text-xs text-red-600">{detailsError}</div>
                         ) : fieldEntries.length > 0 ? (
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-1 gap-2 text-xs">
-                              {fieldEntries.map((field) => (
-                                <div key={field.fieldId} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
-                                  <span className="text-muted-foreground shrink-0">{field.fieldName}</span>
-                                  <span className="text-foreground text-right break-all">
-                                    {formatLaserficheFieldValues(field.values || []) || "—"}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
+                          <div className="grid grid-cols-1 gap-2 text-xs">
+                            {fieldEntries.map((field) => (
+                              <div key={field.fieldId} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
+                                <span className="text-muted-foreground shrink-0">{field.fieldName}</span>
+                                <span className="text-foreground text-right break-all">
+                                  {formatLaserficheFieldValues(field.values || []) || "—"}
+                                </span>
+                              </div>
+                            ))}
                           </div>
                         ) : fieldDefinitions.length > 0 ? (
                           <div className="space-y-2">
-                            <p className="text-xs text-muted-foreground">No field values on this document. Showing available repository metadata fields:</p>
+                            <p className="text-xs text-muted-foreground">No field values. Available repository fields:</p>
                             <div className="grid grid-cols-1 gap-2 text-xs">
                               {fieldDefinitions.slice(0, 20).map((field) => (
                                 <div key={field.id} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
@@ -561,6 +610,8 @@ export default function ArchivePage() {
                         )}
                       </div>
                     )}
+
+                    {/* AI Analysis */}
                     {selectedEntryId && (
                       <div className="border border-border rounded-md p-3 space-y-3">
                         <div className="flex items-center gap-2">
@@ -583,9 +634,27 @@ export default function ArchivePage() {
                         )}
                       </div>
                     )}
+
+                    {/* Tags */}
+                    {selectedEntryId && details?.value && details.value.some(f => f.fieldName.toLowerCase().includes("tag")) && (
+                      <div className="border border-border rounded-md p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Tag className="w-4 h-4 text-primary" />
+                          <p className="text-sm font-semibold">Tags</p>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {details.value
+                            .filter(f => f.fieldName.toLowerCase().includes("tag"))
+                            .flatMap(f => f.values.map(v => normalizeLaserficheFieldValue(v)).filter(Boolean))
+                            .map((tag, i) => (
+                              <Badge key={i} variant="outline" className="text-xs">{tag}</Badge>
+                            ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="text-xs text-muted-foreground">Click open to load the selected folder.</div>
+                  <div className="text-xs text-muted-foreground">Click Open to load the selected folder.</div>
                 )}
               </div>
             </div>
