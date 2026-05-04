@@ -170,40 +170,8 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
   const isPdf = ext === "pdf";
   const isImage = ["jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp"].includes(ext);
   const isOffice = ["doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(ext);
-  const [fileUrl, setFileUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let disposed = false;
-    let objectUrl: string | null = null;
-
-    const loadFile = async () => {
-      setIsLoading(true);
-      setLoadError(null);
-      try {
-        const response = await fetch(contentUrl);
-        if (!response.ok) throw new Error(`Failed to load document (${response.status})`);
-        const blob = await response.blob();
-        objectUrl = URL.createObjectURL(blob);
-        if (!disposed) setFileUrl(objectUrl);
-      } catch (error) {
-        if (!disposed) {
-          setFileUrl(null);
-          setLoadError(error instanceof Error ? error.message : "Failed to load document");
-        }
-      } finally {
-        if (!disposed) setIsLoading(false);
-      }
-    };
-
-    loadFile();
-
-    return () => {
-      disposed = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [contentUrl]);
+  const absoluteContentUrl = typeof window === "undefined" ? contentUrl : `${window.location.origin}${contentUrl}`;
+  const officeViewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(absoluteContentUrl)}`;
 
   return (
     <div className="h-full flex flex-col bg-card border border-card-border rounded-md overflow-hidden" data-testid="doc-viewer-panel">
@@ -261,14 +229,14 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
           // Office files — try iframe first, show download if it can't render
           <div className="flex flex-col h-full">
             <iframe
-              src={fileUrl}
+              src={officeViewerUrl}
               className="w-full flex-1 border-none"
               title={entry.name}
               data-testid="viewer-iframe-office"
             />
             <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
               <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">If your browser cannot preview this file, open it in a compatible viewer.</span>
+              <span className="text-xs text-muted-foreground">If your browser cannot preview this file, use Download above and save as PDF.</span>
             </div>
           </div>
           ) : (
