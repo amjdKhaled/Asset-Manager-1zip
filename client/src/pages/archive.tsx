@@ -167,6 +167,8 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
   const isPdf = ext === "pdf";
   const isImage = ["jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp"].includes(ext);
   const isOffice = ["doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(ext);
+  const absoluteContentUrl = typeof window === "undefined" ? contentUrl : `${window.location.origin}${contentUrl}`;
+  const officeViewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(absoluteContentUrl)}`;
 
   return (
     <div className="h-full flex flex-col bg-card border border-card-border rounded-md overflow-hidden" data-testid="doc-viewer-panel">
@@ -226,14 +228,14 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
           // Office files — try iframe first, show download if it can't render
           <div className="flex flex-col h-full">
             <iframe
-              src={contentUrl}
+              src={officeViewerUrl}
               className="w-full flex-1 border-none"
               title={entry.name}
               data-testid="viewer-iframe-office"
             />
             <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
               <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">If the document doesn't display, use Download above.</span>
+              <span className="text-xs text-muted-foreground">If your browser cannot preview this file, use Download above and save as PDF.</span>
             </div>
           </div>
         ) : (
