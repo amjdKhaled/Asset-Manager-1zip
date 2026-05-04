@@ -173,6 +173,7 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const isEmpty = !fileUrl;
 
   useEffect(() => {
     let disposed = false;
@@ -183,6 +184,10 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
       setLoadError(null);
       try {
         const response = await fetch(contentUrl);
+        if (response.status === 204) {
+          setFileUrl(null);
+          throw new Error("No document available");
+        }
         if (!response.ok) throw new Error(`Failed to load document (${response.status})`);
         const blob = await response.blob();
         objectUrl = URL.createObjectURL(blob);
@@ -248,6 +253,13 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
             <p className="text-sm font-medium text-destructive">Failed to load preview</p>
             <p className="text-xs text-muted-foreground">{loadError}</p>
           </div>
+        ) : isEmpty ? (
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">
+            No document available
+          </div>
+        ) : fileUrl ? (
+          isPdf ? (
+            <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-pdf" />
         ) : fileUrl ? (
           isPdf ? (
             <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-pdf" />
