@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { type Document } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
@@ -9,9 +9,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
   Clock, Tag, Search, ChevronRight, Folder, FolderOpen,
-  ArrowLeft, Download, Image as ImageIcon, FileDown, Eye
+  ArrowLeft, Image as ImageIcon, FileDown, Eye
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Document as PdfDocument, Page, pdfjs } from "react-pdf";
+
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 const classificationColor = (cls: string) => {
   switch (cls) {
@@ -193,38 +196,36 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
             <Badge variant="secondary" className="text-xs uppercase flex-shrink-0">{ext}</Badge>
           )}
         </div>
-        <a
-          href={contentUrl}
-          download={entry.name || `document-${entry.id}`}
-          className="flex-shrink-0"
-          data-testid="viewer-download"
-        >
-          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 px-2">
-            <Download className="w-3 h-3" />
-            Download
-          </Button>
-        </a>
       </div>
 
       {/* Viewer body */}
       <div className="flex-1 overflow-hidden bg-muted/20">
-        {isPdf ? (
-          <iframe
-            src={contentUrl}
-            className="w-full h-full border-none"
-            title={entry.name}
-            data-testid="viewer-iframe-pdf"
-          />
-        ) : isImage ? (
+        {isLoading ? (
+          <div className="w-full h-full flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+          </div>
+        ) : loadError ? (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-center px-8">
+            <p className="text-sm font-medium text-destructive">Failed to load preview</p>
+            <p className="text-xs text-muted-foreground">{loadError}</p>
+          </div>
+        ) : fileUrl ? (
+          isPdf ? (
+            <div className="w-full h-full overflow-auto p-4 flex justify-center">
+              <PdfDocument file={fileUrl} loading={<div className="text-xs text-muted-foreground">Loading PDF…</div>}>
+                <Page pageNumber={1} />
+              </PdfDocument>
+            </div>
+          ) : isImage ? (
           <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
             <img
-              src={contentUrl}
+              src={fileUrl}
               alt={entry.name}
               className="max-w-full h-auto rounded shadow-sm"
               data-testid="viewer-img"
             />
           </div>
-        ) : isOffice ? (
+          ) : isOffice ? (
           // Office files — try iframe first, show download if it can't render
           <div className="flex flex-col h-full">
             <iframe
@@ -238,23 +239,17 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
               <span className="text-xs text-muted-foreground">If your browser cannot preview this file, use Download above and save as PDF.</span>
             </div>
           </div>
+          ) : (
+            <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-fallback" />
+          )
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
             <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
               <FileDown className="w-7 h-7 text-muted-foreground" />
             </div>
             <div>
-              <p className="text-sm font-medium text-foreground mb-1">Preview not available</p>
-              <p className="text-xs text-muted-foreground">
-                {ext ? `".${ext}" files` : "This file type"} cannot be displayed in the browser.
-              </p>
+              <p className="text-sm font-medium text-foreground mb-1">No preview available</p>
             </div>
-            <a href={contentUrl} download={entry.name || `document-${entry.id}`} data-testid="viewer-download-fallback">
-              <Button variant="outline" size="sm" className="gap-1.5">
-                <Download className="w-3.5 h-3.5" />
-                Download file
-              </Button>
-            </a>
           </div>
         )}
       </div>
