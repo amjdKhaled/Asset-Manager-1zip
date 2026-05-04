@@ -12,6 +12,9 @@ import {
   ArrowLeft, Image as ImageIcon, FileDown, Eye
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Document as PdfDocument, Page, pdfjs } from "react-pdf";
+
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 const classificationColor = (cls: string) => {
   switch (cls) {
@@ -211,6 +214,8 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [contentUrl]);
+  const absoluteContentUrl = typeof window === "undefined" ? contentUrl : `${window.location.origin}${contentUrl}`;
+  const officeViewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(absoluteContentUrl)}`;
 
   return (
     <div className="h-full flex flex-col bg-card border border-card-border rounded-md overflow-hidden" data-testid="doc-viewer-panel">
@@ -255,6 +260,14 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
         ) : fileUrl ? (
           isPdf ? (
             <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-pdf" />
+        ) : fileUrl ? (
+          isPdf ? (
+            <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-pdf" />
+            <div className="w-full h-full overflow-auto p-4 flex justify-center">
+              <PdfDocument file={fileUrl} loading={<div className="text-xs text-muted-foreground">Loading PDF…</div>}>
+                <Page pageNumber={1} />
+              </PdfDocument>
+            </div>
           ) : isImage ? (
           <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
             <img
@@ -269,19 +282,18 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
           <div className="flex flex-col h-full">
             <iframe
               src={fileUrl}
+              src={officeViewerUrl}
               className="w-full flex-1 border-none"
               title={entry.name}
               data-testid="viewer-iframe-office"
             />
             <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
               <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">If your browser cannot preview this file, open it in a compatible viewer.</span>
+              <span className="text-xs text-muted-foreground">If your browser cannot preview this file, use Download above and save as PDF.</span>
             </div>
           </div>
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm" data-testid="viewer-unsupported">
-              No preview available for this file type
-            </div>
+            <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-fallback" />
           )
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
