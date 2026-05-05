@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { type Document } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -316,6 +317,7 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
 }
 
 export default function ArchivePage() {
+  const [, setLocation] = useLocation();
   const [localSearch, setLocalSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterDept, setFilterDept] = useState("all");
@@ -392,6 +394,23 @@ export default function ArchivePage() {
   };
 
   const closeViewer = () => setViewerEntry(null);
+
+  const handleAI = async (file: LaserficheFileEntry) => {
+    try {
+      const [contentRes, metadataRes] = await Promise.all([
+        fetch(`/api/laserfiche/entries/${file.id}/content`),
+        fetch(`/api/laserfiche/entries/${file.id}/fields`),
+      ]);
+      if (!contentRes.ok) throw new Error("Failed to fetch file");
+      if (!metadataRes.ok) throw new Error("Failed to fetch metadata");
+      const [blob, metadata] = await Promise.all([contentRes.blob(), metadataRes.json()]);
+      const fileUrl = URL.createObjectURL(blob);
+      localStorage.setItem("ai_document", JSON.stringify({ entryId: file.id, name: file.name, fullPath: file.fullPath, metadata, fileUrl }));
+      setLocation("/chat");
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
   const analyzeDocument = async (file: LaserficheFileEntry) => {
     setSelectedEntryId(file.id);
@@ -607,6 +626,16 @@ export default function ArchivePage() {
                                 data-testid={`button-metadata-panel-${file.id}`}
                               >
                                 Metadata
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                className="h-7 text-xs px-2"
+                                onClick={() => handleAI(file)}
+                                data-testid={`button-ai-document-${file.id}`}
+                              >
+                                AI
                               </Button>
                               <Button
                                 type="button"
