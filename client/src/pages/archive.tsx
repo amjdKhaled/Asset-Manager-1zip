@@ -176,6 +176,64 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const isEmpty = !fileUrl;
 
+  let viewerContent: JSX.Element;
+  if (isLoading) {
+    viewerContent = (
+      <div className="w-full h-full flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+      </div>
+    );
+  } else if (loadError) {
+    viewerContent = (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-center px-8">
+        <p className="text-sm font-medium text-destructive">Failed to load preview</p>
+        <p className="text-xs text-muted-foreground">{loadError}</p>
+      </div>
+    );
+  } else if (isEmpty) {
+    viewerContent = <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">No document available</div>;
+  } else if (isPdf && fileUrl) {
+    viewerContent = <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-pdf" />;
+  } else if (isImage && fileUrl) {
+    viewerContent = (
+      <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
+        <img src={fileUrl} alt={entry.name} className="max-w-full h-auto rounded shadow-sm" data-testid="viewer-img" />
+      </div>
+    );
+  } else if (isOffice && fileUrl) {
+    viewerContent = (
+      <div className="flex flex-col h-full">
+        <iframe src={fileUrl} className="w-full flex-1 border-none" title={entry.name} data-testid="viewer-iframe-office" />
+        <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
+          <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">If your browser cannot preview this file, open it in a compatible viewer.</span>
+        </div>
+      </div>
+    );
+  } else if (fileUrl) {
+    viewerContent = (
+      <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm" data-testid="viewer-unsupported">
+        No preview available for this file type
+      </div>
+    );
+  } else {
+    viewerContent = (
+      <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
+        <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
+          <FileDown className="w-7 h-7 text-muted-foreground" />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-foreground mb-1">No preview available</p>
+        </div>
+        <a href={contentUrl} download={entry.name || `document-${entry.id}`} data-testid="viewer-download-fallback">
+          <Button variant="outline" size="sm" className="gap-1.5">
+            Download file
+          </Button>
+        </a>
+      </div>
+    );
+  }
+
   useEffect(() => {
     let disposed = false;
     let objectUrl: string | null = null;
