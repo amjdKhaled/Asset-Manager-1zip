@@ -45,6 +45,14 @@ type ChatMessage = {
   lang?: "ar" | "en";
 };
 
+type AIDocumentContext = {
+  entryId: number;
+  name: string;
+  fullPath?: string;
+  fileUrl: string;
+  metadata?: Record<string, unknown>;
+};
+
 const SUGGESTIONS_LF_AR = [
   "لخص الوثيقة رقم 19",
   "ابحث عن المعاملات المتأخرة",
@@ -355,6 +363,7 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
+  const [aiDocument, setAiDocument] = useState<AIDocumentContext | null>(null);
 
   const { data: ollamaStatus, isLoading: statusLoading, refetch: refetchStatus } = useQuery<OllamaStatus>({
     queryKey: ["/api/chat/status"],
@@ -367,6 +376,16 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    const raw = localStorage.getItem("ai_document");
+    if (!raw) return;
+    try {
+      setAiDocument(JSON.parse(raw) as AIDocumentContext);
+    } catch {
+      localStorage.removeItem("ai_document");
+    }
+  }, []);
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) return;
@@ -401,10 +420,13 @@ export default function ChatPage() {
       .map(m => ({ role: m.role, content: m.content }));
 
     try {
+      const contextualPrompt = aiDocument
+        ? `${text.trim()}\n\n[Document Context]\nName: ${aiDocument.name}\nEntryId: ${aiDocument.entryId}\nMetadata: ${JSON.stringify(aiDocument.metadata || {})}`
+        : text.trim();
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, query: text.trim() }),
+        body: JSON.stringify({ messages: history, query: contextualPrompt }),
         signal: ctrl.signal,
       });
 
@@ -477,7 +499,7 @@ export default function ChatPage() {
       abortRef.current = null;
       inputRef.current?.focus();
     }
-  }, [messages, isStreaming, refetchStatus, toast]);
+  }, [aiDocument, messages, isStreaming, refetchStatus, toast]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -551,6 +573,20 @@ export default function ChatPage() {
         <OllamaSetupGuide status={ollamaStatus!} />
       ) : (
         <>
+          {aiDocument && (
+            <div className="flex-shrink-0 px-6 pt-4">
+              <div className="rounded-md border border-border bg-card p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">AI Context Document</p>
+                    <p className="text-sm font-medium truncate">{aiDocument.name}</p>
+                  </div>
+                  <Badge variant="secondary" className="text-xs">Entry #{aiDocument.entryId}</Badge>
+                </div>
+                <iframe src={aiDocument.fileUrl} className="w-full h-56 border rounded" title={aiDocument.name} />
+              </div>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto px-6 py-4">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-5">
