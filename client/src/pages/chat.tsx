@@ -431,9 +431,7 @@ export default function ChatPage() {
       .map(m => ({ role: m.role, content: m.content }));
 
     try {
-      const contextualPrompt = aiDocument
-        ? `${text.trim()}\n\n[Document Context]\nName: ${aiDocument.name}\nEntryId: ${aiDocument.entryId}\nMetadata: ${JSON.stringify(aiDocument.metadata || {})}`
-        : text.trim();
+      const contextualPrompt = text.trim();
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
