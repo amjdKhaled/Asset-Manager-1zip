@@ -423,6 +423,15 @@ export default function ChatPage() {
     const url = new URL(window.location.href);
     url.searchParams.delete("entryId");
     window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  useEffect(() => {
+    return () => {
+      localStorage.removeItem("ai_document");
+    };
+  }, []);
+
+  const clearDocumentContext = () => {
+    localStorage.removeItem("ai_document");
+    setAiDocument(null);
   };
 
   const sendMessage = useCallback(async (text: string) => {
