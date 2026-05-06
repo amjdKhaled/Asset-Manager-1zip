@@ -16,7 +16,6 @@ import {
   laserficheGetEntryPages,
   laserficheGetPageImage,
   laserficheGetEdoc,
-  laserficheDeleteEntry,
   naturalLanguageToLFSearchCommand,
   saveLaserficheConfig,
   clearLaserficheConfig,

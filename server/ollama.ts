@@ -190,7 +190,52 @@ Required Analysis:
 
 Respond in a structured, well-formatted way.`;
 }
+export function buildDocumentMetadataChatPrompt({
+  entry,
+  fields,
+  userPrompt,
+  lang,
+}: {
+  entry: any;
+  fields: any[];
+  userPrompt: string;
+  lang: string;
+}) {
+  const metadataText = fields
+    .map((field: any) => {
+      const name = field?.name ?? "Unknown";
+      const value =
+        field?.value ??
+        field?.formattedValue ??
+        field?.values?.join(", ") ??
+        "Empty";
 
+      return `- ${name}: ${value}`;
+    })
+    .join("\n");
+
+  return `
+You are an AI assistant connected to Laserfiche metadata.
+
+IMPORTANT RULES:
+- Answer ONLY using the metadata below.
+- If information does not exist, say you could not find it.
+- Respond in Arabic if the user writes Arabic.
+- Respond in English if the user writes English.
+
+DOCUMENT INFORMATION:
+Name: ${entry?.name ?? ""}
+Path: ${entry?.path ?? ""}
+Creator: ${entry?.creator ?? ""}
+Creation Time: ${entry?.creationTime ?? ""}
+
+METADATA:
+${metadataText}
+
+USER QUESTION:
+${userPrompt}
+`;
+}
 export function buildLFSearchPrompt(
   entries: Array<{ id: number; name: string; path?: string; fields?: Record<string, string>; tags?: string[] }>,
   query: string,

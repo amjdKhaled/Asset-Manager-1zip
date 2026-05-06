@@ -683,7 +683,7 @@ export default function ArchivePage() {
                                 <Eye className="w-3 h-3" />
                                 Open
                               </Button>
-                              <Button
+                              {/* <Button
                                 type="button"
                                 variant="destructive"
                                 size="sm"
@@ -693,7 +693,7 @@ export default function ArchivePage() {
                               >
                                 <Trash2 className="w-3 h-3" />
                                 Delete
-                              </Button>
+                              </Button> */}
                             </div>
                           </div>
                         ))}
