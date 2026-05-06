@@ -78,6 +78,8 @@ export async function ollamaChat(
   return fullText;
 }
 
+//intersting
+
 export function buildSystemPrompt(lang: "ar" | "en"): string {
   if (lang === "ar") {
     return `أنت مساعد ذكي متخصص في البحث وتلخيص وثائق الأرشيف الحكومي.
@@ -127,6 +129,8 @@ export function buildContextBlock(docs: Array<{ title: string; titleAr?: string 
   return parts.join("\n");
 }
 
+  //intresting
+
 export function buildLFSummarizePrompt(
   entry: { id: number; name: string; path?: string; creationTime?: string; creator?: string },
   fields: Array<{ fieldName: string; value: string }>,
@@ -139,6 +143,8 @@ export function buildLFSummarizePrompt(
     .join("\n");
 
   const tagLine = tags.length ? tags.join(", ") : (lang === "ar" ? "لا توجد تاغات" : "None");
+
+  //intresting
 
   if (lang === "ar") {
     return `أنت محلل وثائق حكومي متخصص. حلّل الوثيقة التالية وقدّم تقريراً شاملاً باللغة العربية.
@@ -227,41 +233,6 @@ Required:
 4. If no relevant documents found, clearly state that
 
 Sort results from most to least relevant.`;
-}
-
-
-export function buildDocumentMetadataChatPrompt(input: {
-  entry: { id: number; name: string; path?: string; creationTime?: string; creator?: string };
-  fields: Array<{ fieldName: string; values: Array<{ value: string | null }> }>;
-  userPrompt: string;
-  lang: "ar" | "en";
-}): string {
-  const metadataLines = input.fields
-    .map((field) => {
-      const value = (field.values || []).map((v) => v.value ?? "").filter(Boolean).join(", ");
-      return value ? `${field.fieldName}: ${value}` : "";
-    })
-    .filter(Boolean)
-    .join("\n");
-
-  return `You are an AI assistant that answers ONLY based on the following document metadata.
-
-Document Metadata:
-Entry ID: ${input.entry.id}
-Name: ${input.entry.name}
-Path: ${input.entry.path || "Not available"}
-Creator: ${input.entry.creator || "Not available"}
-Creation Time: ${input.entry.creationTime || "Not available"}
-${metadataLines || "No metadata fields available."}
-
-Rules:
-- Do NOT invent information
-- Answer only using provided data
-- If answer not found, say "Not available in document"
-- Respond in the same language as the user input (Arabic or English)
-
-User Question:
-${input.userPrompt}`;
 }
 
 export async function summarizeDocumentContent(input: {
