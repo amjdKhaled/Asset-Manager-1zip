@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
   Clock, Tag, Search, ChevronRight, Folder, FolderOpen,
-  ArrowLeft, Image as ImageIcon, FileDown, Eye
+  ArrowLeft, Image as ImageIcon, FileDown, Eye, Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -446,6 +446,40 @@ export default function ArchivePage() {
       console.error(error);
     }
   };
+
+
+  const deleteDocument = async (file: LaserficheFileEntry) => {
+    const ok = window.confirm(`Delete "${file.name}"? This action cannot be undone.`);
+    if (!ok) return;
+
+    try {
+      const res = await fetch(`/api/laserfiche/entries/${file.id}`, { method: "DELETE" });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.error || `Delete failed (${res.status})`);
+
+      const rawCtx = localStorage.getItem("ai_document");
+      if (rawCtx) {
+        try {
+          const parsed = JSON.parse(rawCtx) as { entryId?: number };
+          if (parsed.entryId === file.id) localStorage.removeItem("ai_document");
+        } catch {
+          localStorage.removeItem("ai_document");
+        }
+      }
+
+      if (selectedEntryId === file.id) {
+        setSelectedEntryId(null);
+        setDetails(null);
+        setViewerEntry(null);
+      }
+
+      await refetchPreview();
+    } catch (error) {
+      console.error(error);
+      window.alert(error instanceof Error ? error.message : "Failed to delete document");
+    }
+  };
+
   const analyzeDocument = async (file: LaserficheFileEntry) => {
     setSelectedEntryId(file.id);
     setAnalysisError(null);
@@ -681,6 +715,17 @@ export default function ArchivePage() {
                               >
                                 <Eye className="w-3 h-3" />
                                 Open
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                className="h-7 text-xs px-2 gap-1"
+                                onClick={() => deleteDocument(file)}
+                                data-testid={`button-delete-document-${file.id}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                Delete
                               </Button>
                             </div>
                           </div>
