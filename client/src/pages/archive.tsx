@@ -10,12 +10,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
   Clock, Tag, Search, ChevronRight, Folder, FolderOpen,
-  ArrowLeft, Image as ImageIcon, FileDown, Eye
+  ArrowLeft, Image as ImageIcon, FileDown, Eye, Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Document as PdfDocument, Page, pdfjs } from "react-pdf";
-
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 const classificationColor = (cls: string) => {
   switch (cls) {
@@ -319,38 +316,18 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
         ) : fileUrl ? (
           isPdf ? (
             <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-pdf" />
-        ) : fileUrl ? (
-          isPdf ? (
-            <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-pdf" />
-            <div className="w-full h-full overflow-auto p-4 flex justify-center">
-              <PdfDocument file={fileUrl} loading={<div className="text-xs text-muted-foreground">Loading PDF…</div>}>
-                <Page pageNumber={1} />
-              </PdfDocument>
-            </div>
           ) : isImage ? (
-          <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
-            <img
-              src={fileUrl}
-              alt={entry.name}
-              className="max-w-full h-auto rounded shadow-sm"
-              data-testid="viewer-img"
-            />
-          </div>
-          ) : isOffice ? (
-          // Office files — try iframe first, show download if it can't render
-          <div className="flex flex-col h-full">
-            <iframe
-              src={fileUrl}
-              src={officeViewerUrl}
-              className="w-full flex-1 border-none"
-              title={entry.name}
-              data-testid="viewer-iframe-office"
-            />
-            <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
-              <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">If your browser cannot preview this file, use Download above and save as PDF.</span>
+            <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
+              <img src={fileUrl} alt={entry.name} className="max-w-full h-auto rounded shadow-sm" data-testid="viewer-img" />
             </div>
-          </div>
+          ) : isOffice ? (
+            <div className="flex flex-col h-full">
+              <iframe src={officeViewerUrl} className="w-full flex-1 border-none" title={entry.name} data-testid="viewer-iframe-office" />
+              <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
+                <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">If your browser cannot preview this file, use Download above and save as PDF.</span>
+              </div>
+            </div>
           ) : (
             <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-fallback" />
           )
@@ -467,6 +444,39 @@ export default function ArchivePage() {
       setLocation("/chat");
     } catch (error) {
       console.error(error);
+    }
+  };
+
+
+  const deleteDocument = async (file: LaserficheFileEntry) => {
+    const ok = window.confirm(`Delete "${file.name}"? This action cannot be undone.`);
+    if (!ok) return;
+
+    try {
+      const res = await fetch(`/api/laserfiche/entries/${file.id}`, { method: "DELETE" });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.error || `Delete failed (${res.status})`);
+
+      const rawCtx = localStorage.getItem("ai_document");
+      if (rawCtx) {
+        try {
+          const parsed = JSON.parse(rawCtx) as { entryId?: number };
+          if (parsed.entryId === file.id) localStorage.removeItem("ai_document");
+        } catch {
+          localStorage.removeItem("ai_document");
+        }
+      }
+
+      if (selectedEntryId === file.id) {
+        setSelectedEntryId(null);
+        setDetails(null);
+        setViewerEntry(null);
+      }
+
+      await refetchPreview();
+    } catch (error) {
+      console.error(error);
+      window.alert(error instanceof Error ? error.message : "Failed to delete document");
     }
   };
 
@@ -705,6 +715,17 @@ export default function ArchivePage() {
                               >
                                 <Eye className="w-3 h-3" />
                                 Open
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                className="h-7 text-xs px-2 gap-1"
+                                onClick={() => deleteDocument(file)}
+                                data-testid={`button-delete-document-${file.id}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                Delete
                               </Button>
                             </div>
                           </div>
