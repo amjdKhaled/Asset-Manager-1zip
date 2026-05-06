@@ -499,12 +499,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       } catch {}
     }
 
-    // ── Fall back: local document DB context ──────────────────────────────
+    // ── Fall back: local document DB context (only when no specific LF entry context) ──
     let contextDocs: any[] = [];
-    try {
-      const searchResult = await storage.searchDocuments({ query: userQuery, searchType: "hybrid", page: 1, limit: 5 });
-      contextDocs = searchResult.results.map((r) => r.document);
-    } catch {}
+    if (!selectedMetadataContext) {
+      try {
+        const searchResult = await storage.searchDocuments({ query: userQuery, searchType: "hybrid", page: 1, limit: 5 });
+        contextDocs = searchResult.results.map((r) => r.document);
+      } catch {}
+    }
 
     const systemPrompt = buildSystemPrompt(lang);
     const localContext = buildContextBlock(contextDocs, lang);

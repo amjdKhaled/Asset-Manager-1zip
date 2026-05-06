@@ -417,6 +417,12 @@ export default function ChatPage() {
     }
   }, []);
 
+  const clearDocumentMention = () => {
+    setAiDocument(null);
+    localStorage.removeItem("ai_document");
+    const url = new URL(window.location.href);
+    url.searchParams.delete("entryId");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
   useEffect(() => {
     return () => {
       localStorage.removeItem("ai_document");
@@ -622,6 +628,16 @@ export default function ChatPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary" className="text-xs">Entry #{aiDocument.entryId}</Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs px-2 gap-1"
+                      onClick={clearDocumentMention}
+                      data-testid="clear-document-mention"
+                    >
+                      <X className="w-3 h-3" />
+                      Remove Mention
+                    </Button>
                   </div>
                 </div>
                 <div className="max-h-64 overflow-auto rounded border">
