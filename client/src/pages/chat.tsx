@@ -594,9 +594,6 @@ export default function ChatPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary" className="text-xs">Entry #{aiDocument.entryId}</Badge>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={clearDocumentContext} data-testid="clear-ai-context">
-                      <X className="w-3.5 h-3.5" />
-                    </Button>
                   </div>
                 </div>
                 <div className="max-h-64 overflow-auto rounded border">

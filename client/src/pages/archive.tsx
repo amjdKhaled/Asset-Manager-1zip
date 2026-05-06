@@ -446,40 +446,6 @@ export default function ArchivePage() {
       console.error(error);
     }
   };
-
-
-  const deleteDocument = async (file: LaserficheFileEntry) => {
-    const ok = window.confirm(`Delete "${file.name}"? This action cannot be undone.`);
-    if (!ok) return;
-
-    try {
-      const res = await fetch(`/api/laserfiche/entries/${file.id}`, { method: "DELETE" });
-      const payload = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(payload?.error || `Delete failed (${res.status})`);
-
-      const rawCtx = localStorage.getItem("ai_document");
-      if (rawCtx) {
-        try {
-          const parsed = JSON.parse(rawCtx) as { entryId?: number };
-          if (parsed.entryId === file.id) localStorage.removeItem("ai_document");
-        } catch {
-          localStorage.removeItem("ai_document");
-        }
-      }
-
-      if (selectedEntryId === file.id) {
-        setSelectedEntryId(null);
-        setDetails(null);
-        setViewerEntry(null);
-      }
-
-      await refetchPreview();
-    } catch (error) {
-      console.error(error);
-      window.alert(error instanceof Error ? error.message : "Failed to delete document");
-    }
-  };
-
   const analyzeDocument = async (file: LaserficheFileEntry) => {
     setSelectedEntryId(file.id);
     setAnalysisError(null);
@@ -695,6 +661,7 @@ export default function ArchivePage() {
                               >
                                 Metadata
                               </Button>
+                              {/* Keep only Metadata + AI + Open actions (Delete intentionally removed). */}
                               <Button
                                 type="button"
                                 variant="secondary"
