@@ -30,6 +30,7 @@ import {
   buildLFSummarizePrompt,
   buildLFSearchPrompt,
   summarizeDocumentContent,
+  buildLFDocumentMetadataPrompt,
   type OllamaMessage,
 } from "./ollama";
 import { z } from "zod";
@@ -391,9 +392,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   app.post("/api/chat", async (req, res) => {
-    const { messages, query } = req.body as {
+    const { messages, query, contextEntryId } = req.body as {
       messages: OllamaMessage[];
       query: string;
+      contextEntryId?: number;
     };
 
     if (!query && (!messages || messages.length === 0)) {
@@ -455,6 +457,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return;
     }
 
+
+    let selectedMetadataContext = "";
+    if (Number.isFinite(contextEntryId) && lfConfig) {
+      try {
+        const token = await getLaserficheToken(lfConfig);
+        const [entry, rawFields] = await Promise.all([
+          laserficheGetEntry(lfConfig, token, Number(contextEntryId)),
+          laserficheGetEntryFieldsRaw(lfConfig, token, Number(contextEntryId)),
+        ]);
+        selectedMetadataContext = buildLFDocumentMetadataPrompt({
+          entry: { id: entry.id, name: entry.name, path: entry.fullPath, creationTime: entry.creationTime, creator: entry.creator },
+          fields: rawFields,
+          userPrompt: userQuery,
+          lang,
+        });
+        res.write(`data: ${JSON.stringify({ type: "lf-entry", entryId: entry.id, name: entry.name })}\n\n`);
+      } catch (err: any) {
+        res.write(`data: ${JSON.stringify({ type: "error", error: `Failed to load Laserfiche metadata: ${err.message}` })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
     // ── Detect Laserfiche natural-language search intent ──────────────────
     const lfSearchKeywords = /وثيقة|معاملة|ملف|أرشيف|document|archive|file|report|contract|سجل|تقرير|عقد/iu;
     let lfContextBlock = "";
@@ -474,12 +499,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       } catch {}
     }
 
-    // ── Fall back: local document DB context ──────────────────────────────
+    // ── Fall back: local document DB context (only when no specific LF entry context) ──
     let contextDocs: any[] = [];
-    try {
-      const searchResult = await storage.searchDocuments({ query: userQuery, searchType: "hybrid", page: 1, limit: 5 });
-      contextDocs = searchResult.results.map((r) => r.document);
-    } catch {}
+    if (!selectedMetadataContext) {
+      try {
+        const searchResult = await storage.searchDocuments({ query: userQuery, searchType: "hybrid", page: 1, limit: 5 });
+        contextDocs = searchResult.results.map((r) => r.document);
+      } catch {}
+    }
 
     const systemPrompt = buildSystemPrompt(lang);
     const localContext = buildContextBlock(contextDocs, lang);
