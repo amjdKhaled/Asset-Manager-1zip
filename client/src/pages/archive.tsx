@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
   Clock, Tag, Search, ChevronRight, Folder, FolderOpen,
-  ArrowLeft, Image as ImageIcon, FileDown, Eye
+  ArrowLeft, Image as ImageIcon, FileDown, Eye, Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -682,6 +682,17 @@ export default function ArchivePage() {
                               >
                                 <Eye className="w-3 h-3" />
                                 Open
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                className="h-7 text-xs px-2 gap-1"
+                                onClick={() => deleteDocument(file)}
+                                data-testid={`button-delete-document-${file.id}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                Delete
                               </Button>
                             </div>
                           </div>

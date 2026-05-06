@@ -9,7 +9,7 @@ import {
   Bot, Send, User, FileText, Loader2, AlertCircle, CheckCircle,
   RefreshCw, Trash2, ChevronDown, ChevronUp, Sparkles, Server,
   BookOpen, MessageSquare, ExternalLink, Copy, Check, StopCircle,
-  Zap, Search, Hash
+  Zap, Search, Hash, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -386,6 +386,17 @@ export default function ChatPage() {
       localStorage.removeItem("ai_document");
     }
   }, []);
+
+  useEffect(() => {
+    return () => {
+      localStorage.removeItem("ai_document");
+    };
+  }, []);
+
+  const clearDocumentContext = () => {
+    localStorage.removeItem("ai_document");
+    setAiDocument(null);
+  };
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) return;
