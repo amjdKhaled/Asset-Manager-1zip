@@ -430,21 +430,15 @@ export default function ArchivePage() {
 
   const closeViewer = () => setViewerEntry(null);
 
-  const handleAI = async (file: LaserficheFileEntry) => {
-    try {
-      const [contentRes, metadataRes] = await Promise.all([
-        fetch(`/api/laserfiche/entries/${file.id}/content`),
-        fetch(`/api/laserfiche/entries/${file.id}/fields`),
-      ]);
-      if (!contentRes.ok) throw new Error("Failed to fetch file");
-      if (!metadataRes.ok) throw new Error("Failed to fetch metadata");
-      const [blob, metadata] = await Promise.all([contentRes.blob(), metadataRes.json()]);
-      const fileUrl = URL.createObjectURL(blob);
-      localStorage.setItem("ai_document", JSON.stringify({ entryId: file.id, name: file.name, fullPath: file.fullPath, metadata, fileUrl }));
-      setLocation("/chat");
-    } catch (error) {
-      console.error(error);
-    }
+  const handleAI = (file: LaserficheFileEntry) => {
+    const nextDoc = {
+      entryId: file.id,
+      name: file.name,
+      fullPath: file.fullPath,
+      fileUrl: `/api/laserfiche/entries/${file.id}/content`,
+    };
+    localStorage.setItem("ai_document", JSON.stringify(nextDoc));
+    setLocation(`/chat?entryId=${file.id}`);
   };
   const analyzeDocument = async (file: LaserficheFileEntry) => {
     setSelectedEntryId(file.id);

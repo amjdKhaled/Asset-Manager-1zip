@@ -378,6 +378,36 @@ export default function ChatPage() {
   }, [messages]);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const entryIdParam = params.get("entryId");
+    if (!entryIdParam) return;
+
+    const entryId = Number(entryIdParam);
+    if (!Number.isFinite(entryId)) return;
+
+    const existing = localStorage.getItem("ai_document");
+    if (existing) {
+      try {
+        const parsed = JSON.parse(existing) as AIDocumentContext;
+        if (parsed.entryId === entryId) {
+          setAiDocument(parsed);
+          return;
+        }
+      } catch {
+        localStorage.removeItem("ai_document");
+      }
+    }
+
+    const nextDoc: AIDocumentContext = {
+      entryId,
+      name: `Entry #${entryId}`,
+      fileUrl: `/api/laserfiche/entries/${entryId}/content`,
+    };
+    setAiDocument(nextDoc);
+    localStorage.setItem("ai_document", JSON.stringify(nextDoc));
+  }, []);
+
+  useEffect(() => {
     const raw = localStorage.getItem("ai_document");
     if (!raw) return;
     try {
