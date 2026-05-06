@@ -13,9 +13,6 @@ import {
   ArrowLeft, Image as ImageIcon, FileDown, Eye
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Document as PdfDocument, Page, pdfjs } from "react-pdf";
-
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 const classificationColor = (cls: string) => {
   switch (cls) {
@@ -319,38 +316,18 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
         ) : fileUrl ? (
           isPdf ? (
             <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-pdf" />
-        ) : fileUrl ? (
-          isPdf ? (
-            <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-pdf" />
-            <div className="w-full h-full overflow-auto p-4 flex justify-center">
-              <PdfDocument file={fileUrl} loading={<div className="text-xs text-muted-foreground">Loading PDF…</div>}>
-                <Page pageNumber={1} />
-              </PdfDocument>
-            </div>
           ) : isImage ? (
-          <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
-            <img
-              src={fileUrl}
-              alt={entry.name}
-              className="max-w-full h-auto rounded shadow-sm"
-              data-testid="viewer-img"
-            />
-          </div>
-          ) : isOffice ? (
-          // Office files — try iframe first, show download if it can't render
-          <div className="flex flex-col h-full">
-            <iframe
-              src={fileUrl}
-              src={officeViewerUrl}
-              className="w-full flex-1 border-none"
-              title={entry.name}
-              data-testid="viewer-iframe-office"
-            />
-            <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
-              <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">If your browser cannot preview this file, use Download above and save as PDF.</span>
+            <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
+              <img src={fileUrl} alt={entry.name} className="max-w-full h-auto rounded shadow-sm" data-testid="viewer-img" />
             </div>
-          </div>
+          ) : isOffice ? (
+            <div className="flex flex-col h-full">
+              <iframe src={officeViewerUrl} className="w-full flex-1 border-none" title={entry.name} data-testid="viewer-iframe-office" />
+              <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
+                <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">If your browser cannot preview this file, use Download above and save as PDF.</span>
+              </div>
+            </div>
           ) : (
             <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-fallback" />
           )
@@ -469,7 +446,6 @@ export default function ArchivePage() {
       console.error(error);
     }
   };
-
   const analyzeDocument = async (file: LaserficheFileEntry) => {
     setSelectedEntryId(file.id);
     setAnalysisError(null);
@@ -685,6 +661,7 @@ export default function ArchivePage() {
                               >
                                 Metadata
                               </Button>
+                              {/* Keep only Metadata + AI + Open actions (Delete intentionally removed). */}
                               <Button
                                 type="button"
                                 variant="secondary"

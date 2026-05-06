@@ -599,6 +599,7 @@ export interface LFTag {
   description?: string;
 }
 
+
 export async function laserficheGetEntryTags(
   config: LaserficheConfig,
   token: string,
