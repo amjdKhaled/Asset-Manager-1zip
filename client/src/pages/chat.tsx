@@ -437,7 +437,7 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, query: contextualPrompt }),
+        body: JSON.stringify({ messages: history, query: contextualPrompt, contextEntryId: aiDocument?.entryId }),
         signal: ctrl.signal,
       });
 

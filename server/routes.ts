@@ -31,6 +31,7 @@ import {
   buildLFSummarizePrompt,
   buildLFSearchPrompt,
   summarizeDocumentContent,
+  buildDocumentMetadataChatPrompt,
   type OllamaMessage,
 } from "./ollama";
 import { z } from "zod";
@@ -392,9 +393,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   app.post("/api/chat", async (req, res) => {
-    const { messages, query } = req.body as {
+    const { messages, query, contextEntryId } = req.body as {
       messages: OllamaMessage[];
       query: string;
+      contextEntryId?: number;
     };
 
     if (!query && (!messages || messages.length === 0)) {
@@ -454,6 +456,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         res.end();
       }
       return;
+    }
+
+
+    let selectedMetadataContext = "";
+    if (Number.isFinite(contextEntryId) && lfConfig) {
+      try {
+        const token = await getLaserficheToken(lfConfig);
+        const [entry, rawFields] = await Promise.all([
+          laserficheGetEntry(lfConfig, token, Number(contextEntryId)),
+          laserficheGetEntryFieldsRaw(lfConfig, token, Number(contextEntryId)),
+        ]);
+        selectedMetadataContext = buildDocumentMetadataChatPrompt({
+          entry: { id: entry.id, name: entry.name, path: entry.fullPath, creationTime: entry.creationTime, creator: entry.creator },
+          fields: rawFields,
+          userPrompt: userQuery,
+          lang,
+        });
+        res.write(`data: ${JSON.stringify({ type: "lf-entry", entryId: entry.id, name: entry.name })}\n\n`);
+      } catch (err: any) {
+        res.write(`data: ${JSON.stringify({ type: "error", error: `Failed to load Laserfiche metadata: ${err.message}` })}\n\n`);
+        res.end();
+        return;
+      }
     }
 
     // ── Detect Laserfiche natural-language search intent ──────────────────
