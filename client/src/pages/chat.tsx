@@ -420,13 +420,11 @@ export default function ChatPage() {
       .map(m => ({ role: m.role, content: m.content }));
 
     try {
-      const contextualPrompt = aiDocument
-        ? `${text.trim()}\n\n[Document Context]\nName: ${aiDocument.name}\nEntryId: ${aiDocument.entryId}\nMetadata: ${JSON.stringify(aiDocument.metadata || {})}`
-        : text.trim();
+      const contextualPrompt = text.trim();
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, query: contextualPrompt }),
+        body: JSON.stringify({ messages: history, query: contextualPrompt, contextEntryId: aiDocument?.entryId }),
         signal: ctrl.signal,
       });
 
@@ -581,9 +579,13 @@ export default function ChatPage() {
                     <p className="text-xs text-muted-foreground">AI Context Document</p>
                     <p className="text-sm font-medium truncate">{aiDocument.name}</p>
                   </div>
-                  <Badge variant="secondary" className="text-xs">Entry #{aiDocument.entryId}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-xs">Entry #{aiDocument.entryId}</Badge>
+                  </div>
                 </div>
-                <iframe src={aiDocument.fileUrl} className="w-full h-56 border rounded" title={aiDocument.name} />
+                <div className="max-h-64 overflow-auto rounded border">
+                  <iframe src={aiDocument.fileUrl} className="w-full h-56 md:h-48" title={aiDocument.name} />
+                </div>
               </div>
             </div>
           )}
