@@ -9,7 +9,7 @@ import {
   Bot, Send, User, FileText, Loader2, AlertCircle, CheckCircle,
   RefreshCw, Trash2, ChevronDown, ChevronUp, Sparkles, Server,
   BookOpen, MessageSquare, ExternalLink, Copy, Check, StopCircle,
-  Zap, Search, Hash
+  Zap, Search, Hash, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -387,6 +387,17 @@ export default function ChatPage() {
     }
   }, []);
 
+  useEffect(() => {
+    return () => {
+      localStorage.removeItem("ai_document");
+    };
+  }, []);
+
+  const clearDocumentContext = () => {
+    localStorage.removeItem("ai_document");
+    setAiDocument(null);
+  };
+
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) return;
 
@@ -581,9 +592,16 @@ export default function ChatPage() {
                     <p className="text-xs text-muted-foreground">AI Context Document</p>
                     <p className="text-sm font-medium truncate">{aiDocument.name}</p>
                   </div>
-                  <Badge variant="secondary" className="text-xs">Entry #{aiDocument.entryId}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-xs">Entry #{aiDocument.entryId}</Badge>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={clearDocumentContext} data-testid="clear-ai-context">
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
                 </div>
-                <iframe src={aiDocument.fileUrl} className="w-full h-56 border rounded" title={aiDocument.name} />
+                <div className="max-h-64 overflow-auto rounded border">
+                  <iframe src={aiDocument.fileUrl} className="w-full h-56 md:h-48" title={aiDocument.name} />
+                </div>
               </div>
             </div>
           )}

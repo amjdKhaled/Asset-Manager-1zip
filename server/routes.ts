@@ -16,6 +16,7 @@ import {
   laserficheGetEntryPages,
   laserficheGetPageImage,
   laserficheGetEdoc,
+  laserficheDeleteEntry,
   naturalLanguageToLFSearchCommand,
   saveLaserficheConfig,
   clearLaserficheConfig,
@@ -621,6 +622,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ entries, folderId });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+
+  app.delete("/api/laserfiche/entries/:entryId", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) return res.status(400).json({ error: "Invalid entry id" });
+
+    try {
+      const token = await getLaserficheToken(config);
+      await laserficheDeleteEntry(config, token, entryId);
+      res.json({ ok: true, entryId });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to delete entry" });
     }
   });
 

@@ -599,6 +599,24 @@ export interface LFTag {
   description?: string;
 }
 
+
+export async function laserficheDeleteEntry(
+  config: LaserficheConfig,
+  token: string,
+  entryId: number
+): Promise<void> {
+  const url = `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Entries/${entryId}`;
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Failed to delete Laserfiche entry ${entryId}: ${res.status} ${body.slice(0, 200)}`);
+  }
+}
+
 export async function laserficheGetEntryTags(
   config: LaserficheConfig,
   token: string,
