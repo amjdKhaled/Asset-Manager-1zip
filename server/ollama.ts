@@ -220,8 +220,7 @@ You are an AI assistant connected to Laserfiche metadata.
 IMPORTANT RULES:
 - Answer ONLY using the metadata below.
 - If information does not exist, say you could not find it.
-- Respond in Arabic if the user writes Arabic.
-- Respond in English if the user writes English.
+- Respond in Arabic only.
 
 DOCUMENT INFORMATION:
 Name: ${entry?.name ?? ""}
