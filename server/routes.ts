@@ -520,16 +520,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     const effectiveUserPrompt = selectedMetadataContext || query;
 
-    const chatMessages: OllamaMessage[] = selectedMetadataContext
-      ? [
-          { role: "system", content: fullSystemPrompt },
-          { role: "user", content: selectedMetadataContext },
-        ]
-      : [
-          { role: "system", content: fullSystemPrompt },
-          ...(messages || []).filter((m) => m.role !== "system"),
-          ...(effectiveUserPrompt ? [{ role: "user" as const, content: effectiveUserPrompt }] : []),
-        ];
+    const chatMessages: OllamaMessage[] = [
+      { role: "system", content: fullSystemPrompt },
+      ...(messages || []).filter((m) => m.role !== "system"),
+      ...(effectiveUserPrompt ? [{ role: "user" as const, content: effectiveUserPrompt }] : []),
+    ];
 
     const sourceDocs = contextDocs.map((d) => ({ id: d.id, title: d.title, titleAr: d.titleAr, department: d.department, year: d.year }));
     res.write(`data: ${JSON.stringify({ type: "sources", sources: sourceDocs })}\n\n`);
