@@ -430,12 +430,33 @@ export default function ArchivePage() {
 
   const closeViewer = () => setViewerEntry(null);
 
-  const handleAI = (file: LaserficheFileEntry) => {
+  const handleAI = async (file: LaserficheFileEntry) => {
+    let contextText = `Document ID: ${file.id}\nName: ${file.name}\nPath: ${file.fullPath || "-"}`;
+    try {
+      const payload = await loadLaserficheFields(file.id);
+      const fields = Array.isArray(payload?.value) ? payload.value : [];
+      const map: Record<string, string> = {};
+      for (const f of fields) {
+        const vals = formatLaserficheFieldValues(f?.values || []);
+        if (f?.fieldName && vals) map[f.fieldName] = vals;
+      }
+      contextText = [
+        `Document ID: ${file.id}`,
+        `Name: ${file.name}`,
+        `Path: ${file.fullPath || "-"}`,
+        `Title: ${map["Title"] || map["العنوان"] || "-"}`,
+        `Department: ${map["Department"] || map["الجهة"] || "-"}`,
+        `Type: ${map["Document Type"] || map["نوع المستند"] || "-"}`,
+        `Status: ${map["Workflow Status"] || map["الحالة"] || "-"}`,
+      ].join("\n");
+    } catch {}
+
     const nextDoc = {
       entryId: file.id,
       name: file.name,
       fullPath: file.fullPath,
       fileUrl: `/api/laserfiche/entries/${file.id}/content`,
+      contextText,
     };
     localStorage.setItem("ai_document", JSON.stringify(nextDoc));
     setLocation(`/chat?entryId=${file.id}`);

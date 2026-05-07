@@ -431,6 +431,7 @@ export default function ChatPage() {
         const parsed = JSON.parse(existing) as AIDocumentContext;
         if (parsed.entryId === entryId) {
           setAiDocument(parsed);
+          setDocumentContextText(parsed.contextText || "");
           return;
         }
       } catch {
@@ -453,7 +454,9 @@ export default function ChatPage() {
     const raw = localStorage.getItem("ai_document");
     if (!raw) return;
     try {
-      setAiDocument(JSON.parse(raw) as AIDocumentContext);
+      const parsed = JSON.parse(raw) as AIDocumentContext;
+      setAiDocument(parsed);
+      setDocumentContextText(parsed.contextText || "");
     } catch {
       localStorage.removeItem("ai_document");
     }
