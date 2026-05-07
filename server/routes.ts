@@ -392,10 +392,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   app.post("/api/chat", async (req, res) => {
-    const { messages, query, contextEntryId: contextEntryIdRaw } = req.body as {
+    const { messages, query, contextEntryId: contextEntryIdRaw, contextDocumentContext } = req.body as {
       messages: OllamaMessage[];
       query: string;
       contextEntryId?: number | string;
+      contextDocumentContext?: string;
     };
     const contextEntryId =
       typeof contextEntryIdRaw === "string"
@@ -470,12 +471,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           laserficheGetEntry(lfConfig, token, Number(contextEntryId)),
           laserficheGetEntryFieldsRaw(lfConfig, token, Number(contextEntryId)),
         ]);
-        selectedMetadataContext = buildDocumentMetadataChatPrompt({
+        const metadataPrompt = buildDocumentMetadataChatPrompt({
           entry: { id: entry.id, name: entry.name, path: entry.fullPath, creationTime: entry.creationTime, creator: entry.creator },
           fields: rawFields,
           userPrompt: userQuery,
           lang,
         });
+        selectedMetadataContext = contextDocumentContext
+          ? `${metadataPrompt}\n\nCLIENT DOCUMENT CONTEXT:\n${contextDocumentContext}`
+          : metadataPrompt;
         res.write(`data: ${JSON.stringify({ type: "lf-entry", entryId: entry.id, name: entry.name })}\n\n`);
       } catch (err: any) {
         res.write(`data: ${JSON.stringify({ type: "error", error: `Failed to load Laserfiche metadata: ${err.message}` })}\n\n`);
@@ -520,11 +524,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     const effectiveUserPrompt = selectedMetadataContext || query;
 
-    const chatMessages: OllamaMessage[] = [
-      { role: "system", content: fullSystemPrompt },
-      ...(messages || []).filter((m) => m.role !== "system"),
-      ...(effectiveUserPrompt ? [{ role: "user" as const, content: effectiveUserPrompt }] : []),
-    ];
+    const chatMessages: OllamaMessage[] = selectedMetadataContext
+      ? [
+          { role: "system", content: fullSystemPrompt },
+          { role: "user", content: selectedMetadataContext },
+        ]
+      : [
+          { role: "system", content: fullSystemPrompt },
+          ...(messages || []).filter((m) => m.role !== "system"),
+          ...(effectiveUserPrompt ? [{ role: "user" as const, content: effectiveUserPrompt }] : []),
+        ];
 
     const sourceDocs = contextDocs.map((d) => ({ id: d.id, title: d.title, titleAr: d.titleAr, department: d.department, year: d.year }));
     res.write(`data: ${JSON.stringify({ type: "sources", sources: sourceDocs })}\n\n`);
