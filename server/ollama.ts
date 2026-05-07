@@ -229,7 +229,7 @@ IMPORTANT RULES:
 - Treat this as the active document mention and do not switch to other documents.
 - If the answer is not in this document, say that clearly.
 - If information does not exist, say you could not find it.
-- Respond in Arabic only.
+- Respond in the same language as the user (Arabic or English).
 
 DOCUMENT INFORMATION:
 Entry ID: ${entry?.id ?? ""}

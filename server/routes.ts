@@ -519,15 +519,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const systemPrompt = buildSystemPrompt(lang);
     const localContext = buildContextBlock(contextDocs, lang);
     const fullSystemPrompt = selectedMetadataContext
-      ? systemPrompt
+      ? `${systemPrompt}
+
+You are an AI assistant.
+The user is currently referring to THIS document only.
+Entry ID: ${contextEntryId}
+
+Document Data:
+${selectedMetadataContext}
+
+IMPORTANT:
+- The user message ALWAYS refers to this document.
+- Even if the user says only "summarize" or "لخص".
+- Do NOT ask for clarification about which document.
+- Do NOT ignore the document.
+- Do NOT invent information.
+- If data is missing, say it is not available in the document.
+- Respond in the same language as user input.`
       : `${systemPrompt}\n\n${lfContextBlock || localContext}`;
 
-    const effectiveUserPrompt = selectedMetadataContext || query;
+    const effectiveUserPrompt = selectedMetadataContext
+      ? `User request:\n${userQuery}\n\nThis request is about Entry ID ${contextEntryId}.`
+      : query;
 
     const chatMessages: OllamaMessage[] = selectedMetadataContext
       ? [
           { role: "system", content: fullSystemPrompt },
-          { role: "user", content: selectedMetadataContext },
+          { role: "user", content: effectiveUserPrompt },
         ]
       : [
           { role: "system", content: fullSystemPrompt },
