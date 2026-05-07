@@ -368,13 +368,12 @@ export default function ArchivePage() {
   const [viewerEntry, setViewerEntry] = useState<LaserficheFileEntry | null>(null);
 
   const { data: folderFilters } = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: ["/api/laserfiche/folders"],
+    queryKey: ["/api/lf/folders"],
   });
-  const { data: lfDocsData, isLoading } = useQuery<{ documents: Array<{ id: number; name: string; path: string }> }>({
-    queryKey: ["/api/laserfiche/documents", selectedFolderFilter],
+  const { data: lfDocsData, isLoading } = useQuery<{ documents: Array<{ id: number; name: string; path: string; folderName: string }> }>({
+    queryKey: ["/api/lf/documents"],
     queryFn: async () => {
-      const folderId = selectedFolderFilter === "all" ? 1 : Number(selectedFolderFilter);
-      const res = await fetch(`/api/laserfiche/documents?folderId=${folderId}`, { credentials: "include" });
+      const res = await fetch(`/api/lf/documents`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load Laserfiche documents");
       return res.json();
     },
@@ -385,9 +384,11 @@ export default function ArchivePage() {
     enabled: true,
   });
 
-  const filtered = (lfDocsData?.documents || []).filter((d) =>
-    !localSearch || d.name.toLowerCase().includes(localSearch.toLowerCase()) || d.path.toLowerCase().includes(localSearch.toLowerCase())
-  );
+  const filtered = (lfDocsData?.documents || []).filter((d) => {
+    const folderMatch = selectedFolderFilter === "all" || d.folderName === (folderFilters || []).find((f) => String(f.id) === selectedFolderFilter)?.name;
+    const searchMatch = !localSearch || d.name.toLowerCase().includes(localSearch.toLowerCase()) || d.path.toLowerCase().includes(localSearch.toLowerCase());
+    return folderMatch && searchMatch;
+  });
 
   const folders = useMemo(() => (preview?.children || []).filter(i => i.entryType?.toLowerCase().includes("folder")), [preview]);
   const files = useMemo(() => (preview?.children || []).filter(i => !i.entryType?.toLowerCase().includes("folder")), [preview]);
@@ -623,7 +624,10 @@ export default function ArchivePage() {
                     <p className="text-sm font-semibold truncate">{doc.name}</p>
                     <p className="text-xs text-muted-foreground truncate mt-1">{doc.path}</p>
                     <div className="mt-3 flex items-center justify-between">
-                      <Badge variant="secondary">Entry #{doc.id}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">Entry #{doc.id}</Badge>
+                        <Badge variant="outline">{doc.folderName}</Badge>
+                      </div>
                       <Button
                         type="button"
                         size="sm"

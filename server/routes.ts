@@ -376,6 +376,49 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/lf/folders", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const rootFolderId = Number(req.query.rootFolderId || 1);
+    try {
+      const token = await getLaserficheToken(config);
+      const children = await laserficheGetFolderChildren(config, token, rootFolderId);
+      const folders = children
+        .filter((c: any) => c.entryType?.toLowerCase().includes("folder"))
+        .map((f: any) => ({ id: f.id, name: f.name }));
+      res.json(folders);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/lf/documents", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const rootFolderId = Number(req.query.rootFolderId || 1);
+    try {
+      const token = await getLaserficheToken(config);
+      const children = await laserficheGetFolderChildren(config, token, rootFolderId);
+      const folders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
+      const groupedDocs = await Promise.all(
+        folders.map(async (folder: any) => {
+          const subChildren = await laserficheGetFolderChildren(config, token, folder.id);
+          return subChildren
+            .filter((c: any) => c.isElectronicDocument)
+            .map((d: any) => ({
+              id: d.id,
+              name: d.name,
+              path: d.fullPath || "",
+              folderName: folder.name,
+            }));
+        })
+      );
+      res.json({ documents: groupedDocs.flat() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/laserfiche/documents", async (req, res) => {
     const config = getLaserficheConfig();
     if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
