@@ -357,6 +357,7 @@ export default function ArchivePage() {
   const [filterType, setFilterType] = useState("all");
   const [filterDept, setFilterDept] = useState("all");
   const [selectedFolderId, setSelectedFolderId] = useState("1");
+  const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
   const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [details, setDetails] = useState<LaserficheDetails | null>(null);
@@ -386,6 +387,32 @@ export default function ArchivePage() {
 
   const folders = useMemo(() => (preview?.children || []).filter(i => i.entryType?.toLowerCase().includes("folder")), [preview]);
   const files = useMemo(() => (preview?.children || []).filter(i => !i.entryType?.toLowerCase().includes("folder")), [preview]);
+  const { data: lfSearchData } = useQuery<{ results: Array<{ id: number; name: string; path: string }> }>({
+    queryKey: ["/api/laserfiche/search", selectedFolderId, localSearch],
+    enabled: viewMode === "laserfiche" && localSearch.trim().length > 0,
+    queryFn: async () => {
+      const res = await fetch("/api/laserfiche/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ query: localSearch, folderId: Number(selectedFolderId) || 1 }),
+      });
+      if (!res.ok) throw new Error("Search failed");
+      return res.json();
+    },
+  });
+  const filesToRender = useMemo(() => {
+    if (viewMode !== "laserfiche") return files;
+    if (!localSearch.trim()) return files;
+    const mapped = (lfSearchData?.results || []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      fullPath: r.path,
+      entryType: "ElectronicDocument",
+      isElectronicDocument: true,
+    }));
+    return mapped as LaserficheFileEntry[];
+  }, [viewMode, localSearch, files, lfSearchData]);
 
   const openFolder = async (folderId: string, folderName?: string) => {
     setSelectedFolderId(folderId);
@@ -523,13 +550,33 @@ export default function ArchivePage() {
           <h1 className="text-xl font-semibold text-foreground">Document Archive</h1>
           <p className="text-sm text-muted-foreground mt-0.5 font-arabic" dir="rtl">أرشيف المستندات الحكومية</p>
         </div>
+        <div className="flex items-center gap-2 mb-3">
+          <Button
+            type="button"
+            variant={viewMode === "archive" ? "default" : "outline"}
+            className="h-8 text-xs"
+            onClick={() => setViewMode("archive")}
+            data-testid="view-mode-archive"
+          >
+            Document Archive
+          </Button>
+          <Button
+            type="button"
+            variant={viewMode === "laserfiche" ? "default" : "outline"}
+            className="h-8 text-xs"
+            onClick={() => setViewMode("laserfiche")}
+            data-testid="view-mode-laserfiche"
+          >
+            Laserfiche Repository
+          </Button>
+        </div>
         <div className="flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input
               value={localSearch}
               onChange={e => setLocalSearch(e.target.value)}
-              placeholder="Filter documents..."
+              placeholder={viewMode === "archive" ? "Filter documents..." : "Search Laserfiche..."}
               className="pl-8 h-8 text-sm"
               data-testid="archive-search"
             />
@@ -562,10 +609,10 @@ export default function ArchivePage() {
 
       {/* Body */}
       <div className="flex-1 overflow-hidden px-6 py-5">
-        <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5">
+        <div className="h-full grid grid-cols-1 gap-5">
 
           {/* LEFT — Document grid OR inline viewer */}
-          <div className="overflow-auto min-h-0">
+          {viewMode === "archive" && <div className="overflow-auto min-h-0">
             {viewerEntry ? (
               <div className="h-full">
                 <SmartViewer entry={viewerEntry} onClose={closeViewer} />
@@ -585,10 +632,10 @@ export default function ArchivePage() {
                 <p className="text-sm text-muted-foreground">Try adjusting your filters.</p>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* RIGHT — Laserfiche repository browser + metadata */}
-          <div className="overflow-auto min-h-0">
+          {viewMode === "laserfiche" && <div className="overflow-auto min-h-0">
             <div className="bg-card border border-card-border rounded-md h-full flex flex-col">
               <div className="px-4 py-3 border-b border-border flex items-center gap-2">
                 <Folder className="w-4 h-4 text-primary" />
@@ -647,7 +694,7 @@ export default function ArchivePage() {
                     <div>
                       <p className="text-xs text-muted-foreground mb-2">Files</p>
                       <div className="divide-y divide-border rounded-md border border-border">
-                        {files.map((file) => (
+                        {filesToRender.map((file) => (
                           <div
                             key={file.id}
                             className={cn(
@@ -712,7 +759,7 @@ export default function ArchivePage() {
                             </div>
                           </div>
                         ))}
-                        {files.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
+                        {filesToRender.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
                       </div>
                     </div>
 
@@ -803,7 +850,7 @@ export default function ArchivePage() {
                 )}
               </div>
             </div>
-          </div>
+          </div>}
         </div>
       </div>
     </div>
