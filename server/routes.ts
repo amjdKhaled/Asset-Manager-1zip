@@ -498,8 +498,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         .toLowerCase()
         .normalize("NFKD")
         .replace(/[\u064B-\u065F\u0670]/g, "")
+        .replace(/[إأآا]/g, "ا")
+        .replace(/[ة]/g, "ه")
+        .replace(/[ى]/g, "ي")
         .replace(/\s+/g, " ")
         .trim();
+    const stopWords = new Set([
+      "ابحث", "عن", "فيها", "التي", "يكون", "يوجد", "وثيقه", "وثيقة", "وثايق", "الوثيقه", "الوثيقة",
+      "search", "find", "for", "the", "with", "document", "documents", "file", "archive"
+    ]);
+    const extractKeywords = (queryText: string) =>
+      normalizeText(queryText)
+        .split(" ")
+        .map((w) => w.trim())
+        .filter((w) => w.length > 2 && !stopWords.has(w));
 
     if (lfConfig && lfSearchKeywords.test(userQuery)) {
       try {
@@ -507,6 +519,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const entries = await laserficheGetFolderChildren(lfConfig, token, 1);
         lfEntries = entries.filter((e: any) => e.isElectronicDocument).slice(0, 80);
         const normalizedQuery = normalizeText(userQuery);
+        const keywords = extractKeywords(userQuery);
 
         const inspected = await Promise.all(
           lfEntries.map(async (entry: any) => {
@@ -535,10 +548,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               ].join("\n")
             );
 
+            const keywordHits = keywords.filter((k) => searchableText.includes(k)).length;
             const score =
-              (normalizeText(entry.name || "").includes(normalizedQuery) ? 4 : 0) +
-              (normalizeText(entry.fullPath || "").includes(normalizedQuery) ? 3 : 0) +
-              (searchableText.includes(normalizedQuery) ? 2 : 0);
+              keywordHits * 5 +
+              (normalizeText(entry.name || "").includes(normalizedQuery) ? 3 : 0) +
+              (normalizeText(entry.fullPath || "").includes(normalizedQuery) ? 2 : 0);
 
             return {
               id: entry.id,
@@ -552,7 +566,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         );
 
         const matched = inspected
-          .filter((d) => normalizedQuery && d.searchableText.includes(normalizedQuery))
+          .filter((d) => {
+            if (!normalizedQuery) return false;
+            if (keywords.length === 0) return d.searchableText.includes(normalizedQuery);
+            return keywords.every((k) => d.searchableText.includes(k));
+          })
           .sort((a, b) => b.score - a.score)
           .slice(0, 20);
 
