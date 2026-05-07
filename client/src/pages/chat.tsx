@@ -51,6 +51,7 @@ type AIDocumentContext = {
   fullPath?: string;
   fileUrl: string;
   metadata?: Record<string, unknown>;
+  contextText?: string;
 };
 
 const SUGGESTIONS_LF_AR = [
@@ -364,6 +365,7 @@ export default function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
   const [aiDocument, setAiDocument] = useState<AIDocumentContext | null>(null);
+  const [documentContextText, setDocumentContextText] = useState("");
 
   const { data: ollamaStatus, isLoading: statusLoading, refetch: refetchStatus } = useQuery<OllamaStatus>({
     queryKey: ["/api/chat/status"],
@@ -376,6 +378,44 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!aiDocument?.entryId) {
+      setDocumentContextText("");
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/laserfiche/entries/${aiDocument.entryId}/fields`, { credentials: "include" });
+        if (!res.ok) throw new Error("Failed to load entry metadata");
+        const payload = await res.json();
+        const fields = Array.isArray(payload?.value) ? payload.value : [];
+        const map: Record<string, string> = {};
+        for (const f of fields) {
+          const vals = Array.isArray(f?.values) ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ") : "";
+          if (f?.fieldName && vals) map[f.fieldName] = vals;
+        }
+        const context = [
+          `Document ID: ${aiDocument.entryId}`,
+          `Name: ${aiDocument.name}`,
+          `Path: ${aiDocument.fullPath || "-"}`,
+          `Title: ${map["Title"] || map["العنوان"] || "-"}`,
+          `Department: ${map["Department"] || map["الجهة"] || "-"}`,
+          `Type: ${map["Document Type"] || map["نوع المستند"] || "-"}`,
+          `Status: ${map["Workflow Status"] || map["الحالة"] || "-"}`,
+          `Description: ${map["Description"] || map["الوصف"] || "-"}`,
+        ].join("\n");
+        if (!cancelled) setDocumentContextText(context);
+      } catch {
+        if (!cancelled) setDocumentContextText(`Document ID: ${aiDocument.entryId}\nName: ${aiDocument.name}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [aiDocument?.entryId, aiDocument?.name, aiDocument?.fullPath]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -391,6 +431,7 @@ export default function ChatPage() {
         const parsed = JSON.parse(existing) as AIDocumentContext;
         if (parsed.entryId === entryId) {
           setAiDocument(parsed);
+          setDocumentContextText(parsed.contextText || "");
           return;
         }
       } catch {
@@ -408,10 +449,14 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("entryId")) return;
     const raw = localStorage.getItem("ai_document");
     if (!raw) return;
     try {
-      setAiDocument(JSON.parse(raw) as AIDocumentContext);
+      const parsed = JSON.parse(raw) as AIDocumentContext;
+      setAiDocument(parsed);
+      setDocumentContextText(parsed.contextText || "");
     } catch {
       localStorage.removeItem("ai_document");
     }
@@ -423,6 +468,8 @@ export default function ChatPage() {
     const url = new URL(window.location.href);
     url.searchParams.delete("entryId");
     window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  };
+
   useEffect(() => {
     return () => {
       localStorage.removeItem("ai_document");
@@ -471,7 +518,12 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, query: contextualPrompt, contextEntryId: aiDocument?.entryId }),
+        body: JSON.stringify({
+          messages: history,
+          query: contextualPrompt,
+          contextEntryId: aiDocument?.entryId,
+          contextDocumentContext: documentContextText || undefined,
+        }),
         signal: ctrl.signal,
       });
 
