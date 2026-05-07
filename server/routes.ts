@@ -360,6 +360,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/laserfiche/folders", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const rootFolderId = Number(req.query.rootFolderId || 1);
+    try {
+      const token = await getLaserficheToken(config);
+      const children = await laserficheGetFolderChildren(config, token, rootFolderId);
+      const folders = children
+        .filter((c: any) => c.entryType?.toLowerCase().includes("folder"))
+        .map((f: any) => ({ id: f.id, name: f.name }));
+      res.json(folders);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/laserfiche/documents", async (req, res) => {
     const config = getLaserficheConfig();
     if (!config) return res.status(503).json({ error: "Laserfiche not configured" });

@@ -354,8 +354,7 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
 export default function ArchivePage() {
   const [, setLocation] = useLocation();
   const [localSearch, setLocalSearch] = useState("");
-  const [filterType, setFilterType] = useState("all");
-  const [filterDept, setFilterDept] = useState("all");
+  const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
   const [selectedFolderId, setSelectedFolderId] = useState("1");
   const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
   const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
@@ -368,22 +367,27 @@ export default function ArchivePage() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [viewerEntry, setViewerEntry] = useState<LaserficheFileEntry | null>(null);
 
-  const { data: docs, isLoading } = useQuery<Document[]>({ queryKey: ["/api/documents"] });
+  const { data: folderFilters } = useQuery<Array<{ id: number; name: string }>>({
+    queryKey: ["/api/laserfiche/folders"],
+  });
+  const { data: lfDocsData, isLoading } = useQuery<{ documents: Array<{ id: number; name: string; path: string }> }>({
+    queryKey: ["/api/laserfiche/documents", selectedFolderFilter],
+    queryFn: async () => {
+      const folderId = selectedFolderFilter === "all" ? 1 : Number(selectedFolderFilter);
+      const res = await fetch(`/api/laserfiche/documents?folderId=${folderId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load Laserfiche documents");
+      return res.json();
+    },
+  });
 
   const { data: preview, isLoading: previewLoading, error: previewError, refetch: refetchPreview } = useQuery<LaserfichePreview>({
     queryKey: ["/api/laserfiche/folders", selectedFolderId, "children"],
     enabled: true,
   });
 
-  const filtered = docs?.filter(d => {
-    const matchesSearch = !localSearch || d.title.toLowerCase().includes(localSearch.toLowerCase()) || (d.titleAr || "").includes(localSearch);
-    const matchesType = filterType === "all" || d.docType === filterType;
-    const matchesDept = filterDept === "all" || d.department === filterDept;
-    return matchesSearch && matchesType && matchesDept;
-  });
-
-  const departments = docs ? Array.from(new Set(docs.map(d => d.department))) : [];
-  const docTypes = docs ? Array.from(new Set(docs.map(d => d.docType))) : [];
+  const filtered = (lfDocsData?.documents || []).filter((d) =>
+    !localSearch || d.name.toLowerCase().includes(localSearch.toLowerCase()) || d.path.toLowerCase().includes(localSearch.toLowerCase())
+  );
 
   const folders = useMemo(() => (preview?.children || []).filter(i => i.entryType?.toLowerCase().includes("folder")), [preview]);
   const files = useMemo(() => (preview?.children || []).filter(i => !i.entryType?.toLowerCase().includes("folder")), [preview]);
@@ -581,27 +585,18 @@ export default function ArchivePage() {
               data-testid="archive-search"
             />
           </div>
-          <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="h-8 text-xs w-36" data-testid="archive-filter-type">
-              <SelectValue placeholder="All Types" />
+          <Select value={selectedFolderFilter} onValueChange={setSelectedFolderFilter}>
+            <SelectTrigger className="h-8 text-xs w-48" data-testid="archive-folder-filter">
+              <SelectValue placeholder="All Folders" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              {docTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              <SelectItem value="all">All Folders</SelectItem>
+              {(folderFilters || []).map(f => <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={filterDept} onValueChange={setFilterDept}>
-            <SelectTrigger className="h-8 text-xs w-48" data-testid="archive-filter-dept">
-              <SelectValue placeholder="All Departments" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Departments</SelectItem>
-              {departments.map(d => <SelectItem key={d} value={d}>{d.split(" ").slice(-2).join(" ")}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          {docs && (
+          {lfDocsData && (
             <span className="flex items-center text-xs text-muted-foreground">
-              {filtered?.length ?? 0} of {docs.length} documents
+              {filtered?.length ?? 0} of {lfDocsData.documents.length} documents
             </span>
           )}
         </div>
@@ -623,7 +618,23 @@ export default function ArchivePage() {
               </div>
             ) : filtered && filtered.length > 0 ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 max-w-5xl">
-                {filtered.map(doc => <DocCard key={doc.id} doc={doc} />)}
+                {filtered.map((doc) => (
+                  <div key={doc.id} className="border border-border rounded-md p-3 bg-card">
+                    <p className="text-sm font-semibold truncate">{doc.name}</p>
+                    <p className="text-xs text-muted-foreground truncate mt-1">{doc.path}</p>
+                    <div className="mt-3 flex items-center justify-between">
+                      <Badge variant="secondary">Entry #{doc.id}</Badge>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 text-xs px-2"
+                        onClick={() => handleAI({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "ElectronicDocument", isElectronicDocument: true } as LaserficheFileEntry)}
+                      >
+                        AI
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-64 text-center">
