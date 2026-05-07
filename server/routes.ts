@@ -501,7 +501,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         .replace(/\s+/g, " ")
         .trim();
 
-    if (!selectedMetadataContext && lfConfig && lfSearchKeywords.test(userQuery)) {
+    if (lfConfig && lfSearchKeywords.test(userQuery)) {
       try {
         const token = await getLaserficheToken(lfConfig);
         const entries = await laserficheGetFolderChildren(lfConfig, token, 1);
