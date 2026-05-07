@@ -360,6 +360,79 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/laserfiche/documents", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const folderId = Number(req.query.folderId || 1);
+    if (!Number.isFinite(folderId)) return res.status(400).json({ error: "Invalid folder id" });
+    try {
+      const token = await getLaserficheToken(config);
+      const children = await laserficheGetFolderChildren(config, token, folderId);
+      const docs = await Promise.all(
+        children
+          .filter((e: any) => e.isElectronicDocument)
+          .map(async (e: any) => {
+            let fields: any[] = [];
+            try {
+              fields = await laserficheGetEntryFieldsRaw(config, token, e.id);
+            } catch {}
+            return {
+              id: e.id,
+              name: e.name,
+              path: e.fullPath || "",
+              fields: fields.map((f: any) => ({
+                name: f?.fieldName || f?.name || "Unknown",
+                value: Array.isArray(f?.values) ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ") : "",
+              })),
+              isElectronic: !!e.isElectronicDocument,
+            };
+          })
+      );
+      res.json({ folderId, documents: docs });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/laserfiche/search", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const query = String(req.body?.query || "").trim();
+    const folderId = Number(req.body?.folderId || 1);
+    if (!query) return res.json({ results: [] });
+    const normalizeArabic = (text: string) =>
+      (text || "")
+        .toLowerCase()
+        .normalize("NFKD")
+        .replace(/[\u064B-\u065F\u0670]/g, "")
+        .replace(/[إأآا]/g, "ا")
+        .replace(/[ة]/g, "ه")
+        .replace(/[ى]/g, "ي")
+        .replace(/\s+/g, " ")
+        .trim();
+    const stopWords = new Set(["ابحث", "عن", "في", "فيها", "التي", "وثيقة", "وثيقه", "search", "find", "document", "file", "archive"]);
+    const keywords = normalizeArabic(query).split(" ").filter((w) => w.length > 2 && !stopWords.has(w));
+    try {
+      const token = await getLaserficheToken(config);
+      const children = await laserficheGetFolderChildren(config, token, folderId);
+      const docs = await Promise.all(children.filter((e: any) => e.isElectronicDocument).map(async (e: any) => {
+        let fields: any[] = [];
+        try { fields = await laserficheGetEntryFieldsRaw(config, token, e.id); } catch {}
+        const fieldText = fields.map((f: any) => {
+          const name = f?.fieldName || f?.name || "";
+          const value = Array.isArray(f?.values) ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ") : "";
+          return `${name}: ${value}`;
+        }).join("\n");
+        const docText = normalizeArabic(`${e.name}\n${e.fullPath || ""}\n${fieldText}`);
+        return { id: e.id, name: e.name, path: e.fullPath || "", docText };
+      }));
+      const results = docs.filter((d) => (keywords.length ? keywords.every((k) => d.docText.includes(k)) : d.docText.includes(normalizeArabic(query))));
+      res.json({ results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/chat/status", async (req, res) => {
     const status = await checkOllamaStatus();
     res.json(status);
