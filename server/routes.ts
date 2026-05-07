@@ -392,11 +392,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   app.post("/api/chat", async (req, res) => {
-    const { messages, query, contextEntryId } = req.body as {
+    const { messages, query, contextEntryId: contextEntryIdRaw, contextDocumentContext } = req.body as {
       messages: OllamaMessage[];
       query: string;
-      contextEntryId?: number;
+      contextEntryId?: number | string;
+      contextDocumentContext?: string;
     };
+    const contextEntryId =
+      typeof contextEntryIdRaw === "string"
+        ? Number(contextEntryIdRaw)
+        : contextEntryIdRaw;
 
     if (!query && (!messages || messages.length === 0)) {
       return res.status(400).json({ error: "query or messages required" });
@@ -466,12 +471,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           laserficheGetEntry(lfConfig, token, Number(contextEntryId)),
           laserficheGetEntryFieldsRaw(lfConfig, token, Number(contextEntryId)),
         ]);
-        selectedMetadataContext = buildDocumentMetadataChatPrompt({
+        const metadataPrompt = buildDocumentMetadataChatPrompt({
           entry: { id: entry.id, name: entry.name, path: entry.fullPath, creationTime: entry.creationTime, creator: entry.creator },
           fields: rawFields,
           userPrompt: userQuery,
           lang,
         });
+        selectedMetadataContext = contextDocumentContext
+          ? `${metadataPrompt}\n\nCLIENT DOCUMENT CONTEXT:\n${contextDocumentContext}`
+          : metadataPrompt;
         res.write(`data: ${JSON.stringify({ type: "lf-entry", entryId: entry.id, name: entry.name })}\n\n`);
       } catch (err: any) {
         res.write(`data: ${JSON.stringify({ type: "error", error: `Failed to load Laserfiche metadata: ${err.message}` })}\n\n`);
@@ -481,20 +489,85 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
 
     // ── Detect Laserfiche natural-language search intent ──────────────────
-    const lfSearchKeywords = /وثيقة|معاملة|ملف|أرشيف|document|archive|file|report|contract|سجل|تقرير|عقد/iu;
+    const lfSearchKeywords = /وثيقة|معاملة|ملف|أرشيف|document|archive|file|report|contract|سجل|تقرير|عقد|ابحث|search|find/iu;
     let lfContextBlock = "";
     let lfEntries: any[] = [];
+
+    const normalizeText = (s: string) =>
+      (s || "")
+        .toLowerCase()
+        .normalize("NFKD")
+        .replace(/[\u064B-\u065F\u0670]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
 
     if (lfConfig && lfSearchKeywords.test(userQuery)) {
       try {
         const token = await getLaserficheToken(lfConfig);
         const entries = await laserficheGetFolderChildren(lfConfig, token, 1);
-        lfEntries = entries.slice(0, 30);
-        if (lfEntries.length > 0) {
-          lfContextBlock = buildLFSearchPrompt(
-            lfEntries.map((e) => ({ id: e.id, name: e.name, path: e.fullPath })),
-            userQuery, lang
-          );
+        lfEntries = entries.filter((e: any) => e.isElectronicDocument).slice(0, 80);
+        const normalizedQuery = normalizeText(userQuery);
+
+        const inspected = await Promise.all(
+          lfEntries.map(async (entry: any) => {
+            let rawFields: any[] = [];
+            try {
+              rawFields = await laserficheGetEntryFieldsRaw(lfConfig, token, entry.id);
+            } catch {}
+
+            const metadataLines = rawFields
+              .map((f: any) => {
+                const name = f?.fieldName || f?.name || "Unknown";
+                const value = Array.isArray(f?.values)
+                  ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ")
+                  : "";
+                return value ? `${name}: ${value}` : "";
+              })
+              .filter(Boolean);
+
+            const searchableText = normalizeText(
+              [
+                `ID: ${entry.id}`,
+                `Name: ${entry.name || ""}`,
+                `Path: ${entry.fullPath || ""}`,
+                "Metadata:",
+                ...metadataLines,
+              ].join("\n")
+            );
+
+            const score =
+              (normalizeText(entry.name || "").includes(normalizedQuery) ? 4 : 0) +
+              (normalizeText(entry.fullPath || "").includes(normalizedQuery) ? 3 : 0) +
+              (searchableText.includes(normalizedQuery) ? 2 : 0);
+
+            return {
+              id: entry.id,
+              name: entry.name,
+              path: entry.fullPath || "",
+              metadataPreview: metadataLines.slice(0, 6),
+              searchableText,
+              score,
+            };
+          })
+        );
+
+        const matched = inspected
+          .filter((d) => normalizedQuery && d.searchableText.includes(normalizedQuery))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 20);
+
+        if (matched.length > 0) {
+          const resultLines = matched.map((d, i) => {
+            const meta = d.metadataPreview.length ? ` | ${d.metadataPreview.join(" | ")}` : "";
+            return `[${i + 1}] ID:${d.id} | ${d.name} | ${d.path}${meta}`;
+          });
+          lfContextBlock = (lang === "ar"
+            ? `نتائج بحث Laserfiche الحقيقية (تمت فلترتها بواسطة النظام):\n${resultLines.join("\n")}\n\nالتعليمات:\n- استخدم النتائج فقط.\n- لا تخترع وثائق غير موجودة.\n- اعرض الاسم وID والمسار لكل نتيجة.`
+            : `Real Laserfiche search results (already filtered by system):\n${resultLines.join("\n")}\n\nInstructions:\n- Use only these results.\n- Do not invent documents.\n- Return name, ID, and path for each result.`);
+        } else {
+          lfContextBlock = lang === "ar"
+            ? "نتائج بحث Laserfiche الحقيقية: لم يتم العثور على وثائق مطابقة."
+            : "Real Laserfiche search results: no matching documents were found.";
         }
       } catch {}
     }
@@ -510,13 +583,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     const systemPrompt = buildSystemPrompt(lang);
     const localContext = buildContextBlock(contextDocs, lang);
-    const fullSystemPrompt = `${systemPrompt}\n\n${lfContextBlock || localContext}`;
+    const fullSystemPrompt = selectedMetadataContext
+      ? `${systemPrompt}
 
-    const chatMessages: OllamaMessage[] = [
-      { role: "system", content: fullSystemPrompt },
-      ...(messages || []).filter((m) => m.role !== "system"),
-      ...(query ? [{ role: "user" as const, content: query }] : []),
-    ];
+You are an AI assistant.
+The user is currently referring to THIS document only.
+Entry ID: ${contextEntryId}
+
+Document Data:
+${selectedMetadataContext}
+
+IMPORTANT:
+- The user message ALWAYS refers to this document.
+- Even if the user says only "summarize" or "لخص".
+- Do NOT ask for clarification about which document.
+- Do NOT ignore the document.
+- Do NOT invent information.
+- If data is missing, say it is not available in the document.
+- Respond in the same language as user input.`
+      : `${systemPrompt}\n\n${lfContextBlock || localContext}`;
+
+    const effectiveUserPrompt = selectedMetadataContext
+      ? `User request:\n${userQuery}\n\nThis request is about Entry ID ${contextEntryId}.`
+      : query;
+
+    const chatMessages: OllamaMessage[] = selectedMetadataContext
+      ? [
+          { role: "system", content: fullSystemPrompt },
+          { role: "user", content: effectiveUserPrompt },
+        ]
+      : [
+          { role: "system", content: fullSystemPrompt },
+          ...(messages || []).filter((m) => m.role !== "system"),
+          ...(effectiveUserPrompt ? [{ role: "user" as const, content: effectiveUserPrompt }] : []),
+        ];
 
     const sourceDocs = contextDocs.map((d) => ({ id: d.id, title: d.title, titleAr: d.titleAr, department: d.department, year: d.year }));
     res.write(`data: ${JSON.stringify({ type: "sources", sources: sourceDocs })}\n\n`);

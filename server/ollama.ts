@@ -81,32 +81,25 @@ export async function ollamaChat(
 //intersting
 
 export function buildSystemPrompt(lang: "ar" | "en"): string {
-  if (lang === "ar") {
-    return `أنت مساعد ذكي متخصص في البحث وتلخيص وثائق الأرشيف الحكومي.
-لديك صلاحية الوصول إلى قاعدة بيانات وثائق حكومية تشمل: المعاملات، العقود، التقارير، القرارات، والمراسيم.
-مهامك:
-1. البحث عن المعلومات في الوثائق المتاحة
-2. تلخيص محتوى الوثائق بشكل واضح وموجز
-3. الإجابة على الأسئلة المتعلقة بالوثائق والأرشيف
-4. استخراج المعلومات المحددة كالأسماء والتواريخ والمبالغ
-قواعد مهمة:
-- أجب دائماً بنفس لغة السؤال (عربي أو إنجليزي)
-- استند فقط إلى المعلومات الموجودة في السياق المقدم
-- إذا لم تجد معلومة، قل ذلك بوضوح
-- كن دقيقاً في المعلومات واذكر مصدرها`;
-  }
-  return `You are an intelligent assistant specialized in searching and summarizing government document archives.
-You have access to a database of government documents including: transactions, contracts, reports, decisions, and decrees.
-Your tasks:
-1. Search for information across available documents
-2. Summarize document content clearly and concisely
-3. Answer questions about documents and the archive
-4. Extract specific information like names, dates, and amounts
-Important rules:
-- Always respond in the same language as the question (Arabic or English)
-- Only use information found in the provided context
-- If information is not available, clearly state so
-- Be accurate and cite your sources`;
+  return `أنت مساعد ذكاء اصطناعي متصل بـ Laserfiche.
+
+قواعد إلزامية:
+- أجب باللغة العربية فقط.
+- لا تستخدم أي لغة أخرى إطلاقاً.
+- حتى لو كتب المستخدم بالإنجليزية، يجب أن تكون الإجابة بالعربية.
+- نفّذ البحث دائماً عند طلب المستخدم البحث عن وثائق.
+- لا تطلب توضيحاً إضافياً عن الوثيقة أو المقصود.
+- لا تقل "لا توجد نتائج" إلا بعد تنفيذ بحث فعلي في النتائج المتاحة.
+- لا تخترع وثائق أو معلومات غير موجودة.
+- اعتمد فقط على النتائج والسياق المقدم من النظام.
+
+عند عرض نتائج البحث أظهر دائماً:
+- اسم الوثيقة
+- رقم ID
+- المسار
+
+إذا لم توجد نتائج بعد البحث الفعلي قل:
+"لم يتم العثور على أي وثائق مطابقة."`;
 }
 
 export function buildContextBlock(docs: Array<{ title: string; titleAr?: string | null; content: string; contentAr?: string | null; department: string; year?: number | null; author?: string | null; id: string }>, lang: "ar" | "en"): string {
@@ -203,11 +196,17 @@ export function buildDocumentMetadataChatPrompt({
 }) {
   const metadataText = fields
     .map((field: any) => {
-      const name = field?.name ?? "Unknown";
+      const name = field?.name ?? field?.fieldName ?? "Unknown";
+      const valueFromArray = Array.isArray(field?.values)
+        ? field.values
+            .map((v: any) => (typeof v === "string" ? v : (v?.value ?? v?.formattedValue ?? "")))
+            .filter(Boolean)
+            .join(", ")
+        : "";
       const value =
         field?.value ??
         field?.formattedValue ??
-        field?.values?.join(", ") ??
+        valueFromArray ??
         "Empty";
 
       return `- ${name}: ${value}`;
@@ -215,15 +214,20 @@ export function buildDocumentMetadataChatPrompt({
     .join("\n");
 
   return `
-You are an AI assistant connected to Laserfiche metadata.
+You are an AI assistant connected to Laserfiche metadata for ONE selected document.
 
 IMPORTANT RULES:
 - Answer ONLY using the metadata below.
+- The user selected this exact document from the AI button.
+- Treat this as the active document mention and do not switch to other documents.
+- If the answer is not in this document, say that clearly.
 - If information does not exist, say you could not find it.
-- Respond in Arabic if the user writes Arabic.
-- Respond in English if the user writes English.
+- Respond ONLY in Arabic.
+- Do NOT use any other language.
+- Even if the user writes in English, ALWAYS respond in Arabic.
 
 DOCUMENT INFORMATION:
+Entry ID: ${entry?.id ?? ""}
 Name: ${entry?.name ?? ""}
 Path: ${entry?.path ?? ""}
 Creator: ${entry?.creator ?? ""}
@@ -280,40 +284,6 @@ Required:
 Sort results from most to least relevant.`;
 }
 
-
-export function buildDocumentMetadataChatPrompt(input: {
-  entry: { id: number; name: string; path?: string; creationTime?: string; creator?: string };
-  fields: Array<{ fieldName: string; values: Array<{ value: string | null }> }>;
-  userPrompt: string;
-  lang: "ar" | "en";
-}): string {
-  const metadataLines = input.fields
-    .map((field) => {
-      const value = (field.values || []).map((v) => v.value ?? "").filter(Boolean).join(", ");
-      return value ? `${field.fieldName}: ${value}` : "";
-    })
-    .filter(Boolean)
-    .join("\n");
-
-  return `You are an AI assistant in runtime context mode (no model training). Answer ONLY based on the following document metadata.
-
-Document Metadata:
-Entry ID: ${input.entry.id}
-Name: ${input.entry.name}
-Path: ${input.entry.path || "Not available"}
-Creator: ${input.entry.creator || "Not available"}
-Creation Time: ${input.entry.creationTime || "Not available"}
-${metadataLines || "No metadata fields available."}
-
-Rules:
-- Do NOT invent information
-- Answer only using provided data
-- If answer not found, say "Not available in document"
-- Respond in the same language as the user input (Arabic or English)
-
-User Question:
-${input.userPrompt}`;
-}
 
 export async function summarizeDocumentContent(input: {
   title: string;
