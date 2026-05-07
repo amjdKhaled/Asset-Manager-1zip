@@ -203,11 +203,17 @@ export function buildDocumentMetadataChatPrompt({
 }) {
   const metadataText = fields
     .map((field: any) => {
-      const name = field?.name ?? "Unknown";
+      const name = field?.name ?? field?.fieldName ?? "Unknown";
+      const valueFromArray = Array.isArray(field?.values)
+        ? field.values
+            .map((v: any) => (typeof v === "string" ? v : (v?.value ?? v?.formattedValue ?? "")))
+            .filter(Boolean)
+            .join(", ")
+        : "";
       const value =
         field?.value ??
         field?.formattedValue ??
-        field?.values?.join(", ") ??
+        valueFromArray ??
         "Empty";
 
       return `- ${name}: ${value}`;
@@ -215,14 +221,18 @@ export function buildDocumentMetadataChatPrompt({
     .join("\n");
 
   return `
-You are an AI assistant connected to Laserfiche metadata.
+You are an AI assistant connected to Laserfiche metadata for ONE selected document.
 
 IMPORTANT RULES:
 - Answer ONLY using the metadata below.
+- The user selected this exact document from the AI button.
+- Treat this as the active document mention and do not switch to other documents.
+- If the answer is not in this document, say that clearly.
 - If information does not exist, say you could not find it.
 - Respond in Arabic only.
 
 DOCUMENT INFORMATION:
+Entry ID: ${entry?.id ?? ""}
 Name: ${entry?.name ?? ""}
 Path: ${entry?.path ?? ""}
 Creator: ${entry?.creator ?? ""}
