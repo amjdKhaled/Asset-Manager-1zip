@@ -392,11 +392,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   app.post("/api/chat", async (req, res) => {
-    const { messages, query, contextEntryId } = req.body as {
+    const { messages, query, contextEntryId: contextEntryIdRaw, contextDocumentContext } = req.body as {
       messages: OllamaMessage[];
       query: string;
-      contextEntryId?: number;
+      contextEntryId?: number | string;
+      contextDocumentContext?: string;
     };
+    const contextEntryId =
+      typeof contextEntryIdRaw === "string"
+        ? Number(contextEntryIdRaw)
+        : contextEntryIdRaw;
 
     if (!query && (!messages || messages.length === 0)) {
       return res.status(400).json({ error: "query or messages required" });
@@ -466,12 +471,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           laserficheGetEntry(lfConfig, token, Number(contextEntryId)),
           laserficheGetEntryFieldsRaw(lfConfig, token, Number(contextEntryId)),
         ]);
-        selectedMetadataContext = buildDocumentMetadataChatPrompt({
+        const metadataPrompt = buildDocumentMetadataChatPrompt({
           entry: { id: entry.id, name: entry.name, path: entry.fullPath, creationTime: entry.creationTime, creator: entry.creator },
           fields: rawFields,
           userPrompt: userQuery,
           lang,
         });
+        selectedMetadataContext = contextDocumentContext
+          ? `${metadataPrompt}\n\nCLIENT DOCUMENT CONTEXT:\n${contextDocumentContext}`
+          : metadataPrompt;
         res.write(`data: ${JSON.stringify({ type: "lf-entry", entryId: entry.id, name: entry.name })}\n\n`);
       } catch (err: any) {
         res.write(`data: ${JSON.stringify({ type: "error", error: `Failed to load Laserfiche metadata: ${err.message}` })}\n\n`);
@@ -485,7 +493,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     let lfContextBlock = "";
     let lfEntries: any[] = [];
 
-    if (lfConfig && lfSearchKeywords.test(userQuery)) {
+    if (!selectedMetadataContext && lfConfig && lfSearchKeywords.test(userQuery)) {
       try {
         const token = await getLaserficheToken(lfConfig);
         const entries = await laserficheGetFolderChildren(lfConfig, token, 1);
@@ -510,13 +518,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     const systemPrompt = buildSystemPrompt(lang);
     const localContext = buildContextBlock(contextDocs, lang);
-    const fullSystemPrompt = `${systemPrompt}\n\n${lfContextBlock || localContext}`;
+    const fullSystemPrompt = selectedMetadataContext
+      ? `${systemPrompt}
 
-    const chatMessages: OllamaMessage[] = [
-      { role: "system", content: fullSystemPrompt },
-      ...(messages || []).filter((m) => m.role !== "system"),
-      ...(query ? [{ role: "user" as const, content: query }] : []),
-    ];
+You are an AI assistant.
+The user is currently referring to THIS document only.
+Entry ID: ${contextEntryId}
+
+Document Data:
+${selectedMetadataContext}
+
+IMPORTANT:
+- The user message ALWAYS refers to this document.
+- Even if the user says only "summarize" or "لخص".
+- Do NOT ask for clarification about which document.
+- Do NOT ignore the document.
+- Do NOT invent information.
+- If data is missing, say it is not available in the document.
+- Respond in the same language as user input.`
+      : `${systemPrompt}\n\n${lfContextBlock || localContext}`;
+
+    const effectiveUserPrompt = selectedMetadataContext
+      ? `User request:\n${userQuery}\n\nThis request is about Entry ID ${contextEntryId}.`
+      : query;
+
+    const chatMessages: OllamaMessage[] = selectedMetadataContext
+      ? [
+          { role: "system", content: fullSystemPrompt },
+          { role: "user", content: effectiveUserPrompt },
+        ]
+      : [
+          { role: "system", content: fullSystemPrompt },
+          ...(messages || []).filter((m) => m.role !== "system"),
+          ...(effectiveUserPrompt ? [{ role: "user" as const, content: effectiveUserPrompt }] : []),
+        ];
 
     const sourceDocs = contextDocs.map((d) => ({ id: d.id, title: d.title, titleAr: d.titleAr, department: d.department, year: d.year }));
     res.write(`data: ${JSON.stringify({ type: "sources", sources: sourceDocs })}\n\n`);
