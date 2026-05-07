@@ -408,6 +408,8 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("entryId")) return;
     const raw = localStorage.getItem("ai_document");
     if (!raw) return;
     try {
@@ -423,6 +425,8 @@ export default function ChatPage() {
     const url = new URL(window.location.href);
     url.searchParams.delete("entryId");
     window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  };
+
   useEffect(() => {
     return () => {
       localStorage.removeItem("ai_document");

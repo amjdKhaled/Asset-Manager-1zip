@@ -392,11 +392,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   app.post("/api/chat", async (req, res) => {
-    const { messages, query, contextEntryId } = req.body as {
+    const { messages, query, contextEntryId: contextEntryIdRaw } = req.body as {
       messages: OllamaMessage[];
       query: string;
-      contextEntryId?: number;
+      contextEntryId?: number | string;
     };
+    const contextEntryId =
+      typeof contextEntryIdRaw === "string"
+        ? Number(contextEntryIdRaw)
+        : contextEntryIdRaw;
 
     if (!query && (!messages || messages.length === 0)) {
       return res.status(400).json({ error: "query or messages required" });
@@ -510,12 +514,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     const systemPrompt = buildSystemPrompt(lang);
     const localContext = buildContextBlock(contextDocs, lang);
-    const fullSystemPrompt = `${systemPrompt}\n\n${lfContextBlock || localContext}`;
+    const fullSystemPrompt = selectedMetadataContext
+      ? systemPrompt
+      : `${systemPrompt}\n\n${lfContextBlock || localContext}`;
+
+    const effectiveUserPrompt = selectedMetadataContext || query;
 
     const chatMessages: OllamaMessage[] = [
       { role: "system", content: fullSystemPrompt },
       ...(messages || []).filter((m) => m.role !== "system"),
-      ...(query ? [{ role: "user" as const, content: query }] : []),
+      ...(effectiveUserPrompt ? [{ role: "user" as const, content: effectiveUserPrompt }] : []),
     ];
 
     const sourceDocs = contextDocs.map((d) => ({ id: d.id, title: d.title, titleAr: d.titleAr, department: d.department, year: d.year }));
