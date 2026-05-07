@@ -354,9 +354,9 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
 export default function ArchivePage() {
   const [, setLocation] = useLocation();
   const [localSearch, setLocalSearch] = useState("");
-  const [filterType, setFilterType] = useState("all");
-  const [filterDept, setFilterDept] = useState("all");
+  const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
   const [selectedFolderId, setSelectedFolderId] = useState("1");
+  const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
   const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [details, setDetails] = useState<LaserficheDetails | null>(null);
@@ -367,25 +367,57 @@ export default function ArchivePage() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [viewerEntry, setViewerEntry] = useState<LaserficheFileEntry | null>(null);
 
-  const { data: docs, isLoading } = useQuery<Document[]>({ queryKey: ["/api/documents"] });
+  const { data: folderFilters } = useQuery<Array<{ id: number; name: string }>>({
+    queryKey: ["/api/lf/folders"],
+  });
+  const { data: lfDocsData, isLoading } = useQuery<{ documents: Array<{ id: number; name: string; path: string; folderName: string }> }>({
+    queryKey: ["/api/lf/documents"],
+    queryFn: async () => {
+      const res = await fetch(`/api/lf/documents`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load Laserfiche documents");
+      return res.json();
+    },
+  });
 
   const { data: preview, isLoading: previewLoading, error: previewError, refetch: refetchPreview } = useQuery<LaserfichePreview>({
     queryKey: ["/api/laserfiche/folders", selectedFolderId, "children"],
     enabled: true,
   });
 
-  const filtered = docs?.filter(d => {
-    const matchesSearch = !localSearch || d.title.toLowerCase().includes(localSearch.toLowerCase()) || (d.titleAr || "").includes(localSearch);
-    const matchesType = filterType === "all" || d.docType === filterType;
-    const matchesDept = filterDept === "all" || d.department === filterDept;
-    return matchesSearch && matchesType && matchesDept;
+  const filtered = (lfDocsData?.documents || []).filter((d) => {
+    const folderMatch = selectedFolderFilter === "all" || d.folderName === (folderFilters || []).find((f) => String(f.id) === selectedFolderFilter)?.name;
+    const searchMatch = !localSearch || d.name.toLowerCase().includes(localSearch.toLowerCase()) || d.path.toLowerCase().includes(localSearch.toLowerCase());
+    return folderMatch && searchMatch;
   });
-
-  const departments = docs ? Array.from(new Set(docs.map(d => d.department))) : [];
-  const docTypes = docs ? Array.from(new Set(docs.map(d => d.docType))) : [];
 
   const folders = useMemo(() => (preview?.children || []).filter(i => i.entryType?.toLowerCase().includes("folder")), [preview]);
   const files = useMemo(() => (preview?.children || []).filter(i => !i.entryType?.toLowerCase().includes("folder")), [preview]);
+  const { data: lfSearchData } = useQuery<{ results: Array<{ id: number; name: string; path: string }> }>({
+    queryKey: ["/api/laserfiche/search", selectedFolderId, localSearch],
+    enabled: viewMode === "laserfiche" && localSearch.trim().length > 0,
+    queryFn: async () => {
+      const res = await fetch("/api/laserfiche/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ query: localSearch, folderId: Number(selectedFolderId) || 1 }),
+      });
+      if (!res.ok) throw new Error("Search failed");
+      return res.json();
+    },
+  });
+  const filesToRender = useMemo(() => {
+    if (viewMode !== "laserfiche") return files;
+    if (!localSearch.trim()) return files;
+    const mapped = (lfSearchData?.results || []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      fullPath: r.path,
+      entryType: "ElectronicDocument",
+      isElectronicDocument: true,
+    }));
+    return mapped as LaserficheFileEntry[];
+  }, [viewMode, localSearch, files, lfSearchData]);
 
   const openFolder = async (folderId: string, folderName?: string) => {
     setSelectedFolderId(folderId);
@@ -430,12 +462,33 @@ export default function ArchivePage() {
 
   const closeViewer = () => setViewerEntry(null);
 
-  const handleAI = (file: LaserficheFileEntry) => {
+  const handleAI = async (file: LaserficheFileEntry) => {
+    let contextText = `Document ID: ${file.id}\nName: ${file.name}\nPath: ${file.fullPath || "-"}`;
+    try {
+      const payload = await loadLaserficheFields(file.id);
+      const fields = Array.isArray(payload?.value) ? payload.value : [];
+      const map: Record<string, string> = {};
+      for (const f of fields) {
+        const vals = formatLaserficheFieldValues(f?.values || []);
+        if (f?.fieldName && vals) map[f.fieldName] = vals;
+      }
+      contextText = [
+        `Document ID: ${file.id}`,
+        `Name: ${file.name}`,
+        `Path: ${file.fullPath || "-"}`,
+        `Title: ${map["Title"] || map["العنوان"] || "-"}`,
+        `Department: ${map["Department"] || map["الجهة"] || "-"}`,
+        `Type: ${map["Document Type"] || map["نوع المستند"] || "-"}`,
+        `Status: ${map["Workflow Status"] || map["الحالة"] || "-"}`,
+      ].join("\n");
+    } catch {}
+
     const nextDoc = {
       entryId: file.id,
       name: file.name,
       fullPath: file.fullPath,
       fileUrl: `/api/laserfiche/entries/${file.id}/content`,
+      contextText,
     };
     localStorage.setItem("ai_document", JSON.stringify(nextDoc));
     setLocation(`/chat?entryId=${file.id}`);
@@ -502,38 +555,49 @@ export default function ArchivePage() {
           <h1 className="text-xl font-semibold text-foreground">Document Archive</h1>
           <p className="text-sm text-muted-foreground mt-0.5 font-arabic" dir="rtl">أرشيف المستندات الحكومية</p>
         </div>
+        <div className="flex items-center gap-2 mb-3">
+          <Button
+            type="button"
+            variant={viewMode === "archive" ? "default" : "outline"}
+            className="h-8 text-xs"
+            onClick={() => setViewMode("archive")}
+            data-testid="view-mode-archive"
+          >
+            Document Archive
+          </Button>
+          <Button
+            type="button"
+            variant={viewMode === "laserfiche" ? "default" : "outline"}
+            className="h-8 text-xs"
+            onClick={() => setViewMode("laserfiche")}
+            data-testid="view-mode-laserfiche"
+          >
+            Laserfiche Repository
+          </Button>
+        </div>
         <div className="flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input
               value={localSearch}
               onChange={e => setLocalSearch(e.target.value)}
-              placeholder="Filter documents..."
+              placeholder={viewMode === "archive" ? "Filter documents..." : "Search Laserfiche..."}
               className="pl-8 h-8 text-sm"
               data-testid="archive-search"
             />
           </div>
-          <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="h-8 text-xs w-36" data-testid="archive-filter-type">
-              <SelectValue placeholder="All Types" />
+          <Select value={selectedFolderFilter} onValueChange={setSelectedFolderFilter}>
+            <SelectTrigger className="h-8 text-xs w-48" data-testid="archive-folder-filter">
+              <SelectValue placeholder="All Folders" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              {docTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              <SelectItem value="all">All Folders</SelectItem>
+              {(folderFilters || []).map(f => <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={filterDept} onValueChange={setFilterDept}>
-            <SelectTrigger className="h-8 text-xs w-48" data-testid="archive-filter-dept">
-              <SelectValue placeholder="All Departments" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Departments</SelectItem>
-              {departments.map(d => <SelectItem key={d} value={d}>{d.split(" ").slice(-2).join(" ")}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          {docs && (
+          {lfDocsData && (
             <span className="flex items-center text-xs text-muted-foreground">
-              {filtered?.length ?? 0} of {docs.length} documents
+              {filtered?.length ?? 0} of {lfDocsData.documents.length} documents
             </span>
           )}
         </div>
@@ -541,10 +605,10 @@ export default function ArchivePage() {
 
       {/* Body */}
       <div className="flex-1 overflow-hidden px-6 py-5">
-        <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5">
+        <div className="h-full grid grid-cols-1 gap-5">
 
           {/* LEFT — Document grid OR inline viewer */}
-          <div className="overflow-auto min-h-0">
+          {viewMode === "archive" && <div className="overflow-auto min-h-0">
             {viewerEntry ? (
               <div className="h-full">
                 <SmartViewer entry={viewerEntry} onClose={closeViewer} />
@@ -555,7 +619,26 @@ export default function ArchivePage() {
               </div>
             ) : filtered && filtered.length > 0 ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 max-w-5xl">
-                {filtered.map(doc => <DocCard key={doc.id} doc={doc} />)}
+                {filtered.map((doc) => (
+                  <div key={doc.id} className="border border-border rounded-md p-3 bg-card">
+                    <p className="text-sm font-semibold truncate">{doc.name}</p>
+                    <p className="text-xs text-muted-foreground truncate mt-1">{doc.path}</p>
+                    <div className="mt-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">Entry #{doc.id}</Badge>
+                        <Badge variant="outline">{doc.folderName}</Badge>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 text-xs px-2"
+                        onClick={() => handleAI({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "ElectronicDocument", isElectronicDocument: true } as LaserficheFileEntry)}
+                      >
+                        AI
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -564,10 +647,10 @@ export default function ArchivePage() {
                 <p className="text-sm text-muted-foreground">Try adjusting your filters.</p>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* RIGHT — Laserfiche repository browser + metadata */}
-          <div className="overflow-auto min-h-0">
+          {viewMode === "laserfiche" && <div className="overflow-auto min-h-0">
             <div className="bg-card border border-card-border rounded-md h-full flex flex-col">
               <div className="px-4 py-3 border-b border-border flex items-center gap-2">
                 <Folder className="w-4 h-4 text-primary" />
@@ -626,7 +709,7 @@ export default function ArchivePage() {
                     <div>
                       <p className="text-xs text-muted-foreground mb-2">Files</p>
                       <div className="divide-y divide-border rounded-md border border-border">
-                        {files.map((file) => (
+                        {filesToRender.map((file) => (
                           <div
                             key={file.id}
                             className={cn(
@@ -691,7 +774,7 @@ export default function ArchivePage() {
                             </div>
                           </div>
                         ))}
-                        {files.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
+                        {filesToRender.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
                       </div>
                     </div>
 
@@ -782,7 +865,7 @@ export default function ArchivePage() {
                 )}
               </div>
             </div>
-          </div>
+          </div>}
         </div>
       </div>
     </div>

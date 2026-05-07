@@ -457,20 +457,26 @@ export async function laserficheGetFolderChildren(
   token: string,
   folderEntryId: number
 ): Promise<LFEntry[]> {
-  const url = `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Entries/${folderEntryId}/Folder/Children`;
+  const candidateUrls = [
+    `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${folderEntryId}/Laserfiche.Repository.Folder/children`,
+    `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Entries/${folderEntryId}/Folder/Children`,
+  ];
 
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { "Authorization": `Bearer ${token}`, Accept: "application/json" },
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to list folder children: ${res.status} ${text}`);
+  let lastError = "";
+  for (const url of candidateUrls) {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${token}`, Accept: "application/json" },
+    });
+    if (!res.ok) {
+      lastError = `${res.status} ${await res.text()}`;
+      continue;
+    }
+    const data = await safeJson<{ value?: LFEntry[] } | LFEntry[]>(res, `folder ${folderEntryId} children`);
+    return Array.isArray(data) ? data : data.value || [];
   }
 
-  const data = await safeJson<{ value?: LFEntry[] } | LFEntry[]>(res, `folder ${folderEntryId} children`);
-  return Array.isArray(data) ? data : data.value || [];
+  throw new Error(`Failed to list folder children: ${lastError}`);
 }
 
 export async function laserficheListEntries(
@@ -479,20 +485,24 @@ export async function laserficheListEntries(
   folderId = 1,
   limit = 50
 ): Promise<LFEntry[]> {
-  const url = `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Entries/${folderId}/Folder/Children?$top=${limit}&$select=id,name,entryType,creator,creationTime,lastModifiedTime,extension,pageCount,electronicDocumentSize`;
-
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { "Authorization": `Bearer ${token}` },
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to list Laserfiche entries: ${res.status} ${text}`);
+  const urls = [
+    `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${folderId}/Laserfiche.Repository.Folder/children?$top=${limit}`,
+    `${config.serverUrl}/v2/Repositories/${config.repositoryId}/Entries/${folderId}/Folder/Children?$top=${limit}&$select=id,name,entryType,creator,creationTime,lastModifiedTime,extension,pageCount,electronicDocumentSize`,
+  ];
+  let lastError = "";
+  for (const url of urls) {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      lastError = `${res.status} ${await res.text()}`;
+      continue;
+    }
+    const data = await safeJson<{ value?: LFEntry[] }>(res, `folder ${folderId} list`);
+    return data.value || [];
   }
-
-  const data = await safeJson<{ value?: LFEntry[] }>(res, `folder ${folderId} list`);
-  return data.value || [];
+  throw new Error(`Failed to list Laserfiche entries: ${lastError}`);
 }
 
 export function naturalLanguageToLFSearchCommand(query: string): {
