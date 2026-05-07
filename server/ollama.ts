@@ -203,11 +203,17 @@ export function buildDocumentMetadataChatPrompt({
 }) {
   const metadataText = fields
     .map((field: any) => {
-      const name = field?.name ?? "Unknown";
+      const name = field?.name ?? field?.fieldName ?? "Unknown";
+      const valueFromArray = Array.isArray(field?.values)
+        ? field.values
+            .map((v: any) => (typeof v === "string" ? v : (v?.value ?? v?.formattedValue ?? "")))
+            .filter(Boolean)
+            .join(", ")
+        : "";
       const value =
         field?.value ??
         field?.formattedValue ??
-        field?.values?.join(", ") ??
+        valueFromArray ??
         "Empty";
 
       return `- ${name}: ${value}`;
@@ -215,15 +221,18 @@ export function buildDocumentMetadataChatPrompt({
     .join("\n");
 
   return `
-You are an AI assistant connected to Laserfiche metadata.
+You are an AI assistant connected to Laserfiche metadata for ONE selected document.
 
 IMPORTANT RULES:
 - Answer ONLY using the metadata below.
+- The user selected this exact document from the AI button.
+- Treat this as the active document mention and do not switch to other documents.
+- If the answer is not in this document, say that clearly.
 - If information does not exist, say you could not find it.
-- Respond in Arabic if the user writes Arabic.
-- Respond in English if the user writes English.
+- Respond in the same language as the user (Arabic or English).
 
 DOCUMENT INFORMATION:
+Entry ID: ${entry?.id ?? ""}
 Name: ${entry?.name ?? ""}
 Path: ${entry?.path ?? ""}
 Creator: ${entry?.creator ?? ""}
@@ -280,40 +289,6 @@ Required:
 Sort results from most to least relevant.`;
 }
 
-
-export function buildDocumentMetadataChatPrompt(input: {
-  entry: { id: number; name: string; path?: string; creationTime?: string; creator?: string };
-  fields: Array<{ fieldName: string; values: Array<{ value: string | null }> }>;
-  userPrompt: string;
-  lang: "ar" | "en";
-}): string {
-  const metadataLines = input.fields
-    .map((field) => {
-      const value = (field.values || []).map((v) => v.value ?? "").filter(Boolean).join(", ");
-      return value ? `${field.fieldName}: ${value}` : "";
-    })
-    .filter(Boolean)
-    .join("\n");
-
-  return `You are an AI assistant in runtime context mode (no model training). Answer ONLY based on the following document metadata.
-
-Document Metadata:
-Entry ID: ${input.entry.id}
-Name: ${input.entry.name}
-Path: ${input.entry.path || "Not available"}
-Creator: ${input.entry.creator || "Not available"}
-Creation Time: ${input.entry.creationTime || "Not available"}
-${metadataLines || "No metadata fields available."}
-
-Rules:
-- Do NOT invent information
-- Answer only using provided data
-- If answer not found, say "Not available in document"
-- Respond in the same language as the user input (Arabic or English)
-
-User Question:
-${input.userPrompt}`;
-}
 
 export async function summarizeDocumentContent(input: {
   title: string;
