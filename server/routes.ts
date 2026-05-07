@@ -392,11 +392,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   app.post("/api/chat", async (req, res) => {
-    const { messages, query, contextEntryId } = req.body as {
+    const { messages, query, contextEntryId: contextEntryIdRaw } = req.body as {
       messages: OllamaMessage[];
       query: string;
-      contextEntryId?: number;
+      contextEntryId?: number | string;
     };
+    const contextEntryId =
+      typeof contextEntryIdRaw === "string"
+        ? Number(contextEntryIdRaw)
+        : contextEntryIdRaw;
 
     if (!query && (!messages || messages.length === 0)) {
       return res.status(400).json({ error: "query or messages required" });

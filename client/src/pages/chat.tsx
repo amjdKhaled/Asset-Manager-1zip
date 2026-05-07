@@ -408,6 +408,8 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("entryId")) return;
     const raw = localStorage.getItem("ai_document");
     if (!raw) return;
     try {
