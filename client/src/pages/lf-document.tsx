@@ -60,8 +60,10 @@ function DocumentDetailSkeleton() {
 /** Inline document viewer: tries iframe first, falls back to page images */
 function DocumentViewer({ entryId, extension }: { entryId: number; extension: string | null }) {
   const [showImages, setShowImages] = useState(false);
-  const isPdf = extension?.toLowerCase() === "pdf";
-  const isDoc = /^docx?$/i.test(extension || "");
+  const ext = (extension || "").toLowerCase();
+  const isPdf = ext === "pdf";
+  const isImage = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg"].includes(ext);
+  const supportsInlinePreview = isPdf || isImage;
 
   const edocUrl = `/api/laserfiche/entries/${entryId}/content`;
 
@@ -69,16 +71,22 @@ function DocumentViewer({ entryId, extension }: { entryId: number; extension: st
     return (
       <div className="space-y-3">
         {/* Inline viewer */}
-        <div className="border border-border rounded-md overflow-hidden bg-muted/30">
-          <iframe
-            src={edocUrl}
-            className="w-full"
-            style={{ height: "600px" }}
-            title={`Document ${entryId}`}
-            data-testid="doc-iframe"
-            onError={() => setShowImages(true)}
-          />
-        </div>
+        {supportsInlinePreview ? (
+          <div className="border border-border rounded-md overflow-hidden bg-muted/30">
+            <iframe
+              src={edocUrl}
+              className="w-full"
+              style={{ height: "600px" }}
+              title={`Document ${entryId}`}
+              data-testid="doc-iframe"
+              onError={() => setShowImages(true)}
+            />
+          </div>
+        ) : (
+          <div className="border border-dashed border-border rounded-md p-6 text-sm text-muted-foreground" data-testid="doc-inline-unavailable">
+            Inline preview is not available for this file type to prevent automatic browser downloads.
+          </div>
+        )}
         <div className="flex gap-2 flex-wrap">
           <a href={edocUrl} download>
             <Button variant="outline" size="sm" className="gap-1.5" data-testid="download-edoc">
@@ -86,16 +94,20 @@ function DocumentViewer({ entryId, extension }: { entryId: number; extension: st
               Download
             </Button>
           </a>
-          <a href={edocUrl} target="_blank" rel="noreferrer">
-            <Button variant="ghost" size="sm" className="gap-1.5" data-testid="open-edoc-tab">
-              <ExternalLink className="w-3.5 h-3.5" />
-              Open in new tab
+          {supportsInlinePreview && (
+            <a href={edocUrl} target="_blank" rel="noreferrer">
+              <Button variant="ghost" size="sm" className="gap-1.5" data-testid="open-edoc-tab">
+                <ExternalLink className="w-3.5 h-3.5" />
+                Open in new tab
+              </Button>
+            </a>
+          )}
+          {supportsInlinePreview && (
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setShowImages(true)} data-testid="switch-to-images">
+              <Eye className="w-3.5 h-3.5" />
+              Page images
             </Button>
-          </a>
-          <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setShowImages(true)} data-testid="switch-to-images">
-            <Eye className="w-3.5 h-3.5" />
-            Page images
-          </Button>
+          )}
         </div>
       </div>
     );
