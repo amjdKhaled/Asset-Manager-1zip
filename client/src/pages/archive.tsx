@@ -688,35 +688,27 @@ export default function ArchivePage() {
                     key={doc.id}
                     type="button"
                     onClick={() => openViewer({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "Document", isElectronicDocument: doc.isElectronicDocument } as LaserficheFileEntry)}
-                    className="border border-border rounded-xl p-4 bg-card text-left hover:bg-muted/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    className="border border-border rounded-md p-3 bg-card text-left hover:bg-muted/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40"
                     data-testid={`archive-card-open-${doc.id}`}
                   >
-                    <p className="text-2xl font-semibold truncate">{doc.name}</p>
-                    <p className="text-base text-muted-foreground truncate mt-2">{doc.path}</p>
-                    <div className="mt-4 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-base px-3 py-1">Entry #{doc.id}</Badge>
-                        <Badge variant="outline" className="text-base px-3 py-1">{doc.folderName}</Badge>
-                      </div>
+                    <p className="text-lg font-semibold truncate">{doc.name}</p>
+                    <p className="text-sm text-muted-foreground truncate mt-1">{doc.path}</p>
+                    <div className="mt-3 flex items-center gap-2">
+                      <Badge variant="secondary">Entry #{doc.id}</Badge>
+                      <Badge variant="outline">{doc.folderName}</Badge>
+                    </div>
+                    <div className="mt-3">
+                      <div className="w-full h-px bg-border mb-3" />
                       <Button
                         type="button"
                         size="lg"
-                        className="h-11 text-base px-5"
+                        className="w-full h-10 text-sm"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleAI({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "ElectronicDocument", isElectronicDocument: true } as LaserficheFileEntry);
                         }}
                       >
-                        AI
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs px-2"
-                        onClick={() => openViewer({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "Document", isElectronicDocument: doc.isElectronicDocument } as LaserficheFileEntry)}
-                      >
-                        Open
+                        AI Assistant
                       </Button>
                     </div>
                   </button>
