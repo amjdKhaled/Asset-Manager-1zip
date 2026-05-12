@@ -16,6 +16,7 @@ import {
   laserficheGetEntryPages,
   laserficheGetPageImage,
   laserficheGetEdoc,
+  laserficheDeleteEntry,
   naturalLanguageToLFSearchCommand,
   saveLaserficheConfig,
   clearLaserficheConfig,
@@ -34,6 +35,9 @@ import {
   type OllamaMessage,
 } from "./ollama";
 import { z } from "zod";
+
+const requestSignal = (req: unknown): AbortSignal | undefined =>
+  (req as { signal?: AbortSignal })?.signal;
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.get("/api/documents", async (req, res) => {
@@ -583,7 +587,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         await ollamaChat(
           [{ role: "user", content: prompt }],
           (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
-          req.signal
+          requestSignal(req)
         );
         res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
       } catch (err: any) {
@@ -775,7 +779,7 @@ IMPORTANT:
       await ollamaChat(
         chatMessages,
         (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
-        req.signal
+        requestSignal(req)
       );
       res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     } catch (err: any) {
@@ -835,7 +839,7 @@ IMPORTANT:
       await ollamaChat(
         [{ role: "user", content: prompt }],
         (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
-        req.signal
+        requestSignal(req)
       );
       res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     } catch (err: any) {
@@ -875,7 +879,7 @@ IMPORTANT:
       await ollamaChat(
         [{ role: "user", content: prompt }],
         (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
-        req.signal
+        requestSignal(req)
       );
       res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     } catch (err: any) {

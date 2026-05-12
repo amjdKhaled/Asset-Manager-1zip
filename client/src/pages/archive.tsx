@@ -453,11 +453,7 @@ export default function ArchivePage() {
   };
 
   const openViewer = (file: LaserficheFileEntry) => {
-    setViewerEntry(file);
-    // Also load metadata for this entry if not already loaded
-    if (selectedEntryId !== file.id) {
-      openDocument(file.id);
-    }
+    setLocation(`/lf-document/${file.id}`);
   };
 
   const closeViewer = () => setViewerEntry(null);
