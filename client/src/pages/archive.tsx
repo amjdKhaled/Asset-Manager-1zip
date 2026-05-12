@@ -454,15 +454,6 @@ export default function ArchivePage() {
   };
 
   const openViewer = (file: LaserficheFileEntry) => {
-    const entryType = (file.entryType || "").toLowerCase();
-    const isElectronic = entryType.includes("electronicdocument") || entryType.includes("electronic");
-    if (!isElectronic) {
-      setOpenNotice("No electronic file or image available.");
-      return;
-    }
-
-    setOpenNotice(null);
-    setViewerEntry(file);
     setLocation(`/lf-document/${file.id}`);
   };
 
