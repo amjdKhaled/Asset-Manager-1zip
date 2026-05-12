@@ -494,12 +494,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         const children = await laserficheGetFolderChildren(config, token, folderId);
         const ownDocs = children
-          .filter((c: any) => c.isElectronicDocument)
+          .filter((c: any) => c.isElectronicDocument || c.entryType?.toLowerCase().includes("document"))
           .map((d: any) => ({
             id: d.id,
             name: d.name,
             path: d.fullPath || "",
             folderName,
+            isElectronicDocument: !!d.isElectronicDocument,
           }));
 
         const subfolders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));

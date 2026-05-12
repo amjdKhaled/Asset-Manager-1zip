@@ -380,7 +380,7 @@ export default function ArchivePage() {
       return res.json();
     },
   });
-  const { data: lfDocsData, isLoading } = useQuery<{ documents: Array<{ id: number; name: string; path: string; folderName: string }> }>({
+  const { data: lfDocsData, isLoading } = useQuery<{ documents: Array<{ id: number; name: string; path: string; folderName: string; isElectronicDocument?: boolean }> }>({
     queryKey: ["/api/lf/documents", numericFolderId],
     queryFn: async () => {
       const res = await fetch(`/api/lf/documents?rootFolderId=${numericFolderId}`, { credentials: "include" });
@@ -699,6 +699,15 @@ export default function ArchivePage() {
                         onClick={() => handleAI({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "ElectronicDocument", isElectronicDocument: true } as LaserficheFileEntry)}
                       >
                         AI
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs px-2"
+                        onClick={() => openViewer({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "Document", isElectronicDocument: doc.isElectronicDocument } as LaserficheFileEntry)}
+                      >
+                        Open
                       </Button>
                     </div>
                   </div>
