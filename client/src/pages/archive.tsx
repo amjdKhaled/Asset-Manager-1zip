@@ -105,6 +105,7 @@ type LaserficheFileEntry = {
   lastModifiedTime?: string;
   extension?: string;
   pageCount?: number;
+  isElectronicDocument?: boolean;
 };
 
 type LaserfichePreview = {
@@ -455,6 +456,10 @@ export default function ArchivePage() {
 
   const openViewer = async (file: LaserficheFileEntry) => {
     setOpenNotice(null);
+    if (file.isElectronicDocument === false) {
+      setOpenNotice("This entry has no electronic file, so it cannot be opened in the document viewer.");
+      return;
+    }
     try {
       const probe = await fetch(`/api/laserfiche/entries/${file.id}/content`, { method: "HEAD" });
       if (!probe.ok) {
@@ -771,6 +776,8 @@ export default function ArchivePage() {
                                 size="sm"
                                 className="h-7 text-xs px-2 gap-1"
                                 onClick={() => openViewer(file)}
+                                disabled={file.isElectronicDocument === false}
+                                title={file.isElectronicDocument === false ? "No electronic file available" : undefined}
                                 data-testid={`button-open-document-${file.id}`}
                               >
                                 <Eye className="w-3 h-3" />
