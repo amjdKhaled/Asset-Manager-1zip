@@ -42,6 +42,61 @@ const requestSignal = (req: unknown): AbortSignal | undefined =>
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.get("/api/documents", async (req, res) => {
     try {
+      const lfConfig = getLaserficheConfig();
+      if (lfConfig) {
+        const token = await getLaserficheToken(lfConfig);
+        const rootFolderId = Number(req.query.rootFolderId || 1);
+        const visited = new Set<number>();
+        const collectDocuments = async (folderId: number): Promise<any[]> => {
+          if (visited.has(folderId)) return [];
+          visited.add(folderId);
+
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          const docsHere = children.filter((entry: any) => entry?.entryType?.toLowerCase().includes("document"));
+          const subfolders = children.filter((entry: any) => entry?.entryType?.toLowerCase().includes("folder"));
+          const nested = await Promise.all(subfolders.map((folder: any) => collectDocuments(Number(folder.id))));
+          return [...docsHere, ...nested.flat()];
+        };
+
+        const allDocuments = await collectDocuments(rootFolderId);
+
+        const documents = await Promise.all(
+          allDocuments.map(async (entry: any) => {
+              const details = await laserficheGetEntry(lfConfig, token, Number(entry.id));
+              const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({ value: [] as any[] }));
+              const map: Record<string, string> = {};
+              for (const f of fields.value || []) {
+                const values = Array.isArray(f.values) ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ") : "";
+                if (f.fieldName) map[f.fieldName] = values;
+              }
+
+              return {
+                id: String(entry.id),
+                title: details.name || entry.name || `Entry ${entry.id}`,
+                titleAr: map["العنوان"] || null,
+                department: map["Department"] || map["الجهة"] || "Unknown",
+                departmentAr: map["الجهة"] || null,
+                classification: map["Classification"] || "Internal",
+                securityLevel: map["Security Level"] || "Internal",
+                docType: map["Document Type"] || details.extension || "Document",
+                docTypeAr: map["نوع المستند"] || null,
+                createdAt: details.creationTime ? new Date(details.creationTime) : new Date(),
+                author: details.creator || null,
+                authorAr: null,
+                workflowStatus: map["Workflow Status"] || map["الحالة"] || "Active",
+                tags: [],
+                content: details.fullPath || "",
+                contentAr: map["المحتوى"] || null,
+                fileSizeKb: details.electronicDocumentSize ? Math.round(details.electronicDocumentSize / 1024) : null,
+                pageCount: details.pageCount || null,
+                laserficheId: String(entry.id),
+                year: details.creationTime ? new Date(details.creationTime).getFullYear() : null,
+              };
+            })
+        );
+        return res.json(documents);
+      }
+
       const docs = await storage.getDocuments();
       res.json(docs);
     } catch {
@@ -396,28 +451,68 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/lf/root-candidates", async (_req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    try {
+      const token = await getLaserficheToken(config);
+      const candidates = [1, 2, 3, 5, 10, 17, 20, 50, 100];
+      const results: Array<{ id: number; name: string }> = [];
+      for (const id of candidates) {
+        try {
+          const entry = await laserficheGetEntry(config, token, id);
+          if (entry?.entryType?.toLowerCase().includes("folder")) {
+            results.push({ id, name: entry.name || `Folder ${id}` });
+          }
+        } catch {}
+      }
+      // also include direct children of repository root when available
+      try {
+        const rootChildren = await laserficheGetFolderChildren(config, token, 1);
+        for (const c of rootChildren.filter((x: any) => x.entryType?.toLowerCase().includes("folder")).slice(0, 30)) {
+          if (!results.find((r) => r.id === Number(c.id))) {
+            results.push({ id: Number(c.id), name: c.name || `Folder ${c.id}` });
+          }
+        }
+      } catch {}
+      res.json({ candidates: results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/lf/documents", async (req, res) => {
     const config = getLaserficheConfig();
     if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
     const rootFolderId = Number(req.query.rootFolderId || 1);
     try {
       const token = await getLaserficheToken(config);
-      const children = await laserficheGetFolderChildren(config, token, rootFolderId);
-      const folders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
-      const groupedDocs = await Promise.all(
-        folders.map(async (folder: any) => {
-          const subChildren = await laserficheGetFolderChildren(config, token, folder.id);
-          return subChildren
-            .filter((c: any) => c.isElectronicDocument)
-            .map((d: any) => ({
-              id: d.id,
-              name: d.name,
-              path: d.fullPath || "",
-              folderName: folder.name,
-            }));
-        })
-      );
-      res.json({ documents: groupedDocs.flat() });
+      const visited = new Set<number>();
+      const walkFolder = async (folderId: number, folderName: string): Promise<Array<{ id: number; name: string; path: string; folderName: string }>> => {
+        if (visited.has(folderId)) return [];
+        visited.add(folderId);
+
+        const children = await laserficheGetFolderChildren(config, token, folderId);
+        const ownDocs = children
+          .filter((c: any) => c.isElectronicDocument || c.entryType?.toLowerCase().includes("document"))
+          .map((d: any) => ({
+            id: d.id,
+            name: d.name,
+            path: d.fullPath || "",
+            folderName,
+            isElectronicDocument: !!d.isElectronicDocument,
+          }));
+
+        const subfolders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
+        const nested = await Promise.all(
+          subfolders.map((folder: any) => walkFolder(Number(folder.id), folder.name || folderName))
+        );
+
+        return [...ownDocs, ...nested.flat()];
+      };
+
+      const documents = await walkFolder(rootFolderId, "Repository");
+      res.json({ documents });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1097,13 +1192,17 @@ IMPORTANT:
       const contentType = lfRes.headers.get("content-type") || "application/octet-stream";
       if (/text\/html/i.test(contentType)) return res.status(401).send("Authentication failed — Laserfiche returned a login page.");
 
-      const disposition = lfRes.headers.get("content-disposition") || `inline; filename="document-${entryId}"`;
+      const rawDisposition = lfRes.headers.get("content-disposition") || "";
+      const filenameMatch = rawDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+      const safeFilename = (filenameMatch?.[1] || `document-${entryId}`).replace(/[\r\n]/g, "").trim();
       const contentLength = lfRes.headers.get("content-length");
 
       res.setHeader("Content-Type", contentType);
-      res.setHeader("Content-Disposition", disposition);
+      res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
       if (contentLength) res.setHeader("Content-Length", contentLength);
-      res.setHeader("Cache-Control", "private, max-age=300");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
 
       const { Readable } = await import("stream");
       Readable.fromWeb(lfRes.body as any).pipe(res);
