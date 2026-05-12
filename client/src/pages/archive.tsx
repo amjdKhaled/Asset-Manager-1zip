@@ -682,21 +682,30 @@ export default function ArchivePage() {
                 {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-28 rounded-md" />)}
               </div>
             ) : filtered && filtered.length > 0 ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 max-w-5xl">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-6xl">
                 {filtered.map((doc) => (
-                  <div key={doc.id} className="border border-border rounded-md p-3 bg-card">
-                    <p className="text-sm font-semibold truncate">{doc.name}</p>
-                    <p className="text-xs text-muted-foreground truncate mt-1">{doc.path}</p>
-                    <div className="mt-3 flex items-center justify-between">
+                  <button
+                    key={doc.id}
+                    type="button"
+                    onClick={() => openViewer({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "Document", isElectronicDocument: doc.isElectronicDocument } as LaserficheFileEntry)}
+                    className="border border-border rounded-xl p-4 bg-card text-left hover:bg-muted/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    data-testid={`archive-card-open-${doc.id}`}
+                  >
+                    <p className="text-2xl font-semibold truncate">{doc.name}</p>
+                    <p className="text-base text-muted-foreground truncate mt-2">{doc.path}</p>
+                    <div className="mt-4 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary">Entry #{doc.id}</Badge>
-                        <Badge variant="outline">{doc.folderName}</Badge>
+                        <Badge variant="secondary" className="text-base px-3 py-1">Entry #{doc.id}</Badge>
+                        <Badge variant="outline" className="text-base px-3 py-1">{doc.folderName}</Badge>
                       </div>
                       <Button
                         type="button"
-                        size="sm"
-                        className="h-7 text-xs px-2"
-                        onClick={() => handleAI({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "ElectronicDocument", isElectronicDocument: true } as LaserficheFileEntry)}
+                        size="lg"
+                        className="h-11 text-base px-5"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAI({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "ElectronicDocument", isElectronicDocument: true } as LaserficheFileEntry);
+                        }}
                       >
                         AI
                       </Button>
@@ -710,7 +719,7 @@ export default function ArchivePage() {
                         Open
                       </Button>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             ) : (
