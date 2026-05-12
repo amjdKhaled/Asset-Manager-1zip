@@ -589,8 +589,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     };
     try {
       const token = await getLaserficheToken(config);
-      const children = await laserficheGetFolderChildren(config, token, folderId);
-      const docs = await Promise.all(children.filter((e: any) => e.isElectronicDocument).map(async (e: any) => {
+      const visited = new Set<number>();
+      const collectDocs = async (currentFolderId: number): Promise<any[]> => {
+        if (visited.has(currentFolderId)) return [];
+        visited.add(currentFolderId);
+        const children = await laserficheGetFolderChildren(config, token, currentFolderId);
+        const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document"));
+        const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
+        const nested = await Promise.all(subfolders.map((f: any) => collectDocs(Number(f.id))));
+        return [...docsHere, ...nested.flat()];
+      };
+      const allEntries = await collectDocs(folderId);
+      const docs = await Promise.all(allEntries.map(async (e: any) => {
         let fields: any[] = [];
         try { fields = await laserficheGetEntryFieldsRaw(config, token, e.id); } catch {}
         const fieldText = fields.map((f: any) => {
@@ -601,7 +611,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const docText = normalizeArabic(`${e.name}\n${e.fullPath || ""}\n${fieldText}`);
         return { id: e.id, name: e.name, path: e.fullPath || "", docText };
       }));
-      const results = docs.filter((d) => (keywords.length ? keywords.every((k) => keywordExists(k, d.docText)) : keywordExists(normalizeArabic(query), d.docText)));
+      const results = docs
+        .filter((d) => (keywords.length ? keywords.every((k) => keywordExists(k, d.docText)) : keywordExists(normalizeArabic(query), d.docText)))
+        .slice(0, 50);
       res.json({ results });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -781,8 +793,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (lfConfig && lfSearchKeywords.test(userQuery)) {
       try {
         const token = await getLaserficheToken(lfConfig);
-        const entries = await laserficheGetFolderChildren(lfConfig, token, 1);
-        lfEntries = entries.filter((e: any) => e.isElectronicDocument).slice(0, 80);
+        const visited = new Set<number>();
+        const collectDocs = async (folderId: number): Promise<any[]> => {
+          if (visited.has(folderId)) return [];
+          visited.add(folderId);
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document"));
+          const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
+          const nested = await Promise.all(subfolders.map((f: any) => collectDocs(Number(f.id))));
+          return [...docsHere, ...nested.flat()];
+        };
+        lfEntries = (await collectDocs(1)).slice(0, 300);
         const normalizedQuery = normalizeText(userQuery);
         const keywords = extractKeywords(userQuery);
 
