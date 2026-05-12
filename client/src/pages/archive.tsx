@@ -454,15 +454,7 @@ export default function ArchivePage() {
   };
 
   const openViewer = (file: LaserficheFileEntry) => {
-    const nextDoc = {
-      entryId: file.id,
-      name: file.name,
-      fullPath: file.fullPath,
-      fileUrl: `/api/laserfiche/entries/${file.id}/content`,
-      contextText: `Document ID: ${file.id}\nName: ${file.name}\nPath: ${file.fullPath || "-"}`,
-    };
-    localStorage.setItem("ai_document", JSON.stringify(nextDoc));
-    setLocation(`/chat?entryId=${file.id}`);
+    setLocation(`/lf-document/${file.id}`);
   };
 
   const closeViewer = () => setViewerEntry(null);
