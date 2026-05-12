@@ -589,6 +589,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     };
     try {
       const token = await getLaserficheToken(config);
+      const fieldDefinitions = await laserficheGetFieldDefinitions(config, token).catch(() => []);
+      const fieldNameTokens = new Set(
+        (fieldDefinitions || [])
+          .flatMap((f: any) => String(f?.name || "").split(/\s+/))
+          .map((w: string) => normalizeArabic(w))
+          .filter((w: string) => w.length > 2)
+      );
+      const effectiveKeywords = keywords.filter((k) => !fieldNameTokens.has(k));
       const visited = new Set<number>();
       const collectDocs = async (currentFolderId: number): Promise<any[]> => {
         if (visited.has(currentFolderId)) return [];
@@ -612,7 +620,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return { id: e.id, name: e.name, path: e.fullPath || "", docText };
       }));
       const results = docs
-        .filter((d) => (keywords.length ? keywords.every((k) => keywordExists(k, d.docText)) : keywordExists(normalizeArabic(query), d.docText)))
+        .filter((d) => (effectiveKeywords.length ? effectiveKeywords.every((k) => keywordExists(k, d.docText)) : keywordExists(normalizeArabic(query), d.docText)))
         .slice(0, 50);
       res.json({ results });
     } catch (err: any) {
@@ -793,6 +801,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (lfConfig && lfSearchKeywords.test(userQuery)) {
       try {
         const token = await getLaserficheToken(lfConfig);
+        const fieldDefinitions = await laserficheGetFieldDefinitions(lfConfig, token).catch(() => []);
+        const fieldNameTokens = new Set(
+          (fieldDefinitions || [])
+            .flatMap((f: any) => String(f?.name || "").split(/\s+/))
+            .map((w: string) => normalizeText(w))
+            .filter((w: string) => w.length > 2)
+        );
         const visited = new Set<number>();
         const collectDocs = async (folderId: number): Promise<any[]> => {
           if (visited.has(folderId)) return [];
@@ -806,6 +821,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         lfEntries = (await collectDocs(1)).slice(0, 300);
         const normalizedQuery = normalizeText(userQuery);
         const keywords = extractKeywords(userQuery);
+        const effectiveKeywords = keywords.filter((k) => !fieldNameTokens.has(k));
 
         const inspected = await Promise.all(
           lfEntries.map(async (entry: any) => {
@@ -834,7 +850,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               ].join("\n")
             );
 
-            const keywordHits = keywords.filter((k) => keywordExists(k, searchableText)).length;
+            const keywordHits = effectiveKeywords.filter((k) => keywordExists(k, searchableText)).length;
             const score =
               keywordHits * 5 +
               (normalizeText(entry.name || "").includes(normalizedQuery) ? 3 : 0) +
@@ -854,8 +870,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const matched = inspected
           .filter((d) => {
             if (!normalizedQuery) return false;
-            if (keywords.length === 0) return d.searchableText.includes(normalizedQuery);
-            return keywords.every((k) => keywordExists(k, d.searchableText));
+            if (effectiveKeywords.length === 0) return d.searchableText.includes(normalizedQuery);
+            return effectiveKeywords.every((k) => keywordExists(k, d.searchableText));
           })
           .sort((a, b) => b.score - a.score)
           .slice(0, 20);
