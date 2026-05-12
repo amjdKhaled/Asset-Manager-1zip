@@ -849,6 +849,7 @@ IMPORTANT:
 - Do NOT ignore the document.
 - Do NOT invent information.
 - If data is missing, say it is not available in the document.
+- If the user asks for a summary (e.g., "لخص الوثيقة"), provide a medium-length summary (about 5-7 sentences) with key metadata highlights and useful details.
 - Respond in the same language as user input.`
       : `${systemPrompt}\n\n${lfContextBlock || localContext}`;
 
