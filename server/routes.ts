@@ -447,22 +447,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const rootFolderId = Number(req.query.rootFolderId || 1);
     try {
       const token = await getLaserficheToken(config);
-      const children = await laserficheGetFolderChildren(config, token, rootFolderId);
-      const folders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
-      const groupedDocs = await Promise.all(
-        folders.map(async (folder: any) => {
-          const subChildren = await laserficheGetFolderChildren(config, token, folder.id);
-          return subChildren
-            .filter((c: any) => c.isElectronicDocument)
-            .map((d: any) => ({
-              id: d.id,
-              name: d.name,
-              path: d.fullPath || "",
-              folderName: folder.name,
-            }));
-        })
-      );
-      res.json({ documents: groupedDocs.flat() });
+      const visited = new Set<number>();
+      const walkFolder = async (folderId: number, folderName: string): Promise<Array<{ id: number; name: string; path: string; folderName: string }>> => {
+        if (visited.has(folderId)) return [];
+        visited.add(folderId);
+
+        const children = await laserficheGetFolderChildren(config, token, folderId);
+        const ownDocs = children
+          .filter((c: any) => c.isElectronicDocument)
+          .map((d: any) => ({
+            id: d.id,
+            name: d.name,
+            path: d.fullPath || "",
+            folderName,
+          }));
+
+        const subfolders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
+        const nested = await Promise.all(
+          subfolders.map((folder: any) => walkFolder(Number(folder.id), folder.name || folderName))
+        );
+
+        return [...ownDocs, ...nested.flat()];
+      };
+
+      const documents = await walkFolder(rootFolderId, "Repository");
+      res.json({ documents });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
