@@ -687,7 +687,7 @@ export default function ArchivePage() {
                   <button
                     key={doc.id}
                     type="button"
-                    onClick={() => openViewer({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "Document", isElectronicDocument: doc.isElectronicDocument } as LaserficheFileEntry)}
+                    onClick={() => setLocation(`/lf-document/${doc.id}`)}
                     className="border border-border rounded-md p-3 bg-card text-left hover:bg-muted/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40"
                     data-testid={`archive-card-open-${doc.id}`}
                   >
