@@ -261,11 +261,14 @@ ${docList}
 
 المطلوب:
 1. ابحث في القائمة عن الوثائق الأنسب للسؤال
-2. اذكر رقم الوثيقة (ID) واسمها لكل نتيجة
-3. اشرح لماذا اخترت كل وثيقة
+2. إذا طلب المستخدم التصفية بحقل ميتاداتا (مثال: "إجراء الوثيقة: تحت الإجراء") فطبّق مطابقة مباشرة لقيمة الحقل داخل الميتاداتا أولاً.
+3. اذكر رقم الوثيقة (ID) واسمها ومسارها لكل نتيجة
+4. اذكر الحقل/القيمة المطابقة بشكل صريح لكل نتيجة
+5. اشرح باختصار لماذا اخترت كل وثيقة
 4. إذا لم تجد نتائج مناسبة، أخبر المستخدم بذلك بوضوح
 
-رتّب النتائج من الأكثر إلى الأقل صلة.`;
+رتّب النتائج من الأكثر إلى الأقل صلة.
+اجعل الإجابة عملية ومباشرة بدون إطالة.`;
   }
 
   return `You are an intelligent document archive search assistant.
@@ -304,10 +307,11 @@ export async function summarizeDocumentContent(input: {
   content: string;
   contentAr: string;
 }> {
-  const prompt = `Create concise document content summaries from the metadata below.
+  const prompt = `Create informative document summaries from the metadata below.
 Return ONLY valid JSON with keys "content" and "contentAr".
-content: English summary of the document in 2-4 short sentences.
-contentAr: Arabic summary of the document in 2-4 short sentences.
+content: English summary in 5-7 sentences, include: purpose, owner/department, status, sensitivity, and next action if implied.
+contentAr: Arabic summary in 5-7 sentences, include: الهدف، الجهة، الحالة، مستوى الحساسية، والخطوة التالية إن وُجدت.
+Do not be one-line short. Keep it concise but sufficiently detailed.
 
 Metadata:
 Title: ${input.title}
