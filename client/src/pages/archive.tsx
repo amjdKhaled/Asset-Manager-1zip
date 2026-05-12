@@ -366,6 +366,7 @@ export default function ArchivePage() {
   const [analysisLoadingEntryId, setAnalysisLoadingEntryId] = useState<number | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [viewerEntry, setViewerEntry] = useState<LaserficheFileEntry | null>(null);
+  const [openNotice, setOpenNotice] = useState<string | null>(null);
 
   const { data: folderFilters } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/lf/folders"],
@@ -453,11 +454,16 @@ export default function ArchivePage() {
   };
 
   const openViewer = (file: LaserficheFileEntry) => {
-    setViewerEntry(file);
-    // Also load metadata for this entry if not already loaded
-    if (selectedEntryId !== file.id) {
-      openDocument(file.id);
+    const entryType = (file.entryType || "").toLowerCase();
+    const isElectronic = entryType.includes("electronicdocument") || entryType.includes("electronic");
+    if (!isElectronic) {
+      setOpenNotice("No electronic file or image available.");
+      return;
     }
+
+    setOpenNotice(null);
+    setViewerEntry(file);
+    setLocation(`/lf-document/${file.id}`);
   };
 
   const closeViewer = () => setViewerEntry(null);
@@ -708,6 +714,11 @@ export default function ArchivePage() {
                     {/* Files */}
                     <div>
                       <p className="text-xs text-muted-foreground mb-2">Files</p>
+                      {openNotice && (
+                        <div className="mb-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                          {openNotice}
+                        </div>
+                      )}
                       <div className="divide-y divide-border rounded-md border border-border">
                         {filesToRender.map((file) => (
                           <div
