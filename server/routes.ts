@@ -42,6 +42,51 @@ const requestSignal = (req: unknown): AbortSignal | undefined =>
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.get("/api/documents", async (req, res) => {
     try {
+      const lfConfig = getLaserficheConfig();
+      if (lfConfig) {
+        const token = await getLaserficheToken(lfConfig);
+        const rootFolderId = Number(req.query.rootFolderId || 1);
+        const children = await laserficheGetFolderChildren(lfConfig, token, rootFolderId);
+
+        const documents = await Promise.all(
+          children
+            .filter((entry: any) => entry?.entryType?.toLowerCase().includes("document"))
+            .map(async (entry: any) => {
+              const details = await laserficheGetEntry(lfConfig, token, Number(entry.id));
+              const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({ value: [] as any[] }));
+              const map: Record<string, string> = {};
+              for (const f of fields.value || []) {
+                const values = Array.isArray(f.values) ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ") : "";
+                if (f.fieldName) map[f.fieldName] = values;
+              }
+
+              return {
+                id: String(entry.id),
+                title: details.name || entry.name || `Entry ${entry.id}`,
+                titleAr: map["العنوان"] || null,
+                department: map["Department"] || map["الجهة"] || "Unknown",
+                departmentAr: map["الجهة"] || null,
+                classification: map["Classification"] || "Internal",
+                securityLevel: map["Security Level"] || "Internal",
+                docType: map["Document Type"] || details.extension || "Document",
+                docTypeAr: map["نوع المستند"] || null,
+                createdAt: details.creationTime ? new Date(details.creationTime) : new Date(),
+                author: details.creator || null,
+                authorAr: null,
+                workflowStatus: map["Workflow Status"] || map["الحالة"] || "Active",
+                tags: [],
+                content: details.fullPath || "",
+                contentAr: map["المحتوى"] || null,
+                fileSizeKb: details.electronicDocumentSize ? Math.round(details.electronicDocumentSize / 1024) : null,
+                pageCount: details.pageCount || null,
+                laserficheId: String(entry.id),
+                year: details.creationTime ? new Date(details.creationTime).getFullYear() : null,
+              };
+            })
+        );
+        return res.json(documents);
+      }
+
       const docs = await storage.getDocuments();
       res.json(docs);
     } catch {
@@ -1097,13 +1142,17 @@ IMPORTANT:
       const contentType = lfRes.headers.get("content-type") || "application/octet-stream";
       if (/text\/html/i.test(contentType)) return res.status(401).send("Authentication failed — Laserfiche returned a login page.");
 
-      const disposition = lfRes.headers.get("content-disposition") || `inline; filename="document-${entryId}"`;
+      const rawDisposition = lfRes.headers.get("content-disposition") || "";
+      const filenameMatch = rawDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+      const safeFilename = (filenameMatch?.[1] || `document-${entryId}`).replace(/[\r\n]/g, "").trim();
       const contentLength = lfRes.headers.get("content-length");
 
       res.setHeader("Content-Type", contentType);
-      res.setHeader("Content-Disposition", disposition);
+      res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
       if (contentLength) res.setHeader("Content-Length", contentLength);
-      res.setHeader("Cache-Control", "private, max-age=300");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
 
       const { Readable } = await import("stream");
       Readable.fromWeb(lfRes.body as any).pipe(res);
