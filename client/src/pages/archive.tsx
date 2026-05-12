@@ -682,7 +682,7 @@ export default function ArchivePage() {
                 {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-28 rounded-md" />)}
               </div>
             ) : filtered && filtered.length > 0 ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 max-w-5xl">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-6xl">
                 {filtered.map((doc) => (
                   <button
                     key={doc.id}
