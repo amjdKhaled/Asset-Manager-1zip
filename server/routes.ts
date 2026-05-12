@@ -1097,13 +1097,17 @@ IMPORTANT:
       const contentType = lfRes.headers.get("content-type") || "application/octet-stream";
       if (/text\/html/i.test(contentType)) return res.status(401).send("Authentication failed — Laserfiche returned a login page.");
 
-      const disposition = lfRes.headers.get("content-disposition") || `inline; filename="document-${entryId}"`;
+      const rawDisposition = lfRes.headers.get("content-disposition") || "";
+      const filenameMatch = rawDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+      const safeFilename = (filenameMatch?.[1] || `document-${entryId}`).replace(/[\r\n]/g, "").trim();
       const contentLength = lfRes.headers.get("content-length");
 
       res.setHeader("Content-Type", contentType);
-      res.setHeader("Content-Disposition", disposition);
+      res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
       if (contentLength) res.setHeader("Content-Length", contentLength);
-      res.setHeader("Cache-Control", "private, max-age=300");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
 
       const { Readable } = await import("stream");
       Readable.fromWeb(lfRes.body as any).pipe(res);
