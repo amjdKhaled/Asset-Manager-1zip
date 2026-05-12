@@ -46,12 +46,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (lfConfig) {
         const token = await getLaserficheToken(lfConfig);
         const rootFolderId = Number(req.query.rootFolderId || 1);
-        const children = await laserficheGetFolderChildren(lfConfig, token, rootFolderId);
+        const visited = new Set<number>();
+        const collectDocuments = async (folderId: number): Promise<any[]> => {
+          if (visited.has(folderId)) return [];
+          visited.add(folderId);
+
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          const docsHere = children.filter((entry: any) => entry?.entryType?.toLowerCase().includes("document"));
+          const subfolders = children.filter((entry: any) => entry?.entryType?.toLowerCase().includes("folder"));
+          const nested = await Promise.all(subfolders.map((folder: any) => collectDocuments(Number(folder.id))));
+          return [...docsHere, ...nested.flat()];
+        };
+
+        const allDocuments = await collectDocuments(rootFolderId);
 
         const documents = await Promise.all(
-          children
-            .filter((entry: any) => entry?.entryType?.toLowerCase().includes("document"))
-            .map(async (entry: any) => {
+          allDocuments.map(async (entry: any) => {
               const details = await laserficheGetEntry(lfConfig, token, Number(entry.id));
               const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({ value: [] as any[] }));
               const map: Record<string, string> = {};
