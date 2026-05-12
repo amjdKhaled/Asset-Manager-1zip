@@ -570,6 +570,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         .trim();
     const stopWords = new Set(["ابحث", "عن", "في", "فيها", "التي", "وثيقة", "وثيقه", "search", "find", "document", "file", "archive"]);
     const keywords = normalizeArabic(query).split(" ").filter((w) => w.length > 2 && !stopWords.has(w));
+    const levenshtein = (a: string, b: string): number => {
+      const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+      for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+      for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+      for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+        }
+      }
+      return dp[a.length][b.length];
+    };
+    const keywordExists = (keyword: string, text: string) => {
+      if (text.includes(keyword)) return true;
+      const tokens = text.split(/[\s|,:;\n]+/).filter(Boolean);
+      return tokens.some((t) => t.startsWith(keyword) || keyword.startsWith(t) || (keyword.length > 3 && levenshtein(t, keyword) <= 1));
+    };
     try {
       const token = await getLaserficheToken(config);
       const children = await laserficheGetFolderChildren(config, token, folderId);
@@ -584,7 +601,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const docText = normalizeArabic(`${e.name}\n${e.fullPath || ""}\n${fieldText}`);
         return { id: e.id, name: e.name, path: e.fullPath || "", docText };
       }));
-      const results = docs.filter((d) => (keywords.length ? keywords.every((k) => d.docText.includes(k)) : d.docText.includes(normalizeArabic(query))));
+      const results = docs.filter((d) => (keywords.length ? keywords.every((k) => keywordExists(k, d.docText)) : keywordExists(normalizeArabic(query), d.docText)));
       res.json({ results });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -743,6 +760,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         .split(" ")
         .map((w) => w.trim())
         .filter((w) => w.length > 2 && !stopWords.has(w));
+    const levenshtein = (a: string, b: string): number => {
+      const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+      for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+      for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+      for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+        }
+      }
+      return dp[a.length][b.length];
+    };
+    const keywordExists = (keyword: string, text: string) => {
+      if (text.includes(keyword)) return true;
+      const tokens = text.split(/[\s|,:;\n]+/).filter(Boolean);
+      return tokens.some((t) => t.startsWith(keyword) || keyword.startsWith(t) || (keyword.length > 3 && levenshtein(t, keyword) <= 1));
+    };
 
     if (lfConfig && lfSearchKeywords.test(userQuery)) {
       try {
@@ -779,7 +813,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               ].join("\n")
             );
 
-            const keywordHits = keywords.filter((k) => searchableText.includes(k)).length;
+            const keywordHits = keywords.filter((k) => keywordExists(k, searchableText)).length;
             const score =
               keywordHits * 5 +
               (normalizeText(entry.name || "").includes(normalizedQuery) ? 3 : 0) +
@@ -800,7 +834,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           .filter((d) => {
             if (!normalizedQuery) return false;
             if (keywords.length === 0) return d.searchableText.includes(normalizedQuery);
-            return keywords.every((k) => d.searchableText.includes(k));
+            return keywords.every((k) => keywordExists(k, d.searchableText));
           })
           .sort((a, b) => b.score - a.score)
           .slice(0, 20);
