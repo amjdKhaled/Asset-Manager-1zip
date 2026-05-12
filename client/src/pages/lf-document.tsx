@@ -23,6 +23,15 @@ type LFDocumentDetail = {
   tags: string[];
 };
 
+type LFRepositoryDocumentsResponse = {
+  documents: Array<{
+    id: number;
+    name: string;
+    path: string;
+    folderName?: string;
+  }>;
+};
+
 type LFDocumentPages = {
   entryId: number;
   pageCount: number;
@@ -312,6 +321,16 @@ export default function LFDocumentPage() {
     enabled: Number.isFinite(entryId) && entryId > 0,
   });
 
+
+  const { data: repositoryDocs } = useQuery<LFRepositoryDocumentsResponse>({
+    queryKey: ["/api/lf/documents", "all"],
+    queryFn: async () => {
+      const res = await fetch('/api/lf/documents?rootFolderId=1');
+      if (!res.ok) return { documents: [] };
+      return res.json();
+    },
+  });
+
   if (!Number.isFinite(entryId) || entryId <= 0) {
     return <ErrorState entryId={0} error={new Error("Invalid document ID in URL.")} />;
   }
@@ -491,6 +510,26 @@ export default function LFDocumentPage() {
               </div>
               <div className="p-4">
                 <DocumentViewer entryId={entryId} extension={doc.extension} />
+              </div>
+            </div>
+
+            <div className="bg-card border border-card-border rounded-md">
+              <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+                <FileText className="w-4 h-4 text-primary" />
+                <span className="text-sm font-medium">Repository Documents</span>
+              </div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3" data-testid="repository-doc-cards">
+                {(repositoryDocs?.documents || []).map((item) => (
+                  <Link key={item.id} href={`/lf-document/${item.id}`}>
+                    <button type="button" className="w-full text-left rounded-md border border-border bg-background/40 hover:bg-muted/40 transition-colors p-3">
+                      <p className="text-sm font-medium truncate">{item.name}</p>
+                      <p className="text-xs text-muted-foreground truncate mt-1">{item.path}</p>
+                    </button>
+                  </Link>
+                ))}
+                {(repositoryDocs?.documents || []).length === 0 && (
+                  <p className="text-sm text-muted-foreground">No documents found in repository.</p>
+                )}
               </div>
             </div>
           </div>
