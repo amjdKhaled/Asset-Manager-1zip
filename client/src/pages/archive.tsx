@@ -368,6 +368,8 @@ export default function ArchivePage() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [viewerEntry, setViewerEntry] = useState<LaserficheFileEntry | null>(null);
   const [openNotice, setOpenNotice] = useState<string | null>(null);
+  const [discoveringRoots, setDiscoveringRoots] = useState(false);
+  const [rootCandidates, setRootCandidates] = useState<Array<{ id: number; name: string }>>([]);
 
   const numericFolderId = Number(selectedFolderId) || 1;
   const { data: folderFilters } = useQuery<Array<{ id: number; name: string }>>({
@@ -436,6 +438,18 @@ export default function ArchivePage() {
       return [...current, { id: Number(folderId), name: folderName || `Folder ${folderId}` }];
     });
     await refetchPreview();
+  };
+
+  const discoverRoots = async () => {
+    setDiscoveringRoots(true);
+    try {
+      const res = await fetch("/api/lf/root-candidates", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to discover root folders");
+      const payload = await res.json();
+      setRootCandidates(Array.isArray(payload?.candidates) ? payload.candidates : []);
+    } finally {
+      setDiscoveringRoots(false);
+    }
   };
 
   const openTrail = async (index: number) => {
@@ -623,7 +637,34 @@ export default function ArchivePage() {
               {filtered?.length ?? 0} of {lfDocsData.documents.length} documents
             </span>
           )}
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 text-xs"
+            onClick={discoverRoots}
+            disabled={discoveringRoots}
+            data-testid="button-discover-roots"
+          >
+            {discoveringRoots ? "Discovering..." : "Discover root folders"}
+          </Button>
         </div>
+        {rootCandidates.length > 0 && (
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">Detected roots:</span>
+            {rootCandidates.map((root) => (
+              <Button
+                key={root.id}
+                type="button"
+                variant={String(root.id) === selectedFolderId ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => openFolder(String(root.id), root.name)}
+                data-testid={`root-candidate-${root.id}`}
+              >
+                {root.name} (#{root.id})
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Body */}

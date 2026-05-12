@@ -451,6 +451,36 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/lf/root-candidates", async (_req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    try {
+      const token = await getLaserficheToken(config);
+      const candidates = [1, 2, 3, 5, 10, 17, 20, 50, 100];
+      const results: Array<{ id: number; name: string }> = [];
+      for (const id of candidates) {
+        try {
+          const entry = await laserficheGetEntry(config, token, id);
+          if (entry?.entryType?.toLowerCase().includes("folder")) {
+            results.push({ id, name: entry.name || `Folder ${id}` });
+          }
+        } catch {}
+      }
+      // also include direct children of repository root when available
+      try {
+        const rootChildren = await laserficheGetFolderChildren(config, token, 1);
+        for (const c of rootChildren.filter((x: any) => x.entryType?.toLowerCase().includes("folder")).slice(0, 30)) {
+          if (!results.find((r) => r.id === Number(c.id))) {
+            results.push({ id: Number(c.id), name: c.name || `Folder ${c.id}` });
+          }
+        }
+      } catch {}
+      res.json({ candidates: results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/lf/documents", async (req, res) => {
     const config = getLaserficheConfig();
     if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
