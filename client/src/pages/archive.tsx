@@ -105,6 +105,7 @@ type LaserficheFileEntry = {
   lastModifiedTime?: string;
   extension?: string;
   pageCount?: number;
+  isElectronicDocument?: boolean;
 };
 
 type LaserfichePreview = {
@@ -355,7 +356,7 @@ export default function ArchivePage() {
   const [, setLocation] = useLocation();
   const [localSearch, setLocalSearch] = useState("");
   const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
-  const [selectedFolderId, setSelectedFolderId] = useState("1");
+  const [selectedFolderId, setSelectedFolderId] = useState(() => localStorage.getItem("lf_root_folder_id") || "1");
   const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
   const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
@@ -367,14 +368,22 @@ export default function ArchivePage() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [viewerEntry, setViewerEntry] = useState<LaserficheFileEntry | null>(null);
   const [openNotice, setOpenNotice] = useState<string | null>(null);
+  const [discoveringRoots, setDiscoveringRoots] = useState(false);
+  const [rootCandidates, setRootCandidates] = useState<Array<{ id: number; name: string }>>([]);
 
+  const numericFolderId = Number(selectedFolderId) || 1;
   const { data: folderFilters } = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: ["/api/lf/folders"],
+    queryKey: ["/api/lf/folders", numericFolderId],
+    queryFn: async () => {
+      const res = await fetch(`/api/lf/folders?rootFolderId=${numericFolderId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
   });
   const { data: lfDocsData, isLoading } = useQuery<{ documents: Array<{ id: number; name: string; path: string; folderName: string }> }>({
-    queryKey: ["/api/lf/documents"],
+    queryKey: ["/api/lf/documents", numericFolderId],
     queryFn: async () => {
-      const res = await fetch(`/api/lf/documents`, { credentials: "include" });
+      const res = await fetch(`/api/lf/documents?rootFolderId=${numericFolderId}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load Laserfiche documents");
       return res.json();
     },
@@ -422,12 +431,25 @@ export default function ArchivePage() {
 
   const openFolder = async (folderId: string, folderName?: string) => {
     setSelectedFolderId(folderId);
+    localStorage.setItem("lf_root_folder_id", folderId);
     setTrail((current) => {
       const index = current.findIndex((item) => String(item.id) === folderId);
       if (index >= 0) return current.slice(0, index + 1);
       return [...current, { id: Number(folderId), name: folderName || `Folder ${folderId}` }];
     });
     await refetchPreview();
+  };
+
+  const discoverRoots = async () => {
+    setDiscoveringRoots(true);
+    try {
+      const res = await fetch("/api/lf/root-candidates", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to discover root folders");
+      const payload = await res.json();
+      setRootCandidates(Array.isArray(payload?.candidates) ? payload.candidates : []);
+    } finally {
+      setDiscoveringRoots(false);
+    }
   };
 
   const openTrail = async (index: number) => {
@@ -453,16 +475,26 @@ export default function ArchivePage() {
     }
   };
 
-  const openViewer = (file: LaserficheFileEntry) => {
-    const nextDoc = {
-      entryId: file.id,
-      name: file.name,
-      fullPath: file.fullPath,
-      fileUrl: `/api/laserfiche/entries/${file.id}/content`,
-      contextText: `Document ID: ${file.id}\nName: ${file.name}\nPath: ${file.fullPath || "-"}`,
-    };
-    localStorage.setItem("ai_document", JSON.stringify(nextDoc));
-    setLocation(`/chat?entryId=${file.id}`);
+  const openViewer = async (file: LaserficheFileEntry) => {
+    setOpenNotice(null);
+    if (file.isElectronicDocument === false) {
+      setOpenNotice("This entry has no electronic file, so it cannot be opened in the document viewer.");
+      return;
+    }
+    try {
+      const probe = await fetch(`/api/laserfiche/entries/${file.id}/content`, { method: "HEAD" });
+      if (!probe.ok) {
+        if (probe.status === 404) {
+          setOpenNotice("This entry has no electronic file, so it cannot be opened in the document viewer.");
+          return;
+        }
+        setOpenNotice("Could not open this document right now. Please try again.");
+        return;
+      }
+      setLocation(`/lf-document/${file.id}`);
+    } catch {
+      setOpenNotice("Could not open this document right now. Please try again.");
+    }
   };
 
   const closeViewer = () => setViewerEntry(null);
@@ -605,7 +637,34 @@ export default function ArchivePage() {
               {filtered?.length ?? 0} of {lfDocsData.documents.length} documents
             </span>
           )}
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 text-xs"
+            onClick={discoverRoots}
+            disabled={discoveringRoots}
+            data-testid="button-discover-roots"
+          >
+            {discoveringRoots ? "Discovering..." : "Discover root folders"}
+          </Button>
         </div>
+        {rootCandidates.length > 0 && (
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">Detected roots:</span>
+            {rootCandidates.map((root) => (
+              <Button
+                key={root.id}
+                type="button"
+                variant={String(root.id) === selectedFolderId ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => openFolder(String(root.id), root.name)}
+                data-testid={`root-candidate-${root.id}`}
+              >
+                {root.name} (#{root.id})
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Body */}
@@ -765,6 +824,8 @@ export default function ArchivePage() {
                                 size="sm"
                                 className="h-7 text-xs px-2 gap-1"
                                 onClick={() => openViewer(file)}
+                                disabled={file.isElectronicDocument === false}
+                                title={file.isElectronicDocument === false ? "No electronic file available" : undefined}
                                 data-testid={`button-open-document-${file.id}`}
                               >
                                 <Eye className="w-3 h-3" />
