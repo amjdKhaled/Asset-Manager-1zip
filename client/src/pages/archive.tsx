@@ -453,16 +453,22 @@ export default function ArchivePage() {
     }
   };
 
-  const openViewer = (file: LaserficheFileEntry) => {
-    const nextDoc = {
-      entryId: file.id,
-      name: file.name,
-      fullPath: file.fullPath,
-      fileUrl: `/api/laserfiche/entries/${file.id}/content`,
-      contextText: `Document ID: ${file.id}\nName: ${file.name}\nPath: ${file.fullPath || "-"}`,
-    };
-    localStorage.setItem("ai_document", JSON.stringify(nextDoc));
-    setLocation(`/chat?entryId=${file.id}`);
+  const openViewer = async (file: LaserficheFileEntry) => {
+    setOpenNotice(null);
+    try {
+      const probe = await fetch(`/api/laserfiche/entries/${file.id}/content`, { method: "HEAD" });
+      if (!probe.ok) {
+        if (probe.status === 404) {
+          setOpenNotice("This entry has no electronic file, so it cannot be opened in the document viewer.");
+          return;
+        }
+        setOpenNotice("Could not open this document right now. Please try again.");
+        return;
+      }
+      setLocation(`/lf-document/${file.id}`);
+    } catch {
+      setOpenNotice("Could not open this document right now. Please try again.");
+    }
   };
 
   const closeViewer = () => setViewerEntry(null);
