@@ -356,7 +356,7 @@ export default function ArchivePage() {
   const [, setLocation] = useLocation();
   const [localSearch, setLocalSearch] = useState("");
   const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
-  const [selectedFolderId, setSelectedFolderId] = useState("1");
+  const [selectedFolderId, setSelectedFolderId] = useState(() => localStorage.getItem("lf_root_folder_id") || "1");
   const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
   const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
@@ -369,13 +369,19 @@ export default function ArchivePage() {
   const [viewerEntry, setViewerEntry] = useState<LaserficheFileEntry | null>(null);
   const [openNotice, setOpenNotice] = useState<string | null>(null);
 
+  const numericFolderId = Number(selectedFolderId) || 1;
   const { data: folderFilters } = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: ["/api/lf/folders"],
+    queryKey: ["/api/lf/folders", numericFolderId],
+    queryFn: async () => {
+      const res = await fetch(`/api/lf/folders?rootFolderId=${numericFolderId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
   });
   const { data: lfDocsData, isLoading } = useQuery<{ documents: Array<{ id: number; name: string; path: string; folderName: string }> }>({
-    queryKey: ["/api/lf/documents"],
+    queryKey: ["/api/lf/documents", numericFolderId],
     queryFn: async () => {
-      const res = await fetch(`/api/lf/documents`, { credentials: "include" });
+      const res = await fetch(`/api/lf/documents?rootFolderId=${numericFolderId}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load Laserfiche documents");
       return res.json();
     },
@@ -423,6 +429,7 @@ export default function ArchivePage() {
 
   const openFolder = async (folderId: string, folderName?: string) => {
     setSelectedFolderId(folderId);
+    localStorage.setItem("lf_root_folder_id", folderId);
     setTrail((current) => {
       const index = current.findIndex((item) => String(item.id) === folderId);
       if (index >= 0) return current.slice(0, index + 1);
