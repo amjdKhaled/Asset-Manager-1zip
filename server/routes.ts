@@ -42,6 +42,51 @@ const requestSignal = (req: unknown): AbortSignal | undefined =>
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.get("/api/documents", async (req, res) => {
     try {
+      const lfConfig = getLaserficheConfig();
+      if (lfConfig) {
+        const token = await getLaserficheToken(lfConfig);
+        const rootFolderId = Number(req.query.rootFolderId || 1);
+        const children = await laserficheGetFolderChildren(lfConfig, token, rootFolderId);
+
+        const documents = await Promise.all(
+          children
+            .filter((entry: any) => entry?.entryType?.toLowerCase().includes("document"))
+            .map(async (entry: any) => {
+              const details = await laserficheGetEntry(lfConfig, token, Number(entry.id));
+              const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({ value: [] as any[] }));
+              const map: Record<string, string> = {};
+              for (const f of fields.value || []) {
+                const values = Array.isArray(f.values) ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ") : "";
+                if (f.fieldName) map[f.fieldName] = values;
+              }
+
+              return {
+                id: String(entry.id),
+                title: details.name || entry.name || `Entry ${entry.id}`,
+                titleAr: map["العنوان"] || null,
+                department: map["Department"] || map["الجهة"] || "Unknown",
+                departmentAr: map["الجهة"] || null,
+                classification: map["Classification"] || "Internal",
+                securityLevel: map["Security Level"] || "Internal",
+                docType: map["Document Type"] || details.extension || "Document",
+                docTypeAr: map["نوع المستند"] || null,
+                createdAt: details.creationTime ? new Date(details.creationTime) : new Date(),
+                author: details.creator || null,
+                authorAr: null,
+                workflowStatus: map["Workflow Status"] || map["الحالة"] || "Active",
+                tags: [],
+                content: details.fullPath || "",
+                contentAr: map["المحتوى"] || null,
+                fileSizeKb: details.electronicDocumentSize ? Math.round(details.electronicDocumentSize / 1024) : null,
+                pageCount: details.pageCount || null,
+                laserficheId: String(entry.id),
+                year: details.creationTime ? new Date(details.creationTime).getFullYear() : null,
+              };
+            })
+        );
+        return res.json(documents);
+      }
+
       const docs = await storage.getDocuments();
       res.json(docs);
     } catch {
