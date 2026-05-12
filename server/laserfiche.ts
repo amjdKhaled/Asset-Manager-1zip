@@ -648,6 +648,22 @@ export async function laserficheGetEntryPages(
   }));
 }
 
+export async function laserficheDeleteEntry(
+  config: LaserficheConfig,
+  token: string,
+  entryId: number
+): Promise<void> {
+  const url = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Entries/${entryId}`;
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Delete failed (${res.status}): ${text || "Unknown error"}`);
+  }
+}
+
 export async function laserficheGetPageImage(
   config: LaserficheConfig,
   token: string,
