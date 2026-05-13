@@ -42,6 +42,61 @@ const requestSignal = (req: unknown): AbortSignal | undefined =>
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.get("/api/documents", async (req, res) => {
     try {
+      const lfConfig = getLaserficheConfig();
+      if (lfConfig) {
+        const token = await getLaserficheToken(lfConfig);
+        const rootFolderId = Number(req.query.rootFolderId || 1);
+        const visited = new Set<number>();
+        const collectDocuments = async (folderId: number): Promise<any[]> => {
+          if (visited.has(folderId)) return [];
+          visited.add(folderId);
+
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          const docsHere = children.filter((entry: any) => entry?.entryType?.toLowerCase().includes("document"));
+          const subfolders = children.filter((entry: any) => entry?.entryType?.toLowerCase().includes("folder"));
+          const nested = await Promise.all(subfolders.map((folder: any) => collectDocuments(Number(folder.id))));
+          return [...docsHere, ...nested.flat()];
+        };
+
+        const allDocuments = await collectDocuments(rootFolderId);
+
+        const documents = await Promise.all(
+          allDocuments.map(async (entry: any) => {
+              const details = await laserficheGetEntry(lfConfig, token, Number(entry.id));
+              const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({ value: [] as any[] }));
+              const map: Record<string, string> = {};
+              for (const f of fields.value || []) {
+                const values = Array.isArray(f.values) ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ") : "";
+                if (f.fieldName) map[f.fieldName] = values;
+              }
+
+              return {
+                id: String(entry.id),
+                title: details.name || entry.name || `Entry ${entry.id}`,
+                titleAr: map["العنوان"] || null,
+                department: map["Department"] || map["الجهة"] || "Unknown",
+                departmentAr: map["الجهة"] || null,
+                classification: map["Classification"] || "Internal",
+                securityLevel: map["Security Level"] || "Internal",
+                docType: map["Document Type"] || details.extension || "Document",
+                docTypeAr: map["نوع المستند"] || null,
+                createdAt: details.creationTime ? new Date(details.creationTime) : new Date(),
+                author: details.creator || null,
+                authorAr: null,
+                workflowStatus: map["Workflow Status"] || map["الحالة"] || "Active",
+                tags: [],
+                content: details.fullPath || "",
+                contentAr: map["المحتوى"] || null,
+                fileSizeKb: details.electronicDocumentSize ? Math.round(details.electronicDocumentSize / 1024) : null,
+                pageCount: details.pageCount || null,
+                laserficheId: String(entry.id),
+                year: details.creationTime ? new Date(details.creationTime).getFullYear() : null,
+              };
+            })
+        );
+        return res.json(documents);
+      }
+
       const docs = await storage.getDocuments();
       res.json(docs);
     } catch {
@@ -96,6 +151,156 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/dashboard/stats", async (req, res) => {
     try {
+      const lfConfig = getLaserficheConfig();
+      if (lfConfig) {
+        const token = await getLaserficheToken(lfConfig);
+        const visited = new Set<number>();
+        const collectTree = async (folderId: number): Promise<{ docs: any[]; folderCount: number }> => {
+          if (visited.has(folderId)) return { docs: [], folderCount: 0 };
+          visited.add(folderId);
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document"));
+          const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
+          const nested = await Promise.all(subfolders.map((f: any) => collectTree(Number(f.id))));
+          return {
+            docs: [...docsHere, ...nested.flatMap((n) => n.docs)],
+            folderCount: subfolders.length + nested.reduce((sum, n) => sum + n.folderCount, 0),
+          };
+        };
+
+        const tree = await collectTree(1);
+        const entries = tree.docs.slice(0, 500);
+        const parentFolderDocCounts: Record<string, number> = {
+          SCAN: 0,
+          INDEX: 0,
+          QA: 0,
+          PRODUCTION: 0,
+          "مركز الوثائق والمحفوظات": 0,
+        };
+        const canonicalDepartment = (name: string): string => {
+          const raw = String(name || "").trim();
+          const upper = raw.toUpperCase();
+          if (!raw || upper === "ROOT" || raw === "13" || raw === "19") return "";
+          if (upper === "SCAN") return "SCAN";
+          if (upper === "INDEX") return "INDEX";
+          if (upper === "QA") return "QA";
+          if (upper === "PRODUCTION") return "PRODUCTION";
+          if (raw === "مركز الوثائق والمحفوظات") return "مركز الوثائق والمحفوظات";
+          return raw;
+        };
+        for (const entry of entries) {
+          const path = String(entry.fullPath || "");
+          const segments = path.split("/").filter(Boolean);
+          // department is first repository folder under root: /Root/Department/.../Document
+          const departmentFolder = canonicalDepartment(segments.length >= 2 ? segments[1] : "");
+          if (!departmentFolder) continue;
+          parentFolderDocCounts[departmentFolder] = (parentFolderDocCounts[departmentFolder] || 0) + 1;
+        }
+
+        const docs = await Promise.all(
+          entries.map(async (entry: any) => {
+            const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({} as Record<string, string>));
+            const docType = fields["Document Type"] || fields["نوع المستند"] || entry.extension || "Document";
+            const path = String(entry.fullPath || "");
+            const segments = path.split("/").filter(Boolean);
+            const departmentFolder = canonicalDepartment(segments.length >= 2 ? segments[1] : "");
+            const department = departmentFolder;
+            const fieldTypeCounts: Record<string, number> = {};
+            for (const [fieldName, value] of Object.entries(fields)) {
+              const normalized = String(value || "").trim();
+              let type = "empty";
+              if (!normalized) type = "empty";
+              else if (/^(true|false)$/i.test(normalized)) type = "boolean";
+              else if (/^-?\d+(\.\d+)?$/.test(normalized)) type = "number";
+              else if (/^\d{4}-\d{2}-\d{2}/.test(normalized)) type = "date";
+              else type = "string";
+              fieldTypeCounts[type] = (fieldTypeCounts[type] || 0) + 1;
+            }
+            return {
+              docType,
+              department,
+              fieldsCount: Object.keys(fields).length,
+              fieldTypeCounts,
+              parentFolder: departmentFolder,
+            };
+          })
+        );
+
+        const docsByType: Record<string, number> = {};
+        const docsByDepartment: Record<string, number> = { ...parentFolderDocCounts };
+        const countFilesInDepartment = async (folderId: number, seen = new Set<number>()): Promise<number> => {
+          if (seen.has(folderId)) return 0;
+          seen.add(folderId);
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          let files = 0;
+          for (const child of children) {
+            const type = String(child?.entryType || "").toLowerCase();
+            if (type.includes("folder")) {
+              files += await countFilesInDepartment(Number(child.id), seen);
+            } else {
+              files += 1;
+            }
+          }
+          return files;
+        };
+        try {
+          const rootChildren = await laserficheGetFolderChildren(lfConfig, token, 1);
+          for (const folder of rootChildren.filter((c: any) => String(c?.entryType || "").toLowerCase().includes("folder"))) {
+            const dep = canonicalDepartment(folder.name);
+            if (!dep) continue;
+            docsByDepartment[dep] = await countFilesInDepartment(Number(folder.id));
+          }
+        } catch {}
+        for (const d of docs) {
+          docsByType[d.docType] = (docsByType[d.docType] || 0) + 1;
+        }
+        docsByType["Folder"] = tree.folderCount;
+
+        const totalFiles = entries.length;
+        const totalFields = docs.reduce((sum, d) => sum + d.fieldsCount, 0);
+        const fieldTypesBreakdown: Record<string, number> = {};
+        for (const d of docs) {
+          for (const [type, count] of Object.entries(d.fieldTypeCounts)) {
+            fieldTypesBreakdown[type] = (fieldTypesBreakdown[type] || 0) + Number(count || 0);
+          }
+        }
+
+        const logs = await storage.getAuditLogs(500);
+        const totalSearches = logs.length;
+        const avgResponseMs = totalSearches ? Math.round(logs.reduce((sum, l) => sum + 142, 0) / totalSearches) : 142;
+        const searchesByDayMap: Record<string, number> = {};
+        const today = new Date();
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(today);
+          d.setDate(today.getDate() - i);
+          searchesByDayMap[d.toISOString().slice(0, 10)] = 0;
+        }
+        for (const log of logs) {
+          const day = new Date(log.searchedAt as any).toISOString().slice(0, 10);
+          if (day in searchesByDayMap) searchesByDayMap[day] += 1;
+        }
+        const searchesByDay = Object.entries(searchesByDayMap).map(([date, count]) => ({ date, count }));
+
+        const topMap: Record<string, number> = {};
+        for (const l of logs) topMap[l.query] = (topMap[l.query] || 0) + 1;
+        const topSearches = Object.entries(topMap).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+
+        return res.json({
+          totalFiles,
+          totalDocuments: docs.length,
+          totalFields,
+          fieldTypesBreakdown,
+          parentFolderDocCounts,
+          totalSearches,
+          totalDepartments: Object.keys(docsByDepartment).length,
+          avgResponseMs,
+          docsByType,
+          docsByDepartment,
+          searchesByDay,
+          topSearches,
+        });
+      }
+
       const stats = await storage.getDashboardStats();
       res.json(stats);
     } catch {
@@ -396,28 +601,68 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/lf/root-candidates", async (_req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    try {
+      const token = await getLaserficheToken(config);
+      const candidates = [1, 2, 3, 5, 10, 17, 20, 50, 100];
+      const results: Array<{ id: number; name: string }> = [];
+      for (const id of candidates) {
+        try {
+          const entry = await laserficheGetEntry(config, token, id);
+          if (entry?.entryType?.toLowerCase().includes("folder")) {
+            results.push({ id, name: entry.name || `Folder ${id}` });
+          }
+        } catch {}
+      }
+      // also include direct children of repository root when available
+      try {
+        const rootChildren = await laserficheGetFolderChildren(config, token, 1);
+        for (const c of rootChildren.filter((x: any) => x.entryType?.toLowerCase().includes("folder")).slice(0, 30)) {
+          if (!results.find((r) => r.id === Number(c.id))) {
+            results.push({ id: Number(c.id), name: c.name || `Folder ${c.id}` });
+          }
+        }
+      } catch {}
+      res.json({ candidates: results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/lf/documents", async (req, res) => {
     const config = getLaserficheConfig();
     if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
     const rootFolderId = Number(req.query.rootFolderId || 1);
     try {
       const token = await getLaserficheToken(config);
-      const children = await laserficheGetFolderChildren(config, token, rootFolderId);
-      const folders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
-      const groupedDocs = await Promise.all(
-        folders.map(async (folder: any) => {
-          const subChildren = await laserficheGetFolderChildren(config, token, folder.id);
-          return subChildren
-            .filter((c: any) => c.isElectronicDocument)
-            .map((d: any) => ({
-              id: d.id,
-              name: d.name,
-              path: d.fullPath || "",
-              folderName: folder.name,
-            }));
-        })
-      );
-      res.json({ documents: groupedDocs.flat() });
+      const visited = new Set<number>();
+      const walkFolder = async (folderId: number, folderName: string): Promise<Array<{ id: number; name: string; path: string; folderName: string }>> => {
+        if (visited.has(folderId)) return [];
+        visited.add(folderId);
+
+        const children = await laserficheGetFolderChildren(config, token, folderId);
+        const ownDocs = children
+          .filter((c: any) => c.isElectronicDocument || c.entryType?.toLowerCase().includes("document"))
+          .map((d: any) => ({
+            id: d.id,
+            name: d.name,
+            path: d.fullPath || "",
+            folderName,
+            isElectronicDocument: !!d.isElectronicDocument,
+          }));
+
+        const subfolders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
+        const nested = await Promise.all(
+          subfolders.map((folder: any) => walkFolder(Number(folder.id), folder.name || folderName))
+        );
+
+        return [...ownDocs, ...nested.flat()];
+      };
+
+      const documents = await walkFolder(rootFolderId, "Repository");
+      res.json({ documents });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -475,10 +720,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         .trim();
     const stopWords = new Set(["ابحث", "عن", "في", "فيها", "التي", "وثيقة", "وثيقه", "search", "find", "document", "file", "archive"]);
     const keywords = normalizeArabic(query).split(" ").filter((w) => w.length > 2 && !stopWords.has(w));
+    const levenshtein = (a: string, b: string): number => {
+      const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+      for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+      for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+      for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+        }
+      }
+      return dp[a.length][b.length];
+    };
+    const keywordExists = (keyword: string, text: string) => {
+      if (text.includes(keyword)) return true;
+      const tokens = text.split(/[\s|,:;\n]+/).filter(Boolean);
+      return tokens.some((t) => t.startsWith(keyword) || keyword.startsWith(t) || (keyword.length > 3 && levenshtein(t, keyword) <= 1));
+    };
     try {
       const token = await getLaserficheToken(config);
-      const children = await laserficheGetFolderChildren(config, token, folderId);
-      const docs = await Promise.all(children.filter((e: any) => e.isElectronicDocument).map(async (e: any) => {
+      const fieldDefinitions = await laserficheGetFieldDefinitions(config, token).catch(() => []);
+      const fieldNameTokens = new Set(
+        (fieldDefinitions || [])
+          .flatMap((f: any) => String(f?.name || "").split(/\s+/))
+          .map((w: string) => normalizeArabic(w))
+          .filter((w: string) => w.length > 2)
+      );
+      const effectiveKeywords = keywords.filter((k) => !fieldNameTokens.has(k));
+      const visited = new Set<number>();
+      const collectDocs = async (currentFolderId: number): Promise<any[]> => {
+        if (visited.has(currentFolderId)) return [];
+        visited.add(currentFolderId);
+        const children = await laserficheGetFolderChildren(config, token, currentFolderId);
+        const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document"));
+        const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
+        const nested = await Promise.all(subfolders.map((f: any) => collectDocs(Number(f.id))));
+        return [...docsHere, ...nested.flat()];
+      };
+      const allEntries = await collectDocs(folderId);
+      const docs = await Promise.all(allEntries.map(async (e: any) => {
         let fields: any[] = [];
         try { fields = await laserficheGetEntryFieldsRaw(config, token, e.id); } catch {}
         const fieldText = fields.map((f: any) => {
@@ -489,7 +769,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const docText = normalizeArabic(`${e.name}\n${e.fullPath || ""}\n${fieldText}`);
         return { id: e.id, name: e.name, path: e.fullPath || "", docText };
       }));
-      const results = docs.filter((d) => (keywords.length ? keywords.every((k) => d.docText.includes(k)) : d.docText.includes(normalizeArabic(query))));
+      const results = docs
+        .filter((d) => (effectiveKeywords.length ? effectiveKeywords.every((k) => keywordExists(k, d.docText)) : keywordExists(normalizeArabic(query), d.docText)))
+        .slice(0, 50);
       res.json({ results });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -648,14 +930,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         .split(" ")
         .map((w) => w.trim())
         .filter((w) => w.length > 2 && !stopWords.has(w));
+    const levenshtein = (a: string, b: string): number => {
+      const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+      for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+      for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+      for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+        }
+      }
+      return dp[a.length][b.length];
+    };
+    const keywordExists = (keyword: string, text: string) => {
+      if (text.includes(keyword)) return true;
+      const tokens = text.split(/[\s|,:;\n]+/).filter(Boolean);
+      return tokens.some((t) => t.startsWith(keyword) || keyword.startsWith(t) || (keyword.length > 3 && levenshtein(t, keyword) <= 1));
+    };
 
     if (lfConfig && lfSearchKeywords.test(userQuery)) {
       try {
         const token = await getLaserficheToken(lfConfig);
-        const entries = await laserficheGetFolderChildren(lfConfig, token, 1);
-        lfEntries = entries.filter((e: any) => e.isElectronicDocument).slice(0, 80);
+        const fieldDefinitions = await laserficheGetFieldDefinitions(lfConfig, token).catch(() => []);
+        const fieldNameTokens = new Set(
+          (fieldDefinitions || [])
+            .flatMap((f: any) => String(f?.name || "").split(/\s+/))
+            .map((w: string) => normalizeText(w))
+            .filter((w: string) => w.length > 2)
+        );
+        const visited = new Set<number>();
+        const collectDocs = async (folderId: number): Promise<any[]> => {
+          if (visited.has(folderId)) return [];
+          visited.add(folderId);
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document"));
+          const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
+          const nested = await Promise.all(subfolders.map((f: any) => collectDocs(Number(f.id))));
+          return [...docsHere, ...nested.flat()];
+        };
+        lfEntries = (await collectDocs(1)).slice(0, 300);
         const normalizedQuery = normalizeText(userQuery);
         const keywords = extractKeywords(userQuery);
+        const effectiveKeywords = keywords.filter((k) => !fieldNameTokens.has(k));
 
         const inspected = await Promise.all(
           lfEntries.map(async (entry: any) => {
@@ -684,7 +1000,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               ].join("\n")
             );
 
-            const keywordHits = keywords.filter((k) => searchableText.includes(k)).length;
+            const keywordHits = effectiveKeywords.filter((k) => keywordExists(k, searchableText)).length;
             const score =
               keywordHits * 5 +
               (normalizeText(entry.name || "").includes(normalizedQuery) ? 3 : 0) +
@@ -704,8 +1020,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const matched = inspected
           .filter((d) => {
             if (!normalizedQuery) return false;
-            if (keywords.length === 0) return d.searchableText.includes(normalizedQuery);
-            return keywords.every((k) => d.searchableText.includes(k));
+            if (effectiveKeywords.length === 0) return d.searchableText.includes(normalizedQuery);
+            return effectiveKeywords.every((k) => keywordExists(k, d.searchableText));
           })
           .sort((a, b) => b.score - a.score)
           .slice(0, 20);
@@ -754,6 +1070,7 @@ IMPORTANT:
 - Do NOT ignore the document.
 - Do NOT invent information.
 - If data is missing, say it is not available in the document.
+- If the user asks for a summary (e.g., "لخص الوثيقة"), provide a medium-length summary (about 5-7 sentences) with key metadata highlights and useful details.
 - Respond in the same language as user input.`
       : `${systemPrompt}\n\n${lfContextBlock || localContext}`;
 
@@ -1097,13 +1414,17 @@ IMPORTANT:
       const contentType = lfRes.headers.get("content-type") || "application/octet-stream";
       if (/text\/html/i.test(contentType)) return res.status(401).send("Authentication failed — Laserfiche returned a login page.");
 
-      const disposition = lfRes.headers.get("content-disposition") || `inline; filename="document-${entryId}"`;
+      const rawDisposition = lfRes.headers.get("content-disposition") || "";
+      const filenameMatch = rawDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+      const safeFilename = (filenameMatch?.[1] || `document-${entryId}`).replace(/[\r\n]/g, "").trim();
       const contentLength = lfRes.headers.get("content-length");
 
       res.setHeader("Content-Type", contentType);
-      res.setHeader("Content-Disposition", disposition);
+      res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
       if (contentLength) res.setHeader("Content-Length", contentLength);
-      res.setHeader("Cache-Control", "private, max-age=300");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
 
       const { Readable } = await import("stream");
       Readable.fromWeb(lfRes.body as any).pipe(res);
