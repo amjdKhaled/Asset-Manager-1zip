@@ -170,12 +170,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         const tree = await collectTree(1);
         const entries = tree.docs.slice(0, 500);
-        const parentFolderDocCounts: Record<string, number> = {};
+        const parentFolderDocCounts: Record<string, number> = {
+          SCAN: 0,
+          INDEX: 0,
+          QA: 0,
+          PRODUCTION: 0,
+          "مركز الوثائق والمحفوظات": 0,
+        };
+        const canonicalDepartment = (name: string): string => {
+          const raw = String(name || "").trim();
+          const upper = raw.toUpperCase();
+          if (upper === "SCAN") return "SCAN";
+          if (upper === "INDEX") return "INDEX";
+          if (upper === "QA") return "QA";
+          if (upper === "PRODUCTION") return "PRODUCTION";
+          if (raw === "مركز الوثائق والمحفوظات") return "مركز الوثائق والمحفوظات";
+          return raw || "Root";
+        };
         for (const entry of entries) {
           const path = String(entry.fullPath || "");
           const segments = path.split("/").filter(Boolean);
           // department is first repository folder under root: /Root/Department/.../Document
-          const departmentFolder = segments.length >= 2 ? segments[1] : "Root";
+          const departmentFolder = canonicalDepartment(segments.length >= 2 ? segments[1] : "Root");
           parentFolderDocCounts[departmentFolder] = (parentFolderDocCounts[departmentFolder] || 0) + 1;
         }
 
@@ -209,10 +225,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         );
 
         const docsByType: Record<string, number> = {};
-        const docsByDepartment: Record<string, number> = {};
+        const docsByDepartment: Record<string, number> = { ...parentFolderDocCounts };
         for (const d of docs) {
           docsByType[d.docType] = (docsByType[d.docType] || 0) + 1;
-          docsByDepartment[d.department] = (docsByDepartment[d.department] || 0) + 1;
+          const dep = canonicalDepartment(d.department);
+          docsByDepartment[dep] = (docsByDepartment[dep] || 0) + 1;
         }
         docsByType["Folder"] = tree.folderCount;
 
