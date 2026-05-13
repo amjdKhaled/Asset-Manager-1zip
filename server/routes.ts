@@ -155,23 +155,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (lfConfig) {
         const token = await getLaserficheToken(lfConfig);
         const visited = new Set<number>();
-        const collectDocs = async (folderId: number): Promise<any[]> => {
-          if (visited.has(folderId)) return [];
+        const collectTree = async (folderId: number): Promise<{ docs: any[]; folderCount: number }> => {
+          if (visited.has(folderId)) return { docs: [], folderCount: 0 };
           visited.add(folderId);
           const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
           const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document"));
           const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
-          const nested = await Promise.all(subfolders.map((f: any) => collectDocs(Number(f.id))));
-          return [...docsHere, ...nested.flat()];
+          const nested = await Promise.all(subfolders.map((f: any) => collectTree(Number(f.id))));
+          return {
+            docs: [...docsHere, ...nested.flatMap((n) => n.docs)],
+            folderCount: subfolders.length + nested.reduce((sum, n) => sum + n.folderCount, 0),
+          };
         };
 
-        const entries = (await collectDocs(1)).slice(0, 500);
+        const tree = await collectTree(1);
+        const entries = tree.docs.slice(0, 500);
         const parentFolderDocCounts: Record<string, number> = {};
         for (const entry of entries) {
           const path = String(entry.fullPath || "");
           const segments = path.split("/").filter(Boolean);
-          const parentFolder = segments.length >= 2 ? segments[segments.length - 2] : "Root";
-          parentFolderDocCounts[parentFolder] = (parentFolderDocCounts[parentFolder] || 0) + 1;
+          // department is first repository folder under root: /Root/Department/.../Document
+          const departmentFolder = segments.length >= 2 ? segments[1] : "Root";
+          parentFolderDocCounts[departmentFolder] = (parentFolderDocCounts[departmentFolder] || 0) + 1;
         }
 
         const docs = await Promise.all(
@@ -180,8 +185,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             const docType = fields["Document Type"] || fields["نوع المستند"] || entry.extension || "Document";
             const path = String(entry.fullPath || "");
             const segments = path.split("/").filter(Boolean);
-            const parentFolder = segments.length >= 2 ? segments[segments.length - 2] : "Root";
-            const department = parentFolder;
+            const departmentFolder = segments.length >= 2 ? segments[1] : "Root";
+            const department = departmentFolder;
             const fieldTypeCounts: Record<string, number> = {};
             for (const [fieldName, value] of Object.entries(fields)) {
               const normalized = String(value || "").trim();
@@ -198,7 +203,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               department,
               fieldsCount: Object.keys(fields).length,
               fieldTypeCounts,
-              parentFolder,
+              parentFolder: departmentFolder,
             };
           })
         );
@@ -209,6 +214,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           docsByType[d.docType] = (docsByType[d.docType] || 0) + 1;
           docsByDepartment[d.department] = (docsByDepartment[d.department] || 0) + 1;
         }
+        docsByType["Folder"] = tree.folderCount;
 
         const totalFiles = entries.length;
         const totalFields = docs.reduce((sum, d) => sum + d.fieldsCount, 0);
