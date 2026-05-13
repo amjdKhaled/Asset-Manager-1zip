@@ -166,12 +166,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         };
 
         const entries = (await collectDocs(1)).slice(0, 500);
+        const parentFolderDocCounts: Record<string, number> = {};
+        for (const entry of entries) {
+          const path = String(entry.fullPath || "");
+          const segments = path.split("/").filter(Boolean);
+          const parentFolder = segments.length >= 2 ? segments[segments.length - 2] : "Root";
+          parentFolderDocCounts[parentFolder] = (parentFolderDocCounts[parentFolder] || 0) + 1;
+        }
+
         const docs = await Promise.all(
           entries.map(async (entry: any) => {
             const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({} as Record<string, string>));
             const docType = fields["Document Type"] || fields["نوع المستند"] || entry.extension || "Document";
-            const department = fields["Department"] || fields["الجهة"] || fields["القسم"] || "Laserfiche";
-            return { docType, department };
+            const path = String(entry.fullPath || "");
+            const segments = path.split("/").filter(Boolean);
+            const parentFolder = segments.length >= 2 ? segments[segments.length - 2] : "Root";
+            const department = parentFolder;
+            const fieldTypeCounts: Record<string, number> = {};
+            for (const [fieldName, value] of Object.entries(fields)) {
+              const normalized = String(value || "").trim();
+              let type = "empty";
+              if (!normalized) type = "empty";
+              else if (/^(true|false)$/i.test(normalized)) type = "boolean";
+              else if (/^-?\d+(\.\d+)?$/.test(normalized)) type = "number";
+              else if (/^\d{4}-\d{2}-\d{2}/.test(normalized)) type = "date";
+              else type = "string";
+              fieldTypeCounts[type] = (fieldTypeCounts[type] || 0) + 1;
+            }
+            return {
+              docType,
+              department,
+              fieldsCount: Object.keys(fields).length,
+              fieldTypeCounts,
+              parentFolder,
+            };
           })
         );
 
@@ -180,6 +208,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         for (const d of docs) {
           docsByType[d.docType] = (docsByType[d.docType] || 0) + 1;
           docsByDepartment[d.department] = (docsByDepartment[d.department] || 0) + 1;
+        }
+
+        const totalFiles = entries.length;
+        const totalFields = docs.reduce((sum, d) => sum + d.fieldsCount, 0);
+        const fieldTypesBreakdown: Record<string, number> = {};
+        for (const d of docs) {
+          for (const [type, count] of Object.entries(d.fieldTypeCounts)) {
+            fieldTypesBreakdown[type] = (fieldTypesBreakdown[type] || 0) + Number(count || 0);
+          }
         }
 
         const logs = await storage.getAuditLogs(500);
@@ -203,7 +240,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const topSearches = Object.entries(topMap).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 5);
 
         return res.json({
+          totalFiles,
           totalDocuments: docs.length,
+          totalFields,
+          fieldTypesBreakdown,
+          parentFolderDocCounts,
           totalSearches,
           totalDepartments: Object.keys(docsByDepartment).length,
           avgResponseMs,
