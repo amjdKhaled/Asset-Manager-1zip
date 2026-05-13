@@ -228,11 +228,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         const docsByType: Record<string, number> = {};
         const docsByDepartment: Record<string, number> = { ...parentFolderDocCounts };
+        const countFilesInDepartment = async (folderId: number, seen = new Set<number>()): Promise<number> => {
+          if (seen.has(folderId)) return 0;
+          seen.add(folderId);
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          let files = 0;
+          for (const child of children) {
+            const type = String(child?.entryType || "").toLowerCase();
+            if (type.includes("folder")) {
+              files += await countFilesInDepartment(Number(child.id), seen);
+            } else {
+              files += 1;
+            }
+          }
+          return files;
+        };
+        try {
+          const rootChildren = await laserficheGetFolderChildren(lfConfig, token, 1);
+          for (const folder of rootChildren.filter((c: any) => String(c?.entryType || "").toLowerCase().includes("folder"))) {
+            const dep = canonicalDepartment(folder.name);
+            if (!dep) continue;
+            docsByDepartment[dep] = await countFilesInDepartment(Number(folder.id));
+          }
+        } catch {}
         for (const d of docs) {
           docsByType[d.docType] = (docsByType[d.docType] || 0) + 1;
-          const dep = canonicalDepartment(d.department);
-          if (!dep) continue;
-          docsByDepartment[dep] = (docsByDepartment[dep] || 0) + 1;
         }
         docsByType["Folder"] = tree.folderCount;
 
