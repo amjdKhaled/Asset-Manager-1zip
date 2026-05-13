@@ -7,7 +7,11 @@ import {
 } from "lucide-react";
 
 type DashboardStats = {
+  totalFiles?: number;
   totalDocuments: number;
+  totalFields?: number;
+  fieldTypesBreakdown?: Record<string, number>;
+  parentFolderDocCounts?: Record<string, number>;
   totalSearches: number;
   totalDepartments: number;
   avgResponseMs: number;
@@ -105,8 +109,15 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <StatCard
               icon={Database}
+              label="Total Files"
+              labelAr="إجمالي الملفات"
+              value={(stats.totalFiles ?? stats.totalDocuments).toLocaleString()}
+              sub="Laserfiche ECM"
+            />
+            <StatCard
+              icon={FileText}
               label="Total Documents"
-              labelAr="إجمالي المستندات"
+              labelAr="إجمالي الوثائق"
               value={stats.totalDocuments.toLocaleString()}
               sub="Laserfiche ECM"
             />
@@ -126,10 +137,10 @@ export default function DashboardPage() {
             />
             <StatCard
               icon={Zap}
-              label="Avg Response"
-              labelAr="متوسط وقت الاستجابة"
-              value={`${stats.avgResponseMs}ms`}
-              sub="Search latency"
+              label="Total Fields"
+              labelAr="إجمالي الحقول"
+              value={(stats.totalFields ?? 0).toLocaleString()}
+              sub="Metadata fields"
             />
           </div>
 
@@ -176,7 +187,22 @@ export default function DashboardPage() {
             </div>
 
             <div className="bg-card border border-card-border rounded-md p-5">
-              <SectionHeader icon={TrendingUp} title="Top Searched Queries" titleAr="أكثر الاستعلامات بحثاً" />
+              <SectionHeader icon={Layers} title="Field Data Types" titleAr="أنواع بيانات الحقول" />
+              <div className="space-y-2.5 mb-5">
+                {Object.entries(stats.fieldTypesBreakdown || {}).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No field data available</p>
+                ) : (
+                  Object.entries(stats.fieldTypesBreakdown || {})
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([type, count]) => (
+                      <div key={type} className="flex items-center justify-between border-b border-border pb-1.5 last:border-b-0">
+                        <span className="text-xs text-muted-foreground uppercase">{type}</span>
+                        <span className="text-xs font-medium text-foreground">{count.toLocaleString()}</span>
+                      </div>
+                    ))
+                )}
+              </div>
+              <SectionHeader icon={Clock} title="Top Searched Queries" titleAr="أكثر الاستعلامات بحثاً" />
               {stats.topSearches.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">No searches yet</p>
               ) : (
@@ -204,21 +230,19 @@ export default function DashboardPage() {
                   })}
                 </div>
               )}
-
-              <div className="mt-5 pt-4 border-t border-border space-y-2">
-                <p className="text-xs font-medium text-muted-foreground mb-2">System Health</p>
-                {[
-                  { label: "Embedding Model", status: "Running", color: "emerald" },
-                  { label: "Vector Database", status: "Healthy", color: "emerald" },
-                  { label: "OCR Service", status: "Active", color: "emerald" },
-                  { label: "Permission Filter", status: "Enforced", color: "blue" },
-                ].map(item => (
-                  <div key={item.label} className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{item.label}</span>
-                    <span className={`text-xs font-medium text-${item.color}-600 dark:text-${item.color}-400`}>{item.status}</span>
+            </div>
+          </div>
+          <div className="mt-5 bg-card border border-card-border rounded-md p-5">
+            <SectionHeader icon={TrendingUp} title="Parent Folders as Departments (Documents Count)" titleAr="المجلدات الرئيسية كجهات (عدد الوثائق)" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {Object.entries(stats.parentFolderDocCounts || {})
+                .sort((a, b) => b[1] - a[1])
+                .map(([name, count]) => (
+                  <div key={name} className="rounded-md border border-border p-3">
+                    <p className="text-sm font-medium text-foreground truncate">{name}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{count.toLocaleString()} documents</p>
                   </div>
                 ))}
-              </div>
             </div>
           </div>
 
