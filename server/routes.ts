@@ -180,18 +180,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const canonicalDepartment = (name: string): string => {
           const raw = String(name || "").trim();
           const upper = raw.toUpperCase();
+          if (!raw || upper === "ROOT" || raw === "13" || raw === "19") return "";
           if (upper === "SCAN") return "SCAN";
           if (upper === "INDEX") return "INDEX";
           if (upper === "QA") return "QA";
           if (upper === "PRODUCTION") return "PRODUCTION";
           if (raw === "مركز الوثائق والمحفوظات") return "مركز الوثائق والمحفوظات";
-          return raw || "Root";
+          return raw;
         };
         for (const entry of entries) {
           const path = String(entry.fullPath || "");
           const segments = path.split("/").filter(Boolean);
           // department is first repository folder under root: /Root/Department/.../Document
-          const departmentFolder = canonicalDepartment(segments.length >= 2 ? segments[1] : "Root");
+          const departmentFolder = canonicalDepartment(segments.length >= 2 ? segments[1] : "");
+          if (!departmentFolder) continue;
           parentFolderDocCounts[departmentFolder] = (parentFolderDocCounts[departmentFolder] || 0) + 1;
         }
 
@@ -201,7 +203,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             const docType = fields["Document Type"] || fields["نوع المستند"] || entry.extension || "Document";
             const path = String(entry.fullPath || "");
             const segments = path.split("/").filter(Boolean);
-            const departmentFolder = segments.length >= 2 ? segments[1] : "Root";
+            const departmentFolder = canonicalDepartment(segments.length >= 2 ? segments[1] : "");
             const department = departmentFolder;
             const fieldTypeCounts: Record<string, number> = {};
             for (const [fieldName, value] of Object.entries(fields)) {
@@ -229,6 +231,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         for (const d of docs) {
           docsByType[d.docType] = (docsByType[d.docType] || 0) + 1;
           const dep = canonicalDepartment(d.department);
+          if (!dep) continue;
           docsByDepartment[dep] = (docsByDepartment[dep] || 0) + 1;
         }
         docsByType["Folder"] = tree.folderCount;
