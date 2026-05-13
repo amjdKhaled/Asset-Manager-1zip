@@ -16,6 +16,7 @@ import ArchivePage from "@/pages/archive";
 import LaserfichePage from "@/pages/laserfiche";
 import LaserficheSettingsPage from "@/pages/laserfiche-settings";
 import ChatPage from "@/pages/chat";
+import PdfExtractionPage from "@/pages/pdf-extraction";
 import { Moon, Sun } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -61,6 +62,7 @@ function PageHeader() {
     "/laserfiche": { title: "Laserfiche Connect", titleAr: "ربط Laserfiche" },
     "/laserfiche/settings": { title: "Laserfiche Settings", titleAr: "إعدادات Laserfiche" },
     "/chat": { title: "AI Assistant", titleAr: "المساعد الذكي" },
+    "/pdf-extraction": { title: "Arabic PDF OCR", titleAr: "استخراج PDF العربي" },
   };
 
   const isDocPage = location.startsWith("/document/");
@@ -98,6 +100,7 @@ function Router() {
       <Route path="/laserfiche/settings" component={LaserficheSettingsPage} />
       <Route path="/laserfiche" component={LaserfichePage} />
       <Route path="/chat" component={ChatPage} />
+      <Route path="/pdf-extraction" component={PdfExtractionPage} />
       <Route component={NotFound} />
     </Switch>
   );
