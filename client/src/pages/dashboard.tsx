@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid, LineChart, Line } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Database, Building2, Layers, FolderTree, FileType2, RefreshCw } from "lucide-react";
@@ -87,13 +87,6 @@ export default function DashboardPage() {
   const topDept = deptData[0];
   const totalFolders = Number((stats.docsByType || {})["Folder"] || 0);
   const avgFieldsPerDoc = stats.totalDocuments > 0 ? ((stats.totalFields || 0) / stats.totalDocuments).toFixed(1) : "0.0";
-  const parentFolderData = Object.entries(stats.parentFolderDocCounts || {})
-    .filter(([name]) => ALLOWED_ROOT_DEPARTMENTS.includes(name as (typeof ALLOWED_ROOT_DEPARTMENTS)[number]))
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([name, value]) => ({ name, value }));
-  const workflowRunsByDay = (stats.workflowRunsByDay || []).map((d) => ({ ...d, date: formatDate(d.date) }));
-  const workflowByNameData = Object.entries(stats.workflowByName || {}).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,value])=>({name,value}));
 
   return (
     <div className="h-full overflow-auto bg-gradient-to-b from-background to-background/70">
@@ -140,46 +133,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            <div className="bg-card border border-card-border rounded-xl p-5">
-              <SectionHeader icon={Layers} title="Top Parent Folders by Documents" titleAr="أكثر المجلدات الرئيسية حسب عدد الوثائق" />
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={parentFolderData} layout="vertical" margin={{ left: 8, right: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
-                  <XAxis type="number" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#F59E0B" radius={[0, 6, 6, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="bg-card border border-card-border rounded-xl p-5">
-              <SectionHeader icon={Database} title="Inferred Workflow Activity (Last 7 Days)" titleAr="نشاط سير العمل المُستنتج (آخر 7 أيام)" />
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={workflowRunsByDay}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke="#22C55E" strokeWidth={3} dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="bg-card border border-card-border rounded-xl p-5">
-            <SectionHeader icon={FileType2} title="Workflow Signals by Change Type" titleAr="مؤشرات سير العمل حسب نوع التغيير" />
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={workflowByNameData} layout="vertical" margin={{ left: 8, right: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                <Tooltip />
-                <Bar dataKey="value" fill="#8B5CF6" radius={[0, 6, 6, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
         </div>
       </div>
     </div>
