@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import {
   Database, Search, Building2, Zap, TrendingUp, FileText,
   Shield, Brain, Layers, BarChart2, Clock
@@ -67,7 +68,7 @@ function CustomTooltip({ active, payload, label }: any) {
 }
 
 export default function DashboardPage() {
-  const { data: stats, isLoading } = useQuery<DashboardStats>({
+  const { data: stats, isLoading, isError, error, refetch, isFetching } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
 
@@ -89,10 +90,37 @@ export default function DashboardPage() {
     );
   }
 
-  if (!stats) return null;
+  if (isError) {
+    const message = error instanceof Error ? error.message : "Failed to load dashboard stats";
+    return (
+      <div className="h-full overflow-auto px-6 py-5">
+        <div className="max-w-3xl rounded-md border border-destructive/40 bg-destructive/5 p-6">
+          <h2 className="text-base font-semibold text-foreground mb-1">Dashboard failed to load</h2>
+          <p className="text-sm text-muted-foreground mb-4">{message}</p>
+          <Button onClick={() => refetch()} disabled={isFetching} data-testid="dashboard-retry">
+            {isFetching ? "Retrying..." : "Retry"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
-  const pieData = Object.entries(stats.docsByType).map(([name, value]) => ({ name, value }));
-  const deptData = Object.entries(stats.docsByDepartment)
+  if (!stats) {
+    return (
+      <div className="h-full overflow-auto px-6 py-5">
+        <div className="max-w-3xl rounded-md border border-card-border bg-card p-6">
+          <h2 className="text-base font-semibold text-foreground mb-1">No dashboard data available</h2>
+          <p className="text-sm text-muted-foreground mb-4">The server returned an empty dashboard response.</p>
+          <Button variant="outline" onClick={() => refetch()} disabled={isFetching} data-testid="dashboard-refetch-empty">
+            {isFetching ? "Refreshing..." : "Refresh"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const pieData = Object.entries(stats.docsByType || {}).map(([name, value]) => ({ name, value }));
+  const deptData = Object.entries(stats.docsByDepartment || {})
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6)
     .map(([name, value]) => ({ name: name.split(" ").slice(-2).join(" "), value }));
