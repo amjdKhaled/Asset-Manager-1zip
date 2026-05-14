@@ -187,7 +187,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           if (upper === "QA") return "QA";
           if (upper === "PRODUCTION") return "PRODUCTION";
           if (raw === "مركز الوثائق والمحفوظات") return "مركز الوثائق والمحفوظات";
-          return raw;
+          return "";
         };
         for (const entry of entries) {
           const path = String(entry.fullPath || "");
@@ -232,7 +232,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               parentFolder: departmentFolder,
               currentPath: path,
               movedAt: (entry.moveDate || entry.lastMovedUtc || "") as string,
-              modifiedAt: (entry.lastModifiedUtc || entry.modifiedDate || "") as string,
               metadataUpdatedAt: String(metadataChangeMarkers[0] || ""),
             };
           })
@@ -298,7 +297,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const topSearches = Object.entries(topMap).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 5);
 
         const inferredWorkflowBySignal: Record<string, number> = {
-          "Document modified": 0,
           "Document moved": 0,
           "Metadata updated": 0,
         };
@@ -310,7 +308,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
         for (const d of docs as any[]) {
           const events = [
-            { signal: "Document modified", raw: String(d.modifiedAt || "").trim() },
             { signal: "Document moved", raw: String(d.movedAt || "").trim() },
             { signal: "Metadata updated", raw: String(d.metadataUpdatedAt || "").trim() },
           ];
