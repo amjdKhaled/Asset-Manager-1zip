@@ -79,7 +79,7 @@ export default function DashboardPage() {
   const topDept = deptData[0];
   const totalFolders = Number((stats.docsByType || {})["Folder"] || 0);
   const avgFieldsPerDoc = stats.totalDocuments > 0 ? ((stats.totalFields || 0) / stats.totalDocuments).toFixed(1) : "0.0";
-  const fieldTypeData = Object.entries(stats.fieldTypesBreakdown || {}).map(([name, value]) => ({ name: name.toUpperCase(), value }));
+  const parentFolderData = Object.entries(stats.parentFolderDocCounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, value]) => ({ name, value }));
   const searchesByDay = (stats.searchesByDay || []).map((d) => ({ ...d, date: formatDate(d.date) }));
 
   return (
@@ -129,16 +129,14 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <div className="bg-card border border-card-border rounded-xl p-5">
-              <SectionHeader icon={Layers} title="Field Data Types Distribution" titleAr="توزيع أنواع بيانات الحقول" />
+              <SectionHeader icon={Layers} title="Top Parent Folders by Documents" titleAr="أكثر المجلدات الرئيسية حسب عدد الوثائق" />
               <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={fieldTypeData}>
+                <BarChart data={parentFolderData} layout="vertical" margin={{ left: 8, right: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                   <Tooltip />
-                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                    {fieldTypeData.map((_, idx) => <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />)}
-                  </Bar>
+                  <Bar dataKey="value" fill="#F59E0B" radius={[0, 6, 6, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
