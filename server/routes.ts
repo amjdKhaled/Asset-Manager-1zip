@@ -223,6 +223,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               fieldsCount: Object.keys(fields).length,
               fieldTypeCounts,
               parentFolder: departmentFolder,
+              workflowName: fields["Workflow"] || fields["Workflow Name"] || fields["مسار العمل"] || "Unassigned",
+              workflowDate: (entry.lastModifiedUtc || entry.modifiedDate || fields["Last Updated"] || fields["تاريخ التحديث"] || "") as string,
             };
           })
         );
@@ -286,6 +288,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         for (const l of logs) topMap[l.query] = (topMap[l.query] || 0) + 1;
         const topSearches = Object.entries(topMap).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 5);
 
+        const workflowByName: Record<string, number> = {};
+        const workflowRunsByDayMap: Record<string, number> = {};
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(today);
+          d.setDate(today.getDate() - i);
+          workflowRunsByDayMap[d.toISOString().slice(0, 10)] = 0;
+        }
+        for (const d of docs as any[]) {
+          const wf = String(d.workflowName || "Unassigned");
+          workflowByName[wf] = (workflowByName[wf] || 0) + 1;
+          const raw = String(d.workflowDate || "").trim();
+          if (!raw) continue;
+          const day = new Date(raw).toISOString().slice(0, 10);
+          if (day in workflowRunsByDayMap) workflowRunsByDayMap[day] += 1;
+        }
+        const workflowRunsByDay = Object.entries(workflowRunsByDayMap).map(([date, count]) => ({ date, count }));
+
           return res.json({
             totalFiles,
             totalDocuments: docs.length,
@@ -299,6 +318,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             docsByDepartment,
             searchesByDay,
             topSearches,
+            workflowRunsByDay,
+            workflowByName,
           });
         } catch {
           // If Laserfiche is configured but currently unavailable/rate-limited,
@@ -307,7 +328,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       const stats = await storage.getDashboardStats();
-      res.json(stats);
+      res.json({ ...stats, workflowRunsByDay: stats.searchesByDay, workflowByName: {} });
     } catch {
       res.status(500).json({ error: "Failed to fetch stats" });
     }

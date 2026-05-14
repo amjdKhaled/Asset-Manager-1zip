@@ -17,6 +17,8 @@ type DashboardStats = {
   docsByDepartment: Record<string, number>;
   searchesByDay: Array<{ date: string; count: number }>;
   topSearches: Array<{ query: string; count: number }>;
+  workflowRunsByDay?: Array<{ date: string; count: number }>;
+  workflowByName?: Record<string, number>;
 };
 
 const PIE_COLORS = ["#3B82F6", "#14B8A6", "#F59E0B", "#8B5CF6", "#EF4444", "#22C55E", "#F97316"];
@@ -80,7 +82,8 @@ export default function DashboardPage() {
   const totalFolders = Number((stats.docsByType || {})["Folder"] || 0);
   const avgFieldsPerDoc = stats.totalDocuments > 0 ? ((stats.totalFields || 0) / stats.totalDocuments).toFixed(1) : "0.0";
   const parentFolderData = Object.entries(stats.parentFolderDocCounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, value]) => ({ name, value }));
-  const searchesByDay = (stats.searchesByDay || []).map((d) => ({ ...d, date: formatDate(d.date) }));
+  const workflowRunsByDay = (stats.workflowRunsByDay || []).map((d) => ({ ...d, date: formatDate(d.date) }));
+  const workflowByNameData = Object.entries(stats.workflowByName || {}).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,value])=>({name,value}));
 
   return (
     <div className="h-full overflow-auto bg-gradient-to-b from-background to-background/70">
@@ -142,9 +145,9 @@ export default function DashboardPage() {
             </div>
 
             <div className="bg-card border border-card-border rounded-xl p-5">
-              <SectionHeader icon={Database} title="Search Activity (Last 7 Days)" titleAr="نشاط البحث (آخر 7 أيام)" />
+              <SectionHeader icon={Database} title="Workflow Runs (Last 7 Days)" titleAr="تشغيلات سير العمل (آخر 7 أيام)" />
               <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={searchesByDay}>
+                <LineChart data={workflowRunsByDay}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
                   <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                   <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
@@ -156,19 +159,16 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-card border border-card-border rounded-xl p-5">
-            <SectionHeader icon={FileType2} title="Top Search Queries" titleAr="أكثر الاستعلامات بحثًا" />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {(stats.topSearches || []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">No search queries found.</p>
-              ) : (
-                (stats.topSearches || []).map((item, i) => (
-                  <div key={i} className="rounded-lg border border-border p-3 bg-muted/30 flex items-center justify-between gap-3">
-                    <p className="text-sm text-foreground truncate">{item.query}</p>
-                    <span className="text-xs font-semibold text-primary">{item.count}x</span>
-                  </div>
-                ))
-              )}
-          </div>
+            <SectionHeader icon={FileType2} title="Top Workflows by Documents" titleAr="أكثر مسارات العمل استخداماً" />
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={workflowByNameData} layout="vertical" margin={{ left: 8, right: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                <Tooltip />
+                <Bar dataKey="value" fill="#8B5CF6" radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>
