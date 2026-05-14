@@ -57,6 +57,7 @@ function PageHeader() {
   const pageInfo: Record<string, { title: string; titleAr: string }> = {
     "/": { title: "Semantic Search", titleAr: "البحث الدلالي" },
     "/dashboard": { title: "Analytics Dashboard", titleAr: "لوحة التحليلات" },
+    "/dashbord": { title: "Analytics Dashboard", titleAr: "لوحة التحليلات" },
     "/archive": { title: "Document Archive", titleAr: "أرشيف المستندات" },
     "/audit": { title: "Audit Log", titleAr: "سجل التدقيق" },
     "/laserfiche": { title: "Laserfiche Connect", titleAr: "ربط Laserfiche" },
@@ -93,6 +94,7 @@ function Router() {
     <Switch>
       <Route path="/" component={SearchPage} />
       <Route path="/dashboard" component={DashboardPage} />
+      <Route path="/dashbord" component={DashboardPage} />
       <Route path="/archive" component={ArchivePage} />
       <Route path="/audit" component={AuditPage} />
       <Route path="/document/:id" component={DocumentPage} />
