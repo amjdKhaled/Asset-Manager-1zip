@@ -145,7 +145,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="bg-card border border-card-border rounded-xl p-5">
-              <SectionHeader icon={Database} title="Workflow Runs (Last 7 Days)" titleAr="تشغيلات سير العمل (آخر 7 أيام)" />
+              <SectionHeader icon={Database} title="Inferred Workflow Activity (Last 7 Days)" titleAr="نشاط سير العمل المُستنتج (آخر 7 أيام)" />
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={workflowRunsByDay}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
@@ -159,7 +159,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-card border border-card-border rounded-xl p-5">
-            <SectionHeader icon={FileType2} title="Top Workflows by Documents" titleAr="أكثر مسارات العمل استخداماً" />
+            <SectionHeader icon={FileType2} title="Workflow Signals by Change Type" titleAr="مؤشرات سير العمل حسب نوع التغيير" />
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={workflowByNameData} layout="vertical" margin={{ left: 8, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />

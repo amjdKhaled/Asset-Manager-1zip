@@ -202,6 +202,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           entries.map(async (entry: any) => {
             const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({} as Record<string, string>));
             const docType = fields["Document Type"] || fields["نوع المستند"] || entry.extension || "Document";
+            const metadataChangeMarkers = [
+              fields["Last Updated"],
+              fields["تاريخ التحديث"],
+              fields["Metadata Updated At"],
+              fields["Modified Date"],
+              fields["Workflow Date"],
+            ].filter(Boolean);
             const path = String(entry.fullPath || "");
             const segments = path.split("/").filter(Boolean);
             const departmentFolder = canonicalDepartment(segments.length >= 2 ? segments[1] : "");
@@ -223,8 +230,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               fieldsCount: Object.keys(fields).length,
               fieldTypeCounts,
               parentFolder: departmentFolder,
-              workflowName: fields["Workflow"] || fields["Workflow Name"] || fields["مسار العمل"] || "Unassigned",
-              workflowDate: (entry.lastModifiedUtc || entry.modifiedDate || fields["Last Updated"] || fields["تاريخ التحديث"] || "") as string,
+              currentPath: path,
+              movedAt: (entry.moveDate || entry.lastMovedUtc || "") as string,
+              modifiedAt: (entry.lastModifiedUtc || entry.modifiedDate || "") as string,
+              metadataUpdatedAt: String(metadataChangeMarkers[0] || ""),
             };
           })
         );
@@ -288,7 +297,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         for (const l of logs) topMap[l.query] = (topMap[l.query] || 0) + 1;
         const topSearches = Object.entries(topMap).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 5);
 
-        const workflowByName: Record<string, number> = {};
+        const inferredWorkflowBySignal: Record<string, number> = {
+          "Document modified": 0,
+          "Document moved": 0,
+          "Metadata updated": 0,
+        };
         const workflowRunsByDayMap: Record<string, number> = {};
         for (let i = 6; i >= 0; i--) {
           const d = new Date(today);
@@ -296,12 +309,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           workflowRunsByDayMap[d.toISOString().slice(0, 10)] = 0;
         }
         for (const d of docs as any[]) {
-          const wf = String(d.workflowName || "Unassigned");
-          workflowByName[wf] = (workflowByName[wf] || 0) + 1;
-          const raw = String(d.workflowDate || "").trim();
-          if (!raw) continue;
-          const day = new Date(raw).toISOString().slice(0, 10);
-          if (day in workflowRunsByDayMap) workflowRunsByDayMap[day] += 1;
+          const events = [
+            { signal: "Document modified", raw: String(d.modifiedAt || "").trim() },
+            { signal: "Document moved", raw: String(d.movedAt || "").trim() },
+            { signal: "Metadata updated", raw: String(d.metadataUpdatedAt || "").trim() },
+          ];
+          for (const ev of events) {
+            if (!ev.raw) continue;
+            const parsed = new Date(ev.raw);
+            if (Number.isNaN(parsed.getTime())) continue;
+            inferredWorkflowBySignal[ev.signal] = (inferredWorkflowBySignal[ev.signal] || 0) + 1;
+            const day = parsed.toISOString().slice(0, 10);
+            if (day in workflowRunsByDayMap) workflowRunsByDayMap[day] += 1;
+          }
         }
         const workflowRunsByDay = Object.entries(workflowRunsByDayMap).map(([date, count]) => ({ date, count }));
 
@@ -319,7 +339,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             searchesByDay,
             topSearches,
             workflowRunsByDay,
-            workflowByName,
+            workflowByName: inferredWorkflowBySignal,
           });
         } catch {
           // If Laserfiche is configured but currently unavailable/rate-limited,
