@@ -153,7 +153,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const lfConfig = getLaserficheConfig();
       if (lfConfig) {
-        const token = await getLaserficheToken(lfConfig);
+        try {
+          const token = await getLaserficheToken(lfConfig);
         const visited = new Set<number>();
         const collectTree = async (folderId: number): Promise<{ docs: any[]; folderCount: number }> => {
           if (visited.has(folderId)) return { docs: [], folderCount: 0 };
@@ -285,20 +286,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         for (const l of logs) topMap[l.query] = (topMap[l.query] || 0) + 1;
         const topSearches = Object.entries(topMap).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 5);
 
-        return res.json({
-          totalFiles,
-          totalDocuments: docs.length,
-          totalFields,
-          fieldTypesBreakdown,
-          parentFolderDocCounts,
-          totalSearches,
-          totalDepartments: Object.keys(docsByDepartment).length,
-          avgResponseMs,
-          docsByType,
-          docsByDepartment,
-          searchesByDay,
-          topSearches,
-        });
+          return res.json({
+            totalFiles,
+            totalDocuments: docs.length,
+            totalFields,
+            fieldTypesBreakdown,
+            parentFolderDocCounts,
+            totalSearches,
+            totalDepartments: Object.keys(docsByDepartment).length,
+            avgResponseMs,
+            docsByType,
+            docsByDepartment,
+            searchesByDay,
+            topSearches,
+          });
+        } catch {
+          // If Laserfiche is configured but currently unavailable/rate-limited,
+          // fall back to in-memory dashboard stats so the dashboard still renders.
+        }
       }
 
       const stats = await storage.getDashboardStats();
