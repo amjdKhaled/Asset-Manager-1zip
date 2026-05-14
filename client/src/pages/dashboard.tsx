@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid, LineChart, Line } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Database, Building2, Layers, FolderTree, FileType2, RefreshCw } from "lucide-react";
@@ -20,6 +20,7 @@ type DashboardStats = {
 };
 
 const PIE_COLORS = ["#3B82F6", "#14B8A6", "#F59E0B", "#8B5CF6", "#EF4444", "#22C55E", "#F97316"];
+const formatDate = (d: string) => new Date(d).toLocaleDateString("en-GB", { month: "short", day: "numeric" });
 
 function StatCard({ icon: Icon, label, labelAr, value, sub }: {
   icon: any; label: string; labelAr: string; value: string | number; sub?: string;
@@ -78,6 +79,8 @@ export default function DashboardPage() {
   const topDept = deptData[0];
   const totalFolders = Number((stats.docsByType || {})["Folder"] || 0);
   const avgFieldsPerDoc = stats.totalDocuments > 0 ? ((stats.totalFields || 0) / stats.totalDocuments).toFixed(1) : "0.0";
+  const fieldTypeData = Object.entries(stats.fieldTypesBreakdown || {}).map(([name, value]) => ({ name: name.toUpperCase(), value }));
+  const searchesByDay = (stats.searchesByDay || []).map((d) => ({ ...d, date: formatDate(d.date) }));
 
   return (
     <div className="h-full overflow-auto bg-gradient-to-b from-background to-background/70">
@@ -124,16 +127,50 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="bg-card border border-card-border rounded-xl p-5">
-            <SectionHeader icon={Layers} title="Field Data Types from Laserfiche Metadata" titleAr="أنواع بيانات الحقول من ميتاداتا Laserfiche" />
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {Object.entries(stats.fieldTypesBreakdown || {}).sort((a, b) => b[1] - a[1]).map(([type, count], idx) => (
-                <div key={type} className="rounded-lg border border-border p-3 bg-muted/30">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{type}</p>
-                  <p className="text-2xl font-semibold mt-1" style={{ color: PIE_COLORS[idx % PIE_COLORS.length] }}>{count.toLocaleString()}</p>
-                </div>
-              ))}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div className="bg-card border border-card-border rounded-xl p-5">
+              <SectionHeader icon={Layers} title="Field Data Types Distribution" titleAr="توزيع أنواع بيانات الحقول" />
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={fieldTypeData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <Tooltip />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                    {fieldTypeData.map((_, idx) => <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
+
+            <div className="bg-card border border-card-border rounded-xl p-5">
+              <SectionHeader icon={Database} title="Search Activity (Last 7 Days)" titleAr="نشاط البحث (آخر 7 أيام)" />
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={searchesByDay}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="count" stroke="#22C55E" strokeWidth={3} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="bg-card border border-card-border rounded-xl p-5">
+            <SectionHeader icon={FileType2} title="Top Search Queries" titleAr="أكثر الاستعلامات بحثًا" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(stats.topSearches || []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">No search queries found.</p>
+              ) : (
+                (stats.topSearches || []).map((item, i) => (
+                  <div key={i} className="rounded-lg border border-border p-3 bg-muted/30 flex items-center justify-between gap-3">
+                    <p className="text-sm text-foreground truncate">{item.query}</p>
+                    <span className="text-xs font-semibold text-primary">{item.count}x</span>
+                  </div>
+                ))
+              )}
+          </div>
           </div>
         </div>
       </div>
