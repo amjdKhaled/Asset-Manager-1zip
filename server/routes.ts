@@ -153,7 +153,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const lfConfig = getLaserficheConfig();
       if (lfConfig) {
-        const token = await getLaserficheToken(lfConfig);
+        try {
+          const token = await getLaserficheToken(lfConfig);
         const visited = new Set<number>();
         const collectTree = async (folderId: number): Promise<{ docs: any[]; folderCount: number }> => {
           if (visited.has(folderId)) return { docs: [], folderCount: 0 };
@@ -186,7 +187,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           if (upper === "QA") return "QA";
           if (upper === "PRODUCTION") return "PRODUCTION";
           if (raw === "مركز الوثائق والمحفوظات") return "مركز الوثائق والمحفوظات";
-          return raw;
+          return "";
         };
         for (const entry of entries) {
           const path = String(entry.fullPath || "");
@@ -201,6 +202,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           entries.map(async (entry: any) => {
             const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({} as Record<string, string>));
             const docType = fields["Document Type"] || fields["نوع المستند"] || entry.extension || "Document";
+            const metadataChangeMarkers = [
+              fields["Last Updated"],
+              fields["تاريخ التحديث"],
+              fields["Metadata Updated At"],
+              fields["Modified Date"],
+              fields["Workflow Date"],
+            ].filter(Boolean);
             const path = String(entry.fullPath || "");
             const segments = path.split("/").filter(Boolean);
             const departmentFolder = canonicalDepartment(segments.length >= 2 ? segments[1] : "");
@@ -222,6 +230,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               fieldsCount: Object.keys(fields).length,
               fieldTypeCounts,
               parentFolder: departmentFolder,
+              currentPath: path,
+              movedAt: (entry.moveDate || entry.lastMovedUtc || "") as string,
+              metadataUpdatedAt: String(metadataChangeMarkers[0] || ""),
             };
           })
         );
@@ -285,24 +296,56 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         for (const l of logs) topMap[l.query] = (topMap[l.query] || 0) + 1;
         const topSearches = Object.entries(topMap).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 5);
 
-        return res.json({
-          totalFiles,
-          totalDocuments: docs.length,
-          totalFields,
-          fieldTypesBreakdown,
-          parentFolderDocCounts,
-          totalSearches,
-          totalDepartments: Object.keys(docsByDepartment).length,
-          avgResponseMs,
-          docsByType,
-          docsByDepartment,
-          searchesByDay,
-          topSearches,
-        });
+        const inferredWorkflowBySignal: Record<string, number> = {
+          "Document moved": 0,
+          "Metadata updated": 0,
+        };
+        const workflowRunsByDayMap: Record<string, number> = {};
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(today);
+          d.setDate(today.getDate() - i);
+          workflowRunsByDayMap[d.toISOString().slice(0, 10)] = 0;
+        }
+        for (const d of docs as any[]) {
+          const events = [
+            { signal: "Document moved", raw: String(d.movedAt || "").trim() },
+            { signal: "Metadata updated", raw: String(d.metadataUpdatedAt || "").trim() },
+          ];
+          for (const ev of events) {
+            if (!ev.raw) continue;
+            const parsed = new Date(ev.raw);
+            if (Number.isNaN(parsed.getTime())) continue;
+            inferredWorkflowBySignal[ev.signal] = (inferredWorkflowBySignal[ev.signal] || 0) + 1;
+            const day = parsed.toISOString().slice(0, 10);
+            if (day in workflowRunsByDayMap) workflowRunsByDayMap[day] += 1;
+          }
+        }
+        const workflowRunsByDay = Object.entries(workflowRunsByDayMap).map(([date, count]) => ({ date, count }));
+
+          return res.json({
+            totalFiles,
+            totalDocuments: docs.length,
+            totalFields,
+            fieldTypesBreakdown,
+            parentFolderDocCounts,
+            totalSearches,
+            totalDepartments: Object.keys(docsByDepartment).length,
+            avgResponseMs,
+            docsByType,
+            docsByDepartment,
+            searchesByDay,
+            topSearches,
+            workflowRunsByDay,
+            workflowByName: inferredWorkflowBySignal,
+          });
+        } catch {
+          // If Laserfiche is configured but currently unavailable/rate-limited,
+          // fall back to in-memory dashboard stats so the dashboard still renders.
+        }
       }
 
       const stats = await storage.getDashboardStats();
-      res.json(stats);
+      res.json({ ...stats, workflowRunsByDay: stats.searchesByDay, workflowByName: {} });
     } catch {
       res.status(500).json({ error: "Failed to fetch stats" });
     }
