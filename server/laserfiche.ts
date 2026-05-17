@@ -298,6 +298,53 @@ export async function testLaserficheConnection(config: LaserficheConfig): Promis
   };
 }
 
+
+
+export interface LFSearchTokenResponse {
+  searchToken?: string;
+  token?: string;
+  id?: string;
+}
+
+export async function laserficheRepositorySearch(
+  config: LaserficheConfig,
+  token: string,
+  searchCommand: string,
+  maxResults = 50,
+): Promise<LFEntry[]> {
+  const createUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Searches`;
+  const createRes = await fetch(createUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ searchCommand }),
+  });
+
+  if (!createRes.ok) {
+    const text = await createRes.text().catch(() => "");
+    throw new Error(`Failed creating Laserfiche search token: ${createRes.status} ${text.slice(0, 200)}`);
+  }
+
+  const createBody = await safeJson<LFSearchTokenResponse>(createRes, "create repository search");
+  const searchToken = createBody.searchToken || createBody.token || createBody.id;
+  if (!searchToken) {
+    throw new Error("Laserfiche did not return a search token.");
+  }
+
+  const searchUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Searches/${encodeURIComponent(searchToken)}?$top=${maxResults}`;
+  const searchRes = await fetch(searchUrl, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+
+  if (!searchRes.ok) {
+    const text = await searchRes.text().catch(() => "");
+    throw new Error(`Failed executing Laserfiche search: ${searchRes.status} ${text.slice(0, 200)}`);
+  }
+
+  const payload = await safeJson<{ value?: LFEntry[]; entries?: LFEntry[] }>(searchRes, "execute repository search");
+  return payload.value || payload.entries || [];
+}
+
 export async function laserficheSimpleSearch(
   config: LaserficheConfig,
   token: string,
@@ -511,96 +558,63 @@ export function naturalLanguageToLFSearchCommand(query: string): {
   extractedTerms: string[];
 } {
   const q = query.trim();
-
+  const qLower = q.toLowerCase();
   const extractedTerms: string[] = [];
-  let command = "";
-  let explanation = "";
+  const clauses: string[] = [];
 
-  const namePatterns = [
-    /اسم\s+(\S+)/g,
-    /باسم\s+(\S+)/g,
-    /يحتوي.*?اسم\s+(\S+)/g,
-    /contains?\s+name\s+(\S+)/gi,
-    /named?\s+(\S+)/gi,
-    /author[:\s]+(\S+)/gi,
-    /كاتب\s+(\S+)/g,
-    /منشئ\s+(\S+)/g,
-  ];
-
-  const nameMatches: string[] = [];
-  for (const pattern of namePatterns) {
-    let m;
-    while ((m = pattern.exec(q)) !== null) {
-      nameMatches.push(m[1]);
-    }
+  const yearMatch = q.match(/\b(20\d{2})\b/);
+  if (yearMatch) {
+    const year = yearMatch[1];
+    clauses.push(`{LF:Modified>="${year}-01-01"}`);
+    clauses.push(`{LF:Modified<="${year}-12-31"}`);
+    extractedTerms.push(year);
   }
 
-  const datePatterns = [
-    /(\d{4})/g,
-    /عام\s+(\d{4})/g,
-    /سنة\s+(\d{4})/g,
-    /year\s+(\d{4})/gi,
+  const intentMap: Array<[RegExp, string]> = [
+    [/(contract|contracts|عقد|العقود)/i, 'Contract Type'],
+    [/(invoice|invoices|فاتورة|فواتير)/i, 'Document Type'],
+    [/(hr|human resources|الموارد البشرية)/i, 'Department'],
+    [/(maintenance|الصيانة)/i, 'Subject'],
+    [/(national id|رقم الهوية)/i, 'National ID'],
+    [/(employee|الموظف|اسم)/i, 'Employee Name'],
   ];
 
-  const years: string[] = [];
-  for (const pattern of datePatterns) {
-    let m;
-    while ((m = pattern.exec(q)) !== null) {
-      if (parseInt(m[1]) >= 2000 && parseInt(m[1]) <= 2030) {
-        years.push(m[1]);
-      }
-    }
+  for (const [re, field] of intentMap) {
+    if (re.test(q)) extractedTerms.push(field);
   }
 
-  const stopwordsAr = ["عطني", "اعطني", "أعطني", "جميع", "كل", "اللتي", "التي", "الذي", "الذين",
-    "المعاملات", "الوثائق", "المستندات", "الملفات", "في", "من", "على", "عن", "مع", "تحتوي",
-    "تحتوى", "يحتوي", "التي", "بتاريخ", "خلال", "حتى", "بعد", "قبل", "اريد", "أريد", "أحتاج", "احتاج"];
-  const stopwordsEn = ["give", "me", "all", "the", "documents", "files", "transactions", "that",
-    "contain", "contains", "with", "in", "and", "or", "show", "find", "search", "get"];
+  const nameMatch = q.match(/(?:with|name|named|اسم|باسم)\s+([؀-ۿA-Za-z0-9_-]+)/i);
+  if (nameMatch) {
+    const name = nameMatch[1];
+    clauses.push(`{LF:LOOKIN="FIELD:Employee Name"}="${name}"`);
+    clauses.push(`{LF:Name~="${name}"}`);
+    extractedTerms.push(name);
+  }
 
-  const cleanedTokens = q.replace(/[^\u0600-\u06FFa-zA-Z0-9\s]/g, " ")
+  const keywords = q
+    .replace(/[^؀-ۿ\w\s-]/g, ' ')
     .split(/\s+/)
-    .filter(t => t.length > 2)
-    .filter(t => !stopwordsAr.includes(t) && !stopwordsEn.includes(t.toLowerCase()))
-    .filter(t => !years.includes(t));
+    .map((t) => t.trim())
+    .filter((t) => t.length > 2 && !/^20\d{2}$/.test(t) && !['all','documents','document','المعاملات','الوثائق','جميع','اعطني','from','about','related','containing','contains'].includes(t.toLowerCase()));
 
-  extractedTerms.push(...cleanedTokens, ...years);
-
-  const parts: string[] = [];
-
-  if (nameMatches.length > 0) {
-    for (const name of nameMatches) {
-      parts.push(`{LF:Basic~="${name}"}`);
-      if (!extractedTerms.includes(name)) extractedTerms.push(name);
-    }
-    explanation = `Full-text search for name: ${nameMatches.join(", ")}`;
-  } else if (cleanedTokens.length > 0) {
-    const mainTerms = cleanedTokens.slice(0, 3);
-    if (mainTerms.length === 1) {
-      parts.push(`{LF:Basic~="${mainTerms[0]}"}`);
-    } else {
-      parts.push(`{LF:Basic~="${mainTerms.join(" ")}"}`);
-    }
-    explanation = `Full-text search for: ${mainTerms.join(", ")}`;
+  if (keywords.length) {
+    clauses.push(`{LF:Basic~="${keywords.slice(0, 5).join(' ')}"}`);
+    extractedTerms.push(...keywords);
   }
 
-  if (years.length > 0) {
-    const year = years[0];
-    parts.push(`{LF:Modified>="${year}-01-01"}`);
-    parts.push(`{LF:Modified<="${year}-12-31"}`);
-    explanation += (explanation ? " | " : "") + `Year filter: ${year}`;
+  if (/(contract|العقود)/i.test(qLower)) {
+    clauses.push(`{LF:LOOKIN="FIELD:Contract Type"}="*"`);
+  }
+  if (/(hr|human resources|الموارد البشرية)/i.test(qLower)) {
+    clauses.push(`{LF:LOOKIN="FIELD:Department"}="*HR*" | {LF:LOOKIN="FIELD:Department"}="*الموارد البشرية*"`);
   }
 
-  if (parts.length === 0) {
-    const fallbackTerms = q.replace(/[^\u0600-\u06FFa-zA-Z0-9\s]/g, " ").trim().split(/\s+/).slice(0, 3);
-    command = `{LF:Basic~="${fallbackTerms.join(" ")}"}`;
-    explanation = `Full-text search for: ${fallbackTerms.join(", ")}`;
-    extractedTerms.push(...fallbackTerms);
-  } else {
-    command = parts.join(" & ");
-  }
-
-  return { command, explanation, extractedTerms: [...new Set(extractedTerms)] };
+  const command = clauses.length ? clauses.join(' & ') : `{LF:Basic~="${q}"}`;
+  return {
+    command,
+    explanation: 'Generated metadata-aware Laserfiche search command using year, keyword, and field intent detection.',
+    extractedTerms: [...new Set(extractedTerms)],
+  };
 }
 
 export interface LFTag {
