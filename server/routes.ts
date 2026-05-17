@@ -18,6 +18,7 @@ import {
   laserficheGetEdoc,
   laserficheDeleteEntry,
   naturalLanguageToLFSearchCommand,
+  laserficheRepositorySearch,
   saveLaserficheConfig,
   clearLaserficheConfig,
   testLaserficheConnection,
@@ -483,43 +484,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+
+
+
   app.post("/api/laserfiche/search", async (req, res) => {
-    const { query, searchCommand, maxResults = 50 } = req.body;
-
+    const { query, searchCommand, maxResults = 25, page = 1 } = req.body;
     const config = getLaserficheConfig();
-    if (!config) {
-      return res.status(503).json({
-        error: "Laserfiche not configured",
-        hint: "Set LF_SERVER_URL, LF_REPO_ID, LF_USERNAME, LF_PASSWORD in environment secrets",
-      });
-    }
-
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
     try {
-      const finalCommand = searchCommand || naturalLanguageToLFSearchCommand(query || "").command;
-      const nlResult = naturalLanguageToLFSearchCommand(query || finalCommand);
-
+      const finalCommand = searchCommand || naturalLanguageToLFSearchCommand(String(query || "")).command;
+      const nlResult = naturalLanguageToLFSearchCommand(String(query || finalCommand));
       const token = await getLaserficheToken(config);
-      const entries = await laserficheSimpleSearch(config, token, finalCommand, maxResults);
-
-      await storage.createAuditLog({
-        query: query || finalCommand,
-        queryLanguage: /[\u0600-\u06FF]/.test(query || "") ? "ar" : "en",
-        userId: "demo-user",
-        username: "demo.user",
-        resultsCount: entries.length,
-        searchType: "laserfiche",
-        filters: { lfCommand: finalCommand },
-        ipAddress: req.ip || "127.0.0.1",
-        department: "Laserfiche",
-      });
-
-      res.json({
-        entries,
-        total: entries.length,
-        searchCommand: finalCommand,
-        nlTranslation: nlResult,
-        query,
-      });
+      const allEntries = await laserficheRepositorySearch(config, token, finalCommand, Math.min(Number(maxResults) * Math.max(Number(page), 1), 200));
+      const start = (Math.max(Number(page), 1) - 1) * Number(maxResults);
+      const pageEntries = allEntries.slice(start, start + Number(maxResults));
+      const entries = await Promise.all(pageEntries.map(async (entry: any) => {
+        const [details, rawFields] = await Promise.all([
+          laserficheGetEntry(config, token, Number(entry.id)).catch(() => entry),
+          laserficheGetEntryFieldsRaw(config, token, Number(entry.id)).catch(() => []),
+        ]);
+        const metadata: Record<string, string[]> = {};
+        for (const field of rawFields as any[]) {
+          const name = String(field?.fieldName || "").trim();
+          if (!name) continue;
+          metadata[name] = Array.isArray(field?.values) ? field.values.map((v: any) => String(v?.value ?? "")).filter(Boolean) : [];
+        }
+        return { ...details, id: Number(details.id || entry.id), metadata, previewUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=inline`, openUrl: `/api/laserfiche/entries/${Number(entry.id)}/open`, downloadUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=attachment` };
+      }));
+      res.json({ entries, total: allEntries.length, page: Number(page), pageSize: Number(maxResults), searchCommand: finalCommand, nlTranslation: nlResult, query });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -745,81 +737,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/laserfiche/search", async (req, res) => {
-    const config = getLaserficheConfig();
-    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
-    const query = String(req.body?.query || "").trim();
-    const folderId = Number(req.body?.folderId || 1);
-    if (!query) return res.json({ results: [] });
-    const normalizeArabic = (text: string) =>
-      (text || "")
-        .toLowerCase()
-        .normalize("NFKD")
-        .replace(/[\u064B-\u065F\u0670]/g, "")
-        .replace(/[إأآا]/g, "ا")
-        .replace(/[ة]/g, "ه")
-        .replace(/[ى]/g, "ي")
-        .replace(/\s+/g, " ")
-        .trim();
-    const stopWords = new Set(["ابحث", "عن", "في", "فيها", "التي", "وثيقة", "وثيقه", "search", "find", "document", "file", "archive"]);
-    const keywords = normalizeArabic(query).split(" ").filter((w) => w.length > 2 && !stopWords.has(w));
-    const levenshtein = (a: string, b: string): number => {
-      const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
-      for (let i = 0; i <= a.length; i++) dp[i][0] = i;
-      for (let j = 0; j <= b.length; j++) dp[0][j] = j;
-      for (let i = 1; i <= a.length; i++) {
-        for (let j = 1; j <= b.length; j++) {
-          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-          dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
-        }
-      }
-      return dp[a.length][b.length];
-    };
-    const keywordExists = (keyword: string, text: string) => {
-      if (text.includes(keyword)) return true;
-      const tokens = text.split(/[\s|,:;\n]+/).filter(Boolean);
-      return tokens.some((t) => t.startsWith(keyword) || keyword.startsWith(t) || (keyword.length > 3 && levenshtein(t, keyword) <= 1));
-    };
-    try {
-      const token = await getLaserficheToken(config);
-      const fieldDefinitions = await laserficheGetFieldDefinitions(config, token).catch(() => []);
-      const fieldNameTokens = new Set(
-        (fieldDefinitions || [])
-          .flatMap((f: any) => String(f?.name || "").split(/\s+/))
-          .map((w: string) => normalizeArabic(w))
-          .filter((w: string) => w.length > 2)
-      );
-      const effectiveKeywords = keywords.filter((k) => !fieldNameTokens.has(k));
-      const visited = new Set<number>();
-      const collectDocs = async (currentFolderId: number): Promise<any[]> => {
-        if (visited.has(currentFolderId)) return [];
-        visited.add(currentFolderId);
-        const children = await laserficheGetFolderChildren(config, token, currentFolderId);
-        const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document"));
-        const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
-        const nested = await Promise.all(subfolders.map((f: any) => collectDocs(Number(f.id))));
-        return [...docsHere, ...nested.flat()];
-      };
-      const allEntries = await collectDocs(folderId);
-      const docs = await Promise.all(allEntries.map(async (e: any) => {
-        let fields: any[] = [];
-        try { fields = await laserficheGetEntryFieldsRaw(config, token, e.id); } catch {}
-        const fieldText = fields.map((f: any) => {
-          const name = f?.fieldName || f?.name || "";
-          const value = Array.isArray(f?.values) ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ") : "";
-          return `${name}: ${value}`;
-        }).join("\n");
-        const docText = normalizeArabic(`${e.name}\n${e.fullPath || ""}\n${fieldText}`);
-        return { id: e.id, name: e.name, path: e.fullPath || "", docText };
-      }));
-      const results = docs
-        .filter((d) => (effectiveKeywords.length ? effectiveKeywords.every((k) => keywordExists(k, d.docText)) : keywordExists(normalizeArabic(query), d.docText)))
-        .slice(0, 50);
-      res.json({ results });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
 
   app.get("/api/chat/status", async (req, res) => {
     const status = await checkOllamaStatus();

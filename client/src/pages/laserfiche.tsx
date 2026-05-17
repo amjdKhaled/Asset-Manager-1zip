@@ -30,8 +30,14 @@ type LFEntry = {
   fullPath: string;
   creator: string;
   creationTime?: string;
+  lastModifiedTime?: string;
+  templateName?: string;
   extension?: string;
   pageCount?: number;
+  metadata?: Record<string, string[]>;
+  previewUrl?: string;
+  openUrl?: string;
+  downloadUrl?: string;
 };
 
 type LFSearchResult = {
@@ -379,6 +385,21 @@ export default function LaserfichePage() {
                               {entry.creator && <span className="text-xs text-muted-foreground">· {entry.creator}</span>}
                               {entry.extension && <Badge variant="outline" className="text-xs py-0">{entry.extension.toUpperCase()}</Badge>}
                               {entry.pageCount && <span className="text-xs text-muted-foreground">{entry.pageCount} pages</span>}
+                              {entry.templateName && <span className="text-xs text-muted-foreground">· Template: {entry.templateName}</span>}
+                            </div>
+                            {entry.metadata && Object.keys(entry.metadata).length > 0 && (
+                              <div className="mt-2 grid gap-1">
+                                {Object.entries(entry.metadata).slice(0, 4).map(([k, v]) => (
+                                  <p key={k} className="text-xs text-muted-foreground">
+                                    <span className="font-medium text-foreground">{k}:</span> {v.join(", ") || "-"}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+                            <div className="mt-2 flex gap-2">
+                              {entry.previewUrl && <Button size="sm" variant="outline" asChild><a href={entry.previewUrl} target="_blank" rel="noreferrer">Preview</a></Button>}
+                              {entry.openUrl && <Button size="sm" variant="outline" asChild><a href={entry.openUrl} target="_blank" rel="noreferrer">Open</a></Button>}
+                              {entry.downloadUrl && <Button size="sm" asChild><a href={entry.downloadUrl} target="_blank" rel="noreferrer">Download</a></Button>}
                             </div>
                           </div>
                         </div>
