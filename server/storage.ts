@@ -518,22 +518,7 @@ export class MemStorage implements IStorage {
 
   async createDocument(doc: InsertDocument): Promise<Document> {
     const id = randomUUID();
-    const document: Document = {
-      ...doc,
-      id,
-      createdAt: new Date(),
-      titleAr: doc.titleAr ?? null,
-      departmentAr: doc.departmentAr ?? null,
-      docTypeAr: doc.docTypeAr ?? null,
-      author: doc.author ?? null,
-      authorAr: doc.authorAr ?? null,
-      contentAr: doc.contentAr ?? null,
-      tags: doc.tags ?? null,
-      fileSizeKb: doc.fileSizeKb ?? null,
-      pageCount: doc.pageCount ?? null,
-      laserficheId: doc.laserficheId ?? null,
-      year: doc.year ?? null,
-    };
+    const document: Document = { ...doc, id, createdAt: new Date() };
     this.documents.set(id, document);
     return document;
   }
@@ -602,19 +587,7 @@ export class MemStorage implements IStorage {
 
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
     const id = randomUUID();
-    const auditLog: AuditLog = {
-      ...log,
-      id,
-      searchedAt: new Date(),
-      username: log.username ?? null,
-      department: log.department ?? null,
-      queryLanguage: log.queryLanguage ?? null,
-      userId: log.userId ?? null,
-      resultsCount: log.resultsCount ?? null,
-      searchType: log.searchType ?? null,
-      filters: log.filters ?? null,
-      ipAddress: log.ipAddress ?? null,
-    };
+    const auditLog: AuditLog = { ...log, id, searchedAt: new Date() };
     this.auditLogs.set(id, auditLog);
     return auditLog;
   }

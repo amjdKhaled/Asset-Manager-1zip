@@ -23,15 +23,6 @@ type LFDocumentDetail = {
   tags: string[];
 };
 
-type LFRepositoryDocumentsResponse = {
-  documents: Array<{
-    id: number;
-    name: string;
-    path: string;
-    folderName?: string;
-  }>;
-};
-
 type LFDocumentPages = {
   entryId: number;
   pageCount: number;
@@ -69,10 +60,8 @@ function DocumentDetailSkeleton() {
 /** Inline document viewer: tries iframe first, falls back to page images */
 function DocumentViewer({ entryId, extension }: { entryId: number; extension: string | null }) {
   const [showImages, setShowImages] = useState(false);
-  const ext = (extension || "").toLowerCase();
-  const isPdf = ext === "pdf";
-  const isImage = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg"].includes(ext);
-  const supportsInlinePreview = isPdf || isImage;
+  const isPdf = extension?.toLowerCase() === "pdf";
+  const isDoc = /^docx?$/i.test(extension || "");
 
   const edocUrl = `/api/laserfiche/entries/${entryId}/content`;
 
@@ -80,22 +69,16 @@ function DocumentViewer({ entryId, extension }: { entryId: number; extension: st
     return (
       <div className="space-y-3">
         {/* Inline viewer */}
-        {supportsInlinePreview ? (
-          <div className="border border-border rounded-md overflow-hidden bg-muted/30">
-            <iframe
-              src={edocUrl}
-              className="w-full"
-              style={{ height: "600px" }}
-              title={`Document ${entryId}`}
-              data-testid="doc-iframe"
-              onError={() => setShowImages(true)}
-            />
-          </div>
-        ) : (
-          <div className="border border-dashed border-border rounded-md p-6 text-sm text-muted-foreground" data-testid="doc-inline-unavailable">
-            Inline preview is not available for this file type to prevent automatic browser downloads.
-          </div>
-        )}
+        <div className="border border-border rounded-md overflow-hidden bg-muted/30">
+          <iframe
+            src={edocUrl}
+            className="w-full"
+            style={{ height: "600px" }}
+            title={`Document ${entryId}`}
+            data-testid="doc-iframe"
+            onError={() => setShowImages(true)}
+          />
+        </div>
         <div className="flex gap-2 flex-wrap">
           <a href={edocUrl} download>
             <Button variant="outline" size="sm" className="gap-1.5" data-testid="download-edoc">
@@ -103,20 +86,16 @@ function DocumentViewer({ entryId, extension }: { entryId: number; extension: st
               Download
             </Button>
           </a>
-          {supportsInlinePreview && (
-            <a href={edocUrl} target="_blank" rel="noreferrer">
-              <Button variant="ghost" size="sm" className="gap-1.5" data-testid="open-edoc-tab">
-                <ExternalLink className="w-3.5 h-3.5" />
-                Open in new tab
-              </Button>
-            </a>
-          )}
-          {supportsInlinePreview && (
-            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setShowImages(true)} data-testid="switch-to-images">
-              <Eye className="w-3.5 h-3.5" />
-              Page images
+          <a href={edocUrl} target="_blank" rel="noreferrer">
+            <Button variant="ghost" size="sm" className="gap-1.5" data-testid="open-edoc-tab">
+              <ExternalLink className="w-3.5 h-3.5" />
+              Open in new tab
             </Button>
-          )}
+          </a>
+          <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setShowImages(true)} data-testid="switch-to-images">
+            <Eye className="w-3.5 h-3.5" />
+            Page images
+          </Button>
         </div>
       </div>
     );
@@ -321,16 +300,6 @@ export default function LFDocumentPage() {
     enabled: Number.isFinite(entryId) && entryId > 0,
   });
 
-
-  const { data: repositoryDocs } = useQuery<LFRepositoryDocumentsResponse>({
-    queryKey: ["/api/lf/documents", "all"],
-    queryFn: async () => {
-      const res = await fetch('/api/lf/documents?rootFolderId=1');
-      if (!res.ok) return { documents: [] };
-      return res.json();
-    },
-  });
-
   if (!Number.isFinite(entryId) || entryId <= 0) {
     return <ErrorState entryId={0} error={new Error("Invalid document ID in URL.")} />;
   }
@@ -510,26 +479,6 @@ export default function LFDocumentPage() {
               </div>
               <div className="p-4">
                 <DocumentViewer entryId={entryId} extension={doc.extension} />
-              </div>
-            </div>
-
-            <div className="bg-card border border-card-border rounded-md">
-              <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-                <FileText className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium">Repository Documents</span>
-              </div>
-              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3" data-testid="repository-doc-cards">
-                {(repositoryDocs?.documents || []).map((item) => (
-                  <Link key={item.id} href={`/lf-document/${item.id}`}>
-                    <button type="button" className="w-full text-left rounded-md border border-border bg-background/40 hover:bg-muted/40 transition-colors p-3">
-                      <p className="text-sm font-medium truncate">{item.name}</p>
-                      <p className="text-xs text-muted-foreground truncate mt-1">{item.path}</p>
-                    </button>
-                  </Link>
-                ))}
-                {(repositoryDocs?.documents || []).length === 0 && (
-                  <p className="text-sm text-muted-foreground">No documents found in repository.</p>
-                )}
               </div>
             </div>
           </div>
