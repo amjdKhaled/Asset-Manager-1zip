@@ -22,7 +22,6 @@ type DashboardStats = {
 };
 
 const PIE_COLORS = ["#3B82F6", "#14B8A6", "#F59E0B", "#8B5CF6", "#EF4444", "#22C55E", "#F97316"];
-const EXCLUDED_WORKFLOW_NAMES = ["SCAN", "INDEX", "QA", "PRODUCTION", "PROD", "TEST", "QATEST", "ROOT", "13", "19"] as const;
 
 const formatDate = (d: string) => new Date(d).toLocaleDateString("en-GB", { month: "short", day: "numeric" });
 
@@ -80,9 +79,7 @@ export default function DashboardPage() {
 
   const pieData = Object.entries(stats.docsByType || {}).map(([name, value]) => ({ name, value }));
   const deptData = Object.entries(stats.docsByDepartment || {})
-    .filter(([name]) => !EXCLUDED_WORKFLOW_NAMES.includes(name.toUpperCase() as (typeof EXCLUDED_WORKFLOW_NAMES)[number]))
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
     .map(([name, value]) => ({ name, value }));
   const topDept = deptData[0];
   const totalFolders = Number((stats.docsByType || {})["Folder"] || 0);

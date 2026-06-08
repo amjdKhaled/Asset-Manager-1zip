@@ -156,67 +156,74 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (lfConfig) {
         try {
           const token = await getLaserficheToken(lfConfig);
-        const visited = new Set<number>();
-        const collectTree = async (folderId: number): Promise<{ docs: any[]; folderCount: number }> => {
-          if (visited.has(folderId)) return { docs: [], folderCount: 0 };
+        // ── Department-based document counting ──
+        // Only these 5 departments are shown in the dashboard chart.
+        const TARGET_DEPARTMENTS = [
+          { key: "Scan",        label: "Scan",        aliases: ["scan", "SCAN", "Scanning"] },
+          { key: "Index",       label: "Index",       aliases: ["index", "INDEX", "Indexing"] },
+          { key: "QA",          label: "QA",          aliases: ["qa", "QA", "Quality Assurance"] },
+          { key: "PRODUCTION",  label: "PRODUCTION", aliases: ["production", "PRODUCTION", "Prod", "PROD"] },
+          { key: "مركز الوثائق والمحفوظات", label: "مركز الوثائق والمحفوظات", aliases: ["مركز الوثائق والمحفوظات", "مركز الوثائق"] },
+        ];
+
+        // 1. Discover department folders under the repository root
+        const rootChildren = await laserficheGetFolderChildren(lfConfig, token, 1);
+        const deptFolders = rootChildren.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
+        console.log("Root folders found:", deptFolders.map((f: any) => f.name));
+
+        // 2. Recursively count ONLY documents inside each matched department folder
+        const countDocsRecursive = async (folderId: number, visited: Set<number>): Promise<number> => {
+          if (visited.has(folderId)) return 0;
           visited.add(folderId);
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document")).length;
+          const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
+          const nested = await Promise.all(subfolders.map((f: any) => countDocsRecursive(Number(f.id), visited)));
+          return docsHere + nested.reduce((sum, n) => sum + n, 0);
+        };
+
+        const docsByDepartment: Record<string, number> = {};
+        for (const td of TARGET_DEPARTMENTS) {
+          // Match by any alias
+          const matched = deptFolders.find((f: any) =>
+            td.aliases.some((a) => String(f.name).trim().toLowerCase() === a.toLowerCase())
+          );
+          if (matched) {
+            const count = await countDocsRecursive(Number(matched.id), new Set<number>());
+            docsByDepartment[td.label] = count;
+            console.log("Department:", td.label);
+            console.log("Documents Found:", count);
+          } else {
+            docsByDepartment[td.label] = 0;
+            console.log("Department:", td.label);
+            console.log("Documents Found:", 0);
+          }
+        }
+
+        // 3. Global totals for the dashboard stat cards (still scan the entire tree)
+        const visitedAll = new Set<number>();
+        const collectAll = async (folderId: number): Promise<{ docs: any[]; folderCount: number }> => {
+          if (visitedAll.has(folderId)) return { docs: [], folderCount: 0 };
+          visitedAll.add(folderId);
           const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
           const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document"));
           const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
-          const nested = await Promise.all(subfolders.map((f: any) => collectTree(Number(f.id))));
+          const nested = await Promise.all(subfolders.map((f: any) => collectAll(Number(f.id))));
           return {
             docs: [...docsHere, ...nested.flatMap((n) => n.docs)],
             folderCount: subfolders.length + nested.reduce((sum, n) => sum + n.folderCount, 0),
           };
         };
 
-        const tree = await collectTree(1);
-        const entries = tree.docs.slice(0, 500);
+        const allTree = await collectAll(1);
+        const entries = allTree.docs.slice(0, 500);
         const parentFolderDocCounts: Record<string, number> = {};
-        const isWorkflowFolder = (name: string): boolean => {
-          const upper = name.toUpperCase();
-          return ["ROOT", "13", "19", "SCAN", "INDEX", "QA", "PRODUCTION", "PROD", "TEST", "QATEST"].includes(upper);
-        };
-        const getDepartment = (fields: Record<string, string>, fullPath: string): string => {
-          // 1. Try real Department metadata field
-          const depField =
-            fields["Department"] ||
-            fields["الجهة"] ||
-            fields["الجهة المعنية"] ||
-            fields["Issuing Department"] ||
-            fields["الجهة المصدرة"] ||
-            fields["القسم"] ||
-            fields["Ministry"] ||
-            fields["الوزارة"] ||
-            "";
-          if (depField.trim()) return depField.trim();
-
-          // 2. Extract department from the path — find the deepest folder name that is NOT a workflow/generic folder
-          const segments = String(fullPath || "").split("/").filter(Boolean);
-          // The last segment is usually the file name; the second-to-last is the parent folder
-          // Walk backwards from the parent folder to find the first non-workflow folder name
-          for (let i = segments.length - 2; i >= 0; i--) {
-            const seg = segments[i].trim();
-            if (seg && !isWorkflowFolder(seg)) {
-              return seg;
-            }
-          }
-          return "";
-        };
 
         const docs = await Promise.all(
           entries.map(async (entry: any) => {
             const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({} as Record<string, string>));
             const docType = fields["Document Type"] || fields["نوع المستند"] || entry.extension || "Document";
             const path = String(entry.fullPath || "");
-            const department = getDepartment(fields, path);
-            const metadataChangeMarkers = [
-              fields["Last Updated"],
-              fields["تاريخ التحديث"],
-              fields["Metadata Updated At"],
-              fields["Modified Date"],
-              fields["Workflow Date"],
-            ].filter(Boolean);
             const fieldTypeCounts: Record<string, number> = {};
             for (const [fieldName, value] of Object.entries(fields)) {
               const normalized = String(value || "").trim();
@@ -231,18 +238,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             const pathSegments = path.split("/").filter(Boolean);
             return {
               docType,
-              department,
               fieldsCount: Object.keys(fields).length,
               fieldTypeCounts,
               parentFolder: pathSegments.length >= 2 ? pathSegments[1] : "",
               currentPath: path,
-              movedAt: (entry.moveDate || entry.lastMovedUtc || "") as string,
-              metadataUpdatedAt: String(metadataChangeMarkers[0] || ""),
             };
           })
         );
 
-        // parentFolderDocCounts: count by top-level folder name
         for (const d of docs) {
           if (d.parentFolder) {
             parentFolderDocCounts[d.parentFolder] = (parentFolderDocCounts[d.parentFolder] || 0) + 1;
@@ -250,14 +253,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
 
         const docsByType: Record<string, number> = {};
-        const docsByDepartment: Record<string, number> = {};
         for (const d of docs) {
           docsByType[d.docType] = (docsByType[d.docType] || 0) + 1;
-          if (d.department) {
-            docsByDepartment[d.department] = (docsByDepartment[d.department] || 0) + 1;
-          }
         }
-        docsByType["Folder"] = tree.folderCount;
+        docsByType["Folder"] = allTree.folderCount;
 
         const totalFiles = entries.length;
         const totalFields = docs.reduce((sum, d) => sum + d.fieldsCount, 0);
