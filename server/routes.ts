@@ -172,23 +172,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         const tree = await collectTree(1);
         const entries = tree.docs.slice(0, 500);
-        const parentFolderDocCounts: Record<string, number> = {
-          SCAN: 0,
-          INDEX: 0,
-          QA: 0,
-          PRODUCTION: 0,
-          "مركز الوثائق والمحفوظات": 0,
-        };
+        const parentFolderDocCounts: Record<string, number> = {};
         const canonicalDepartment = (name: string): string => {
           const raw = String(name || "").trim();
           const upper = raw.toUpperCase();
           if (!raw || upper === "ROOT" || raw === "13" || raw === "19") return "";
-          if (upper === "SCAN") return "SCAN";
-          if (upper === "INDEX") return "INDEX";
-          if (upper === "QA") return "QA";
-          if (upper === "PRODUCTION") return "PRODUCTION";
-          if (raw === "مركز الوثائق والمحفوظات") return "مركز الوثائق والمحفوظات";
-          return "";
+          return raw;
         };
         for (const entry of entries) {
           const path = String(entry.fullPath || "");

@@ -22,7 +22,6 @@ type DashboardStats = {
 };
 
 const PIE_COLORS = ["#3B82F6", "#14B8A6", "#F59E0B", "#8B5CF6", "#EF4444", "#22C55E", "#F97316"];
-const ALLOWED_ROOT_DEPARTMENTS = ["SCAN", "INDEX", "QA", "PRODUCTION", "مركز الوثائق والمحفوظات"] as const;
 
 const formatDate = (d: string) => new Date(d).toLocaleDateString("en-GB", { month: "short", day: "numeric" });
 
@@ -80,7 +79,7 @@ export default function DashboardPage() {
 
   const pieData = Object.entries(stats.docsByType || {}).map(([name, value]) => ({ name, value }));
   const deptData = Object.entries(stats.docsByDepartment || {})
-    .filter(([name]) => ALLOWED_ROOT_DEPARTMENTS.includes(name as (typeof ALLOWED_ROOT_DEPARTMENTS)[number]))
+    .filter(([_, value]) => value > 0)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
     .map(([name, value]) => ({ name, value }));
