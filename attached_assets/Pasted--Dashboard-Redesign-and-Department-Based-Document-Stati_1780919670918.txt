@@ -1,0 +1,251 @@
+# Dashboard Redesign and Department-Based Document Statistics
+
+I want you to completely redesign the "Documents by Department" section of the dashboard and change the logic used to calculate the statistics.
+
+## Current Problem
+
+The current dashboard is not representing the Laserfiche repository structure correctly.
+
+The dashboard currently displays departments incorrectly and does not calculate document counts based on the actual repository hierarchy.
+
+I need the dashboard to be driven entirely by the Laserfiche folder structure and document counts.
+
+---
+
+# Repository Structure
+
+The dashboard must be divided into TWO main sections only:
+
+## Section 1: إدخال الوثيقة
+
+This section contains the following departments:
+
+* Scan
+* Index
+* QA
+* Production
+
+These departments correspond to the first-level subfolders located under the parent folder:
+
+إدخال الوثيقة
+
+Example:
+
+إدخال الوثيقة
+├── Scan
+├── Index
+├── QA
+└── Production
+
+Each of these first-level subfolders must be treated as an individual department.
+
+---
+
+## Section 2: مركز الوثائق والمحفوظات
+
+This section contains the following departments:
+
+* الوثائق والمحفوظات المالية
+* الوثائق والمحفوظات التخصصية
+* الوثائق والمحفوظات الإدارية
+
+Example:
+
+مركز الوثائق والمحفوظات
+├── الوثائق والمحفوظات المالية
+├── الوثائق والمحفوظات التخصصية
+└── الوثائق والمحفوظات الإدارية
+
+Each of these first-level subfolders must be treated as an individual department.
+
+---
+
+# Department Definition
+
+IMPORTANT:
+
+A Department is NOT a Laserfiche template.
+A Department is NOT metadata.
+A Department is NOT a document type.
+
+A Department is ONLY the first-level subfolder directly under one of the two parent folders listed above.
+
+Only first-level subfolders should be considered departments.
+
+Do not create departments from deeper nested folders.
+
+---
+
+# Document Counting Rules
+
+The dashboard must count DOCUMENTS only.
+
+Never count folders.
+
+Never count subfolders.
+
+Only count actual Laserfiche documents.
+
+For each department:
+
+1. Find the department folder.
+2. Count all documents directly inside it.
+3. Traverse all nested folders recursively.
+4. Count every document found inside child folders.
+5. Return a final total document count.
+
+Example:
+
+Scan
+├── File1.pdf
+├── File2.pdf
+├── Batch A
+│   ├── File3.pdf
+│   └── File4.pdf
+└── Batch B
+└── File5.pdf
+
+Result:
+
+Scan = 5 Documents
+
+Because folders are ignored and only documents are counted.
+
+---
+
+# Dashboard Layout
+
+Create two separate dashboard cards or sections.
+
+==================================================
+SECTION 1
+إدخال الوثيقة
+=============
+
+Display:
+
+| Department | Documents Count |
+| ---------- | --------------- |
+| Scan       | X               |
+| Index      | X               |
+| QA         | X               |
+| Production | X               |
+
+Create a bar chart showing:
+
+* Scan
+* Index
+* QA
+* Production
+
+with their document counts.
+
+---
+
+==================================================
+SECTION 2
+مركز الوثائق والمحفوظات
+=======================
+
+Display:
+
+| Department                  | Documents Count |
+| --------------------------- | --------------- |
+| الوثائق والمحفوظات المالية  | X               |
+| الوثائق والمحفوظات التخصصية | X               |
+| الوثائق والمحفوظات الإدارية | X               |
+
+Create a separate chart showing:
+
+* الوثائق والمحفوظات المالية
+* الوثائق والمحفوظات التخصصية
+* الوثائق والمحفوظات الإدارية
+
+with their document counts.
+
+---
+
+# Summary Cards
+
+Add summary KPI cards at the top of the dashboard:
+
+1. Total Documents in إدخال الوثيقة
+2. Total Documents in مركز الوثائق والمحفوظات
+3. Grand Total Documents
+4. Total Departments
+
+Example:
+
+Total Documents in إدخال الوثيقة = 2,450
+
+Total Documents in مركز الوثائق والمحفوظات = 8,120
+
+Grand Total Documents = 10,570
+
+Total Departments = 7
+
+---
+
+# Data Source
+
+All data must come directly from Laserfiche Repository.
+
+Use the Laserfiche APIs already configured in the project.
+
+Do not use mock data.
+
+Do not use hardcoded numbers.
+
+Do not use sample statistics.
+
+Every count must be generated dynamically from the repository.
+
+---
+
+# Performance Requirements
+
+Implement recursive document counting efficiently.
+
+Avoid making unnecessary API calls.
+
+Cache results when possible.
+
+Load dashboard statistics asynchronously.
+
+Show loading states while data is being calculated.
+
+Show error messages if a repository path cannot be found.
+
+---
+
+# Validation Rules
+
+Before rendering:
+
+Verify that all seven departments exist.
+
+If a department is missing:
+
+* Display it with count = 0
+* Show a warning in console
+
+The dashboard should never crash because a folder is missing.
+
+---
+
+# Final Goal
+
+The dashboard must accurately represent the actual Laserfiche repository hierarchy.
+
+The two parent categories are:
+
+1. إدخال الوثيقة
+2. مركز الوثائق والمحفوظات
+
+The departments are the first-level subfolders under these categories.
+
+The displayed value for each department must be the total number of Laserfiche documents contained within that department and all of its descendant folders.
+
+Count documents only.
+
+Never count folders.

@@ -156,187 +156,157 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (lfConfig) {
         try {
           const token = await getLaserficheToken(lfConfig);
-        // ── Department-based document counting ──
-        // Only these 5 departments are shown in the dashboard chart.
-        const TARGET_DEPARTMENTS = [
-          { key: "Scan",        label: "Scan",        aliases: ["scan", "SCAN", "Scanning"] },
-          { key: "Index",       label: "Index",       aliases: ["index", "INDEX", "Indexing"] },
-          { key: "QA",          label: "QA",          aliases: ["qa", "QA", "Quality Assurance"] },
-          { key: "PRODUCTION",  label: "PRODUCTION", aliases: ["production", "PRODUCTION", "Prod", "PROD"] },
-          { key: "مركز الوثائق والمحفوظات", label: "مركز الوثائق والمحفوظات", aliases: ["مركز الوثائق والمحفوظات", "مركز الوثائق"] },
-        ];
 
-        // 1. Discover department folders under the repository root
-        const rootChildren = await laserficheGetFolderChildren(lfConfig, token, 1);
-        const deptFolders = rootChildren.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
-        console.log("Root folders found:", deptFolders.map((f: any) => f.name));
-
-        // 2. Recursively count ONLY documents inside each matched department folder
-        const countDocsRecursive = async (folderId: number, visited: Set<number>): Promise<number> => {
-          if (visited.has(folderId)) return 0;
-          visited.add(folderId);
-          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
-          const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document")).length;
-          const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
-          const nested = await Promise.all(subfolders.map((f: any) => countDocsRecursive(Number(f.id), visited)));
-          return docsHere + nested.reduce((sum, n) => sum + n, 0);
-        };
-
-        const docsByDepartment: Record<string, number> = {};
-        for (const td of TARGET_DEPARTMENTS) {
-          // Match by any alias
-          const matched = deptFolders.find((f: any) =>
-            td.aliases.some((a) => String(f.name).trim().toLowerCase() === a.toLowerCase())
-          );
-          if (matched) {
-            const count = await countDocsRecursive(Number(matched.id), new Set<number>());
-            docsByDepartment[td.label] = count;
-            console.log("Department:", td.label);
-            console.log("Documents Found:", count);
-          } else {
-            docsByDepartment[td.label] = 0;
-            console.log("Department:", td.label);
-            console.log("Documents Found:", 0);
-          }
-        }
-
-        // 3. Global totals for the dashboard stat cards (still scan the entire tree)
-        const visitedAll = new Set<number>();
-        const collectAll = async (folderId: number): Promise<{ docs: any[]; folderCount: number }> => {
-          if (visitedAll.has(folderId)) return { docs: [], folderCount: 0 };
-          visitedAll.add(folderId);
-          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
-          const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document"));
-          const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
-          const nested = await Promise.all(subfolders.map((f: any) => collectAll(Number(f.id))));
-          return {
-            docs: [...docsHere, ...nested.flatMap((n) => n.docs)],
-            folderCount: subfolders.length + nested.reduce((sum, n) => sum + n.folderCount, 0),
+          // ── Two-section department-based document counting ──
+          // Section 1: إدخال الوثيقة (Document Entry)
+          // Section 2: مركز الوثائق والمحفوظات (Document Archives Center)
+          // Departments are first-level subfolders under each parent.
+          // Document counts are recursive (sum all documents in subfolders).
+          const countDocsRecursive = async (folderId: number, visited: Set<number>): Promise<number> => {
+            if (visited.has(folderId)) return 0;
+            visited.add(folderId);
+            const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+            const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document")).length;
+            const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
+            const nested = await Promise.all(subfolders.map((f: any) => countDocsRecursive(Number(f.id), visited)));
+            return docsHere + nested.reduce((sum, n) => sum + n, 0);
           };
-        };
 
-        const allTree = await collectAll(1);
-        const entries = allTree.docs.slice(0, 500);
-        const parentFolderDocCounts: Record<string, number> = {};
+          const findFolder = (folders: any[], names: string[]) =>
+            folders.find((f: any) =>
+              names.some((name) => String(f.name).trim() === name)
+            ) || null;
 
-        const docs = await Promise.all(
-          entries.map(async (entry: any) => {
-            const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({} as Record<string, string>));
-            const docType = fields["Document Type"] || fields["نوع المستند"] || entry.extension || "Document";
-            const path = String(entry.fullPath || "");
-            const fieldTypeCounts: Record<string, number> = {};
-            for (const [fieldName, value] of Object.entries(fields)) {
-              const normalized = String(value || "").trim();
-              let type = "empty";
-              if (!normalized) type = "empty";
-              else if (/^(true|false)$/i.test(normalized)) type = "boolean";
-              else if (/^-?\d+(\.\d+)?$/.test(normalized)) type = "number";
-              else if (/^\d{4}-\d{2}-\d{2}/.test(normalized)) type = "date";
-              else type = "string";
-              fieldTypeCounts[type] = (fieldTypeCounts[type] || 0) + 1;
+          // 1. Scan repository root for the two parent folders
+          const rootChildren = await laserficheGetFolderChildren(lfConfig, token, 1);
+          const rootFolders = rootChildren.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
+          console.log("Root folders found:", rootFolders.map((f: any) => f.name));
+
+          const section1Parent = findFolder(rootFolders, ["إدخال الوثيقة", "Document Entry", "Doc Entry"]);
+          const section2Parent = findFolder(rootFolders, ["مركز الوثائق والمحفوظات", "Document Archives Center", "Archives Center"]);
+
+          // 2. Build section 1: إدخال الوثيقة
+          const section1Depts: Array<{ name: string; count: number }> = [];
+          let section1Total = 0;
+          if (section1Parent) {
+            const children = await laserficheGetFolderChildren(lfConfig, token, Number(section1Parent.id));
+            const deptFolders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
+            console.log("إدخال الوثيقة departments:", deptFolders.map((f: any) => f.name));
+            for (const dept of deptFolders) {
+              const count = await countDocsRecursive(Number(dept.id), new Set<number>());
+              section1Depts.push({ name: dept.name, count });
+              section1Total += count;
+              console.log("Department:", dept.name, "Documents Found:", count);
             }
-            const pathSegments = path.split("/").filter(Boolean);
-            return {
-              docType,
-              fieldsCount: Object.keys(fields).length,
-              fieldTypeCounts,
-              parentFolder: pathSegments.length >= 2 ? pathSegments[1] : "",
-              currentPath: path,
-            };
-          })
-        );
-
-        for (const d of docs) {
-          if (d.parentFolder) {
-            parentFolderDocCounts[d.parentFolder] = (parentFolderDocCounts[d.parentFolder] || 0) + 1;
+          } else {
+            console.warn("إدخال الوثيقة folder not found in repository root");
           }
-        }
 
-        const docsByType: Record<string, number> = {};
-        for (const d of docs) {
-          docsByType[d.docType] = (docsByType[d.docType] || 0) + 1;
-        }
-        docsByType["Folder"] = allTree.folderCount;
-
-        const totalFiles = entries.length;
-        const totalFields = docs.reduce((sum, d) => sum + d.fieldsCount, 0);
-        const fieldTypesBreakdown: Record<string, number> = {};
-        for (const d of docs) {
-          for (const [type, count] of Object.entries(d.fieldTypeCounts)) {
-            fieldTypesBreakdown[type] = (fieldTypesBreakdown[type] || 0) + Number(count || 0);
+          // 3. Build section 2: مركز الوثائق والمحفوظات
+          const section2Depts: Array<{ name: string; count: number }> = [];
+          let section2Total = 0;
+          if (section2Parent) {
+            const children = await laserficheGetFolderChildren(lfConfig, token, Number(section2Parent.id));
+            const deptFolders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
+            console.log("مركز الوثائق والمحفوظات departments:", deptFolders.map((f: any) => f.name));
+            for (const dept of deptFolders) {
+              const count = await countDocsRecursive(Number(dept.id), new Set<number>());
+              section2Depts.push({ name: dept.name, count });
+              section2Total += count;
+              console.log("Department:", dept.name, "Documents Found:", count);
+            }
+          } else {
+            console.warn("مركز الوثائق والمحفوظات folder not found in repository root");
           }
-        }
 
-        const logs = await storage.getAuditLogs(500);
-        const totalSearches = logs.length;
-        const avgResponseMs = totalSearches ? Math.round(logs.reduce((sum, l) => sum + 142, 0) / totalSearches) : 142;
-        const searchesByDayMap: Record<string, number> = {};
-        const today = new Date();
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date(today);
-          d.setDate(today.getDate() - i);
-          searchesByDayMap[d.toISOString().slice(0, 10)] = 0;
-        }
-        for (const log of logs) {
-          const day = new Date(log.searchedAt as any).toISOString().slice(0, 10);
-          if (day in searchesByDayMap) searchesByDayMap[day] += 1;
-        }
-        const searchesByDay = Object.entries(searchesByDayMap).map(([date, count]) => ({ date, count }));
+          const allDepartments = [...section1Depts, ...section2Depts];
+          const grandTotal = section1Total + section2Total;
+          const totalDepartments = allDepartments.length;
 
-        const topMap: Record<string, number> = {};
-        for (const l of logs) topMap[l.query] = (topMap[l.query] || 0) + 1;
-        const topSearches = Object.entries(topMap).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 5);
-
-        const inferredWorkflowBySignal: Record<string, number> = {
-          "Document moved": 0,
-          "Metadata updated": 0,
-        };
-        const workflowRunsByDayMap: Record<string, number> = {};
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date(today);
-          d.setDate(today.getDate() - i);
-          workflowRunsByDayMap[d.toISOString().slice(0, 10)] = 0;
-        }
-        for (const d of docs as any[]) {
-          const events = [
-            { signal: "Document moved", raw: String(d.movedAt || "").trim() },
-            { signal: "Metadata updated", raw: String(d.metadataUpdatedAt || "").trim() },
-          ];
-          for (const ev of events) {
-            if (!ev.raw) continue;
-            const parsed = new Date(ev.raw);
-            if (Number.isNaN(parsed.getTime())) continue;
-            inferredWorkflowBySignal[ev.signal] = (inferredWorkflowBySignal[ev.signal] || 0) + 1;
-            const day = parsed.toISOString().slice(0, 10);
-            if (day in workflowRunsByDayMap) workflowRunsByDayMap[day] += 1;
+          // 4. Audit logs for search activity
+          const logs = await storage.getAuditLogs(500);
+          const totalSearches = logs.length;
+          const avgResponseMs = totalSearches ? Math.round(logs.reduce((sum, l) => sum + 142, 0) / totalSearches) : 142;
+          const searchesByDayMap: Record<string, number> = {};
+          const today = new Date();
+          for (let i = 6; i >= 0; i--) {
+            const d = new Date(today);
+            d.setDate(today.getDate() - i);
+            searchesByDayMap[d.toISOString().slice(0, 10)] = 0;
           }
-        }
-        const workflowRunsByDay = Object.entries(workflowRunsByDayMap).map(([date, count]) => ({ date, count }));
+          for (const log of logs) {
+            const day = new Date(log.searchedAt as any).toISOString().slice(0, 10);
+            if (day in searchesByDayMap) searchesByDayMap[day] += 1;
+          }
+          const searchesByDay = Object.entries(searchesByDayMap).map(([date, count]) => ({ date, count }));
+
+          const topMap: Record<string, number> = {};
+          for (const l of logs) topMap[l.query] = (topMap[l.query] || 0) + 1;
+          const topSearches = Object.entries(topMap).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 5);
 
           return res.json({
-            totalFiles,
-            totalDocuments: docs.length,
-            totalFields,
-            fieldTypesBreakdown,
-            parentFolderDocCounts,
+            section1Total,
+            section2Total,
+            grandTotal,
+            totalDepartments,
             totalSearches,
-            totalDepartments: Object.keys(docsByDepartment).length,
             avgResponseMs,
-            docsByType,
-            docsByDepartment,
+            sections: [
+              {
+                name: "إدخال الوثيقة",
+                nameEn: "Document Entry",
+                total: section1Total,
+                departments: section1Depts,
+              },
+              {
+                name: "مركز الوثائق والمحفوظات",
+                nameEn: "Document Archives Center",
+                total: section2Total,
+                departments: section2Depts,
+              },
+            ],
             searchesByDay,
             topSearches,
-            workflowRunsByDay,
-            workflowByName: inferredWorkflowBySignal,
           });
-        } catch {
+        } catch (err: any) {
+          console.warn("Laserfiche dashboard stats failed, using fallback:", err?.message || err);
           // If Laserfiche is configured but currently unavailable/rate-limited,
           // fall back to in-memory dashboard stats so the dashboard still renders.
         }
       }
 
       const stats = await storage.getDashboardStats();
-      res.json({ ...stats, workflowRunsByDay: stats.searchesByDay, workflowByName: {} });
+      res.json({
+        ...stats,
+        section1Total: 0,
+        section2Total: 0,
+        grandTotal: stats.totalDocuments,
+        sections: [
+          {
+            name: "إدخال الوثيقة",
+            nameEn: "Document Entry",
+            total: 0,
+            departments: [
+              { name: "Scan", count: 0 },
+              { name: "Index", count: 0 },
+              { name: "QA", count: 0 },
+              { name: "Production", count: 0 },
+            ],
+          },
+          {
+            name: "مركز الوثائق والمحفوظات",
+            nameEn: "Document Archives Center",
+            total: 0,
+            departments: [
+              { name: "الوثائق والمحفوظات المالية", count: 0 },
+              { name: "الوثائق والمحفوظات التخصصية", count: 0 },
+              { name: "الوثائق والمحفوظات الإدارية", count: 0 },
+            ],
+          },
+        ],
+        workflowRunsByDay: stats.searchesByDay,
+        workflowByName: {},
+      });
     } catch {
       res.status(500).json({ error: "Failed to fetch stats" });
     }

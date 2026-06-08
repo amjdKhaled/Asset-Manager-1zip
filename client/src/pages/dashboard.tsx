@@ -1,29 +1,36 @@
 import { useQuery } from "@tanstack/react-query";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Database, Building2, Layers, FolderTree, FileType2, RefreshCw } from "lucide-react";
+import { RefreshCw, FileText, FolderOpen, Layers, Calculator } from "lucide-react";
+
+type Department = {
+  name: string;
+  count: number;
+};
+
+type Section = {
+  name: string;
+  nameEn: string;
+  total: number;
+  departments: Department[];
+};
 
 type DashboardStats = {
-  totalFiles?: number;
-  totalDocuments: number;
-  totalFields?: number;
-  fieldTypesBreakdown?: Record<string, number>;
-  parentFolderDocCounts?: Record<string, number>;
-  totalSearches: number;
+  section1Total: number;
+  section2Total: number;
+  grandTotal: number;
   totalDepartments: number;
+  totalSearches: number;
   avgResponseMs: number;
-  docsByType: Record<string, number>;
-  docsByDepartment: Record<string, number>;
+  sections: Section[];
   searchesByDay: Array<{ date: string; count: number }>;
   topSearches: Array<{ query: string; count: number }>;
   workflowRunsByDay?: Array<{ date: string; count: number }>;
   workflowByName?: Record<string, number>;
 };
 
-const PIE_COLORS = ["#3B82F6", "#14B8A6", "#F59E0B", "#8B5CF6", "#EF4444", "#22C55E", "#F97316"];
-
-const formatDate = (d: string) => new Date(d).toLocaleDateString("en-GB", { month: "short", day: "numeric" });
+const BAR_COLORS = ["#3B82F6", "#14B8A6", "#F59E0B", "#8B5CF6", "#EF4444", "#22C55E", "#F97316"];
 
 function StatCard({ icon: Icon, label, labelAr, value, sub }: {
   icon: any; label: string; labelAr: string; value: string | number; sub?: string;
@@ -43,12 +50,79 @@ function StatCard({ icon: Icon, label, labelAr, value, sub }: {
   );
 }
 
-function SectionHeader({ icon: Icon, title, titleAr }: { icon: any; title: string; titleAr: string }) {
+function SectionCard({ section, index }: { section: Section; index: number }) {
+  const chartData = section.departments.map((d) => ({ name: d.name, count: d.count }));
+  const color = BAR_COLORS[index % BAR_COLORS.length];
   return (
-    <div className="flex items-center gap-2 mb-4">
-      <Icon className="w-4 h-4 text-primary" />
-      <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-      <span className="text-xs text-muted-foreground font-arabic" dir="rtl">{titleAr}</span>
+    <div className="bg-card border border-card-border rounded-xl p-5 shadow-sm">
+      <div className="flex items-center gap-2 mb-1">
+        <FolderOpen className="w-4 h-4 text-primary" />
+        <h2 className="text-sm font-semibold text-foreground">{section.nameEn}</h2>
+        <span className="text-xs text-muted-foreground font-arabic" dir="rtl">{section.name}</span>
+      </div>
+      <p className="text-sm text-muted-foreground mb-4">
+        {section.total.toLocaleString()} documents total
+        <span className="font-arabic mx-1" dir="rtl">({section.total.toLocaleString()} وثيقة إجمالياً)</span>
+      </p>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        {/* Table */}
+        <div className="overflow-hidden rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50">
+                <th className="text-left px-3 py-2 font-semibold text-foreground">Department</th>
+                <th className="text-right px-3 py-2 font-semibold text-foreground">
+                  <span className="font-arabic" dir="rtl">الوثائق</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {section.departments.map((dept) => (
+                <tr key={dept.name} className="border-t border-border hover:bg-muted/30">
+                  <td className="px-3 py-2 text-foreground">{dept.name}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-foreground">{dept.count.toLocaleString()}</td>
+                </tr>
+              ))}
+              {section.departments.length === 0 && (
+                <tr>
+                  <td colSpan={2} className="px-3 py-4 text-center text-muted-foreground">
+                    No departments found
+                    <span className="font-arabic mr-1" dir="rtl">(لم يتم العثور على أقسام)</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Chart */}
+        <div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
+              <XAxis
+                dataKey="name"
+                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                interval={0}
+                angle={-20}
+                height={55}
+                textAnchor="end"
+              />
+              <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+              <Tooltip
+                cursor={{ fill: "hsl(var(--muted))" }}
+                contentStyle={{
+                  background: "hsl(var(--popover))",
+                  border: "1px solid hsl(var(--border))",
+                }}
+                itemStyle={{ color: "hsl(var(--popover-foreground))" }}
+              />
+              <Bar dataKey="count" fill={color} radius={[6, 6, 0, 0]} activeBar={{ fill: color + "CC" }} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
     </div>
   );
 }
@@ -59,7 +133,13 @@ export default function DashboardPage() {
   });
 
   if (isLoading) {
-    return <div className="h-full overflow-auto px-6 py-5"><Skeleton className="h-[420px] w-full rounded-xl" /></div>;
+    return (
+      <div className="h-full overflow-auto px-6 py-5">
+        <Skeleton className="h-[120px] w-full rounded-xl mb-4" />
+        <Skeleton className="h-[340px] w-full rounded-xl mb-4" />
+        <Skeleton className="h-[340px] w-full rounded-xl" />
+      </div>
+    );
   }
 
   if (isError || !stats) {
@@ -77,14 +157,6 @@ export default function DashboardPage() {
     );
   }
 
-  const pieData = Object.entries(stats.docsByType || {}).map(([name, value]) => ({ name, value }));
-  const deptData = Object.entries(stats.docsByDepartment || {})
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, value]) => ({ name, value }));
-  const topDept = deptData[0];
-  const totalFolders = Number((stats.docsByType || {})["Folder"] || 0);
-  const avgFieldsPerDoc = stats.totalDocuments > 0 ? ((stats.totalFields || 0) / stats.totalDocuments).toFixed(1) : "0.0";
-
   return (
     <div className="h-full overflow-auto bg-gradient-to-b from-background to-background/70">
       <div className="px-6 py-5">
@@ -94,42 +166,43 @@ export default function DashboardPage() {
             <p className="text-sm text-muted-foreground mt-0.5 font-arabic" dir="rtl">لوحة تحليلات Laserfiche</p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
-            <StatCard icon={Database} label="Total Files" labelAr="إجمالي الملفات" value={(stats.totalFiles ?? stats.totalDocuments).toLocaleString()} sub="From Laserfiche" />
-            <StatCard icon={FolderTree} label="Total Folders" labelAr="إجمالي المجلدات" value={totalFolders.toLocaleString()} sub="Repository tree" />
-            <StatCard icon={Building2} label="Departments" labelAr="عدد الجهات" value={stats.totalDepartments.toLocaleString()} sub="Detected folders" />
-            <StatCard icon={Layers} label="Avg Fields / Doc" labelAr="متوسط الحقول لكل وثيقة" value={avgFieldsPerDoc} sub="Metadata quality" />
-            <StatCard icon={FileType2} label="Top Department" labelAr="أكثر جهة وثائق" value={topDept?.name || "-"} sub={topDept ? `${topDept.value.toLocaleString()} docs` : "No data"} />
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <StatCard
+              icon={FileText}
+              label="Total Documents in Document Entry"
+              labelAr="إجمالي الوثائق في إدخال الوثيقة"
+              value={(stats.section1Total ?? 0).toLocaleString()}
+              sub="Section 1"
+            />
+            <StatCard
+              icon={FileText}
+              label="Total Documents in Archives Center"
+              labelAr="إجمالي الوثائق في مركز الوثائق"
+              value={(stats.section2Total ?? 0).toLocaleString()}
+              sub="Section 2"
+            />
+            <StatCard
+              icon={Calculator}
+              label="Grand Total Documents"
+              labelAr="الإجمالي الكلي للوثائق"
+              value={(stats.grandTotal ?? 0).toLocaleString()}
+              sub="All sections"
+            />
+            <StatCard
+              icon={Layers}
+              label="Total Departments"
+              labelAr="إجمالي الأقسام"
+              value={(stats.totalDepartments ?? 0).toLocaleString()}
+              sub="Active departments"
+            />
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-            <div className="xl:col-span-2 bg-card border border-card-border rounded-xl p-5">
-              <SectionHeader icon={Building2} title="Documents by Department" titleAr="الوثائق حسب الجهة" />
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={deptData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} interval={0} angle={-20} height={55} textAnchor="end" />
-                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <Tooltip cursor={{ fill: "hsl(var(--muted))" }} contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))" }} itemStyle={{ color: "hsl(var(--popover-foreground))" }} />
-                  <Bar dataKey="value" fill="#3B82F6" radius={[6, 6, 0, 0]} activeBar={{ fill: "#60A5FA" }} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+          {/* Section 1: إدخال الوثيقة */}
+          {stats.sections?.[0] && <SectionCard section={stats.sections[0]} index={0} />}
 
-            <div className="bg-card border border-card-border rounded-xl p-5">
-              <SectionHeader icon={FileType2} title="Document Types" titleAr="أنواع الوثائق" />
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie data={pieData} dataKey="value" nameKey="name" outerRadius={95} innerRadius={48}>
-                    {pieData.map((_, idx) => <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))" }} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
+          {/* Section 2: مركز الوثائق والمحفوظات */}
+          {stats.sections?.[1] && <SectionCard section={stats.sections[1]} index={1} />}
         </div>
       </div>
     </div>
