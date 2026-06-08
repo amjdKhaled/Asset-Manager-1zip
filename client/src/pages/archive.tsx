@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { type Document } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
   Clock, Tag, Search, ChevronRight, Folder, FolderOpen,
-  ArrowLeft, Download, Image as ImageIcon, FileDown, Eye
+  ArrowLeft, Image as ImageIcon, FileDown, Eye, Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -104,6 +105,7 @@ type LaserficheFileEntry = {
   lastModifiedTime?: string;
   extension?: string;
   pageCount?: number;
+  isElectronicDocument?: boolean;
 };
 
 type LaserfichePreview = {
@@ -167,6 +169,110 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
   const isPdf = ext === "pdf";
   const isImage = ["jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp", "webp"].includes(ext);
   const isOffice = ["doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(ext);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const isEmpty = !fileUrl;
+
+  let viewerContent: JSX.Element;
+  if (isLoading) {
+    viewerContent = (
+      <div className="w-full h-full flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+      </div>
+    );
+  } else if (loadError) {
+    viewerContent = (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-center px-8">
+        <p className="text-sm font-medium text-destructive">Failed to load preview</p>
+        <p className="text-xs text-muted-foreground">{loadError}</p>
+      </div>
+    );
+  } else if (isEmpty) {
+    viewerContent = <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">No document available</div>;
+  } else if (isPdf && fileUrl) {
+    viewerContent = <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-pdf" />;
+  } else if (isImage && fileUrl) {
+    viewerContent = (
+      <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
+        <img src={fileUrl} alt={entry.name} className="max-w-full h-auto rounded shadow-sm" data-testid="viewer-img" />
+      </div>
+    );
+  } else if (isOffice && fileUrl) {
+    viewerContent = (
+      <div className="flex flex-col h-full">
+        <iframe src={fileUrl} className="w-full flex-1 border-none" title={entry.name} data-testid="viewer-iframe-office" />
+        <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
+          <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">If your browser cannot preview this file, open it in a compatible viewer.</span>
+        </div>
+      </div>
+    );
+  } else if (fileUrl) {
+    viewerContent = (
+      <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm" data-testid="viewer-unsupported">
+        No preview available for this file type
+      </div>
+    );
+  } else {
+    viewerContent = (
+      <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
+        <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
+          <FileDown className="w-7 h-7 text-muted-foreground" />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-foreground mb-1">No preview available</p>
+        </div>
+        <a href={contentUrl} download={entry.name || `document-${entry.id}`} data-testid="viewer-download-fallback">
+          <Button variant="outline" size="sm" className="gap-1.5">
+            Download file
+          </Button>
+        </a>
+      </div>
+    );
+  }
+
+  useEffect(() => {
+    let disposed = false;
+    let objectUrl: string | null = null;
+
+    const loadFile = async () => {
+      setIsLoading(true);
+      setLoadError(null);
+      try {
+        const response = await fetch(contentUrl);
+        if (response.status === 204) {
+          setFileUrl(null);
+          throw new Error("No document available");
+        }
+        if (!response.ok) throw new Error(`Failed to load document (${response.status})`);
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+        if (!disposed) {
+          setFileUrl(objectUrl);
+        } else {
+          URL.revokeObjectURL(objectUrl);
+          objectUrl = null;
+        }
+      } catch (error) {
+        if (!disposed) {
+          setFileUrl(null);
+          setLoadError(error instanceof Error ? error.message : "Failed to load document");
+        }
+      } finally {
+        if (!disposed) setIsLoading(false);
+      }
+    };
+
+    loadFile();
+
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [contentUrl]);
+  const absoluteContentUrl = typeof window === "undefined" ? contentUrl : `${window.location.origin}${contentUrl}`;
+  const officeViewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(absoluteContentUrl)}`;
 
   return (
     <div className="h-full flex flex-col bg-card border border-card-border rounded-md overflow-hidden" data-testid="doc-viewer-panel">
@@ -191,65 +297,51 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
             <Badge variant="secondary" className="text-xs uppercase flex-shrink-0">{ext}</Badge>
           )}
         </div>
-        <a
-          href={contentUrl}
-          download={entry.name || `document-${entry.id}`}
-          className="flex-shrink-0"
-          data-testid="viewer-download"
-        >
-          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 px-2">
-            <Download className="w-3 h-3" />
-            Download
-          </Button>
-        </a>
       </div>
 
       {/* Viewer body */}
       <div className="flex-1 overflow-hidden bg-muted/20">
-        {isPdf ? (
-          <iframe
-            src={contentUrl}
-            className="w-full h-full border-none"
-            title={entry.name}
-            data-testid="viewer-iframe-pdf"
-          />
-        ) : isImage ? (
-          <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
-            <img
-              src={contentUrl}
-              alt={entry.name}
-              className="max-w-full h-auto rounded shadow-sm"
-              data-testid="viewer-img"
-            />
+        {isLoading ? (
+          <div className="w-full h-full flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
           </div>
-        ) : isOffice ? (
-          // Office files — try iframe first, show download if it can't render
-          <div className="flex flex-col h-full">
-            <iframe
-              src={contentUrl}
-              className="w-full flex-1 border-none"
-              title={entry.name}
-              data-testid="viewer-iframe-office"
-            />
-            <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
-              <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">If the document doesn't display, use Download above.</span>
+        ) : loadError ? (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-center px-8">
+            <p className="text-sm font-medium text-destructive">Failed to load preview</p>
+            <p className="text-xs text-muted-foreground">{loadError}</p>
+          </div>
+        ) : isEmpty ? (
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">
+            No document available
+          </div>
+        ) : fileUrl ? (
+          isPdf ? (
+            <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-pdf" />
+          ) : isImage ? (
+            <div className="w-full h-full overflow-auto flex items-start justify-center p-4">
+              <img src={fileUrl} alt={entry.name} className="max-w-full h-auto rounded shadow-sm" data-testid="viewer-img" />
             </div>
-          </div>
+          ) : isOffice ? (
+            <div className="flex flex-col h-full">
+              <iframe src={officeViewerUrl} className="w-full flex-1 border-none" title={entry.name} data-testid="viewer-iframe-office" />
+              <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-background flex items-center gap-2">
+                <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">If your browser cannot preview this file, use Download above and save as PDF.</span>
+              </div>
+            </div>
+          ) : (
+            <iframe src={fileUrl} className="w-full h-full border-none" title={entry.name} data-testid="viewer-iframe-fallback" />
+          )
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
             <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
               <FileDown className="w-7 h-7 text-muted-foreground" />
             </div>
             <div>
-              <p className="text-sm font-medium text-foreground mb-1">Preview not available</p>
-              <p className="text-xs text-muted-foreground">
-                {ext ? `".${ext}" files` : "This file type"} cannot be displayed in the browser.
-              </p>
+              <p className="text-sm font-medium text-foreground mb-1">No preview available</p>
             </div>
             <a href={contentUrl} download={entry.name || `document-${entry.id}`} data-testid="viewer-download-fallback">
               <Button variant="outline" size="sm" className="gap-1.5">
-                <Download className="w-3.5 h-3.5" />
                 Download file
               </Button>
             </a>
@@ -261,10 +353,11 @@ function SmartViewer({ entry, onClose }: { entry: LaserficheFileEntry; onClose: 
 }
 
 export default function ArchivePage() {
+  const [, setLocation] = useLocation();
   const [localSearch, setLocalSearch] = useState("");
-  const [filterType, setFilterType] = useState("all");
-  const [filterDept, setFilterDept] = useState("all");
-  const [selectedFolderId, setSelectedFolderId] = useState("1");
+  const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
+  const [selectedFolderId, setSelectedFolderId] = useState(() => localStorage.getItem("lf_root_folder_id") || "1");
+  const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
   const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [details, setDetails] = useState<LaserficheDetails | null>(null);
@@ -274,35 +367,89 @@ export default function ArchivePage() {
   const [analysisLoadingEntryId, setAnalysisLoadingEntryId] = useState<number | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [viewerEntry, setViewerEntry] = useState<LaserficheFileEntry | null>(null);
+  const [openNotice, setOpenNotice] = useState<string | null>(null);
+  const [discoveringRoots, setDiscoveringRoots] = useState(false);
+  const [rootCandidates, setRootCandidates] = useState<Array<{ id: number; name: string }>>([]);
 
-  const { data: docs, isLoading } = useQuery<Document[]>({ queryKey: ["/api/documents"] });
+  const numericFolderId = Number(selectedFolderId) || 1;
+  const { data: folderFilters } = useQuery<Array<{ id: number; name: string }>>({
+    queryKey: ["/api/lf/folders", numericFolderId],
+    queryFn: async () => {
+      const res = await fetch(`/api/lf/folders?rootFolderId=${numericFolderId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+  const { data: lfDocsData, isLoading } = useQuery<{ documents: Array<{ id: number; name: string; path: string; folderName: string; isElectronicDocument?: boolean }> }>({
+    queryKey: ["/api/lf/documents", numericFolderId],
+    queryFn: async () => {
+      const res = await fetch(`/api/lf/documents?rootFolderId=${numericFolderId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load Laserfiche documents");
+      return res.json();
+    },
+  });
 
   const { data: preview, isLoading: previewLoading, error: previewError, refetch: refetchPreview } = useQuery<LaserfichePreview>({
     queryKey: ["/api/laserfiche/folders", selectedFolderId, "children"],
     enabled: true,
   });
 
-  const filtered = docs?.filter(d => {
-    const matchesSearch = !localSearch || d.title.toLowerCase().includes(localSearch.toLowerCase()) || (d.titleAr || "").includes(localSearch);
-    const matchesType = filterType === "all" || d.docType === filterType;
-    const matchesDept = filterDept === "all" || d.department === filterDept;
-    return matchesSearch && matchesType && matchesDept;
+  const filtered = (lfDocsData?.documents || []).filter((d) => {
+    const folderMatch = selectedFolderFilter === "all" || d.folderName === (folderFilters || []).find((f) => String(f.id) === selectedFolderFilter)?.name;
+    const searchMatch = !localSearch || d.name.toLowerCase().includes(localSearch.toLowerCase()) || d.path.toLowerCase().includes(localSearch.toLowerCase());
+    return folderMatch && searchMatch;
   });
-
-  const departments = docs ? Array.from(new Set(docs.map(d => d.department))) : [];
-  const docTypes = docs ? Array.from(new Set(docs.map(d => d.docType))) : [];
 
   const folders = useMemo(() => (preview?.children || []).filter(i => i.entryType?.toLowerCase().includes("folder")), [preview]);
   const files = useMemo(() => (preview?.children || []).filter(i => !i.entryType?.toLowerCase().includes("folder")), [preview]);
+  const { data: lfSearchData } = useQuery<{ results: Array<{ id: number; name: string; path: string }> }>({
+    queryKey: ["/api/laserfiche/search", selectedFolderId, localSearch],
+    enabled: viewMode === "laserfiche" && localSearch.trim().length > 0,
+    queryFn: async () => {
+      const res = await fetch("/api/laserfiche/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ query: localSearch, folderId: Number(selectedFolderId) || 1 }),
+      });
+      if (!res.ok) throw new Error("Search failed");
+      return res.json();
+    },
+  });
+  const filesToRender = useMemo(() => {
+    if (viewMode !== "laserfiche") return files;
+    if (!localSearch.trim()) return files;
+    const mapped = (lfSearchData?.results || []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      fullPath: r.path,
+      entryType: "ElectronicDocument",
+      isElectronicDocument: true,
+    }));
+    return mapped as LaserficheFileEntry[];
+  }, [viewMode, localSearch, files, lfSearchData]);
 
   const openFolder = async (folderId: string, folderName?: string) => {
     setSelectedFolderId(folderId);
+    localStorage.setItem("lf_root_folder_id", folderId);
     setTrail((current) => {
       const index = current.findIndex((item) => String(item.id) === folderId);
       if (index >= 0) return current.slice(0, index + 1);
       return [...current, { id: Number(folderId), name: folderName || `Folder ${folderId}` }];
     });
     await refetchPreview();
+  };
+
+  const discoverRoots = async () => {
+    setDiscoveringRoots(true);
+    try {
+      const res = await fetch("/api/lf/root-candidates", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to discover root folders");
+      const payload = await res.json();
+      setRootCandidates(Array.isArray(payload?.candidates) ? payload.candidates : []);
+    } finally {
+      setDiscoveringRoots(false);
+    }
   };
 
   const openTrail = async (index: number) => {
@@ -328,16 +475,61 @@ export default function ArchivePage() {
     }
   };
 
-  const openViewer = (file: LaserficheFileEntry) => {
-    setViewerEntry(file);
-    // Also load metadata for this entry if not already loaded
-    if (selectedEntryId !== file.id) {
-      openDocument(file.id);
+  const openViewer = async (file: LaserficheFileEntry) => {
+    setOpenNotice(null);
+    if (file.isElectronicDocument === false) {
+      setOpenNotice("This entry has no electronic file, so it cannot be opened in the document viewer.");
+      return;
+    }
+    try {
+      const probe = await fetch(`/api/laserfiche/entries/${file.id}/content`, { method: "HEAD" });
+      if (!probe.ok) {
+        if (probe.status === 404) {
+          setOpenNotice("This entry has no electronic file, so it cannot be opened in the document viewer.");
+          return;
+        }
+        setOpenNotice("Could not open this document right now. Please try again.");
+        return;
+      }
+      setLocation(`/lf-document/${file.id}`);
+    } catch {
+      setOpenNotice("Could not open this document right now. Please try again.");
     }
   };
 
   const closeViewer = () => setViewerEntry(null);
 
+  const handleAI = async (file: LaserficheFileEntry) => {
+    let contextText = `Document ID: ${file.id}\nName: ${file.name}\nPath: ${file.fullPath || "-"}`;
+    try {
+      const payload = await loadLaserficheFields(file.id);
+      const fields = Array.isArray(payload?.value) ? payload.value : [];
+      const map: Record<string, string> = {};
+      for (const f of fields) {
+        const vals = formatLaserficheFieldValues(f?.values || []);
+        if (f?.fieldName && vals) map[f.fieldName] = vals;
+      }
+      contextText = [
+        `Document ID: ${file.id}`,
+        `Name: ${file.name}`,
+        `Path: ${file.fullPath || "-"}`,
+        `Title: ${map["Title"] || map["العنوان"] || "-"}`,
+        `Department: ${map["Department"] || map["الجهة"] || "-"}`,
+        `Type: ${map["Document Type"] || map["نوع المستند"] || "-"}`,
+        `Status: ${map["Workflow Status"] || map["الحالة"] || "-"}`,
+      ].join("\n");
+    } catch {}
+
+    const nextDoc = {
+      entryId: file.id,
+      name: file.name,
+      fullPath: file.fullPath,
+      fileUrl: `/api/laserfiche/entries/${file.id}/content`,
+      contextText,
+    };
+    localStorage.setItem("ai_document", JSON.stringify(nextDoc));
+    setLocation(`/chat?entryId=${file.id}`);
+  };
   const analyzeDocument = async (file: LaserficheFileEntry) => {
     setSelectedEntryId(file.id);
     setAnalysisError(null);
@@ -400,49 +592,87 @@ export default function ArchivePage() {
           <h1 className="text-xl font-semibold text-foreground">Document Archive</h1>
           <p className="text-sm text-muted-foreground mt-0.5 font-arabic" dir="rtl">أرشيف المستندات الحكومية</p>
         </div>
+        <div className="flex items-center gap-2 mb-3">
+          <Button
+            type="button"
+            variant={viewMode === "archive" ? "default" : "outline"}
+            className="h-8 text-xs"
+            onClick={() => setViewMode("archive")}
+            data-testid="view-mode-archive"
+          >
+            Document Archive
+          </Button>
+          <Button
+            type="button"
+            variant={viewMode === "laserfiche" ? "default" : "outline"}
+            className="h-8 text-xs"
+            onClick={() => setViewMode("laserfiche")}
+            data-testid="view-mode-laserfiche"
+          >
+            Laserfiche Repository
+          </Button>
+        </div>
         <div className="flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input
               value={localSearch}
               onChange={e => setLocalSearch(e.target.value)}
-              placeholder="Filter documents..."
+              placeholder={viewMode === "archive" ? "Filter documents..." : "Search Laserfiche..."}
               className="pl-8 h-8 text-sm"
               data-testid="archive-search"
             />
           </div>
-          <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="h-8 text-xs w-36" data-testid="archive-filter-type">
-              <SelectValue placeholder="All Types" />
+          <Select value={selectedFolderFilter} onValueChange={setSelectedFolderFilter}>
+            <SelectTrigger className="h-8 text-xs w-48" data-testid="archive-folder-filter">
+              <SelectValue placeholder="All Folders" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              {docTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              <SelectItem value="all">All Folders</SelectItem>
+              {(folderFilters || []).map(f => <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={filterDept} onValueChange={setFilterDept}>
-            <SelectTrigger className="h-8 text-xs w-48" data-testid="archive-filter-dept">
-              <SelectValue placeholder="All Departments" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Departments</SelectItem>
-              {departments.map(d => <SelectItem key={d} value={d}>{d.split(" ").slice(-2).join(" ")}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          {docs && (
+          {lfDocsData && (
             <span className="flex items-center text-xs text-muted-foreground">
-              {filtered?.length ?? 0} of {docs.length} documents
+              {filtered?.length ?? 0} of {lfDocsData.documents.length} documents
             </span>
           )}
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 text-xs"
+            onClick={discoverRoots}
+            disabled={discoveringRoots}
+            data-testid="button-discover-roots"
+          >
+            {discoveringRoots ? "Discovering..." : "Discover root folders"}
+          </Button>
         </div>
+        {rootCandidates.length > 0 && (
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">Detected roots:</span>
+            {rootCandidates.map((root) => (
+              <Button
+                key={root.id}
+                type="button"
+                variant={String(root.id) === selectedFolderId ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => openFolder(String(root.id), root.name)}
+                data-testid={`root-candidate-${root.id}`}
+              >
+                {root.name} (#{root.id})
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Body */}
       <div className="flex-1 overflow-hidden px-6 py-5">
-        <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5">
+        <div className="h-full grid grid-cols-1 gap-5">
 
           {/* LEFT — Document grid OR inline viewer */}
-          <div className="overflow-auto min-h-0">
+          {viewMode === "archive" && <div className="overflow-auto min-h-0">
             {viewerEntry ? (
               <div className="h-full">
                 <SmartViewer entry={viewerEntry} onClose={closeViewer} />
@@ -452,8 +682,37 @@ export default function ArchivePage() {
                 {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-28 rounded-md" />)}
               </div>
             ) : filtered && filtered.length > 0 ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 max-w-5xl">
-                {filtered.map(doc => <DocCard key={doc.id} doc={doc} />)}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-6xl">
+                {filtered.map((doc) => (
+                  <button
+                    key={doc.id}
+                    type="button"
+                    onClick={() => setLocation(`/lf-document/${doc.id}`)}
+                    className="border border-border rounded-md p-3 bg-card text-left hover:bg-muted/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    data-testid={`archive-card-open-${doc.id}`}
+                  >
+                    <p className="text-lg font-semibold truncate">{doc.name}</p>
+                    <p className="text-sm text-muted-foreground truncate mt-1">{doc.path}</p>
+                    <div className="mt-3 flex items-center gap-2">
+                      <Badge variant="secondary">Entry #{doc.id}</Badge>
+                      <Badge variant="outline">{doc.folderName}</Badge>
+                    </div>
+                    <div className="mt-3">
+                      <div className="w-full h-px bg-border mb-3" />
+                      <Button
+                        type="button"
+                        size="lg"
+                        className="w-full h-10 text-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAI({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "ElectronicDocument", isElectronicDocument: true } as LaserficheFileEntry);
+                        }}
+                      >
+                        AI Assistant
+                      </Button>
+                    </div>
+                  </button>
+                ))}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -462,10 +721,10 @@ export default function ArchivePage() {
                 <p className="text-sm text-muted-foreground">Try adjusting your filters.</p>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* RIGHT — Laserfiche repository browser + metadata */}
-          <div className="overflow-auto min-h-0">
+          {viewMode === "laserfiche" && <div className="overflow-auto min-h-0">
             <div className="bg-card border border-card-border rounded-md h-full flex flex-col">
               <div className="px-4 py-3 border-b border-border flex items-center gap-2">
                 <Folder className="w-4 h-4 text-primary" />
@@ -523,8 +782,13 @@ export default function ArchivePage() {
                     {/* Files */}
                     <div>
                       <p className="text-xs text-muted-foreground mb-2">Files</p>
+                      {openNotice && (
+                        <div className="mb-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                          {openNotice}
+                        </div>
+                      )}
                       <div className="divide-y divide-border rounded-md border border-border">
-                        {files.map((file) => (
+                        {filesToRender.map((file) => (
                           <div
                             key={file.id}
                             className={cn(
@@ -553,21 +817,45 @@ export default function ArchivePage() {
                               >
                                 Metadata
                               </Button>
+                              {/* Keep only Metadata + AI + Open actions (Delete intentionally removed). */}
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                className="h-7 text-xs px-2"
+                                onClick={() => handleAI(file)}
+                                data-testid={`button-ai-document-${file.id}`}
+                              >
+                                AI
+                              </Button>
                               <Button
                                 type="button"
                                 variant="outline"
                                 size="sm"
                                 className="h-7 text-xs px-2 gap-1"
                                 onClick={() => openViewer(file)}
+                                disabled={file.isElectronicDocument === false}
+                                title={file.isElectronicDocument === false ? "No electronic file available" : undefined}
                                 data-testid={`button-open-document-${file.id}`}
                               >
                                 <Eye className="w-3 h-3" />
                                 Open
                               </Button>
+                              {/* <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                className="h-7 text-xs px-2 gap-1"
+                                onClick={() => deleteDocument(file)}
+                                data-testid={`button-delete-document-${file.id}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                Delete
+                              </Button> */}
                             </div>
                           </div>
                         ))}
-                        {files.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
+                        {filesToRender.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
                       </div>
                     </div>
 
@@ -658,7 +946,7 @@ export default function ArchivePage() {
                 )}
               </div>
             </div>
-          </div>
+          </div>}
         </div>
       </div>
     </div>

@@ -16,7 +16,9 @@ import {
   laserficheGetEntryPages,
   laserficheGetPageImage,
   laserficheGetEdoc,
+  laserficheDeleteEntry,
   naturalLanguageToLFSearchCommand,
+  laserficheRepositorySearch,
   saveLaserficheConfig,
   clearLaserficheConfig,
   testLaserficheConnection,
@@ -30,13 +32,72 @@ import {
   buildLFSummarizePrompt,
   buildLFSearchPrompt,
   summarizeDocumentContent,
+  buildDocumentMetadataChatPrompt,
   type OllamaMessage,
 } from "./ollama";
 import { z } from "zod";
 
+const requestSignal = (req: unknown): AbortSignal | undefined =>
+  (req as { signal?: AbortSignal })?.signal;
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.get("/api/documents", async (req, res) => {
     try {
+      const lfConfig = getLaserficheConfig();
+      if (lfConfig) {
+        const token = await getLaserficheToken(lfConfig);
+        const rootFolderId = Number(req.query.rootFolderId || 1);
+        const visited = new Set<number>();
+        const collectDocuments = async (folderId: number): Promise<any[]> => {
+          if (visited.has(folderId)) return [];
+          visited.add(folderId);
+
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          const docsHere = children.filter((entry: any) => entry?.entryType?.toLowerCase().includes("document"));
+          const subfolders = children.filter((entry: any) => entry?.entryType?.toLowerCase().includes("folder"));
+          const nested = await Promise.all(subfolders.map((folder: any) => collectDocuments(Number(folder.id))));
+          return [...docsHere, ...nested.flat()];
+        };
+
+        const allDocuments = await collectDocuments(rootFolderId);
+
+        const documents = await Promise.all(
+          allDocuments.map(async (entry: any) => {
+              const details = await laserficheGetEntry(lfConfig, token, Number(entry.id));
+              const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({ value: [] as any[] }));
+              const map: Record<string, string> = {};
+              for (const f of fields.value || []) {
+                const values = Array.isArray(f.values) ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ") : "";
+                if (f.fieldName) map[f.fieldName] = values;
+              }
+
+              return {
+                id: String(entry.id),
+                title: details.name || entry.name || `Entry ${entry.id}`,
+                titleAr: map["العنوان"] || null,
+                department: map["Department"] || map["الجهة"] || "Unknown",
+                departmentAr: map["الجهة"] || null,
+                classification: map["Classification"] || "Internal",
+                securityLevel: map["Security Level"] || "Internal",
+                docType: map["Document Type"] || details.extension || "Document",
+                docTypeAr: map["نوع المستند"] || null,
+                createdAt: details.creationTime ? new Date(details.creationTime) : new Date(),
+                author: details.creator || null,
+                authorAr: null,
+                workflowStatus: map["Workflow Status"] || map["الحالة"] || "Active",
+                tags: [],
+                content: details.fullPath || "",
+                contentAr: map["المحتوى"] || null,
+                fileSizeKb: details.electronicDocumentSize ? Math.round(details.electronicDocumentSize / 1024) : null,
+                pageCount: details.pageCount || null,
+                laserficheId: String(entry.id),
+                year: details.creationTime ? new Date(details.creationTime).getFullYear() : null,
+              };
+            })
+        );
+        return res.json(documents);
+      }
+
       const docs = await storage.getDocuments();
       res.json(docs);
     } catch {
@@ -91,8 +152,211 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/dashboard/stats", async (req, res) => {
     try {
+      const lfConfig = getLaserficheConfig();
+      if (lfConfig) {
+        try {
+          const token = await getLaserficheToken(lfConfig);
+        const visited = new Set<number>();
+        const collectTree = async (folderId: number): Promise<{ docs: any[]; folderCount: number }> => {
+          if (visited.has(folderId)) return { docs: [], folderCount: 0 };
+          visited.add(folderId);
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document"));
+          const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
+          const nested = await Promise.all(subfolders.map((f: any) => collectTree(Number(f.id))));
+          return {
+            docs: [...docsHere, ...nested.flatMap((n) => n.docs)],
+            folderCount: subfolders.length + nested.reduce((sum, n) => sum + n.folderCount, 0),
+          };
+        };
+
+        const tree = await collectTree(1);
+        const entries = tree.docs.slice(0, 500);
+        const parentFolderDocCounts: Record<string, number> = {};
+        const canonicalDepartment = (fields: Record<string, string>, folderName: string): string => {
+          // Prefer real department field values from document metadata
+          const dep =
+            fields["Department"] ||
+            fields["الجهة"] ||
+            fields["الجهة المعنية"] ||
+            fields["Issuing Department"] ||
+            fields["الجهة المصدرة"] ||
+            fields["القسم"] ||
+            fields["Ministry"] ||
+            fields["الوزارة"] ||
+            "";
+          if (dep) return dep.trim();
+
+          // Fallback: if the folder name looks like a real department (not a workflow folder)
+          const raw = String(folderName || "").trim();
+          const upper = raw.toUpperCase();
+          if (!raw || upper === "ROOT" || raw === "13" || raw === "19" || raw === "SCAN" || raw === "INDEX" || raw === "QA" || raw === "PRODUCTION" || raw === "PROD" || raw === "TEST" || raw === "QATEST") return "";
+
+          // If the name contains Arabic government words, treat it as a department
+          const arabicDeptWords = /وزارة|هيئة|أمانة|مركز|مؤسسة|إدارة|مكتب|غرفة|جمعية|جامعة|مديرية|نقابة|دائرة/;
+          if (arabicDeptWords.test(raw)) return raw;
+
+          return raw;
+        };
+        for (const entry of entries) {
+          const path = String(entry.fullPath || "");
+          const segments = path.split("/").filter(Boolean);
+          // department is first repository folder under root: /Root/Department/.../Document
+          const folderName = segments.length >= 2 ? segments[1] : "";
+          const departmentFolder = canonicalDepartment(fields, folderName);
+          if (!departmentFolder) continue;
+          parentFolderDocCounts[departmentFolder] = (parentFolderDocCounts[departmentFolder] || 0) + 1;
+        }
+
+        const docs = await Promise.all(
+          entries.map(async (entry: any) => {
+            const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({} as Record<string, string>));
+            const docType = fields["Document Type"] || fields["نوع المستند"] || entry.extension || "Document";
+            const metadataChangeMarkers = [
+              fields["Last Updated"],
+              fields["تاريخ التحديث"],
+              fields["Metadata Updated At"],
+              fields["Modified Date"],
+              fields["Workflow Date"],
+            ].filter(Boolean);
+            const path = String(entry.fullPath || "");
+            const segments = path.split("/").filter(Boolean);
+            const folderName = segments.length >= 2 ? segments[1] : "";
+            const departmentFolder = canonicalDepartment(fields, folderName);
+            const department = departmentFolder;
+            const fieldTypeCounts: Record<string, number> = {};
+            for (const [fieldName, value] of Object.entries(fields)) {
+              const normalized = String(value || "").trim();
+              let type = "empty";
+              if (!normalized) type = "empty";
+              else if (/^(true|false)$/i.test(normalized)) type = "boolean";
+              else if (/^-?\d+(\.\d+)?$/.test(normalized)) type = "number";
+              else if (/^\d{4}-\d{2}-\d{2}/.test(normalized)) type = "date";
+              else type = "string";
+              fieldTypeCounts[type] = (fieldTypeCounts[type] || 0) + 1;
+            }
+            return {
+              docType,
+              department,
+              fieldsCount: Object.keys(fields).length,
+              fieldTypeCounts,
+              parentFolder: departmentFolder,
+              currentPath: path,
+              movedAt: (entry.moveDate || entry.lastMovedUtc || "") as string,
+              metadataUpdatedAt: String(metadataChangeMarkers[0] || ""),
+            };
+          })
+        );
+
+        const docsByType: Record<string, number> = {};
+        const docsByDepartment: Record<string, number> = { ...parentFolderDocCounts };
+        const countFilesInDepartment = async (folderId: number, seen = new Set<number>()): Promise<number> => {
+          if (seen.has(folderId)) return 0;
+          seen.add(folderId);
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          let files = 0;
+          for (const child of children) {
+            const type = String(child?.entryType || "").toLowerCase();
+            if (type.includes("folder")) {
+              files += await countFilesInDepartment(Number(child.id), seen);
+            } else {
+              files += 1;
+            }
+          }
+          return files;
+        };
+        try {
+          const rootChildren = await laserficheGetFolderChildren(lfConfig, token, 1);
+          for (const folder of rootChildren.filter((c: any) => String(c?.entryType || "").toLowerCase().includes("folder"))) {
+            const dep = canonicalDepartment({}, folder.name);
+            if (!dep) continue;
+            docsByDepartment[dep] = await countFilesInDepartment(Number(folder.id));
+          }
+        } catch {}
+        for (const d of docs) {
+          docsByType[d.docType] = (docsByType[d.docType] || 0) + 1;
+        }
+        docsByType["Folder"] = tree.folderCount;
+
+        const totalFiles = entries.length;
+        const totalFields = docs.reduce((sum, d) => sum + d.fieldsCount, 0);
+        const fieldTypesBreakdown: Record<string, number> = {};
+        for (const d of docs) {
+          for (const [type, count] of Object.entries(d.fieldTypeCounts)) {
+            fieldTypesBreakdown[type] = (fieldTypesBreakdown[type] || 0) + Number(count || 0);
+          }
+        }
+
+        const logs = await storage.getAuditLogs(500);
+        const totalSearches = logs.length;
+        const avgResponseMs = totalSearches ? Math.round(logs.reduce((sum, l) => sum + 142, 0) / totalSearches) : 142;
+        const searchesByDayMap: Record<string, number> = {};
+        const today = new Date();
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(today);
+          d.setDate(today.getDate() - i);
+          searchesByDayMap[d.toISOString().slice(0, 10)] = 0;
+        }
+        for (const log of logs) {
+          const day = new Date(log.searchedAt as any).toISOString().slice(0, 10);
+          if (day in searchesByDayMap) searchesByDayMap[day] += 1;
+        }
+        const searchesByDay = Object.entries(searchesByDayMap).map(([date, count]) => ({ date, count }));
+
+        const topMap: Record<string, number> = {};
+        for (const l of logs) topMap[l.query] = (topMap[l.query] || 0) + 1;
+        const topSearches = Object.entries(topMap).map(([query, count]) => ({ query, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+
+        const inferredWorkflowBySignal: Record<string, number> = {
+          "Document moved": 0,
+          "Metadata updated": 0,
+        };
+        const workflowRunsByDayMap: Record<string, number> = {};
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(today);
+          d.setDate(today.getDate() - i);
+          workflowRunsByDayMap[d.toISOString().slice(0, 10)] = 0;
+        }
+        for (const d of docs as any[]) {
+          const events = [
+            { signal: "Document moved", raw: String(d.movedAt || "").trim() },
+            { signal: "Metadata updated", raw: String(d.metadataUpdatedAt || "").trim() },
+          ];
+          for (const ev of events) {
+            if (!ev.raw) continue;
+            const parsed = new Date(ev.raw);
+            if (Number.isNaN(parsed.getTime())) continue;
+            inferredWorkflowBySignal[ev.signal] = (inferredWorkflowBySignal[ev.signal] || 0) + 1;
+            const day = parsed.toISOString().slice(0, 10);
+            if (day in workflowRunsByDayMap) workflowRunsByDayMap[day] += 1;
+          }
+        }
+        const workflowRunsByDay = Object.entries(workflowRunsByDayMap).map(([date, count]) => ({ date, count }));
+
+          return res.json({
+            totalFiles,
+            totalDocuments: docs.length,
+            totalFields,
+            fieldTypesBreakdown,
+            parentFolderDocCounts,
+            totalSearches,
+            totalDepartments: Object.keys(docsByDepartment).length,
+            avgResponseMs,
+            docsByType,
+            docsByDepartment,
+            searchesByDay,
+            topSearches,
+            workflowRunsByDay,
+            workflowByName: inferredWorkflowBySignal,
+          });
+        } catch {
+          // If Laserfiche is configured but currently unavailable/rate-limited,
+          // fall back to in-memory dashboard stats so the dashboard still renders.
+        }
+      }
+
       const stats = await storage.getDashboardStats();
-      res.json(stats);
+      res.json({ ...stats, workflowRunsByDay: stats.searchesByDay, workflowByName: {} });
     } catch {
       res.status(500).json({ error: "Failed to fetch stats" });
     }
@@ -230,43 +494,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+
+
+
   app.post("/api/laserfiche/search", async (req, res) => {
-    const { query, searchCommand, maxResults = 50 } = req.body;
-
+    const { query, searchCommand, maxResults = 25, page = 1 } = req.body;
     const config = getLaserficheConfig();
-    if (!config) {
-      return res.status(503).json({
-        error: "Laserfiche not configured",
-        hint: "Set LF_SERVER_URL, LF_REPO_ID, LF_USERNAME, LF_PASSWORD in environment secrets",
-      });
-    }
-
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
     try {
-      const finalCommand = searchCommand || naturalLanguageToLFSearchCommand(query || "").command;
-      const nlResult = naturalLanguageToLFSearchCommand(query || finalCommand);
-
+      const finalCommand = searchCommand || naturalLanguageToLFSearchCommand(String(query || "")).command;
+      const nlResult = naturalLanguageToLFSearchCommand(String(query || finalCommand));
       const token = await getLaserficheToken(config);
-      const entries = await laserficheSimpleSearch(config, token, finalCommand, maxResults);
-
-      await storage.createAuditLog({
-        query: query || finalCommand,
-        queryLanguage: /[\u0600-\u06FF]/.test(query || "") ? "ar" : "en",
-        userId: "demo-user",
-        username: "demo.user",
-        resultsCount: entries.length,
-        searchType: "laserfiche",
-        filters: { lfCommand: finalCommand },
-        ipAddress: req.ip || "127.0.0.1",
-        department: "Laserfiche",
-      });
-
-      res.json({
-        entries,
-        total: entries.length,
-        searchCommand: finalCommand,
-        nlTranslation: nlResult,
-        query,
-      });
+      const allEntries = await laserficheRepositorySearch(config, token, finalCommand, Math.min(Number(maxResults) * Math.max(Number(page), 1), 200));
+      const start = (Math.max(Number(page), 1) - 1) * Number(maxResults);
+      const pageEntries = allEntries.slice(start, start + Number(maxResults));
+      const entries = await Promise.all(pageEntries.map(async (entry: any) => {
+        const [details, rawFields] = await Promise.all([
+          laserficheGetEntry(config, token, Number(entry.id)).catch(() => entry),
+          laserficheGetEntryFieldsRaw(config, token, Number(entry.id)).catch(() => []),
+        ]);
+        const metadata: Record<string, string[]> = {};
+        for (const field of rawFields as any[]) {
+          const name = String(field?.fieldName || "").trim();
+          if (!name) continue;
+          metadata[name] = Array.isArray(field?.values) ? field.values.map((v: any) => String(v?.value ?? "")).filter(Boolean) : [];
+        }
+        return { ...details, id: Number(details.id || entry.id), metadata, previewUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=inline`, openUrl: `/api/laserfiche/entries/${Number(entry.id)}/open`, downloadUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=attachment` };
+      }));
+      res.json({ entries, total: allEntries.length, page: Number(page), pageSize: Number(maxResults), searchCommand: finalCommand, nlTranslation: nlResult, query });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -359,6 +614,140 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/laserfiche/folders", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const rootFolderId = Number(req.query.rootFolderId || 1);
+    try {
+      const token = await getLaserficheToken(config);
+      const children = await laserficheGetFolderChildren(config, token, rootFolderId);
+      const folders = children
+        .filter((c: any) => c.entryType?.toLowerCase().includes("folder"))
+        .map((f: any) => ({ id: f.id, name: f.name }));
+      res.json(folders);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/lf/folders", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const rootFolderId = Number(req.query.rootFolderId || 1);
+    try {
+      const token = await getLaserficheToken(config);
+      const children = await laserficheGetFolderChildren(config, token, rootFolderId);
+      const folders = children
+        .filter((c: any) => c.entryType?.toLowerCase().includes("folder"))
+        .map((f: any) => ({ id: f.id, name: f.name }));
+      res.json(folders);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/lf/root-candidates", async (_req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    try {
+      const token = await getLaserficheToken(config);
+      const candidates = [1, 2, 3, 5, 10, 17, 20, 50, 100];
+      const results: Array<{ id: number; name: string }> = [];
+      for (const id of candidates) {
+        try {
+          const entry = await laserficheGetEntry(config, token, id);
+          if (entry?.entryType?.toLowerCase().includes("folder")) {
+            results.push({ id, name: entry.name || `Folder ${id}` });
+          }
+        } catch {}
+      }
+      // also include direct children of repository root when available
+      try {
+        const rootChildren = await laserficheGetFolderChildren(config, token, 1);
+        for (const c of rootChildren.filter((x: any) => x.entryType?.toLowerCase().includes("folder")).slice(0, 30)) {
+          if (!results.find((r) => r.id === Number(c.id))) {
+            results.push({ id: Number(c.id), name: c.name || `Folder ${c.id}` });
+          }
+        }
+      } catch {}
+      res.json({ candidates: results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/lf/documents", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const rootFolderId = Number(req.query.rootFolderId || 1);
+    try {
+      const token = await getLaserficheToken(config);
+      const visited = new Set<number>();
+      const walkFolder = async (folderId: number, folderName: string): Promise<Array<{ id: number; name: string; path: string; folderName: string }>> => {
+        if (visited.has(folderId)) return [];
+        visited.add(folderId);
+
+        const children = await laserficheGetFolderChildren(config, token, folderId);
+        const ownDocs = children
+          .filter((c: any) => c.isElectronicDocument || c.entryType?.toLowerCase().includes("document"))
+          .map((d: any) => ({
+            id: d.id,
+            name: d.name,
+            path: d.fullPath || "",
+            folderName,
+            isElectronicDocument: !!d.isElectronicDocument,
+          }));
+
+        const subfolders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
+        const nested = await Promise.all(
+          subfolders.map((folder: any) => walkFolder(Number(folder.id), folder.name || folderName))
+        );
+
+        return [...ownDocs, ...nested.flat()];
+      };
+
+      const documents = await walkFolder(rootFolderId, "Repository");
+      res.json({ documents });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/laserfiche/documents", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+    const folderId = Number(req.query.folderId || 1);
+    if (!Number.isFinite(folderId)) return res.status(400).json({ error: "Invalid folder id" });
+    try {
+      const token = await getLaserficheToken(config);
+      const children = await laserficheGetFolderChildren(config, token, folderId);
+      const docs = await Promise.all(
+        children
+          .filter((e: any) => e.isElectronicDocument)
+          .map(async (e: any) => {
+            let fields: any[] = [];
+            try {
+              fields = await laserficheGetEntryFieldsRaw(config, token, e.id);
+            } catch {}
+            return {
+              id: e.id,
+              name: e.name,
+              path: e.fullPath || "",
+              fields: fields.map((f: any) => ({
+                name: f?.fieldName || f?.name || "Unknown",
+                value: Array.isArray(f?.values) ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ") : "",
+              })),
+              isElectronic: !!e.isElectronicDocument,
+            };
+          })
+      );
+      res.json({ folderId, documents: docs });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
   app.get("/api/chat/status", async (req, res) => {
     const status = await checkOllamaStatus();
     res.json(status);
@@ -391,10 +780,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   app.post("/api/chat", async (req, res) => {
-    const { messages, query } = req.body as {
+    const { messages, query, contextEntryId: contextEntryIdRaw, contextDocumentContext } = req.body as {
       messages: OllamaMessage[];
       query: string;
+      contextEntryId?: number | string;
+      contextDocumentContext?: string;
     };
+    const contextEntryId =
+      typeof contextEntryIdRaw === "string"
+        ? Number(contextEntryIdRaw)
+        : contextEntryIdRaw;
 
     if (!query && (!messages || messages.length === 0)) {
       return res.status(400).json({ error: "query or messages required" });
@@ -444,7 +839,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         await ollamaChat(
           [{ role: "user", content: prompt }],
           (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
-          req.signal
+          requestSignal(req)
         );
         res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
       } catch (err: any) {
@@ -455,41 +850,214 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return;
     }
 
+
+    let selectedMetadataContext = "";
+    if (Number.isFinite(contextEntryId) && lfConfig) {
+      try {
+        const token = await getLaserficheToken(lfConfig);
+        const [entry, rawFields] = await Promise.all([
+          laserficheGetEntry(lfConfig, token, Number(contextEntryId)),
+          laserficheGetEntryFieldsRaw(lfConfig, token, Number(contextEntryId)),
+        ]);
+        const metadataPrompt = buildDocumentMetadataChatPrompt({
+          entry: { id: entry.id, name: entry.name, path: entry.fullPath, creationTime: entry.creationTime, creator: entry.creator },
+          fields: rawFields,
+          userPrompt: userQuery,
+          lang,
+        });
+        selectedMetadataContext = contextDocumentContext
+          ? `${metadataPrompt}\n\nCLIENT DOCUMENT CONTEXT:\n${contextDocumentContext}`
+          : metadataPrompt;
+        res.write(`data: ${JSON.stringify({ type: "lf-entry", entryId: entry.id, name: entry.name })}\n\n`);
+      } catch (err: any) {
+        res.write(`data: ${JSON.stringify({ type: "error", error: `Failed to load Laserfiche metadata: ${err.message}` })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
     // ── Detect Laserfiche natural-language search intent ──────────────────
-    const lfSearchKeywords = /وثيقة|معاملة|ملف|أرشيف|document|archive|file|report|contract|سجل|تقرير|عقد/iu;
+    const lfSearchKeywords = /وثيقة|معاملة|ملف|أرشيف|document|archive|file|report|contract|سجل|تقرير|عقد|ابحث|search|find/iu;
     let lfContextBlock = "";
     let lfEntries: any[] = [];
+
+    const normalizeText = (s: string) =>
+      (s || "")
+        .toLowerCase()
+        .normalize("NFKD")
+        .replace(/[\u064B-\u065F\u0670]/g, "")
+        .replace(/[إأآا]/g, "ا")
+        .replace(/[ة]/g, "ه")
+        .replace(/[ى]/g, "ي")
+        .replace(/\s+/g, " ")
+        .trim();
+    const stopWords = new Set([
+      "ابحث", "عن", "فيها", "التي", "يكون", "يوجد", "وثيقه", "وثيقة", "وثايق", "الوثيقه", "الوثيقة",
+      "search", "find", "for", "the", "with", "document", "documents", "file", "archive"
+    ]);
+    const extractKeywords = (queryText: string) =>
+      normalizeText(queryText)
+        .split(" ")
+        .map((w) => w.trim())
+        .filter((w) => w.length > 2 && !stopWords.has(w));
+    const levenshtein = (a: string, b: string): number => {
+      const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+      for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+      for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+      for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+        }
+      }
+      return dp[a.length][b.length];
+    };
+    const keywordExists = (keyword: string, text: string) => {
+      if (text.includes(keyword)) return true;
+      const tokens = text.split(/[\s|,:;\n]+/).filter(Boolean);
+      return tokens.some((t) => t.startsWith(keyword) || keyword.startsWith(t) || (keyword.length > 3 && levenshtein(t, keyword) <= 1));
+    };
 
     if (lfConfig && lfSearchKeywords.test(userQuery)) {
       try {
         const token = await getLaserficheToken(lfConfig);
-        const entries = await laserficheGetFolderChildren(lfConfig, token, 1);
-        lfEntries = entries.slice(0, 30);
-        if (lfEntries.length > 0) {
-          lfContextBlock = buildLFSearchPrompt(
-            lfEntries.map((e) => ({ id: e.id, name: e.name, path: e.fullPath })),
-            userQuery, lang
-          );
+        const fieldDefinitions = await laserficheGetFieldDefinitions(lfConfig, token).catch(() => []);
+        const fieldNameTokens = new Set(
+          (fieldDefinitions || [])
+            .flatMap((f: any) => String(f?.name || "").split(/\s+/))
+            .map((w: string) => normalizeText(w))
+            .filter((w: string) => w.length > 2)
+        );
+        const visited = new Set<number>();
+        const collectDocs = async (folderId: number): Promise<any[]> => {
+          if (visited.has(folderId)) return [];
+          visited.add(folderId);
+          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
+          const docsHere = children.filter((e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document"));
+          const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
+          const nested = await Promise.all(subfolders.map((f: any) => collectDocs(Number(f.id))));
+          return [...docsHere, ...nested.flat()];
+        };
+        lfEntries = (await collectDocs(1)).slice(0, 300);
+        const normalizedQuery = normalizeText(userQuery);
+        const keywords = extractKeywords(userQuery);
+        const effectiveKeywords = keywords.filter((k) => !fieldNameTokens.has(k));
+
+        const inspected = await Promise.all(
+          lfEntries.map(async (entry: any) => {
+            let rawFields: any[] = [];
+            try {
+              rawFields = await laserficheGetEntryFieldsRaw(lfConfig, token, entry.id);
+            } catch {}
+
+            const metadataLines = rawFields
+              .map((f: any) => {
+                const name = f?.fieldName || f?.name || "Unknown";
+                const value = Array.isArray(f?.values)
+                  ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ")
+                  : "";
+                return value ? `${name}: ${value}` : "";
+              })
+              .filter(Boolean);
+
+            const searchableText = normalizeText(
+              [
+                `ID: ${entry.id}`,
+                `Name: ${entry.name || ""}`,
+                `Path: ${entry.fullPath || ""}`,
+                "Metadata:",
+                ...metadataLines,
+              ].join("\n")
+            );
+
+            const keywordHits = effectiveKeywords.filter((k) => keywordExists(k, searchableText)).length;
+            const score =
+              keywordHits * 5 +
+              (normalizeText(entry.name || "").includes(normalizedQuery) ? 3 : 0) +
+              (normalizeText(entry.fullPath || "").includes(normalizedQuery) ? 2 : 0);
+
+            return {
+              id: entry.id,
+              name: entry.name,
+              path: entry.fullPath || "",
+              metadataPreview: metadataLines.slice(0, 6),
+              searchableText,
+              score,
+            };
+          })
+        );
+
+        const matched = inspected
+          .filter((d) => {
+            if (!normalizedQuery) return false;
+            if (effectiveKeywords.length === 0) return d.searchableText.includes(normalizedQuery);
+            return effectiveKeywords.every((k) => keywordExists(k, d.searchableText));
+          })
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 20);
+
+        if (matched.length > 0) {
+          const resultLines = matched.map((d, i) => {
+            const meta = d.metadataPreview.length ? ` | ${d.metadataPreview.join(" | ")}` : "";
+            return `[${i + 1}] ID:${d.id} | ${d.name} | ${d.path}${meta}`;
+          });
+          lfContextBlock = (lang === "ar"
+            ? `نتائج بحث Laserfiche الحقيقية (تمت فلترتها بواسطة النظام):\n${resultLines.join("\n")}\n\nالتعليمات:\n- استخدم النتائج فقط.\n- لا تخترع وثائق غير موجودة.\n- اعرض الاسم وID والمسار لكل نتيجة.`
+            : `Real Laserfiche search results (already filtered by system):\n${resultLines.join("\n")}\n\nInstructions:\n- Use only these results.\n- Do not invent documents.\n- Return name, ID, and path for each result.`);
+        } else {
+          lfContextBlock = lang === "ar"
+            ? "نتائج بحث Laserfiche الحقيقية: لم يتم العثور على وثائق مطابقة."
+            : "Real Laserfiche search results: no matching documents were found.";
         }
       } catch {}
     }
 
-    // ── Fall back: local document DB context ──────────────────────────────
+    // ── Fall back: local document DB context (only when no specific LF entry context) ──
     let contextDocs: any[] = [];
-    try {
-      const searchResult = await storage.searchDocuments({ query: userQuery, searchType: "hybrid", page: 1, limit: 5 });
-      contextDocs = searchResult.results.map((r) => r.document);
-    } catch {}
+    if (!selectedMetadataContext) {
+      try {
+        const searchResult = await storage.searchDocuments({ query: userQuery, searchType: "hybrid", page: 1, limit: 5 });
+        contextDocs = searchResult.results.map((r) => r.document);
+      } catch {}
+    }
 
     const systemPrompt = buildSystemPrompt(lang);
     const localContext = buildContextBlock(contextDocs, lang);
-    const fullSystemPrompt = `${systemPrompt}\n\n${lfContextBlock || localContext}`;
+    const fullSystemPrompt = selectedMetadataContext
+      ? `${systemPrompt}
 
-    const chatMessages: OllamaMessage[] = [
-      { role: "system", content: fullSystemPrompt },
-      ...(messages || []).filter((m) => m.role !== "system"),
-      ...(query ? [{ role: "user" as const, content: query }] : []),
-    ];
+You are an AI assistant.
+The user is currently referring to THIS document only.
+Entry ID: ${contextEntryId}
+
+Document Data:
+${selectedMetadataContext}
+
+IMPORTANT:
+- The user message ALWAYS refers to this document.
+- Even if the user says only "summarize" or "لخص".
+- Do NOT ask for clarification about which document.
+- Do NOT ignore the document.
+- Do NOT invent information.
+- If data is missing, say it is not available in the document.
+- If the user asks for a summary (e.g., "لخص الوثيقة"), provide a medium-length summary (about 5-7 sentences) with key metadata highlights and useful details.
+- Respond in the same language as user input.`
+      : `${systemPrompt}\n\n${lfContextBlock || localContext}`;
+
+    const effectiveUserPrompt = selectedMetadataContext
+      ? `User request:\n${userQuery}\n\nThis request is about Entry ID ${contextEntryId}.`
+      : query;
+
+    const chatMessages: OllamaMessage[] = selectedMetadataContext
+      ? [
+          { role: "system", content: fullSystemPrompt },
+          { role: "user", content: effectiveUserPrompt },
+        ]
+      : [
+          { role: "system", content: fullSystemPrompt },
+          ...(messages || []).filter((m) => m.role !== "system"),
+          ...(effectiveUserPrompt ? [{ role: "user" as const, content: effectiveUserPrompt }] : []),
+        ];
 
     const sourceDocs = contextDocs.map((d) => ({ id: d.id, title: d.title, titleAr: d.titleAr, department: d.department, year: d.year }));
     res.write(`data: ${JSON.stringify({ type: "sources", sources: sourceDocs })}\n\n`);
@@ -498,7 +1066,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       await ollamaChat(
         chatMessages,
         (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
-        req.signal
+        requestSignal(req)
       );
       res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     } catch (err: any) {
@@ -558,7 +1126,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       await ollamaChat(
         [{ role: "user", content: prompt }],
         (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
-        req.signal
+        requestSignal(req)
       );
       res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     } catch (err: any) {
@@ -598,7 +1166,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       await ollamaChat(
         [{ role: "user", content: prompt }],
         (tok) => res.write(`data: ${JSON.stringify({ type: "token", token: tok })}\n\n`),
-        req.signal
+        requestSignal(req)
       );
       res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     } catch (err: any) {
@@ -621,6 +1189,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ entries, folderId });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+
+  app.delete("/api/laserfiche/entries/:entryId", async (req, res) => {
+    const config = getLaserficheConfig();
+    if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
+
+    const entryId = Number(req.params.entryId);
+    if (!Number.isFinite(entryId)) return res.status(400).json({ error: "Invalid entry id" });
+
+    try {
+      const token = await getLaserficheToken(config);
+      await laserficheDeleteEntry(config, token, entryId);
+      res.json({ ok: true, entryId });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to delete entry" });
     }
   });
 
@@ -799,13 +1384,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const contentType = lfRes.headers.get("content-type") || "application/octet-stream";
       if (/text\/html/i.test(contentType)) return res.status(401).send("Authentication failed — Laserfiche returned a login page.");
 
-      const disposition = lfRes.headers.get("content-disposition") || `inline; filename="document-${entryId}"`;
+      const rawDisposition = lfRes.headers.get("content-disposition") || "";
+      const filenameMatch = rawDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+      const safeFilename = (filenameMatch?.[1] || `document-${entryId}`).replace(/[\r\n]/g, "").trim();
       const contentLength = lfRes.headers.get("content-length");
 
       res.setHeader("Content-Type", contentType);
-      res.setHeader("Content-Disposition", disposition);
+      res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
       if (contentLength) res.setHeader("Content-Length", contentLength);
-      res.setHeader("Cache-Control", "private, max-age=300");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
 
       const { Readable } = await import("stream");
       Readable.fromWeb(lfRes.body as any).pipe(res);

@@ -9,7 +9,7 @@ import {
   Bot, Send, User, FileText, Loader2, AlertCircle, CheckCircle,
   RefreshCw, Trash2, ChevronDown, ChevronUp, Sparkles, Server,
   BookOpen, MessageSquare, ExternalLink, Copy, Check, StopCircle,
-  Zap, Search, Hash
+  Zap, Search, Hash, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +43,15 @@ type ChatMessage = {
   lfEntry?: LFEntryRef;
   isStreaming?: boolean;
   lang?: "ar" | "en";
+};
+
+type AIDocumentContext = {
+  entryId: number;
+  name: string;
+  fullPath?: string;
+  fileUrl: string;
+  metadata?: Record<string, unknown>;
+  contextText?: string;
 };
 
 const SUGGESTIONS_LF_AR = [
@@ -355,6 +364,8 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
+  const [aiDocument, setAiDocument] = useState<AIDocumentContext | null>(null);
+  const [documentContextText, setDocumentContextText] = useState("");
 
   const { data: ollamaStatus, isLoading: statusLoading, refetch: refetchStatus } = useQuery<OllamaStatus>({
     queryKey: ["/api/chat/status"],
@@ -367,6 +378,108 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!aiDocument?.entryId) {
+      setDocumentContextText("");
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/laserfiche/entries/${aiDocument.entryId}/fields`, { credentials: "include" });
+        if (!res.ok) throw new Error("Failed to load entry metadata");
+        const payload = await res.json();
+        const fields = Array.isArray(payload?.value) ? payload.value : [];
+        const map: Record<string, string> = {};
+        for (const f of fields) {
+          const vals = Array.isArray(f?.values) ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ") : "";
+          if (f?.fieldName && vals) map[f.fieldName] = vals;
+        }
+        const context = [
+          `Document ID: ${aiDocument.entryId}`,
+          `Name: ${aiDocument.name}`,
+          `Path: ${aiDocument.fullPath || "-"}`,
+          `Title: ${map["Title"] || map["العنوان"] || "-"}`,
+          `Department: ${map["Department"] || map["الجهة"] || "-"}`,
+          `Type: ${map["Document Type"] || map["نوع المستند"] || "-"}`,
+          `Status: ${map["Workflow Status"] || map["الحالة"] || "-"}`,
+          `Description: ${map["Description"] || map["الوصف"] || "-"}`,
+        ].join("\n");
+        if (!cancelled) setDocumentContextText(context);
+      } catch {
+        if (!cancelled) setDocumentContextText(`Document ID: ${aiDocument.entryId}\nName: ${aiDocument.name}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [aiDocument?.entryId, aiDocument?.name, aiDocument?.fullPath]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const entryIdParam = params.get("entryId");
+    if (!entryIdParam) return;
+
+    const entryId = Number(entryIdParam);
+    if (!Number.isFinite(entryId)) return;
+
+    const existing = localStorage.getItem("ai_document");
+    if (existing) {
+      try {
+        const parsed = JSON.parse(existing) as AIDocumentContext;
+        if (parsed.entryId === entryId) {
+          setAiDocument(parsed);
+          setDocumentContextText(parsed.contextText || "");
+          return;
+        }
+      } catch {
+        localStorage.removeItem("ai_document");
+      }
+    }
+
+    const nextDoc: AIDocumentContext = {
+      entryId,
+      name: `Entry #${entryId}`,
+      fileUrl: `/api/laserfiche/entries/${entryId}/content`,
+    };
+    setAiDocument(nextDoc);
+    localStorage.setItem("ai_document", JSON.stringify(nextDoc));
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("entryId")) return;
+    const raw = localStorage.getItem("ai_document");
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as AIDocumentContext;
+      setAiDocument(parsed);
+      setDocumentContextText(parsed.contextText || "");
+    } catch {
+      localStorage.removeItem("ai_document");
+    }
+  }, []);
+
+  const clearDocumentMention = () => {
+    setAiDocument(null);
+    localStorage.removeItem("ai_document");
+    const url = new URL(window.location.href);
+    url.searchParams.delete("entryId");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  };
+
+  useEffect(() => {
+    return () => {
+      localStorage.removeItem("ai_document");
+    };
+  }, []);
+
+  const clearDocumentContext = () => {
+    localStorage.removeItem("ai_document");
+    setAiDocument(null);
+  };
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) return;
@@ -401,10 +514,16 @@ export default function ChatPage() {
       .map(m => ({ role: m.role, content: m.content }));
 
     try {
+      const contextualPrompt = text.trim();
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, query: text.trim() }),
+        body: JSON.stringify({
+          messages: history,
+          query: contextualPrompt,
+          contextEntryId: aiDocument?.entryId,
+          contextDocumentContext: documentContextText || undefined,
+        }),
         signal: ctrl.signal,
       });
 
@@ -477,7 +596,7 @@ export default function ChatPage() {
       abortRef.current = null;
       inputRef.current?.focus();
     }
-  }, [messages, isStreaming, refetchStatus, toast]);
+  }, [aiDocument, messages, isStreaming, refetchStatus, toast]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -551,6 +670,34 @@ export default function ChatPage() {
         <OllamaSetupGuide status={ollamaStatus!} />
       ) : (
         <>
+          {aiDocument && (
+            <div className="flex-shrink-0 px-6 pt-4">
+              <div className="rounded-md border border-border bg-card p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">AI Context Document</p>
+                    <p className="text-sm font-medium truncate">{aiDocument.name}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-xs">Entry #{aiDocument.entryId}</Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs px-2 gap-1"
+                      onClick={clearDocumentMention}
+                      data-testid="clear-document-mention"
+                    >
+                      <X className="w-3 h-3" />
+                      Remove Mention
+                    </Button>
+                  </div>
+                </div>
+                <div className="max-h-64 overflow-auto rounded border">
+                  <iframe src={aiDocument.fileUrl} className="w-full h-56 md:h-48" title={aiDocument.name} />
+                </div>
+              </div>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto px-6 py-4">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-5">

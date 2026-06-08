@@ -11,7 +11,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { Search, LayoutDashboard, FileText, Shield, Database, ChevronRight, Link2, Bot, Settings } from "lucide-react";
+import { Search, LayoutDashboard, FileText, Shield, Database, ChevronRight, Link2, Bot, Settings, FileScan } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const navItems = [
@@ -22,6 +22,7 @@ const navItems = [
   { title: "Laserfiche Connect", titleAr: "ربط Laserfiche", url: "/laserfiche", icon: Link2 },
   { title: "LF Settings", titleAr: "إعدادات Laserfiche", url: "/laserfiche/settings", icon: Settings },
   { title: "AI Assistant", titleAr: "المساعد الذكي", url: "/chat", icon: Bot },
+  { title: "Arabic PDF OCR", titleAr: "استخراج PDF العربي", url: "/pdf-extraction", icon: FileScan },
 ];
 
 export function AppSidebar() {
