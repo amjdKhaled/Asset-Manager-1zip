@@ -173,9 +173,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const tree = await collectTree(1);
         const entries = tree.docs.slice(0, 500);
         const parentFolderDocCounts: Record<string, number> = {};
-        const canonicalDepartment = (fields: Record<string, string>, folderName: string): string => {
-          // Prefer real department field values from document metadata
-          const dep =
+        const isWorkflowFolder = (name: string): boolean => {
+          const upper = name.toUpperCase();
+          return ["ROOT", "13", "19", "SCAN", "INDEX", "QA", "PRODUCTION", "PROD", "TEST", "QATEST"].includes(upper);
+        };
+        const getDepartment = (fields: Record<string, string>, fullPath: string): string => {
+          // 1. Try real Department metadata field
+          const depField =
             fields["Department"] ||
             fields["الجهة"] ||
             fields["الجهة المعنية"] ||
@@ -185,33 +189,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             fields["Ministry"] ||
             fields["الوزارة"] ||
             "";
-          if (dep) return dep.trim();
+          if (depField.trim()) return depField.trim();
 
-          // Fallback: if the folder name looks like a real department (not a workflow folder)
-          const raw = String(folderName || "").trim();
-          const upper = raw.toUpperCase();
-          if (!raw || upper === "ROOT" || raw === "13" || raw === "19" || raw === "SCAN" || raw === "INDEX" || raw === "QA" || raw === "PRODUCTION" || raw === "PROD" || raw === "TEST" || raw === "QATEST") return "";
-
-          // If the name contains Arabic government words, treat it as a department
-          const arabicDeptWords = /وزارة|هيئة|أمانة|مركز|مؤسسة|إدارة|مكتب|غرفة|جمعية|جامعة|مديرية|نقابة|دائرة/;
-          if (arabicDeptWords.test(raw)) return raw;
-
-          return raw;
+          // 2. Extract department from the path — find the deepest folder name that is NOT a workflow/generic folder
+          const segments = String(fullPath || "").split("/").filter(Boolean);
+          // The last segment is usually the file name; the second-to-last is the parent folder
+          // Walk backwards from the parent folder to find the first non-workflow folder name
+          for (let i = segments.length - 2; i >= 0; i--) {
+            const seg = segments[i].trim();
+            if (seg && !isWorkflowFolder(seg)) {
+              return seg;
+            }
+          }
+          return "";
         };
-        for (const entry of entries) {
-          const path = String(entry.fullPath || "");
-          const segments = path.split("/").filter(Boolean);
-          // department is first repository folder under root: /Root/Department/.../Document
-          const folderName = segments.length >= 2 ? segments[1] : "";
-          const departmentFolder = canonicalDepartment(fields, folderName);
-          if (!departmentFolder) continue;
-          parentFolderDocCounts[departmentFolder] = (parentFolderDocCounts[departmentFolder] || 0) + 1;
-        }
 
         const docs = await Promise.all(
           entries.map(async (entry: any) => {
             const fields = await laserficheGetEntryFields(lfConfig, token, Number(entry.id)).catch(() => ({} as Record<string, string>));
             const docType = fields["Document Type"] || fields["نوع المستند"] || entry.extension || "Document";
+            const path = String(entry.fullPath || "");
+            const department = getDepartment(fields, path);
             const metadataChangeMarkers = [
               fields["Last Updated"],
               fields["تاريخ التحديث"],
@@ -219,11 +217,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               fields["Modified Date"],
               fields["Workflow Date"],
             ].filter(Boolean);
-            const path = String(entry.fullPath || "");
-            const segments = path.split("/").filter(Boolean);
-            const folderName = segments.length >= 2 ? segments[1] : "";
-            const departmentFolder = canonicalDepartment(fields, folderName);
-            const department = departmentFolder;
             const fieldTypeCounts: Record<string, number> = {};
             for (const [fieldName, value] of Object.entries(fields)) {
               const normalized = String(value || "").trim();
@@ -235,12 +228,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               else type = "string";
               fieldTypeCounts[type] = (fieldTypeCounts[type] || 0) + 1;
             }
+            const pathSegments = path.split("/").filter(Boolean);
             return {
               docType,
               department,
               fieldsCount: Object.keys(fields).length,
               fieldTypeCounts,
-              parentFolder: departmentFolder,
+              parentFolder: pathSegments.length >= 2 ? pathSegments[1] : "",
               currentPath: path,
               movedAt: (entry.moveDate || entry.lastMovedUtc || "") as string,
               metadataUpdatedAt: String(metadataChangeMarkers[0] || ""),
@@ -248,33 +242,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           })
         );
 
+        // parentFolderDocCounts: count by top-level folder name
+        for (const d of docs) {
+          if (d.parentFolder) {
+            parentFolderDocCounts[d.parentFolder] = (parentFolderDocCounts[d.parentFolder] || 0) + 1;
+          }
+        }
+
         const docsByType: Record<string, number> = {};
-        const docsByDepartment: Record<string, number> = { ...parentFolderDocCounts };
-        const countFilesInDepartment = async (folderId: number, seen = new Set<number>()): Promise<number> => {
-          if (seen.has(folderId)) return 0;
-          seen.add(folderId);
-          const children = await laserficheGetFolderChildren(lfConfig, token, folderId);
-          let files = 0;
-          for (const child of children) {
-            const type = String(child?.entryType || "").toLowerCase();
-            if (type.includes("folder")) {
-              files += await countFilesInDepartment(Number(child.id), seen);
-            } else {
-              files += 1;
-            }
-          }
-          return files;
-        };
-        try {
-          const rootChildren = await laserficheGetFolderChildren(lfConfig, token, 1);
-          for (const folder of rootChildren.filter((c: any) => String(c?.entryType || "").toLowerCase().includes("folder"))) {
-            const dep = canonicalDepartment({}, folder.name);
-            if (!dep) continue;
-            docsByDepartment[dep] = await countFilesInDepartment(Number(folder.id));
-          }
-        } catch {}
+        const docsByDepartment: Record<string, number> = {};
         for (const d of docs) {
           docsByType[d.docType] = (docsByType[d.docType] || 0) + 1;
+          if (d.department) {
+            docsByDepartment[d.department] = (docsByDepartment[d.department] || 0) + 1;
+          }
         }
         docsByType["Folder"] = tree.folderCount;
 

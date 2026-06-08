@@ -22,7 +22,6 @@ type DashboardStats = {
 };
 
 const PIE_COLORS = ["#3B82F6", "#14B8A6", "#F59E0B", "#8B5CF6", "#EF4444", "#22C55E", "#F97316"];
-const ALLOWED_ROOT_DEPARTMENTS = [] as const;
 const EXCLUDED_WORKFLOW_NAMES = ["SCAN", "INDEX", "QA", "PRODUCTION", "PROD", "TEST", "QATEST", "ROOT", "13", "19"] as const;
 
 const formatDate = (d: string) => new Date(d).toLocaleDateString("en-GB", { month: "short", day: "numeric" });
@@ -114,8 +113,8 @@ export default function DashboardPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} />
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} interval={0} angle={-20} height={55} textAnchor="end" />
                   <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <Tooltip cursor={{ fill: "hsl(var(--muted))" }} />
-                  <Bar dataKey="value" fill="#3B82F6" radius={[6, 6, 0, 0]} />
+                  <Tooltip cursor={{ fill: "hsl(var(--muted))" }} contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))" }} itemStyle={{ color: "hsl(var(--popover-foreground))" }} />
+                  <Bar dataKey="value" fill="#3B82F6" radius={[6, 6, 0, 0]} activeBar={{ fill: "#60A5FA" }} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
