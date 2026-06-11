@@ -116,6 +116,13 @@ type LaserfichePreview = {
 
 type TrailItem = { id: number; name: string };
 
+const parseFolderId = (value: string): number | null => {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
 type LaserficheDetails = {
   value?: Array<{
     fieldId: number;
@@ -358,7 +365,7 @@ export default function ArchivePage() {
   const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
   const [selectedFolderId, setSelectedFolderId] = useState("1");
   const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
-  const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
+  const [trail, setTrail] = useState<TrailItem[]>([]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [details, setDetails] = useState<LaserficheDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -463,11 +470,10 @@ export default function ArchivePage() {
   const openFolder = async (folderId: string, folderName?: string) => {
     setSelectedFolderId(folderId);
     setTrail((current) => {
-      const index = current.findIndex((item) => String(item.id) === folderId);
+      const index = current.findIndex((item) => item.id === parsedFolderId);
       if (index >= 0) return current.slice(0, index + 1);
-      return [...current, { id: Number(folderId), name: folderName || `Folder ${folderId}` }];
+      return [...current, { id: parsedFolderId, name: folderName || `Folder ${normalizedFolderId}` }];
     });
-    await refetchPreview();
   };
 
   const discoverRoots = async () => {
@@ -482,12 +488,12 @@ export default function ArchivePage() {
     }
   };
 
-  const openTrail = async (index: number) => {
+  const openTrail = (index: number) => {
     const next = trail[index];
     if (!next) return;
     setSelectedFolderId(String(next.id));
+    setActiveFolderId(next.id);
     setTrail(trail.slice(0, index + 1));
-    await refetchPreview();
   };
 
   const openDocument = async (entryId: number) => {
