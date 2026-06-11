@@ -686,7 +686,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       };
 
       const discoverRoots = async (): Promise<Array<{ id: number; name: string }>> => {
-        if (requestedRootFolderId !== null) {
+        if (requestedRootFolderId !== null && requestedRootFolderId !== 1) {
           return [{ id: requestedRootFolderId, name: `Folder ${requestedRootFolderId}` }];
         }
 
