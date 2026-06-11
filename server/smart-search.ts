@@ -224,7 +224,8 @@ function lfEntryToUnified(entry: any, command: string, score: number): UnifiedRe
     score,
     matchReasons: reasons,
     previewUrl: entry.previewUrl,
-    openUrl: entry.openUrl,
+    openUrl: entry.openUrl || `/lf-document/${entry.id}`,
+    sourceUrl: entry.sourceUrl,
     downloadUrl: entry.downloadUrl,
     laserficheId: String(entry.id),
     metadata: entry.metadata,
@@ -345,7 +346,8 @@ export async function executeSmartSearch(
             id: Number(details.id || entry.id),
             metadata,
             previewUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=inline`,
-            openUrl: `/api/laserfiche/entries/${Number(entry.id)}/open`,
+            openUrl: `/lf-document/${Number(entry.id)}`,
+            sourceUrl: `/api/laserfiche/entries/${Number(entry.id)}/open`,
             downloadUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=attachment`,
           };
         })
