@@ -8,7 +8,7 @@ import {
   Hash, File, ChevronLeft, ChevronRight, AlertTriangle, ImageOff,
   ServerOff, Settings, Info, Download, Eye, ExternalLink
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
 type LFDocumentDetail = {
@@ -19,6 +19,8 @@ type LFDocumentDetail = {
   creator: string | null;
   extension: string | null;
   pageCount: number | null;
+  repositoryId: string | null;
+  repositoryName?: string | null;
   metadata: Array<{ fieldId: number; fieldName: string; fieldType: string; value: string }>;
   tags: string[];
 };
@@ -304,10 +306,20 @@ export default function LFDocumentPage() {
   const params = useParams<{ entryId: string }>();
   const entryId = Number(params.entryId);
 
+  useEffect(() => {
+    console.info("[LFDocumentPage] route parameters", {
+      entryIdParam: params.entryId,
+      entryId,
+      route: `/lf-document/${params.entryId ?? ""}`,
+    });
+  }, [entryId, params.entryId]);
+
   const { data: doc, isLoading, error } = useQuery<LFDocumentDetail>({
     queryKey: ["/api/document", entryId],
     queryFn: async () => {
+      console.info("[LFDocumentPage] loading document metadata", { entryId, endpoint: `/api/document/${entryId}` });
       const res = await fetch(`/api/document/${entryId}`);
+      console.info("[LFDocumentPage] document metadata API response", { entryId, status: res.status, ok: res.ok });
       if (!res.ok) {
         const ct = res.headers.get("content-type") || "";
         if (/json/i.test(ct)) {
@@ -316,7 +328,16 @@ export default function LFDocumentPage() {
         }
         throw new Error(`Server returned non-JSON response (status ${res.status}). Laserfiche may not be reachable.`);
       }
-      return res.json();
+      const body = await res.json();
+      console.info("[LFDocumentPage] document metadata loaded", {
+        entryId,
+        documentId: body.id,
+        title: body.name,
+        repositoryId: body.repositoryId,
+        metadataFields: body.metadata?.length ?? 0,
+        tags: body.tags?.length ?? 0,
+      });
+      return body;
     },
     enabled: Number.isFinite(entryId) && entryId > 0,
   });
@@ -325,7 +346,9 @@ export default function LFDocumentPage() {
   const { data: repositoryDocs } = useQuery<LFRepositoryDocumentsResponse>({
     queryKey: ["/api/lf/documents", "all"],
     queryFn: async () => {
+      console.info("[LFDocumentPage] loading repository documents", { endpoint: "/api/lf/documents?rootFolderId=1" });
       const res = await fetch('/api/lf/documents?rootFolderId=1');
+      console.info("[LFDocumentPage] repository documents API response", { status: res.status, ok: res.ok });
       if (!res.ok) return { documents: [] };
       return res.json();
     },
@@ -435,6 +458,22 @@ export default function LFDocumentPage() {
                     <div>
                       <p className="text-xs text-muted-foreground">Created</p>
                       <p className="text-sm font-medium">{createdDate}</p>
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-3 py-2.5" data-testid="doc-entry-id">
+                  <Hash className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Laserfiche Entry ID</p>
+                    <p className="text-sm font-medium">{doc.id}</p>
+                  </div>
+                </div>
+                {doc.repositoryId && (
+                  <div className="flex items-center gap-3 py-2.5" data-testid="doc-repository-id">
+                    <FolderOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Repository</p>
+                      <p className="text-sm font-medium break-all">{doc.repositoryName || doc.repositoryId}</p>
                     </div>
                   </div>
                 )}
