@@ -108,6 +108,24 @@ const matchReasonColor = (reason: string) => {
   }
 };
 
+
+const getLaserficheEntryId = (result: UnifiedResult) => {
+  const id = result.laserficheId || result.id.replace(/^lf-/, "");
+  return String(id).replace(/^LF-/, "");
+};
+
+const getLaserficheViewerRoute = (result: UnifiedResult) => `/lf-document/${getLaserficheEntryId(result)}`;
+
+const logLaserficheNavigation = (result: UnifiedResult, route: string) => {
+  console.info("[LaserficheSearch] generated document viewer route", {
+    route,
+    resultId: result.id,
+    laserficheId: result.laserficheId,
+    entryId: getLaserficheEntryId(result),
+    title: result.title,
+  });
+};
+
 function ScoreBar({ score, label }: { score: number; label: string }) {
   return (
     <div className="flex items-center gap-2">
@@ -200,6 +218,8 @@ function LocalResultCard({ result }: { result: UnifiedResult }) {
 }
 
 function LFResultCard({ result }: { result: UnifiedResult }) {
+  const viewerRoute = getLaserficheViewerRoute(result);
+
   return (
     <div className="bg-card border border-card-border rounded-md p-5 hover:bg-muted/20 transition-colors" data-testid={`result-card-${result.id}`}>
       <div className="flex items-start gap-3">
@@ -209,7 +229,15 @@ function LFResultCard({ result }: { result: UnifiedResult }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-3 mb-1">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">{result.title}</p>
+              <Link href={viewerRoute}>
+                <p
+                  className="text-sm font-medium text-foreground truncate hover:text-primary transition-colors cursor-pointer"
+                  data-testid={`result-title-${result.id}`}
+                  onClick={() => logLaserficheNavigation(result, viewerRoute)}
+                >
+                  {result.title}
+                </p>
+              </Link>
               <p className="text-xs text-muted-foreground truncate">{result.snippet}</p>
             </div>
             <div className="flex items-center gap-1 bg-orange-50 text-orange-700 text-xs font-mono px-2 py-0.5 rounded-md dark:bg-orange-950/30 dark:text-orange-400">
@@ -242,8 +270,17 @@ function LFResultCard({ result }: { result: UnifiedResult }) {
             </div>
           )}
           <div className="mt-2 flex gap-2">
+            <Link href={viewerRoute}>
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid={`view-lf-doc-${getLaserficheEntryId(result)}`}
+                onClick={() => logLaserficheNavigation(result, viewerRoute)}
+              >
+                View <ChevronRight className="w-3 h-3 ml-1" />
+              </Button>
+            </Link>
             {result.previewUrl && <Button size="sm" variant="outline" asChild><a href={result.previewUrl} target="_blank" rel="noreferrer">Preview</a></Button>}
-            {result.openUrl && <Button size="sm" variant="outline" asChild><a href={result.openUrl} target="_blank" rel="noreferrer">Open</a></Button>}
             {result.downloadUrl && <Button size="sm" asChild><a href={result.downloadUrl} target="_blank" rel="noreferrer"><Download className="w-3 h-3 mr-1" />Download</a></Button>}
           </div>
         </div>

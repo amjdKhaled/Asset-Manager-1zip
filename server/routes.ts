@@ -494,7 +494,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           if (!name) continue;
           metadata[name] = Array.isArray(field?.values) ? field.values.map((v: any) => String(v?.value ?? "")).filter(Boolean) : [];
         }
-        return { ...details, id: Number(details.id || entry.id), metadata, previewUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=inline`, openUrl: `/api/laserfiche/entries/${Number(entry.id)}/open`, downloadUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=attachment` };
+        return { ...details, id: Number(details.id || entry.id), metadata, previewUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=inline`, openUrl: `/lf-document/${Number(entry.id)}`, sourceUrl: `/api/laserfiche/entries/${Number(entry.id)}/open`, downloadUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=attachment` };
       }));
       res.json({ entries, total: allEntries.length, page: Number(page), pageSize: Number(maxResults), searchCommand: finalCommand, nlTranslation: nlResult, query });
     } catch (err: any) {
@@ -1491,6 +1491,11 @@ IMPORTANT:
     if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
     const entryId = Number(req.params.entryId);
     if (!Number.isFinite(entryId)) return res.status(400).json({ error: "Invalid entry id" });
+    console.info("[DocumentViewerAPI] loading Laserfiche document", {
+      entryId,
+      repositoryId: config.repositoryId,
+      route: req.originalUrl,
+    });
     try {
       const token = await getLaserficheToken(config);
       const [entry, rawFields, tags] = await Promise.all([
@@ -1507,7 +1512,7 @@ IMPORTANT:
           .filter((v) => v !== "")
           .join(", "),
       })).filter((f) => f.value !== "");
-      res.json({
+      const responseBody = {
         id: entry.id,
         name: entry.name,
         path: entry.fullPath,
@@ -1515,10 +1520,22 @@ IMPORTANT:
         creator: entry.creator || null,
         extension: entry.extension || null,
         pageCount: entry.pageCount || null,
+        repositoryId: config.repositoryId,
+        repositoryName: config.repositoryId,
         metadata,
         tags,
+      };
+      console.info("[DocumentViewerAPI] loaded Laserfiche document", {
+        entryId,
+        repositoryId: config.repositoryId,
+        title: responseBody.name,
+        metadataFields: metadata.length,
+        tags: tags.length,
+        hasPreviewContentEndpoint: true,
       });
+      res.json(responseBody);
     } catch (err: any) {
+      console.error("[DocumentViewerAPI] failed to load Laserfiche document", { entryId, repositoryId: config.repositoryId, error: err.message });
       res.status(500).json({ error: err.message });
     }
   });
