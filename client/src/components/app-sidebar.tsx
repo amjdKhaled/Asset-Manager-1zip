@@ -11,15 +11,13 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { Search, LayoutDashboard, FileText, Shield, Database, ChevronRight, Link2, Bot, Settings, FileScan } from "lucide-react";
+import { Search, LayoutDashboard, FileText, Database, ChevronRight, Bot, Settings, FileScan } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const navItems = [
   { title: "Semantic Search", titleAr: "البحث الدلالي", url: "/", icon: Search },
   { title: "Dashboard", titleAr: "لوحة التحكم", url: "/dashboard", icon: LayoutDashboard },
   { title: "Document Archive", titleAr: "أرشيف المستندات", url: "/archive", icon: FileText },
-  { title: "Audit Log", titleAr: "سجل التدقيق", url: "/audit", icon: Shield },
-  { title: "Laserfiche Connect", titleAr: "ربط Laserfiche", url: "/laserfiche", icon: Link2 },
   { title: "LF Settings", titleAr: "إعدادات Laserfiche", url: "/laserfiche/settings", icon: Settings },
   { title: "AI Assistant", titleAr: "المساعد الذكي", url: "/chat", icon: Bot },
   { title: "Arabic PDF OCR", titleAr: "استخراج PDF العربي", url: "/pdf-extraction", icon: FileScan },

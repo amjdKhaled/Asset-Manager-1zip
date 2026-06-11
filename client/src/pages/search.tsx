@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Search, SlidersHorizontal, FileText, FileCheck, FileX, Scroll,
   Clock, Shield, Building2, Tag, ChevronRight, Zap, Brain, Layers,
-  X, Filter, TrendingUp, AlertCircle, Globe
+  X, Filter, TrendingUp, AlertCircle, Globe, FolderOpen, Code, Download
 } from "lucide-react";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,7 @@ const SEARCH_TYPES = [
   { value: "hybrid", label: "Hybrid Search", labelAr: "بحث مختلط", icon: Layers, description: "Combines semantic + keyword" },
   { value: "semantic", label: "Semantic Search", labelAr: "بحث دلالي", icon: Brain, description: "AI meaning-based matching" },
   { value: "keyword", label: "Keyword Search", labelAr: "بحث نصي", icon: Search, description: "Exact term matching" },
+  { value: "nl", label: "NL Search", labelAr: "بحث ذكي", icon: Globe, description: "Natural language → Laserfiche" },
 ];
 
 const EXAMPLE_QUERIES = [
@@ -310,12 +311,52 @@ function FilterSelect({ label, labelAr, value, onChange, options, testId }: {
   );
 }
 
+type NLTranslation = {
+  command: string;
+  explanation: string;
+  extractedTerms: string[];
+};
+
+type LFEntry = {
+  id: number;
+  name: string;
+  entryType: string;
+  fullPath: string;
+  creator: string;
+  creationTime?: string;
+  lastModifiedTime?: string;
+  templateName?: string;
+  extension?: string;
+  pageCount?: number;
+  metadata?: Record<string, string[]>;
+  previewUrl?: string;
+  openUrl?: string;
+  downloadUrl?: string;
+};
+
+type LFSearchResult = {
+  entries: LFEntry[];
+  total: number;
+  searchCommand: string;
+  nlTranslation: NLTranslation;
+  query: string;
+};
+
+const NL_EXAMPLE_QUERIES = [
+  { text: "عطني جميع المعاملات اللتي تحتوي على اسم سلمان", lang: "ar" },
+  { text: "جميع العقود لعام 2023", lang: "ar" },
+  { text: "المعاملات المتعلقة بالصيانة", lang: "ar" },
+  { text: "all contracts with Ahmed", lang: "en" },
+  { text: "documents from 2022 about budget", lang: "en" },
+];
+
 export default function SearchPage() {
   const [query, setQuery] = useState("");
-  const [searchType, setSearchType] = useState<"hybrid" | "semantic" | "keyword">("hybrid");
+  const [searchType, setSearchType] = useState<"hybrid" | "semantic" | "keyword" | "nl">("hybrid");
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<any>({});
   const [results, setResults] = useState<SearchResponse | null>(null);
+  const [nlResults, setNlResults] = useState<LFSearchResult | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
 
@@ -335,16 +376,34 @@ export default function SearchPage() {
     },
     onSuccess: (data) => {
       setResults(data);
-      queryClient.invalidateQueries({ queryKey: ["/api/audit-logs"] });
+      setNlResults(null);
     },
     onError: () => {
       toast({ title: "Search failed", description: "Please try again.", variant: "destructive" });
     },
   });
 
+  const nlSearchMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/laserfiche/search", { query: query.trim() });
+      return res.json() as Promise<LFSearchResult>;
+    },
+    onSuccess: (data) => {
+      setNlResults(data);
+      setResults(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "NL Search failed", description: err.message || "Laserfiche not configured", variant: "destructive" });
+    },
+  });
+
   const handleSearch = () => {
     if (!query.trim()) return;
-    searchMutation.mutate();
+    if (searchType === "nl") {
+      nlSearchMutation.mutate();
+    } else {
+      searchMutation.mutate();
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -439,11 +498,11 @@ export default function SearchPage() {
                 </button>
                 <Button
                   onClick={handleSearch}
-                  disabled={!query.trim() || searchMutation.isPending}
+                  disabled={!query.trim() || searchMutation.isPending || (searchType === "nl" && nlSearchMutation.isPending)}
                   className="h-8"
                   data-testid="search-button"
                 >
-                  {searchMutation.isPending ? (
+                  {searchMutation.isPending || (searchType === "nl" && nlSearchMutation.isPending) ? (
                     <span className="flex items-center gap-1.5">
                       <span className="w-3 h-3 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
                       Searching...
@@ -460,7 +519,7 @@ export default function SearchPage() {
 
             {query && (
               <button
-                onClick={() => { setQuery(""); setResults(null); }}
+                onClick={() => { setQuery(""); setResults(null); setNlResults(null); }}
                 className="absolute right-[140px] top-3 text-muted-foreground hover:text-foreground transition-colors"
                 data-testid="clear-query"
               >
@@ -469,10 +528,12 @@ export default function SearchPage() {
             )}
           </div>
 
-          {!results && !searchMutation.isPending && (
+          {!results && !nlResults && !searchMutation.isPending && (
             <div className="mt-3 flex flex-wrap gap-2">
-              <span className="text-xs text-muted-foreground self-center">Try:</span>
-              {EXAMPLE_QUERIES.map(eq => (
+              <span className="text-xs text-muted-foreground self-center">
+                {searchType === "nl" ? "Try NL:" : "Try:"}
+              </span>
+              {(searchType === "nl" ? NL_EXAMPLE_QUERIES : EXAMPLE_QUERIES).map(eq => (
                 <button
                   key={eq.text}
                   onClick={() => handleExampleClick(eq.text)}
@@ -493,14 +554,14 @@ export default function SearchPage() {
 
       <div className="flex-1 overflow-auto">
         <div className="max-w-5xl px-6 py-5 flex gap-5">
-          {showFilters && (
+          {showFilters && searchType !== "nl" && (
             <div className="w-64 flex-shrink-0">
               <FilterPanel filters={filters} setFilters={setFilters} onClose={() => setShowFilters(false)} />
             </div>
           )}
 
           <div className="flex-1 min-w-0">
-            {searchMutation.isPending && (
+            {(searchMutation.isPending || (searchType === "nl" && nlSearchMutation.isPending)) && (
               <div className="space-y-4">
                 <div className="flex items-center gap-3 mb-2">
                   <span className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
@@ -566,7 +627,81 @@ export default function SearchPage() {
               </div>
             )}
 
-            {!results && !searchMutation.isPending && (
+            {nlResults && !nlSearchMutation.isPending && (
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div>
+                    <p className="text-sm text-foreground font-medium">
+                      {nlResults.total} results from Laserfiche
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <Code className="w-3 h-3 text-muted-foreground" />
+                      <code className="text-xs text-primary font-mono">{nlResults.searchCommand}</code>
+                    </div>
+                  </div>
+                  {nlResults.nlTranslation && (
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">Extracted terms</p>
+                      <div className="flex flex-wrap gap-1 justify-end mt-1">
+                        {nlResults.nlTranslation.extractedTerms.map(t => (
+                          <span key={t} className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded font-mono">{t}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {nlResults.entries.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <AlertCircle className="w-12 h-12 text-muted-foreground/30 mb-4" />
+                    <h3 className="font-medium text-foreground mb-1">No documents found</h3>
+                    <p className="text-sm text-muted-foreground max-w-sm">Try different natural language terms.</p>
+                    <Button variant="outline" size="sm" className="mt-4" onClick={() => { setQuery(""); setNlResults(null); }}>Clear search</Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {nlResults.entries.map(entry => (
+                      <div key={entry.id} className="bg-card border border-card-border rounded-md p-5 flex items-start gap-3 hover:bg-muted/20 transition-colors" data-testid={`nl-entry-${entry.id}`}>
+                        <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          {entry.entryType === "Folder" ? (
+                            <FolderOpen className="w-5 h-5 text-primary" />
+                          ) : (
+                            <FileText className="w-5 h-5 text-primary" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{entry.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{entry.fullPath}</p>
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            <span className="text-xs text-muted-foreground">ID: {entry.id}</span>
+                            {entry.creator && <span className="text-xs text-muted-foreground">· {entry.creator}</span>}
+                            {entry.extension && <Badge variant="outline" className="text-xs py-0">{entry.extension.toUpperCase()}</Badge>}
+                            {entry.pageCount && <span className="text-xs text-muted-foreground">{entry.pageCount} pages</span>}
+                            {entry.templateName && <span className="text-xs text-muted-foreground">· Template: {entry.templateName}</span>}
+                          </div>
+                          {entry.metadata && Object.keys(entry.metadata).length > 0 && (
+                            <div className="mt-2 grid gap-1">
+                              {Object.entries(entry.metadata).slice(0, 4).map(([k, v]) => (
+                                <p key={k} className="text-xs text-muted-foreground">
+                                  <span className="font-medium text-foreground">{k}:</span> {v.join(", ") || "-"}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                          <div className="mt-2 flex gap-2">
+                            {entry.previewUrl && <Button size="sm" variant="outline" asChild><a href={entry.previewUrl} target="_blank" rel="noreferrer">Preview</a></Button>}
+                            {entry.openUrl && <Button size="sm" variant="outline" asChild><a href={entry.openUrl} target="_blank" rel="noreferrer">Open</a></Button>}
+                            {entry.downloadUrl && <Button size="sm" asChild><a href={entry.downloadUrl} target="_blank" rel="noreferrer">Download</a></Button>}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!results && !nlResults && !searchMutation.isPending && !nlSearchMutation.isPending && (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                   <Brain className="w-8 h-8 text-primary" />

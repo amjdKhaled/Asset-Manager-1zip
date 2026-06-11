@@ -11,9 +11,7 @@ import SearchPage from "@/pages/search";
 import DocumentPage from "@/pages/document";
 import LFDocumentPage from "@/pages/lf-document";
 import DashboardPage from "@/pages/dashboard";
-import AuditPage from "@/pages/audit";
 import ArchivePage from "@/pages/archive";
-import LaserfichePage from "@/pages/laserfiche";
 import LaserficheSettingsPage from "@/pages/laserfiche-settings";
 import ChatPage from "@/pages/chat";
 import PdfExtractionPage from "@/pages/pdf-extraction";
@@ -59,8 +57,6 @@ function PageHeader() {
     "/dashboard": { title: "Analytics Dashboard", titleAr: "لوحة التحليلات" },
     "/dashbord": { title: "Analytics Dashboard", titleAr: "لوحة التحليلات" },
     "/archive": { title: "Document Archive", titleAr: "أرشيف المستندات" },
-    "/audit": { title: "Audit Log", titleAr: "سجل التدقيق" },
-    "/laserfiche": { title: "Laserfiche Connect", titleAr: "ربط Laserfiche" },
     "/laserfiche/settings": { title: "Laserfiche Settings", titleAr: "إعدادات Laserfiche" },
     "/chat": { title: "AI Assistant", titleAr: "المساعد الذكي" },
     "/pdf-extraction": { title: "Arabic PDF OCR", titleAr: "استخراج PDF العربي" },
@@ -96,11 +92,8 @@ function Router() {
       <Route path="/dashboard" component={DashboardPage} />
       <Route path="/dashbord" component={DashboardPage} />
       <Route path="/archive" component={ArchivePage} />
-      <Route path="/audit" component={AuditPage} />
       <Route path="/document/:id" component={DocumentPage} />
-      <Route path="/lf-document/:entryId" component={LFDocumentPage} />
       <Route path="/laserfiche/settings" component={LaserficheSettingsPage} />
-      <Route path="/laserfiche" component={LaserfichePage} />
       <Route path="/chat" component={ChatPage} />
       <Route path="/pdf-extraction" component={PdfExtractionPage} />
       <Route component={NotFound} />
