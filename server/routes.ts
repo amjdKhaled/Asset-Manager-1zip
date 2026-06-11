@@ -36,6 +36,7 @@ import {
   type OllamaMessage,
 } from "./ollama";
 import { z } from "zod";
+import { executeSmartSearch } from "./smart-search";
 
 const requestSignal = (req: unknown): AbortSignal | undefined =>
   (req as { signal?: AbortSignal })?.signal;
@@ -112,6 +113,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(doc);
     } catch {
       res.status(500).json({ error: "Failed to fetch document" });
+    }
+  });
+
+  app.post("/api/smart-search", async (req, res) => {
+    try {
+      const body = req.body;
+      if (!body?.query || typeof body.query !== "string" || body.query.trim().length === 0) {
+        return res.status(400).json({ error: "Query is required" });
+      }
+      const result = await executeSmartSearch(body.query, body.filters, body.page || 1, body.limit || 10);
+      await storage.createAuditLog({
+        query: body.query,
+        queryLanguage: /[\u0600-\u06FF]/.test(body.query) ? "ar" : "en",
+        userId: "demo-user",
+        username: "demo.user",
+        resultsCount: result.total,
+        searchType: "smart",
+        filters: body.filters || null,
+        ipAddress: req.ip || "127.0.0.1",
+        department: "Demo",
+      });
+      res.json(result);
+    } catch {
+      res.status(500).json({ error: "Smart search failed" });
     }
   });
 
