@@ -116,6 +116,13 @@ type LaserfichePreview = {
 
 type TrailItem = { id: number; name: string };
 
+const parseFolderId = (value: string): number | null => {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
 type LaserficheDetails = {
   value?: Array<{
     fieldId: number;
@@ -356,9 +363,10 @@ export default function ArchivePage() {
   const [, setLocation] = useLocation();
   const [localSearch, setLocalSearch] = useState("");
   const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
-  const [selectedFolderId, setSelectedFolderId] = useState(() => localStorage.getItem("lf_root_folder_id") || "1");
+  const [selectedFolderId, setSelectedFolderId] = useState("");
+  const [activeFolderId, setActiveFolderId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
-  const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
+  const [trail, setTrail] = useState<TrailItem[]>([]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [details, setDetails] = useState<LaserficheDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -371,27 +379,32 @@ export default function ArchivePage() {
   const [discoveringRoots, setDiscoveringRoots] = useState(false);
   const [rootCandidates, setRootCandidates] = useState<Array<{ id: number; name: string }>>([]);
 
-  const numericFolderId = Number(selectedFolderId) || 1;
+  const inputFolderId = parseFolderId(selectedFolderId);
+  const isFolderIdInputValid = inputFolderId !== null;
+  const hasActiveFolder = activeFolderId !== null;
+
   const { data: folderFilters } = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: ["/api/lf/folders", numericFolderId],
+    queryKey: ["/api/lf/folders", activeFolderId],
+    enabled: hasActiveFolder,
     queryFn: async () => {
-      const res = await fetch(`/api/lf/folders?rootFolderId=${numericFolderId}`, { credentials: "include" });
+      const res = await fetch(`/api/lf/folders?rootFolderId=${activeFolderId}`, { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },
   });
   const { data: lfDocsData, isLoading } = useQuery<{ documents: Array<{ id: number; name: string; path: string; folderName: string; isElectronicDocument?: boolean }> }>({
-    queryKey: ["/api/lf/documents", numericFolderId],
+    queryKey: ["/api/lf/documents", activeFolderId],
+    enabled: hasActiveFolder,
     queryFn: async () => {
-      const res = await fetch(`/api/lf/documents?rootFolderId=${numericFolderId}`, { credentials: "include" });
+      const res = await fetch(`/api/lf/documents?rootFolderId=${activeFolderId}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load Laserfiche documents");
       return res.json();
     },
   });
 
-  const { data: preview, isLoading: previewLoading, error: previewError, refetch: refetchPreview } = useQuery<LaserfichePreview>({
-    queryKey: ["/api/laserfiche/folders", selectedFolderId, "children"],
-    enabled: true,
+  const { data: preview, isLoading: previewLoading, error: previewError } = useQuery<LaserfichePreview>({
+    queryKey: ["/api/laserfiche/folders", activeFolderId, "children"],
+    enabled: hasActiveFolder,
   });
 
   const filtered = (lfDocsData?.documents || []).filter((d) => {
@@ -403,14 +416,14 @@ export default function ArchivePage() {
   const folders = useMemo(() => (preview?.children || []).filter(i => i.entryType?.toLowerCase().includes("folder")), [preview]);
   const files = useMemo(() => (preview?.children || []).filter(i => !i.entryType?.toLowerCase().includes("folder")), [preview]);
   const { data: lfSearchData } = useQuery<{ results: Array<{ id: number; name: string; path: string }> }>({
-    queryKey: ["/api/laserfiche/search", selectedFolderId, localSearch],
-    enabled: viewMode === "laserfiche" && localSearch.trim().length > 0,
+    queryKey: ["/api/laserfiche/search", activeFolderId, localSearch],
+    enabled: viewMode === "laserfiche" && hasActiveFolder && localSearch.trim().length > 0,
     queryFn: async () => {
       const res = await fetch("/api/laserfiche/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ query: localSearch, folderId: Number(selectedFolderId) || 1 }),
+        body: JSON.stringify({ query: localSearch, folderId: activeFolderId }),
       });
       if (!res.ok) throw new Error("Search failed");
       return res.json();
@@ -429,15 +442,18 @@ export default function ArchivePage() {
     return mapped as LaserficheFileEntry[];
   }, [viewMode, localSearch, files, lfSearchData]);
 
-  const openFolder = async (folderId: string, folderName?: string) => {
-    setSelectedFolderId(folderId);
-    localStorage.setItem("lf_root_folder_id", folderId);
+  const openFolder = (folderId: string, folderName?: string) => {
+    const parsedFolderId = parseFolderId(folderId);
+    if (parsedFolderId === null) return;
+
+    const normalizedFolderId = String(parsedFolderId);
+    setSelectedFolderId(normalizedFolderId);
+    setActiveFolderId(parsedFolderId);
     setTrail((current) => {
-      const index = current.findIndex((item) => String(item.id) === folderId);
+      const index = current.findIndex((item) => item.id === parsedFolderId);
       if (index >= 0) return current.slice(0, index + 1);
-      return [...current, { id: Number(folderId), name: folderName || `Folder ${folderId}` }];
+      return [...current, { id: parsedFolderId, name: folderName || `Folder ${normalizedFolderId}` }];
     });
-    await refetchPreview();
   };
 
   const discoverRoots = async () => {
@@ -452,12 +468,12 @@ export default function ArchivePage() {
     }
   };
 
-  const openTrail = async (index: number) => {
+  const openTrail = (index: number) => {
     const next = trail[index];
     if (!next) return;
     setSelectedFolderId(String(next.id));
+    setActiveFolderId(next.id);
     setTrail(trail.slice(0, index + 1));
-    await refetchPreview();
   };
 
   const openDocument = async (entryId: number) => {
@@ -655,7 +671,7 @@ export default function ArchivePage() {
               <Button
                 key={root.id}
                 type="button"
-                variant={String(root.id) === selectedFolderId ? "default" : "outline"}
+                variant={root.id === activeFolderId ? "default" : "outline"}
                 className="h-7 text-xs"
                 onClick={() => openFolder(String(root.id), root.name)}
                 data-testid={`root-candidate-${root.id}`}
@@ -733,8 +749,19 @@ export default function ArchivePage() {
               <div className="p-4 border-b border-border space-y-2">
                 <label className="text-xs font-medium text-muted-foreground">Current Folder ID</label>
                 <div className="flex gap-2">
-                  <Input value={selectedFolderId} onChange={(e) => setSelectedFolderId(e.target.value)} data-testid="input-folder-id" />
-                  <Button type="button" onClick={() => openFolder(selectedFolderId)} data-testid="button-open-folder">Open</Button>
+                  <Input
+                    value={selectedFolderId}
+                    onChange={(e) => setSelectedFolderId(e.target.value)}
+                    data-testid="input-folder-id"
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => openFolder(selectedFolderId)}
+                    disabled={!isFolderIdInputValid}
+                    data-testid="button-open-folder"
+                  >
+                    Open
+                  </Button>
                 </div>
                 <div className="flex items-center gap-1 text-xs text-muted-foreground overflow-x-auto">
                   {trail.map((item, index) => (
@@ -753,7 +780,13 @@ export default function ArchivePage() {
               </div>
 
               <div className="flex-1 overflow-auto p-3">
-                {previewLoading ? (
+                {!hasActiveFolder ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
+                    <Folder className="w-10 h-10 mb-3 opacity-40" />
+                    <p className="text-sm font-medium text-foreground">Enter a Folder ID to browse Laserfiche.</p>
+                    <p className="text-xs mt-1">The repository browser stays empty until you open a valid folder or select a detected root.</p>
+                  </div>
+                ) : previewLoading ? (
                   <Skeleton className="h-64 w-full" />
                 ) : previewError ? (
                   <div className="text-xs text-red-600">Could not load folders.</div>
