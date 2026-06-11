@@ -377,6 +377,7 @@ export default function ArchivePage() {
   const [openNotice, setOpenNotice] = useState<string | null>(null);
   const [discoveringRoots, setDiscoveringRoots] = useState(false);
   const [rootCandidates, setRootCandidates] = useState<Array<{ id: number; name: string }>>([]);
+  const currentFolderId = selectedFolderId;
 
   const { data: lfDocsData, isLoading } = useQuery<{
     repositoryId?: string;
@@ -427,7 +428,7 @@ export default function ArchivePage() {
   }, [lfDocsData]);
 
   const { data: preview, isLoading: previewLoading, error: previewError, refetch: refetchPreview } = useQuery<LaserfichePreview>({
-    queryKey: ["/api/laserfiche/folders", selectedFolderId, "children"],
+    queryKey: ["/api/laserfiche/folders", currentFolderId, "children"],
     enabled: true,
   });
 
@@ -440,14 +441,14 @@ export default function ArchivePage() {
   const folders = useMemo(() => (preview?.children || []).filter(i => i.entryType?.toLowerCase().includes("folder")), [preview]);
   const files = useMemo(() => (preview?.children || []).filter(i => !i.entryType?.toLowerCase().includes("folder")), [preview]);
   const { data: lfSearchData } = useQuery<{ results: Array<{ id: number; name: string; path: string }> }>({
-    queryKey: ["/api/laserfiche/search", activeFolderId, localSearch],
-    enabled: viewMode === "laserfiche" && hasActiveFolder && localSearch.trim().length > 0,
+    queryKey: ["/api/laserfiche/search", currentFolderId, localSearch],
+    enabled: viewMode === "laserfiche" && localSearch.trim().length > 0,
     queryFn: async () => {
       const res = await fetch("/api/laserfiche/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ query: localSearch, folderId: activeFolderId }),
+        body: JSON.stringify({ query: localSearch, folderId: Number(currentFolderId) || 1 }),
       });
       if (!res.ok) throw new Error("Search failed");
       return res.json();
