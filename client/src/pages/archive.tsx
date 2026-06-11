@@ -363,8 +363,7 @@ export default function ArchivePage() {
   const [, setLocation] = useLocation();
   const [localSearch, setLocalSearch] = useState("");
   const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
-  const [selectedFolderId, setSelectedFolderId] = useState("");
-  const [activeFolderId, setActiveFolderId] = useState<number | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState("1");
   const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
   const [trail, setTrail] = useState<TrailItem[]>([]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
@@ -379,36 +378,61 @@ export default function ArchivePage() {
   const [discoveringRoots, setDiscoveringRoots] = useState(false);
   const [rootCandidates, setRootCandidates] = useState<Array<{ id: number; name: string }>>([]);
 
-  const inputFolderId = parseFolderId(selectedFolderId);
-  const isFolderIdInputValid = inputFolderId !== null;
-  const hasActiveFolder = activeFolderId !== null;
-
-  const { data: folderFilters } = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: ["/api/lf/folders", activeFolderId],
-    enabled: hasActiveFolder,
+  const { data: lfDocsData, isLoading } = useQuery<{
+    repositoryId?: string;
+    repositoryName?: string;
+    folderCount?: number;
+    documentCount?: number;
+    apiEndpoints?: string[];
+    failedCalls?: Array<{ endpoint: string; error: string }>;
+    documents: Array<{
+      id: number;
+      name: string;
+      path: string;
+      folderName: string;
+      repositoryId?: string;
+      repositoryName?: string;
+      metadata?: Record<string, string[]>;
+      extension?: string | null;
+      pageCount?: number | null;
+      isElectronicDocument?: boolean;
+    }>;
+  }>({
+    queryKey: ["/api/lf/documents", "all"],
     queryFn: async () => {
-      const res = await fetch(`/api/lf/folders?rootFolderId=${activeFolderId}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
-  });
-  const { data: lfDocsData, isLoading } = useQuery<{ documents: Array<{ id: number; name: string; path: string; folderName: string; isElectronicDocument?: boolean }> }>({
-    queryKey: ["/api/lf/documents", activeFolderId],
-    enabled: hasActiveFolder,
-    queryFn: async () => {
-      const res = await fetch(`/api/lf/documents?rootFolderId=${activeFolderId}`, { credentials: "include" });
+      console.info("[ArchivePage] loading all Laserfiche documents", { endpoint: "/api/lf/documents" });
+      const res = await fetch("/api/lf/documents", { credentials: "include" });
+      console.info("[ArchivePage] Laserfiche documents API response", { status: res.status, ok: res.ok });
       if (!res.ok) throw new Error("Failed to load Laserfiche documents");
-      return res.json();
+      const payload = await res.json();
+      console.info("[ArchivePage] all Laserfiche documents loaded", {
+        repositoryId: payload.repositoryId,
+        folderCount: payload.folderCount,
+        documentCount: payload.documentCount ?? payload.documents?.length ?? 0,
+        apiEndpoints: payload.apiEndpoints,
+        failedCalls: payload.failedCalls,
+      });
+      return payload;
     },
   });
 
-  const { data: preview, isLoading: previewLoading, error: previewError } = useQuery<LaserfichePreview>({
-    queryKey: ["/api/laserfiche/folders", activeFolderId, "children"],
-    enabled: hasActiveFolder,
+  const folderFilters = useMemo(() => {
+    const unique = new Map<string, { id: string; name: string }>();
+    for (const doc of lfDocsData?.documents || []) {
+      if (doc.folderName && !unique.has(doc.folderName)) {
+        unique.set(doc.folderName, { id: doc.folderName, name: doc.folderName });
+      }
+    }
+    return Array.from(unique.values());
+  }, [lfDocsData]);
+
+  const { data: preview, isLoading: previewLoading, error: previewError, refetch: refetchPreview } = useQuery<LaserfichePreview>({
+    queryKey: ["/api/laserfiche/folders", selectedFolderId, "children"],
+    enabled: true,
   });
 
   const filtered = (lfDocsData?.documents || []).filter((d) => {
-    const folderMatch = selectedFolderFilter === "all" || d.folderName === (folderFilters || []).find((f) => String(f.id) === selectedFolderFilter)?.name;
+    const folderMatch = selectedFolderFilter === "all" || d.folderName === selectedFolderFilter;
     const searchMatch = !localSearch || d.name.toLowerCase().includes(localSearch.toLowerCase()) || d.path.toLowerCase().includes(localSearch.toLowerCase());
     return folderMatch && searchMatch;
   });
@@ -442,13 +466,8 @@ export default function ArchivePage() {
     return mapped as LaserficheFileEntry[];
   }, [viewMode, localSearch, files, lfSearchData]);
 
-  const openFolder = (folderId: string, folderName?: string) => {
-    const parsedFolderId = parseFolderId(folderId);
-    if (parsedFolderId === null) return;
-
-    const normalizedFolderId = String(parsedFolderId);
-    setSelectedFolderId(normalizedFolderId);
-    setActiveFolderId(parsedFolderId);
+  const openFolder = async (folderId: string, folderName?: string) => {
+    setSelectedFolderId(folderId);
     setTrail((current) => {
       const index = current.findIndex((item) => item.id === parsedFolderId);
       if (index >= 0) return current.slice(0, index + 1);
@@ -609,24 +628,14 @@ export default function ArchivePage() {
           <p className="text-sm text-muted-foreground mt-0.5 font-arabic" dir="rtl">أرشيف المستندات الحكومية</p>
         </div>
         <div className="flex items-center gap-2 mb-3">
-          <Button
-            type="button"
-            variant={viewMode === "archive" ? "default" : "outline"}
-            className="h-8 text-xs"
-            onClick={() => setViewMode("archive")}
-            data-testid="view-mode-archive"
-          >
-            Document Archive
-          </Button>
-          <Button
-            type="button"
-            variant={viewMode === "laserfiche" ? "default" : "outline"}
-            className="h-8 text-xs"
-            onClick={() => setViewMode("laserfiche")}
-            data-testid="view-mode-laserfiche"
-          >
-            Laserfiche Repository
-          </Button>
+          <Badge variant="outline" className="text-xs" data-testid="archive-repository">
+            Repository: {lfDocsData?.repositoryName || lfDocsData?.repositoryId || "Laserfiche"}
+          </Badge>
+          {lfDocsData && (
+            <Badge variant="secondary" className="text-xs" data-testid="archive-folder-document-counts">
+              {lfDocsData.folderCount ?? 0} folders · {lfDocsData.documentCount ?? lfDocsData.documents.length} documents
+            </Badge>
+          )}
         </div>
         <div className="flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-48">
@@ -634,7 +643,7 @@ export default function ArchivePage() {
             <Input
               value={localSearch}
               onChange={e => setLocalSearch(e.target.value)}
-              placeholder={viewMode === "archive" ? "Filter documents..." : "Search Laserfiche..."}
+              placeholder="Filter documents..."
               className="pl-8 h-8 text-sm"
               data-testid="archive-search"
             />
@@ -645,7 +654,7 @@ export default function ArchivePage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Folders</SelectItem>
-              {(folderFilters || []).map(f => <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>)}
+              {folderFilters.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
             </SelectContent>
           </Select>
           {lfDocsData && (
@@ -653,34 +662,7 @@ export default function ArchivePage() {
               {filtered?.length ?? 0} of {lfDocsData.documents.length} documents
             </span>
           )}
-          <Button
-            type="button"
-            variant="outline"
-            className="h-8 text-xs"
-            onClick={discoverRoots}
-            disabled={discoveringRoots}
-            data-testid="button-discover-roots"
-          >
-            {discoveringRoots ? "Discovering..." : "Discover root folders"}
-          </Button>
         </div>
-        {rootCandidates.length > 0 && (
-          <div className="mt-2 flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted-foreground">Detected roots:</span>
-            {rootCandidates.map((root) => (
-              <Button
-                key={root.id}
-                type="button"
-                variant={root.id === activeFolderId ? "default" : "outline"}
-                className="h-7 text-xs"
-                onClick={() => openFolder(String(root.id), root.name)}
-                data-testid={`root-candidate-${root.id}`}
-              >
-                {root.name} (#{root.id})
-              </Button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Body */}
@@ -688,7 +670,7 @@ export default function ArchivePage() {
         <div className="h-full grid grid-cols-1 gap-5">
 
           {/* LEFT — Document grid OR inline viewer */}
-          {viewMode === "archive" && <div className="overflow-auto min-h-0">
+          <div className="overflow-auto min-h-0">
             {viewerEntry ? (
               <div className="h-full">
                 <SmartViewer entry={viewerEntry} onClose={closeViewer} />
@@ -709,10 +691,20 @@ export default function ArchivePage() {
                   >
                     <p className="text-lg font-semibold truncate">{doc.name}</p>
                     <p className="text-sm text-muted-foreground truncate mt-1">{doc.path}</p>
-                    <div className="mt-3 flex items-center gap-2">
+                    <div className="mt-3 flex items-center gap-2 flex-wrap">
                       <Badge variant="secondary">Entry #{doc.id}</Badge>
                       <Badge variant="outline">{doc.folderName}</Badge>
+                      <Badge variant="outline">{doc.repositoryName || doc.repositoryId || lfDocsData?.repositoryName || lfDocsData?.repositoryId || "Laserfiche"}</Badge>
                     </div>
+                    {doc.metadata && Object.keys(doc.metadata).length > 0 && (
+                      <div className="mt-3 grid gap-1" data-testid={`archive-metadata-${doc.id}`}>
+                        {Object.entries(doc.metadata).slice(0, 3).map(([key, values]) => (
+                          <p key={key} className="text-xs text-muted-foreground truncate">
+                            <span className="font-medium text-foreground">{key}:</span> {values.join(", ") || "-"}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                     <div className="mt-3">
                       <div className="w-full h-px bg-border mb-3" />
                       <Button
@@ -737,249 +729,7 @@ export default function ArchivePage() {
                 <p className="text-sm text-muted-foreground">Try adjusting your filters.</p>
               </div>
             )}
-          </div>}
-
-          {/* RIGHT — Laserfiche repository browser + metadata */}
-          {viewMode === "laserfiche" && <div className="overflow-auto min-h-0">
-            <div className="bg-card border border-card-border rounded-md h-full flex flex-col">
-              <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-                <Folder className="w-4 h-4 text-primary" />
-                <h2 className="text-sm font-semibold">Laserfiche Repository</h2>
-              </div>
-              <div className="p-4 border-b border-border space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">Current Folder ID</label>
-                <div className="flex gap-2">
-                  <Input
-                    value={selectedFolderId}
-                    onChange={(e) => setSelectedFolderId(e.target.value)}
-                    data-testid="input-folder-id"
-                  />
-                  <Button
-                    type="button"
-                    onClick={() => openFolder(selectedFolderId)}
-                    disabled={!isFolderIdInputValid}
-                    data-testid="button-open-folder"
-                  >
-                    Open
-                  </Button>
-                </div>
-                <div className="flex items-center gap-1 text-xs text-muted-foreground overflow-x-auto">
-                  {trail.map((item, index) => (
-                    <button
-                      key={`${item.id}-${index}`}
-                      type="button"
-                      className="hover:text-foreground"
-                      onClick={() => openTrail(index)}
-                      data-testid={`trail-folder-${item.id}`}
-                    >
-                      {index > 0 && <span className="mx-1">/</span>}
-                      {item.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-auto p-3">
-                {!hasActiveFolder ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
-                    <Folder className="w-10 h-10 mb-3 opacity-40" />
-                    <p className="text-sm font-medium text-foreground">Enter a Folder ID to browse Laserfiche.</p>
-                    <p className="text-xs mt-1">The repository browser stays empty until you open a valid folder or select a detected root.</p>
-                  </div>
-                ) : previewLoading ? (
-                  <Skeleton className="h-64 w-full" />
-                ) : previewError ? (
-                  <div className="text-xs text-red-600">Could not load folders.</div>
-                ) : preview ? (
-                  <div className="space-y-4">
-                    {/* Folders */}
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-2">Folders</p>
-                      <div className="space-y-1">
-                        {folders.map((folder) => (
-                          <button
-                            key={folder.id}
-                            type="button"
-                            onClick={() => openFolder(String(folder.id), folder.name)}
-                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted text-left"
-                            data-testid={`folder-row-${folder.id}`}
-                          >
-                            <FolderOpen className="w-4 h-4 text-amber-500" />
-                            <span className="text-sm">{folder.name}</span>
-                          </button>
-                        ))}
-                        {folders.length === 0 && <div className="text-xs text-muted-foreground">No folders.</div>}
-                      </div>
-                    </div>
-
-                    {/* Files */}
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-2">Files</p>
-                      {openNotice && (
-                        <div className="mb-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                          {openNotice}
-                        </div>
-                      )}
-                      <div className="divide-y divide-border rounded-md border border-border">
-                        {filesToRender.map((file) => (
-                          <div
-                            key={file.id}
-                            className={cn(
-                              "w-full px-3 py-2 flex items-center justify-between gap-2 text-left hover:bg-muted",
-                              selectedEntryId === file.id && "bg-primary/5"
-                            )}
-                            data-testid={`file-row-${file.id}`}
-                          >
-                            <button
-                              type="button"
-                              className="min-w-0 text-left flex-1"
-                              onClick={() => openDocument(file.id)}
-                              data-testid={`button-metadata-${file.id}`}
-                            >
-                              <p className="text-sm font-medium truncate">{file.name}</p>
-                              <p className="text-xs text-muted-foreground truncate">{file.fullPath}</p>
-                            </button>
-                            <div className="flex items-center gap-1.5 flex-shrink-0">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 text-xs px-2"
-                                onClick={() => openDocument(file.id)}
-                                data-testid={`button-metadata-panel-${file.id}`}
-                              >
-                                Metadata
-                              </Button>
-                              {/* Keep only Metadata + AI + Open actions (Delete intentionally removed). */}
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                size="sm"
-                                className="h-7 text-xs px-2"
-                                onClick={() => handleAI(file)}
-                                data-testid={`button-ai-document-${file.id}`}
-                              >
-                                AI
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs px-2 gap-1"
-                                onClick={() => openViewer(file)}
-                                disabled={file.isElectronicDocument === false}
-                                title={file.isElectronicDocument === false ? "No electronic file available" : undefined}
-                                data-testid={`button-open-document-${file.id}`}
-                              >
-                                <Eye className="w-3 h-3" />
-                                Open
-                              </Button>
-                              {/* <Button
-                                type="button"
-                                variant="destructive"
-                                size="sm"
-                                className="h-7 text-xs px-2 gap-1"
-                                onClick={() => deleteDocument(file)}
-                                data-testid={`button-delete-document-${file.id}`}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                Delete
-                              </Button> */}
-                            </div>
-                          </div>
-                        ))}
-                        {filesToRender.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No files.</div>}
-                      </div>
-                    </div>
-
-                    {/* Metadata details */}
-                    {selectedEntryId && (
-                      <div className="border border-border rounded-md p-3 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-primary" />
-                          <p className="text-sm font-semibold">Document Details</p>
-                        </div>
-                        {detailsLoading ? (
-                          <Skeleton className="h-40 w-full" />
-                        ) : detailsError ? (
-                          <div className="text-xs text-red-600">{detailsError}</div>
-                        ) : fieldEntries.length > 0 ? (
-                          <div className="grid grid-cols-1 gap-2 text-xs">
-                            {fieldEntries.map((field) => (
-                              <div key={field.fieldId} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
-                                <span className="text-muted-foreground shrink-0">{field.fieldName}</span>
-                                <span className="text-foreground text-right break-all">
-                                  {formatLaserficheFieldValues(field.values || []) || "—"}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : fieldDefinitions.length > 0 ? (
-                          <div className="space-y-2">
-                            <p className="text-xs text-muted-foreground">No field values. Available repository fields:</p>
-                            <div className="grid grid-cols-1 gap-2 text-xs">
-                              {fieldDefinitions.slice(0, 20).map((field) => (
-                                <div key={field.id} className="flex items-start justify-between gap-3 border-b border-border pb-1.5 last:border-b-0">
-                                  <span className="text-muted-foreground shrink-0">{field.name}</span>
-                                  <span className="text-foreground text-right break-all">{field.fieldType || "Field"}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-xs text-muted-foreground">Select a file to view document details.</div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* AI Analysis */}
-                    {selectedEntryId && (
-                      <div className="border border-border rounded-md p-3 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-base">🤖</span>
-                          <p className="text-sm font-semibold">AI Analysis</p>
-                        </div>
-                        {analysisLoadingEntryId === selectedEntryId ? (
-                          <Skeleton className="h-24 w-full" />
-                        ) : analysisError ? (
-                          <div className="text-xs text-red-600">{analysisError}</div>
-                        ) : analysisByEntryId[selectedEntryId] ? (
-                          <div className="space-y-2 text-xs">
-                            <p className="text-muted-foreground">{analysisByEntryId[selectedEntryId].summary.content}</p>
-                            {analysisByEntryId[selectedEntryId].content ? null : (
-                              <p className="text-amber-600">No document content was available; summary is based on metadata.</p>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="text-xs text-muted-foreground">Click Analyze to run AI analysis for this document.</div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Tags */}
-                    {selectedEntryId && details?.value && details.value.some(f => f.fieldName.toLowerCase().includes("tag")) && (
-                      <div className="border border-border rounded-md p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Tag className="w-4 h-4 text-primary" />
-                          <p className="text-sm font-semibold">Tags</p>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {details.value
-                            .filter(f => f.fieldName.toLowerCase().includes("tag"))
-                            .flatMap(f => f.values.map(v => normalizeLaserficheFieldValue(v)).filter(Boolean))
-                            .map((tag, i) => (
-                              <Badge key={i} variant="outline" className="text-xs">{tag}</Badge>
-                            ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-xs text-muted-foreground">Click Open to load the selected folder.</div>
-                )}
-              </div>
-            </div>
-          </div>}
+          </div>
         </div>
       </div>
     </div>
