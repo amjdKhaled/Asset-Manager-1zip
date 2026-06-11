@@ -93,6 +93,7 @@ function Router() {
       <Route path="/dashbord" component={DashboardPage} />
       <Route path="/archive" component={ArchivePage} />
       <Route path="/document/:id" component={DocumentPage} />
+      <Route path="/lf-document/:entryId" component={LFDocumentPage} />
       <Route path="/laserfiche/settings" component={LaserficheSettingsPage} />
       <Route path="/chat" component={ChatPage} />
       <Route path="/pdf-extraction" component={PdfExtractionPage} />

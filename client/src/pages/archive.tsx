@@ -356,7 +356,7 @@ export default function ArchivePage() {
   const [, setLocation] = useLocation();
   const [localSearch, setLocalSearch] = useState("");
   const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
-  const [selectedFolderId, setSelectedFolderId] = useState(() => localStorage.getItem("lf_root_folder_id") || "1");
+  const [selectedFolderId, setSelectedFolderId] = useState("1");
   const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
   const [trail, setTrail] = useState<TrailItem[]>([{ id: 1, name: "Repository" }]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
@@ -431,7 +431,6 @@ export default function ArchivePage() {
 
   const openFolder = async (folderId: string, folderName?: string) => {
     setSelectedFolderId(folderId);
-    localStorage.setItem("lf_root_folder_id", folderId);
     setTrail((current) => {
       const index = current.findIndex((item) => String(item.id) === folderId);
       if (index >= 0) return current.slice(0, index + 1);
