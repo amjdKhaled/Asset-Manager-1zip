@@ -494,7 +494,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           if (!name) continue;
           metadata[name] = Array.isArray(field?.values) ? field.values.map((v: any) => String(v?.value ?? "")).filter(Boolean) : [];
         }
-        return { ...details, id: Number(details.id || entry.id), metadata, previewUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=inline`, openUrl: `/api/laserfiche/entries/${Number(entry.id)}/open`, downloadUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=attachment` };
+        return { ...details, id: Number(details.id || entry.id), metadata, previewUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=inline`, openUrl: `/lf-document/${Number(entry.id)}`, sourceUrl: `/api/laserfiche/entries/${Number(entry.id)}/open`, downloadUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=attachment` };
       }));
       res.json({ entries, total: allEntries.length, page: Number(page), pageSize: Number(maxResults), searchCommand: finalCommand, nlTranslation: nlResult, query });
     } catch (err: any) {
@@ -654,36 +654,156 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/lf/documents", async (req, res) => {
     const config = getLaserficheConfig();
     if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
-    const rootFolderId = Number(req.query.rootFolderId || 1);
+
+    const requestedRootFolderId = req.query.rootFolderId !== undefined ? Number(req.query.rootFolderId) : null;
+    if (requestedRootFolderId !== null && !Number.isFinite(requestedRootFolderId)) {
+      return res.status(400).json({ error: "Invalid root folder id" });
+    }
+
     try {
       const token = await getLaserficheToken(config);
-      const visited = new Set<number>();
-      const walkFolder = async (folderId: number, folderName: string): Promise<Array<{ id: number; name: string; path: string; folderName: string }>> => {
-        if (visited.has(folderId)) return [];
-        visited.add(folderId);
+      const apiCalls: string[] = [];
+      const failedCalls: Array<{ endpoint: string; error: string }> = [];
+      const rootCandidates = [1, 2, 3, 5, 10, 17, 20, 50, 100];
 
-        const children = await laserficheGetFolderChildren(config, token, folderId);
-        const ownDocs = children
-          .filter((c: any) => c.isElectronicDocument || c.entryType?.toLowerCase().includes("document"))
-          .map((d: any) => ({
-            id: d.id,
-            name: d.name,
-            path: d.fullPath || "",
-            folderName,
-            isElectronicDocument: !!d.isElectronicDocument,
-          }));
-
-        const subfolders = children.filter((c: any) => c.entryType?.toLowerCase().includes("folder"));
-        const nested = await Promise.all(
-          subfolders.map((folder: any) => walkFolder(Number(folder.id), folder.name || folderName))
-        );
-
-        return [...ownDocs, ...nested.flat()];
+      const listChildren = async (folderId: number) => {
+        const endpoint = `/v1|v2/Repositories/${config.repositoryId}/Entries/${folderId}/Folder/Children`;
+        apiCalls.push(endpoint);
+        try {
+          const children = await laserficheGetFolderChildren(config, token, folderId);
+          console.info("[ArchiveDocuments] folder children loaded", {
+            folderId,
+            childCount: children.length,
+            documents: children.filter((entry: any) => entry?.isElectronicDocument || entry?.entryType?.toLowerCase().includes("document")).length,
+            folders: children.filter((entry: any) => entry?.entryType?.toLowerCase().includes("folder")).length,
+          });
+          return children;
+        } catch (err: any) {
+          failedCalls.push({ endpoint, error: err.message || String(err) });
+          console.error("[ArchiveDocuments] failed to load folder children", { folderId, endpoint, error: err.message || String(err) });
+          return [];
+        }
       };
 
-      const documents = await walkFolder(rootFolderId, "Repository");
-      res.json({ documents });
+      const discoverRoots = async (): Promise<Array<{ id: number; name: string }>> => {
+        if (requestedRootFolderId !== null) {
+          return [{ id: requestedRootFolderId, name: `Folder ${requestedRootFolderId}` }];
+        }
+
+        const roots = new Map<number, string>();
+        for (const id of rootCandidates) {
+          try {
+            const endpoint = `/v1|v2/Repositories/${config.repositoryId}/Entries/${id}`;
+            apiCalls.push(endpoint);
+            const entry = await laserficheGetEntry(config, token, id);
+            if (entry?.entryType?.toLowerCase().includes("folder")) {
+              roots.set(id, entry.name || `Folder ${id}`);
+            }
+          } catch (err: any) {
+            failedCalls.push({ endpoint: `/v1|v2/Repositories/${config.repositoryId}/Entries/${id}`, error: err.message || String(err) });
+          }
+        }
+
+        const rootChildren = await listChildren(1);
+        for (const child of rootChildren) {
+          if (child?.entryType?.toLowerCase().includes("folder")) {
+            roots.set(Number(child.id), child.name || `Folder ${child.id}`);
+          }
+        }
+
+        return Array.from(roots, ([id, name]) => ({ id, name }));
+      };
+
+      const roots = await discoverRoots();
+      const visitedFolders = new Set<number>();
+      const documentsById = new Map<number, any>();
+      let folderCount = 0;
+
+      const walkFolder = async (folderId: number, folderName: string): Promise<void> => {
+        if (visitedFolders.has(folderId)) return;
+        visitedFolders.add(folderId);
+        folderCount += 1;
+
+        const children = await listChildren(folderId);
+        const documents = children.filter((entry: any) => entry?.isElectronicDocument || entry?.entryType?.toLowerCase().includes("document"));
+        for (const entry of documents) {
+          documentsById.set(Number(entry.id), { ...entry, folderName });
+        }
+
+        const subfolders = children.filter((entry: any) => entry?.entryType?.toLowerCase().includes("folder"));
+        await Promise.all(subfolders.map((folder: any) => walkFolder(Number(folder.id), folder.name || folderName)));
+      };
+
+      await Promise.all(roots.map((root) => walkFolder(root.id, root.name)));
+
+      const documents = await Promise.all(
+        Array.from(documentsById.values()).map(async (entry: any) => {
+          const entryId = Number(entry.id);
+          let details: any = entry;
+          let rawFields: any[] = [];
+
+          try {
+            apiCalls.push(`/v1|v2/Repositories/${config.repositoryId}/Entries/${entryId}`);
+            details = await laserficheGetEntry(config, token, entryId);
+          } catch (err: any) {
+            failedCalls.push({ endpoint: `/v1|v2/Repositories/${config.repositoryId}/Entries/${entryId}`, error: err.message || String(err) });
+            console.error("[ArchiveDocuments] failed to load document details", { entryId, error: err.message || String(err) });
+          }
+
+          try {
+            apiCalls.push(`/v1|v2/Repositories/${config.repositoryId}/Entries/${entryId}/fields`);
+            rawFields = await laserficheGetEntryFieldsRaw(config, token, entryId);
+          } catch (err: any) {
+            failedCalls.push({ endpoint: `/v1|v2/Repositories/${config.repositoryId}/Entries/${entryId}/fields`, error: err.message || String(err) });
+            console.error("[ArchiveDocuments] failed to load document metadata", { entryId, error: err.message || String(err) });
+          }
+
+          const metadata: Record<string, string[]> = {};
+          for (const field of rawFields) {
+            const fieldName = String(field?.fieldName || field?.name || "").trim();
+            if (!fieldName) continue;
+            metadata[fieldName] = Array.isArray(field?.values)
+              ? field.values.map((value: any) => String(value?.value ?? "")).filter(Boolean)
+              : [];
+          }
+
+          return {
+            id: entryId,
+            name: details.name || entry.name || `Entry ${entryId}`,
+            path: details.fullPath || entry.fullPath || "",
+            folderName: entry.folderName || "Repository",
+            repositoryId: config.repositoryId,
+            repositoryName: config.repositoryId,
+            metadata,
+            extension: details.extension || entry.extension || null,
+            pageCount: details.pageCount || entry.pageCount || null,
+            isElectronicDocument: entry.isElectronicDocument !== false,
+          };
+        })
+      );
+
+      console.info("[ArchiveDocuments] recursive archive load complete", {
+        repositoryId: config.repositoryId,
+        requestedRootFolderId,
+        roots: roots.map((root) => root.id),
+        folderCount,
+        documentCount: documents.length,
+        apiCallCount: apiCalls.length,
+        failedCallCount: failedCalls.length,
+      });
+
+      res.json({
+        repositoryId: config.repositoryId,
+        repositoryName: config.repositoryId,
+        roots,
+        folderCount,
+        documentCount: documents.length,
+        apiEndpoints: Array.from(new Set(apiCalls)),
+        failedCalls,
+        documents,
+      });
     } catch (err: any) {
+      console.error("[ArchiveDocuments] failed to load recursive archive documents", { error: err.message || String(err) });
       res.status(500).json({ error: err.message });
     }
   });
@@ -1491,6 +1611,11 @@ IMPORTANT:
     if (!config) return res.status(503).json({ error: "Laserfiche not configured" });
     const entryId = Number(req.params.entryId);
     if (!Number.isFinite(entryId)) return res.status(400).json({ error: "Invalid entry id" });
+    console.info("[DocumentViewerAPI] loading Laserfiche document", {
+      entryId,
+      repositoryId: config.repositoryId,
+      route: req.originalUrl,
+    });
     try {
       const token = await getLaserficheToken(config);
       const [entry, rawFields, tags] = await Promise.all([
@@ -1507,7 +1632,7 @@ IMPORTANT:
           .filter((v) => v !== "")
           .join(", "),
       })).filter((f) => f.value !== "");
-      res.json({
+      const responseBody = {
         id: entry.id,
         name: entry.name,
         path: entry.fullPath,
@@ -1515,10 +1640,22 @@ IMPORTANT:
         creator: entry.creator || null,
         extension: entry.extension || null,
         pageCount: entry.pageCount || null,
+        repositoryId: config.repositoryId,
+        repositoryName: config.repositoryId,
         metadata,
         tags,
+      };
+      console.info("[DocumentViewerAPI] loaded Laserfiche document", {
+        entryId,
+        repositoryId: config.repositoryId,
+        title: responseBody.name,
+        metadataFields: metadata.length,
+        tags: tags.length,
+        hasPreviewContentEndpoint: true,
       });
+      res.json(responseBody);
     } catch (err: any) {
+      console.error("[DocumentViewerAPI] failed to load Laserfiche document", { entryId, repositoryId: config.repositoryId, error: err.message });
       res.status(500).json({ error: err.message });
     }
   });
