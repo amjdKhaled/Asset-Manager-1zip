@@ -630,10 +630,8 @@ export class MemStorage implements IStorage {
     const logs = Array.from(this.auditLogs.values());
 
     const docsByType: Record<string, number> = {};
-    const docsByDepartment: Record<string, number> = {};
     for (const d of docs) {
       docsByType[d.docType] = (docsByType[d.docType] || 0) + 1;
-      docsByDepartment[d.department] = (docsByDepartment[d.department] || 0) + 1;
     }
 
     const searchesByDayMap: Record<string, number> = {};
@@ -666,7 +664,6 @@ export class MemStorage implements IStorage {
       totalDepartments: 7,
       avgResponseMs: 142,
       docsByType,
-      docsByDepartment,
       searchesByDay: Object.entries(searchesByDayMap).map(([date, count]) => ({ date, count })),
       topSearches,
     };
