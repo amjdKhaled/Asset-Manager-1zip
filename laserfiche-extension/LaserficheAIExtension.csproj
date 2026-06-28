@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
 
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
@@ -11,7 +11,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-	  <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+          <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,20 +26,20 @@
     <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.5.4" />
   </ItemGroup>
 
-	<ItemGroup>
+        <ItemGroup>
 
-		<Reference Include="Laserfiche.RepositoryAccess">
-			<HintPath>C:\Program Files\Common Files\Laserfiche\Client Helper\Laserfiche.RepositoryAccess.dll</HintPath>
-		</Reference>
+                <Reference Include="Laserfiche.RepositoryAccess">
+                        <HintPath>C:\Program Files\Common Files\Laserfiche\Client Helper\Laserfiche.RepositoryAccess.dll</HintPath>
+                </Reference>
 
-		<Reference Include="Laserfiche.DocumentServices">
-			<HintPath>C:\Program Files\Common Files\Laserfiche\Client Helper\Laserfiche.DocumentServices.dll</HintPath>
-		</Reference>
+                <Reference Include="Laserfiche.DocumentServices">
+                        <HintPath>C:\Program Files\Common Files\Laserfiche\Client Helper\Laserfiche.DocumentServices.dll</HintPath>
+                </Reference>
 
-		<Reference Include="System.ComponentModel.Composition" />
-		<Reference Include="System.Net.Http" />
+                <Reference Include="System.ComponentModel.Composition" />
+                <Reference Include="System.Net.Http" />
 
-	</ItemGroup>
+        </ItemGroup>
 
 
 </Project>
