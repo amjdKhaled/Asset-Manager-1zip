@@ -29,7 +29,7 @@ namespace LaserficheAIExtension.Infrastructure.DependencyInjection
                 .WriteTo.File(logPath, rollingInterval: RollingInterval.Day, retainedFileCountLimit: 7)
                 .CreateLogger();
 
-            services.AddSingleton<ILogger>(logger);
+            services.AddSingleton<Serilog.ILogger>(logger);
             services.AddSingleton(typeof(ILogger<>), typeof(SerilogLoggerAdapter<>));
 
             // Settings

@@ -52,7 +52,7 @@ namespace LaserficheAIExtension.SDK
                 {
                     if (_session != null)
                     {
-                        try { _session.Dispose(); }
+                        try { _session.LogOut(); }
                         catch { /* best-effort cleanup */ }
                         _session = null;
                     }
@@ -103,8 +103,10 @@ namespace LaserficheAIExtension.SDK
             {
                 EnsureSession();
 
-                using (EntryInfo entry = Entry.GetEntryInfo(entryId, _session))
+                EntryInfo entry = null;
+                try
                 {
+                    entry = Entry.GetEntryInfo(entryId, _session);
                     var context = new DocumentContext
                     {
                         EntryId = entryId,
@@ -112,7 +114,7 @@ namespace LaserficheAIExtension.SDK
                         DocumentName = entry.Name ?? "Unknown",
                         TemplateName = entry.TemplateName ?? "None",
                         FolderPath = entry.Path ?? "\\",
-                        RepositoryName = _session.RepositoryName ?? "Default",
+                        RepositoryName = _session.RepositoryInfo?.Name ?? "Default",
                         Creator = entry.Owner ?? "",
                         Modifier = "",
                         CreatedDate = "",
@@ -126,11 +128,17 @@ namespace LaserficheAIExtension.SDK
                     // Populate document-specific properties when the entry is a document
                     if (entry.EntryType == EntryType.Document)
                     {
-                        using (DocumentInfo docInfo = Document.GetDocumentInfo(entryId, _session))
+                        DocumentInfo docInfo = null;
+                        try
                         {
+                            docInfo = Document.GetDocumentInfo(entryId, _session);
                             context.PageCount = docInfo.PageCount;
                             context.MimeType = docInfo.Extension ?? "";
                             context.IsElectronicDocument = true;
+                        }
+                        finally
+                        {
+                            docInfo?.Close();
                         }
                     }
 
@@ -154,6 +162,10 @@ namespace LaserficheAIExtension.SDK
 
                     return context;
                 }
+                finally
+                {
+                    entry?.Close();
+                }
             });
         }
 
@@ -164,8 +176,10 @@ namespace LaserficheAIExtension.SDK
                 EnsureSession();
                 var metadata = new Dictionary<string, object>();
 
-                using (EntryInfo entry = Entry.GetEntryInfo(entryId, _session))
+                EntryInfo entry = null;
+                try
                 {
+                    entry = Entry.GetEntryInfo(entryId, _session);
                     try
                     {
                         FieldValueCollection fields = entry.GetFieldValues();
@@ -182,6 +196,10 @@ namespace LaserficheAIExtension.SDK
                     {
                         _logger.Debug(ex, "Could not read metadata for entry {EntryId}", entryId);
                     }
+                }
+                finally
+                {
+                    entry?.Close();
                 }
 
                 return metadata;
@@ -213,8 +231,10 @@ namespace LaserficheAIExtension.SDK
                 {
                     EnsureSession();
 
-                    using (EntryInfo entry = Entry.GetEntryInfo(entryId, _session))
+                    EntryInfo entry = null;
+                    try
                     {
+                        entry = Entry.GetEntryInfo(entryId, _session);
                         FieldValueCollection fields = entry.GetFieldValues();
 
                         entry.Lock(LockType.Exclusive);
@@ -242,6 +262,10 @@ namespace LaserficheAIExtension.SDK
                         {
                             entry.Unlock();
                         }
+                    }
+                    finally
+                    {
+                        entry?.Close();
                     }
 
                     _logger.Information("Metadata updated for entry {EntryId}", entryId);
@@ -281,14 +305,20 @@ namespace LaserficheAIExtension.SDK
                 {
                     EnsureSession();
 
-                    using (DocumentInfo docInfo = Document.GetDocumentInfo(entryId, _session))
+                    DocumentInfo docInfo = null;
+                    try
                     {
+                        docInfo = Document.GetDocumentInfo(entryId, _session);
                         using (var memoryStream = new MemoryStream())
                         {
                             var exporter = new DocumentExporter();
                             exporter.ExportElecDoc(docInfo, memoryStream);
                             return memoryStream.ToArray();
                         }
+                    }
+                    finally
+                    {
+                        docInfo?.Close();
                     }
                 }
                 catch (Exception ex)
@@ -307,8 +337,10 @@ namespace LaserficheAIExtension.SDK
                 {
                     EnsureSession();
 
-                    using (DocumentInfo docInfo = Document.GetDocumentInfo(entryId, _session))
+                    DocumentInfo docInfo = null;
+                    try
                     {
+                        docInfo = Document.GetDocumentInfo(entryId, _session);
                         _logger.Information(
                             "OCR requested for entry {EntryId}. " +
                             "Full OCR requires Laserfiche DocumentServices OcrEngine configuration.",
@@ -316,6 +348,10 @@ namespace LaserficheAIExtension.SDK
 
                         return $"OCR placeholder: Document '{docInfo.Name}', {docInfo.PageCount} page(s). " +
                                "Configure OcrEngine for production use.";
+                    }
+                    finally
+                    {
+                        docInfo?.Close();
                     }
                 }
                 catch (Exception ex)
@@ -334,9 +370,15 @@ namespace LaserficheAIExtension.SDK
                 {
                     EnsureSession();
 
-                    using (EntryInfo entry = Entry.GetEntryInfo(entryId, _session))
+                    EntryInfo entry = null;
+                    try
                     {
+                        entry = Entry.GetEntryInfo(entryId, _session);
                         return entry.Path ?? "\\";
+                    }
+                    finally
+                    {
+                        entry?.Close();
                     }
                 }
                 catch (Exception ex)
@@ -354,7 +396,7 @@ namespace LaserficheAIExtension.SDK
                 try
                 {
                     EnsureSession();
-                    return _session.RepositoryName ?? "Default Repository";
+                    return _session.RepositoryInfo?.Name ?? "Default Repository";
                 }
                 catch (Exception ex)
                 {
@@ -372,11 +414,11 @@ namespace LaserficheAIExtension.SDK
                 {
                     try
                     {
-                        _session.Dispose();
+                        _session.LogOut();
                     }
                     catch (Exception ex)
                     {
-                        _logger.Debug(ex, "Error disposing Laserfiche session");
+                        _logger.Debug(ex, "Error logging out of Laserfiche session");
                     }
                     _session = null;
                 }

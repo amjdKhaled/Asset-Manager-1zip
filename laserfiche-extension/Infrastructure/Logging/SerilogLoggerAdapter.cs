@@ -8,9 +8,9 @@ namespace LaserficheAIExtension.Infrastructure.Logging
     /// </summary>
     public class SerilogLoggerAdapter<T> : ILogger<T>
     {
-        private readonly ILogger _logger;
+        private readonly Serilog.ILogger _logger;
 
-        public SerilogLoggerAdapter(ILogger logger)
+        public SerilogLoggerAdapter(Serilog.ILogger logger)
         {
             _logger = logger?.ForContext<T>() ?? throw new ArgumentNullException(nameof(logger));
         }

@@ -30,7 +30,7 @@ namespace LaserficheAIExtension.Ribbon
         public string Id => "GovSearchAIAssistant";
         public string Label => "AI Assistant";
         public string Tooltip => "Open GovSearch AI Assistant";
-        public Image Icon => Properties.Resources.AIIcon;
+        public Image Icon => CreateDefaultIcon();
         public bool IsEnabled => true;
 
         public void Execute()
@@ -61,6 +61,20 @@ namespace LaserficheAIExtension.Ribbon
         {
             var tracker = _serviceProvider.GetRequiredService<IDocumentContextTracker>();
             tracker.UpdateSelectionAsync(entryId).ConfigureAwait(false);
+        }
+
+        private static Image CreateDefaultIcon()
+        {
+            var bitmap = new System.Drawing.Bitmap(32, 32);
+            using (var g = System.Drawing.Graphics.FromImage(bitmap))
+            {
+                g.Clear(System.Drawing.Color.FromArgb(26, 86, 219));
+                using (var brush = new System.Drawing.SolidBrush(System.Drawing.Color.White))
+                {
+                    g.DrawString("AI", new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold), brush, 4, 6);
+                }
+            }
+            return bitmap;
         }
     }
 
