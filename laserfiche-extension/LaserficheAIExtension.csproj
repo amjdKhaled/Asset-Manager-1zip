@@ -30,6 +30,7 @@
     <Reference Include="Laserfiche.RepositoryAccess" />
     <Reference Include="Laserfiche.DocumentServices" />
     <Reference Include="System.ComponentModel.Composition" />
+    <Reference Include="System.Net.Http" />
   </ItemGroup>
 
 </Project>
