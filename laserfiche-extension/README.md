@@ -57,7 +57,7 @@ LaserficheAIExtension/
    dotnet restore LaserficheAIExtension.csproj
    ```
 3. **Add Laserfiche SDK references** (if not available via NuGet):
-   - `Laserfiche.ApplicationServices.TrustClient`
+   
    - `Laserfiche.RepositoryAccess`
    - `Laserfiche.DocumentServices`
 4. **Build**:

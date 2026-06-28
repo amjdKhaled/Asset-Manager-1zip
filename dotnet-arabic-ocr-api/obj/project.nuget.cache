@@ -1,0 +1,71 @@
+{
+  "version": 2,
+  "dgSpecHash": "RTOVEql3W9o=",
+  "success": false,
+  "projectFilePath": "C:\\Users\\AmjadAlhawaseh\\ChatBotProject\\Asset-Manager-1zip\\dotnet-arabic-ocr-api\\ArabicPdfExtraction.Api.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\microsoft.extensions.apidescription.server\\6.0.5\\microsoft.extensions.apidescription.server.6.0.5.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\microsoft.openapi\\1.6.14\\microsoft.openapi.1.6.14.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\sixlabors.fonts\\2.0.4\\sixlabors.fonts.2.0.4.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\sixlabors.imagesharp\\3.1.5\\sixlabors.imagesharp.3.1.5.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\sixlabors.imagesharp.drawing\\2.1.4\\sixlabors.imagesharp.drawing.2.1.4.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\swashbuckle.aspnetcore\\6.6.2\\swashbuckle.aspnetcore.6.6.2.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\swashbuckle.aspnetcore.swagger\\6.6.2\\swashbuckle.aspnetcore.swagger.6.6.2.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\swashbuckle.aspnetcore.swaggergen\\6.6.2\\swashbuckle.aspnetcore.swaggergen.6.6.2.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\swashbuckle.aspnetcore.swaggerui\\6.6.2\\swashbuckle.aspnetcore.swaggerui.6.6.2.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\system.reflection.emit\\4.7.0\\system.reflection.emit.4.7.0.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\tesseract\\5.2.0\\tesseract.5.2.0.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\microsoft.netcore.app.ref\\8.0.20\\microsoft.netcore.app.ref.8.0.20.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\8.0.20\\microsoft.windowsdesktop.app.ref.8.0.20.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\8.0.20\\microsoft.aspnetcore.app.ref.8.0.20.nupkg.sha512",
+    "C:\\Users\\AmjadAlhawaseh\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\8.0.20\\microsoft.netcore.app.host.win-x64.8.0.20.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1103",
+      "level": "Error",
+      "message": "Unable to find a stable package UglyToad.PdfPig with version (>= 0.1.10)\r\n  - Found 2 version(s) in nuget.org [ Nearest version: 1.7.0-custom-5 ]\r\n  - Found 0 version(s) in Microsoft Visual Studio Offline Packages",
+      "projectPath": "C:\\Users\\AmjadAlhawaseh\\ChatBotProject\\Asset-Manager-1zip\\dotnet-arabic-ocr-api\\ArabicPdfExtraction.Api.csproj",
+      "filePath": "C:\\Users\\AmjadAlhawaseh\\ChatBotProject\\Asset-Manager-1zip\\dotnet-arabic-ocr-api\\ArabicPdfExtraction.Api.csproj",
+      "libraryId": "UglyToad.PdfPig",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1102",
+      "level": "Error",
+      "message": "Unable to find package PdfiumViewer with version (>= 2.14.0)\r\n  - Found 24 version(s) in nuget.org [ Nearest version: 2.13.0 ]\r\n  - Found 0 version(s) in Microsoft Visual Studio Offline Packages",
+      "projectPath": "C:\\Users\\AmjadAlhawaseh\\ChatBotProject\\Asset-Manager-1zip\\dotnet-arabic-ocr-api\\ArabicPdfExtraction.Api.csproj",
+      "filePath": "C:\\Users\\AmjadAlhawaseh\\ChatBotProject\\Asset-Manager-1zip\\dotnet-arabic-ocr-api\\ArabicPdfExtraction.Api.csproj",
+      "libraryId": "PdfiumViewer",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known high severity vulnerability, https://github.com/advisories/GHSA-2cmq-823j-5qj8",
+      "projectPath": "C:\\Users\\AmjadAlhawaseh\\ChatBotProject\\Asset-Manager-1zip\\dotnet-arabic-ocr-api\\ArabicPdfExtraction.Api.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\AmjadAlhawaseh\\ChatBotProject\\Asset-Manager-1zip\\dotnet-arabic-ocr-api\\ArabicPdfExtraction.Api.csproj",
+      "libraryId": "SixLabors.ImageSharp",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1902",
+      "level": "Warning",
+      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-rxmq-m78w-7wmc",
+      "projectPath": "C:\\Users\\AmjadAlhawaseh\\ChatBotProject\\Asset-Manager-1zip\\dotnet-arabic-ocr-api\\ArabicPdfExtraction.Api.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\AmjadAlhawaseh\\ChatBotProject\\Asset-Manager-1zip\\dotnet-arabic-ocr-api\\ArabicPdfExtraction.Api.csproj",
+      "libraryId": "SixLabors.ImageSharp",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    }
+  ]
+}

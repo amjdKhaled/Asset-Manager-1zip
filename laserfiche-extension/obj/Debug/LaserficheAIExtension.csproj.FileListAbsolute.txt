@@ -1,0 +1,9 @@
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\laserfiche-extension\obj\Debug\LaserficheAIExtension.csproj.AssemblyReference.cache
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\laserfiche-extension\obj\Debug\Popup\AIPopupWindow.baml
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\laserfiche-extension\obj\Debug\Popup\WindowChromeStyles.baml
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\laserfiche-extension\obj\Debug\Popup\AIPopupWindow.g.cs
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\laserfiche-extension\obj\Debug\LaserficheAIExtension_MarkupCompile.cache
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\laserfiche-extension\obj\Debug\LaserficheAIExtension.g.resources
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\laserfiche-extension\obj\Debug\LaserficheAIExtension.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\laserfiche-extension\obj\Debug\LaserficheAIExtension.csproj.CoreCompileInputs.cache
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\laserfiche-extension\obj\Debug\LaserficheAIExtension.sourcelink.json
