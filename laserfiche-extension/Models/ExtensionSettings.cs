@@ -42,6 +42,18 @@ namespace LaserficheAIExtension.Models
         [JsonProperty("sendSelectionOnChange")]
         public bool SendSelectionOnChange { get; set; } = true;
 
+        [JsonProperty("laserficheServer")]
+        public string LaserficheServer { get; set; } = "";
+
+        [JsonProperty("laserficheRepository")]
+        public string LaserficheRepository { get; set; } = "";
+
+        [JsonProperty("laserficheUsername")]
+        public string LaserficheUsername { get; set; } = "";
+
+        [JsonProperty("laserfichePassword")]
+        public string LaserfichePassword { get; set; } = "";
+
         [JsonProperty("lastUpdated")]
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
 

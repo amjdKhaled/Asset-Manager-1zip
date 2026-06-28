@@ -126,6 +126,17 @@ Window state is saved to:
 
 Includes: position, size, maximized state, dark mode, server URL.
 
+### Laserfiche Connection Settings
+
+The extension also stores Laserfiche server connection details in the same `settings.json`:
+
+- `laserficheServer` — Laserfiche server hostname
+- `laserficheRepository` — Repository name
+- `laserficheUsername` — Username (optional; leave empty for Windows pass-through auth)
+- `laserfichePassword` — Password (optional; used when username is provided)
+
+When `laserficheUsername` is empty, the SDK uses Windows Kerberos/pass-through authentication via `Session.LogIn(RepositoryRegistration)`.
+
 ## Logging
 
 Logs are written to:

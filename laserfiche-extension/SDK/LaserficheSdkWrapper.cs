@@ -1,37 +1,99 @@
 using LaserficheAIExtension.Infrastructure.Logging;
 using LaserficheAIExtension.Models;
+using Laserfiche.DocumentServices;
 using Laserfiche.RepositoryAccess;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace LaserficheAIExtension.SDK
 {
     /// <summary>
-    /// Real implementation of Laserfiche SDK operations.
+    /// Real implementation of Laserfiche SDK operations using documented
+    /// Laserfiche.RepositoryAccess and Laserfiche.DocumentServices APIs only.
     /// </summary>
-    public class LaserficheSdkWrapper : ILaserficheSdkWrapper
+    public class LaserficheSdkWrapper : ILaserficheSdkWrapper, IDisposable
     {
         private readonly ILogger<LaserficheSdkWrapper> _logger;
-        private readonly Session _session;
+        private readonly ExtensionSettings _settings;
+        private Session _session;
+        private readonly object _sessionLock = new object();
 
-        public bool IsConnected => _session?.IsConnected ?? false;
+        public bool IsConnected
+        {
+            get
+            {
+                lock (_sessionLock)
+                {
+                    return _session != null && _session.IsConnected;
+                }
+            }
+        }
 
-        public LaserficheSdkWrapper(ILogger<LaserficheSdkWrapper> logger)
+        public LaserficheSdkWrapper(ILogger<LaserficheSdkWrapper> logger, ExtensionSettings settings)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        }
 
-            try
+        /// <summary>
+        /// Lazily establishes a session using stored Laserfiche connection settings.
+        /// Falls back to Windows pass-through authentication when no username is provided.
+        /// </summary>
+        private void EnsureSession()
+        {
+            lock (_sessionLock)
             {
-                // Attempt to connect using current Laserfiche Desktop Client session
-                _session = new Session();
-                _session.UseExistingConnection();
-                _logger.Information("Connected to Laserfiche repository: {Repo}", _session.CurrentRepository?.Name ?? "Unknown");
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning(ex, "Could not connect to Laserfiche via existing session. Will retry on demand.");
-                _session = null;
+                if (_session != null && _session.IsConnected)
+                    return;
+
+                try
+                {
+                    if (_session != null)
+                    {
+                        try { _session.Dispose(); }
+                        catch { /* best-effort cleanup */ }
+                        _session = null;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(_settings.LaserficheServer)
+                        || string.IsNullOrWhiteSpace(_settings.LaserficheRepository))
+                    {
+                        throw new InvalidOperationException(
+                            "Laserfiche server and repository are not configured in extension settings.");
+                    }
+
+                    var registration = new RepositoryRegistration(
+                        _settings.LaserficheServer,
+                        _settings.LaserficheRepository);
+
+                    _session = new Session();
+                    _session.Connect(registration);
+
+                    if (!string.IsNullOrEmpty(_settings.LaserficheUsername))
+                    {
+                        _session.LogIn(
+                            _settings.LaserficheUsername,
+                            _settings.LaserfichePassword ?? string.Empty);
+                    }
+                    else
+                    {
+                        // Windows pass-through / Kerberos authentication
+                        _session.LogIn(registration);
+                    }
+
+                    _logger.Information(
+                        "Connected to Laserfiche server={Server} repository={Repo}",
+                        _settings.LaserficheServer,
+                        _settings.LaserficheRepository);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "Failed to establish Laserfiche session");
+                    throw new InvalidOperationException(
+                        "Not connected to Laserfiche. Verify server, repository, and credentials in settings.", ex);
+                }
             }
         }
 
@@ -40,41 +102,58 @@ namespace LaserficheAIExtension.SDK
             return await Task.Run(() =>
             {
                 EnsureSession();
-                var entry = new EntryInfo(_session, entryId);
 
-                var context = new DocumentContext
+                using (EntryInfo entry = Entry.GetEntryInfo(entryId, _session))
                 {
-                    EntryId = entryId,
-                    DocumentId = entryId.ToString(),
-                    DocumentName = entry.Name ?? "Unknown",
-                    TemplateName = entry.Template?.Name ?? "None",
-                    FolderPath = GetPathFromEntry(entry),
-                    RepositoryName = _session.CurrentRepository?.Name ?? "Default",
-                    VolumeName = entry.Volume?.Name ?? "",
-                    PageCount = entry.PageCount,
-                    MimeType = entry.MimeType?.Type ?? "",
-                    CreatedDate = entry.CreationTime.ToString("O"),
-                    ModifiedDate = entry.LastModifiedTime.ToString("O"),
-                    Creator = entry.Creator?.Name ?? "",
-                    Modifier = entry.LastModifier?.Name ?? "",
-                    IsElectronicDocument = entry.IsElectronicDocument,
-                    IsRecord = entry.IsRecord
-                };
-
-                // Fetch template fields
-                try
-                {
-                    foreach (FieldInfo field in entry.Fields)
+                    var context = new DocumentContext
                     {
-                        context.Metadata[field.Name] = field.Value ?? "";
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.Debug(ex, "Could not read fields for entry {EntryId}", entryId);
-                }
+                        EntryId = entryId,
+                        DocumentId = entryId.ToString(),
+                        DocumentName = entry.Name ?? "Unknown",
+                        TemplateName = entry.TemplateName ?? "None",
+                        FolderPath = entry.Path ?? "\\",
+                        RepositoryName = _session.RepositoryName ?? "Default",
+                        Creator = entry.Owner ?? "",
+                        Modifier = "",
+                        CreatedDate = "",
+                        ModifiedDate = "",
+                        PageCount = 0,
+                        MimeType = "",
+                        IsElectronicDocument = false,
+                        IsRecord = false
+                    };
 
-                return context;
+                    // Populate document-specific properties when the entry is a document
+                    if (entry.EntryType == EntryType.Document)
+                    {
+                        using (DocumentInfo docInfo = Document.GetDocumentInfo(entryId, _session))
+                        {
+                            context.PageCount = docInfo.PageCount;
+                            context.MimeType = docInfo.Extension ?? "";
+                            context.IsElectronicDocument = true;
+                        }
+                    }
+
+                    // Read template field values
+                    try
+                    {
+                        FieldValueCollection fields = entry.GetFieldValues();
+                        for (int i = 0; i < fields.Count; i++)
+                        {
+                            string fieldName = fields.PositionToName(i);
+                            if (!string.IsNullOrEmpty(fieldName))
+                            {
+                                context.Metadata[fieldName] = fields[i] ?? "";
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Debug(ex, "Could not read field values for entry {EntryId}", entryId);
+                    }
+
+                    return context;
+                }
             });
         }
 
@@ -83,41 +162,46 @@ namespace LaserficheAIExtension.SDK
             return await Task.Run(() =>
             {
                 EnsureSession();
-                var entry = new EntryInfo(_session, entryId);
                 var metadata = new Dictionary<string, object>();
 
-                try
+                using (EntryInfo entry = Entry.GetEntryInfo(entryId, _session))
                 {
-                    foreach (FieldInfo field in entry.Fields)
+                    try
                     {
-                        metadata[field.Name] = field.Value ?? "";
+                        FieldValueCollection fields = entry.GetFieldValues();
+                        for (int i = 0; i < fields.Count; i++)
+                        {
+                            string fieldName = fields.PositionToName(i);
+                            if (!string.IsNullOrEmpty(fieldName))
+                            {
+                                metadata[fieldName] = fields[i] ?? "";
+                            }
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.Debug(ex, "Could not read metadata for entry {EntryId}", entryId);
+                    catch (Exception ex)
+                    {
+                        _logger.Debug(ex, "Could not read metadata for entry {EntryId}", entryId);
+                    }
                 }
 
                 return metadata;
             });
         }
 
+        /// <summary>
+        /// Opens a document in the Laserfiche Desktop Client viewer.
+        /// This operation requires the Laserfiche.ClientAutomation SDK and cannot
+        /// be performed through Laserfiche.RepositoryAccess alone.
+        /// </summary>
         public async Task<bool> OpenDocumentAsync(int entryId)
         {
             return await Task.Run(() =>
             {
-                try
-                {
-                    EnsureSession();
-                    var entry = new EntryInfo(_session, entryId);
-                    entry.OpenDocument();
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error(ex, "Failed to open document {EntryId}", entryId);
-                    return false;
-                }
+                _logger.Information(
+                    "OpenDocument requested for entry {EntryId}. " +
+                    "Opening documents in the viewer requires the Laserfiche Desktop Client SDK (Laserfiche.ClientAutomation).",
+                    entryId);
+                return false;
             });
         }
 
@@ -128,25 +212,39 @@ namespace LaserficheAIExtension.SDK
                 try
                 {
                     EnsureSession();
-                    var entry = new EntryInfo(_session, entryId);
 
-                    foreach (var kvp in metadata)
+                    using (EntryInfo entry = Entry.GetEntryInfo(entryId, _session))
                     {
+                        FieldValueCollection fields = entry.GetFieldValues();
+
+                        entry.Lock(LockType.Exclusive);
                         try
                         {
-                            var field = entry.Fields[kvp.Key];
-                            if (field != null)
+                            foreach (var kvp in metadata)
                             {
-                                field.Value = kvp.Value?.ToString();
+                                try
+                                {
+                                    fields[kvp.Key] = kvp.Value?.ToString() ?? string.Empty;
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.Warning(
+                                        ex,
+                                        "Could not update field '{FieldName}' for entry {EntryId}",
+                                        kvp.Key, entryId);
+                                }
                             }
+
+                            entry.SetFieldValues(fields);
+                            entry.Save();
                         }
-                        catch (Exception ex)
+                        finally
                         {
-                            _logger.Warning(ex, "Could not update field {FieldName} for entry {EntryId}", kvp.Key, entryId);
+                            entry.Unlock();
                         }
                     }
 
-                    entry.Commit();
+                    _logger.Information("Metadata updated for entry {EntryId}", entryId);
                     return true;
                 }
                 catch (Exception ex)
@@ -157,23 +255,21 @@ namespace LaserficheAIExtension.SDK
             });
         }
 
+        /// <summary>
+        /// Moves a document to a different folder.
+        /// Laserfiche.RepositoryAccess does not expose a direct entry-move API.
+        /// This requires the Laserfiche Server API or Desktop Client SDK.
+        /// </summary>
         public async Task<bool> MoveDocumentAsync(int entryId, string destinationPath)
         {
             return await Task.Run(() =>
             {
-                try
-                {
-                    EnsureSession();
-                    var entry = new EntryInfo(_session, entryId);
-                    var destFolder = new FolderInfo(_session, destinationPath);
-                    entry.MoveToFolder(destFolder);
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error(ex, "Failed to move entry {EntryId} to {Path}", entryId, destinationPath);
-                    return false;
-                }
+                _logger.Information(
+                    "MoveDocument requested for entry {EntryId} to '{Path}'. " +
+                    "Move is not supported directly by Laserfiche.RepositoryAccess. " +
+                    "Use the Laserfiche Server API or Desktop Client SDK instead.",
+                    entryId, destinationPath);
+                return false;
             });
         }
 
@@ -184,12 +280,15 @@ namespace LaserficheAIExtension.SDK
                 try
                 {
                     EnsureSession();
-                    var entry = new EntryInfo(_session, entryId);
-                    using (var stream = entry.ReadDocument())
-                    using (var memoryStream = new System.IO.MemoryStream())
+
+                    using (DocumentInfo docInfo = Document.GetDocumentInfo(entryId, _session))
                     {
-                        stream.CopyTo(memoryStream);
-                        return memoryStream.ToArray();
+                        using (var memoryStream = new MemoryStream())
+                        {
+                            var exporter = new DocumentExporter();
+                            exporter.ExportElecDoc(docInfo, memoryStream);
+                            return memoryStream.ToArray();
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -207,10 +306,17 @@ namespace LaserficheAIExtension.SDK
                 try
                 {
                     EnsureSession();
-                    var entry = new EntryInfo(_session, entryId);
-                    // OCR implementation depends on Laserfiche DocumentServices
-                    _logger.Information("OCR requested for entry {EntryId}", entryId);
-                    return "OCR result placeholder";
+
+                    using (DocumentInfo docInfo = Document.GetDocumentInfo(entryId, _session))
+                    {
+                        _logger.Information(
+                            "OCR requested for entry {EntryId}. " +
+                            "Full OCR requires Laserfiche DocumentServices OcrEngine configuration.",
+                            entryId);
+
+                        return $"OCR placeholder: Document '{docInfo.Name}', {docInfo.PageCount} page(s). " +
+                               "Configure OcrEngine for production use.";
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -227,8 +333,11 @@ namespace LaserficheAIExtension.SDK
                 try
                 {
                     EnsureSession();
-                    var entry = new EntryInfo(_session, entryId);
-                    return GetPathFromEntry(entry);
+
+                    using (EntryInfo entry = Entry.GetEntryInfo(entryId, _session))
+                    {
+                        return entry.Path ?? "\\";
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -245,47 +354,32 @@ namespace LaserficheAIExtension.SDK
                 try
                 {
                     EnsureSession();
-                    return _session.CurrentRepository?.Name ?? "Default Repository";
+                    return _session.RepositoryName ?? "Default Repository";
                 }
-                catch
+                catch (Exception ex)
                 {
+                    _logger.Error(ex, "Failed to get repository name");
                     return "Default Repository";
                 }
             });
         }
 
-        private void EnsureSession()
+        public void Dispose()
         {
-            if (_session == null || !_session.IsConnected)
+            lock (_sessionLock)
             {
-                try
+                if (_session != null)
                 {
-                    _session?.UseExistingConnection();
+                    try
+                    {
+                        _session.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Debug(ex, "Error disposing Laserfiche session");
+                    }
+                    _session = null;
                 }
-                catch (Exception ex)
-                {
-                    _logger.Error(ex, "Failed to establish Laserfiche session");
-                    throw new InvalidOperationException("Not connected to Laserfiche", ex);
-                }
-            }
-        }
-
-        private string GetPathFromEntry(EntryInfo entry)
-        {
-            try
-            {
-                var parts = new List<string>();
-                var current = entry;
-                while (current != null && current.Parent != null)
-                {
-                    parts.Insert(0, current.Name);
-                    current = current.Parent;
-                }
-                return "\\" + string.Join("\\", parts);
-            }
-            catch
-            {
-                return "\\" + entry.Name;
             }
         }
     }
