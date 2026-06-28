@@ -1,0 +1,181 @@
+You are a senior Software Architect with deep expertise in C#, .NET, Laserfiche SDK, WinForms, WPF, WebView2, and Electron integration.
+
+I already have a fully working AI web application running on localhost:5000.
+
+I DO NOT want to rebuild the website.
+
+I want to integrate the existing website into the Laserfiche Desktop Client as a native AI assistant.
+
+==========================
+OBJECTIVE
+==========================
+
+Create a professional integration that makes my existing web application appear as a floating popup (or dockable panel if supported) inside the Laserfiche Desktop Client.
+
+The user should feel that the AI Assistant is part of Laserfiche itself.
+
+==========================
+REQUIREMENTS
+==========================
+
+The solution must:
+
+• NOT modify my existing website.
+• Keep the website running on localhost:5000.
+• Simply embed it inside Laserfiche.
+
+When the user clicks the AI button inside Laserfiche:
+
+Open a modern popup window.
+
+Inside the popup:
+
+Load
+
+http://localhost:5000
+
+using Microsoft Edge WebView2.
+
+==========================
+POPUP REQUIREMENTS
+==========================
+
+The popup should:
+
+• be resizable
+• remember last size
+• remember last position
+• support minimize
+• support maximize
+• stay above Laserfiche
+• close independently
+• have rounded corners
+• look modern
+• support dark mode
+
+==========================
+LASERFICHE INTEGRATION
+==========================
+
+The popup must communicate with Laserfiche.
+
+Whenever the selected document changes:
+
+Send automatically to the website:
+
+- Entry ID
+- Document ID
+- Document Name
+- Template Name
+- Metadata
+- Folder Path
+- Repository Name
+
+Use JSON.
+
+Example:
+
+{
+    "entryId":1234,
+    "documentName":"Invoice.pdf",
+    "template":"Invoice",
+    "metadata":{
+        ...
+    }
+}
+
+==========================
+WEBSITE COMMUNICATION
+==========================
+
+The website must also be able to send commands back to Laserfiche.
+
+Examples:
+
+OpenDocument
+
+UpdateMetadata
+
+MoveDocument
+
+RefreshMetadata
+
+DownloadDocument
+
+RunOCR
+
+RunAI
+
+All communication must use a clean API layer.
+
+==========================
+WEBVIEW REQUIREMENTS
+==========================
+
+If localhost:5000 is unavailable:
+
+Display
+
+"Waiting for Local AI..."
+
+Retry connection every 3 seconds.
+
+Never freeze Laserfiche.
+
+==========================
+PROJECT STRUCTURE
+==========================
+
+Create clean architecture.
+
+LaserficheExtension/
+
+    Ribbon/
+
+    Popup/
+
+    WebView/
+
+    SDK/
+
+    Communication/
+
+    Models/
+
+    Services/
+
+    Helpers/
+
+==========================
+CODE QUALITY
+==========================
+
+Use:
+
+SOLID
+
+Dependency Injection
+
+Async/Await
+
+MVVM if using WPF
+
+Proper logging
+
+Exception handling
+
+No duplicated code
+
+==========================
+IMPORTANT
+==========================
+
+Do NOT rebuild my AI website.
+
+Do NOT create another frontend.
+
+Only create the native Laserfiche integration that hosts my existing localhost:5000 website inside Laserfiche Desktop Client.
+
+The result should look like GitHub Copilot or Microsoft Copilot integrated inside a desktop application.
+
+Generate production-ready code.
