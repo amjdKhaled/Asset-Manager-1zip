@@ -1,0 +1,96 @@
+We now know the exact Laserfiche SDK version installed on my machine.
+
+SDK Version:
+
+* Laserfiche.RepositoryAccess.dll = 11.0.2102.205
+* Laserfiche.DocumentServices.dll = 11.0.2102.205
+
+From this point forward, target ONLY this SDK version.
+
+Do NOT use APIs from newer Laserfiche versions.
+
+Do NOT invent methods.
+
+Only use APIs that exist in Laserfiche RepositoryAccess 11.0.2102.205.
+
+If necessary, inspect the assemblies and rewrite the SDK layer to match this version exactly.
+
+---
+
+I also need you to explain how the extension will actually integrate with my local Laserfiche Desktop Client.
+
+Please answer these questions before continuing development:
+
+1. How will the extension be loaded by Laserfiche Desktop Client?
+
+2. Will it appear as:
+
+   * Ribbon button?
+   * Toolbar button?
+   * Dockable panel?
+   * Floating popup window?
+
+3. When I click the button, how will my existing web application running on:
+
+http://localhost:5000
+
+be displayed?
+
+Will you embed it using WebView2 inside the extension, or launch an external browser?
+
+I want it embedded INSIDE Laserfiche Desktop Client.
+
+4. How will the extension communicate with the web application?
+
+Examples:
+
+* WebView2 postMessage
+* Local HTTP
+* JavaScript bridge
+* Other
+
+Explain the architecture.
+
+5. What Laserfiche information will be sent automatically to my web app?
+
+Examples:
+
+* Entry ID
+* Document name
+* Folder path
+* Metadata
+* Repository name
+* Selected document
+* User name
+
+6. What information do you still need from me to finish the extension?
+
+Examples:
+
+* Laserfiche Desktop Client version
+* SDK assemblies
+* Repository information
+* Installation path
+* Extension folder
+* Repository registration
+* Anything else
+
+7. Do you need access to my actual SDK DLLs to guarantee compatibility with version 11.0.2102.205?
+
+8. Before writing any more code, provide a complete architecture diagram showing:
+
+Laserfiche Desktop Client
+↓
+Extension
+↓
+WebView2
+↓
+http://localhost:5000
+↓
+Local AI (Ollama)
+↓
+Laserfiche SDK
+
+Explain every communication path.
+
+Do not continue implementing features until you answer all of these questions and confirm exactly what additional information is required from me.
