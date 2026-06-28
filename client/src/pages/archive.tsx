@@ -469,10 +469,12 @@ export default function ArchivePage() {
 
   const openFolder = async (folderId: string, folderName?: string) => {
     setSelectedFolderId(folderId);
+    const numericId = parseFolderId(folderId);
+    if (numericId === null) return;
     setTrail((current) => {
-      const index = current.findIndex((item) => item.id === parsedFolderId);
+      const index = current.findIndex((item) => item.id === numericId);
       if (index >= 0) return current.slice(0, index + 1);
-      return [...current, { id: parsedFolderId, name: folderName || `Folder ${normalizedFolderId}` }];
+      return [...current, { id: numericId, name: folderName || `Folder ${numericId}` }];
     });
   };
 
@@ -492,7 +494,6 @@ export default function ArchivePage() {
     const next = trail[index];
     if (!next) return;
     setSelectedFolderId(String(next.id));
-    setActiveFolderId(next.id);
     setTrail(trail.slice(0, index + 1));
   };
 
