@@ -52,7 +52,7 @@ namespace LaserficheAIExtension.SDK
                 {
                     if (_session != null)
                     {
-                        try { _session.LogOut(); }
+                        try { _session.Dispose(); }
                         catch { /* best-effort cleanup */ }
                         _session = null;
                     }
@@ -73,14 +73,14 @@ namespace LaserficheAIExtension.SDK
 
                     if (!string.IsNullOrEmpty(_settings.LaserficheUsername))
                     {
-                        _session.LogIn(
+                        _session.Login(
                             _settings.LaserficheUsername,
                             _settings.LaserfichePassword ?? string.Empty);
                     }
                     else
                     {
                         // Windows pass-through / Kerberos authentication
-                        _session.LogIn(registration);
+                        _session.Login(registration);
                     }
 
                     _logger.Information(
@@ -114,7 +114,7 @@ namespace LaserficheAIExtension.SDK
                         DocumentName = entry.Name ?? "Unknown",
                         TemplateName = entry.TemplateName ?? "None",
                         FolderPath = entry.Path ?? "\\",
-                        RepositoryName = _session.RepositoryInfo?.Name ?? "Default",
+                        RepositoryName = _session.Repository?.Name ?? "Default",
                         Creator = entry.Owner ?? "",
                         Modifier = "",
                         CreatedDate = "",
@@ -396,7 +396,7 @@ namespace LaserficheAIExtension.SDK
                 try
                 {
                     EnsureSession();
-                    return _session.RepositoryInfo?.Name ?? "Default Repository";
+                    return _session.Repository?.Name ?? "Default Repository";
                 }
                 catch (Exception ex)
                 {
@@ -414,11 +414,11 @@ namespace LaserficheAIExtension.SDK
                 {
                     try
                     {
-                        _session.LogOut();
+                        _session.Dispose();
                     }
                     catch (Exception ex)
                     {
-                        _logger.Debug(ex, "Error logging out of Laserfiche session");
+                        _logger.Debug(ex, "Error disposing Laserfiche session");
                     }
                     _session = null;
                 }
