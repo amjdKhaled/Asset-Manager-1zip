@@ -22,8 +22,6 @@ namespace LaserficheAIExtension
     /// </summary>
     public partial class App : Application
     {
-        private AIPopupWindow _popup;
-
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
