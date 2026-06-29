@@ -36,7 +36,10 @@
                         <HintPath>C:\Program Files\Common Files\Laserfiche\Client Helper\Laserfiche.DocumentServices.dll</HintPath>
                 </Reference>
 
-                <Reference Include="System.ComponentModel.Composition" />
+                <Reference Include="Laserfiche.ClientAutomation">
+                        <HintPath>C:\Program Files\Laserfiche\Client\Laserfiche.ClientAutomation.dll</HintPath>
+                </Reference>
+
                 <Reference Include="System.Net.Http" />
 
         </ItemGroup>
