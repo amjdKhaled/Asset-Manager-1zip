@@ -1,10 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
 
   <PropertyGroup>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <AssemblyName>LaserficheAIExtension</AssemblyName>
+    <AssemblyName>GovSearchAIAssistant</AssemblyName>
     <RootNamespace>LaserficheAIExtension</RootNamespace>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
