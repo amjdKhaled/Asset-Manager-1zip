@@ -33,7 +33,21 @@ namespace LaserficheAIExtension.Popup
             ICommandHandlerService commandHandler,
             Models.ExtensionSettings settings)
         {
-            InitializeComponent();
+            try
+            {
+                InitializeComponent();
+            }
+            catch (Exception ex)
+            {
+                string fullDetails = FormatExceptionDetails(ex);
+                System.Diagnostics.Debug.WriteLine("AIPopupWindow.InitializeComponent failed:\r\n" + fullDetails);
+                MessageBox.Show(
+                    "Failed to initialize AI popup window.\r\n\r\n" + fullDetails,
+                    "GovSearch AI — Popup Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                throw;
+            }
 
             _communicationService = communicationService ?? throw new ArgumentNullException(nameof(communicationService));
             _connectionMonitor = connectionMonitor ?? throw new ArgumentNullException(nameof(connectionMonitor));
@@ -48,26 +62,63 @@ namespace LaserficheAIExtension.Popup
             SizeChanged += OnWindowSizeChanged;
         }
 
+        private static string FormatExceptionDetails(Exception ex)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("Exception: " + ex.GetType().FullName);
+            sb.AppendLine("Message: " + ex.Message);
+            if (ex.InnerException != null)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Inner Exception:");
+                sb.AppendLine("  Type:    " + ex.InnerException.GetType().FullName);
+                sb.AppendLine("  Message: " + ex.InnerException.Message);
+                if (ex.InnerException.InnerException != null)
+                {
+                    sb.AppendLine("  Inner:   " + ex.InnerException.InnerException.Message);
+                }
+            }
+            sb.AppendLine();
+            sb.AppendLine("StackTrace:");
+            sb.AppendLine(ex.StackTrace);
+            sb.AppendLine();
+            sb.AppendLine("Source: " + (ex.Source ?? "(null)"));
+            sb.AppendLine("TargetSite: " + (ex.TargetSite?.ToString() ?? "(null)"));
+            return sb.ToString();
+        }
+
         private async void OnWindowLoaded(object sender, RoutedEventArgs e)
         {
-            // Apply saved position
-            WindowPositionHelper.ApplyToWindow(this,
-                _settings.WindowLeft, _settings.WindowTop,
-                _settings.WindowWidth, _settings.WindowHeight,
-                _settings.IsMaximized);
+            try
+            {
+                // Apply saved position
+                WindowPositionHelper.ApplyToWindow(this,
+                    _settings.WindowLeft, _settings.WindowTop,
+                    _settings.WindowWidth, _settings.WindowHeight,
+                    _settings.IsMaximized);
 
-            // Initialize WebView2
-            await InitializeWebViewAsync();
+                // Initialize WebView2
+                await InitializeWebViewAsync();
 
-            // Start monitoring connection
-            _connectionMonitor.ConnectionStatusChanged += OnConnectionStatusChanged;
-            await _connectionMonitor.StartMonitoringAsync(_settings.ServerUrl);
+                // Start monitoring connection
+                _connectionMonitor.ConnectionStatusChanged += OnConnectionStatusChanged;
+                await _connectionMonitor.StartMonitoringAsync(_settings.ServerUrl);
 
-            // Track document selection changes
-            _documentTracker.DocumentChanged += OnDocumentChanged;
+                // Track document selection changes
+                _documentTracker.DocumentChanged += OnDocumentChanged;
 
-            // Handle commands from web app
-            _communicationService.CommandReceived += OnCommandReceived;
+                // Handle commands from web app
+                _communicationService.CommandReceived += OnCommandReceived;
+            }
+            catch (Exception ex)
+            {
+                string fullDetails = FormatExceptionDetails(ex);
+                System.Diagnostics.Debug.WriteLine("OnWindowLoaded failed:\r\n" + fullDetails);
+                UpdateStatusOverlay(
+                    "Popup initialization failed",
+                    ex.Message,
+                    "See Debug output for full details.");
+            }
         }
 
         private async Task InitializeWebViewAsync()
@@ -106,7 +157,12 @@ namespace LaserficheAIExtension.Popup
             }
             catch (Exception ex)
             {
-                UpdateStatusOverlay("Failed to initialize WebView2", ex.Message, "Check Edge WebView2 Runtime installation");
+                string fullDetails = FormatExceptionDetails(ex);
+                System.Diagnostics.Debug.WriteLine("InitializeWebViewAsync failed:\r\n" + fullDetails);
+                UpdateStatusOverlay(
+                    "Failed to initialize WebView2",
+                    ex.Message,
+                    "Check Edge WebView2 Runtime installation. Full details written to Debug output.");
             }
         }
 
