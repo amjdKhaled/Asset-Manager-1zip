@@ -5,6 +5,8 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using System;
 using System.ComponentModel;
+using System.IO;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -33,6 +35,18 @@ namespace LaserficheAIExtension.Popup
             ICommandHandlerService commandHandler,
             Models.ExtensionSettings settings)
         {
+            // --- Diagnostic logging: prove which EXE is running ---
+            var asm = Assembly.GetExecutingAssembly();
+            string diag = string.Format(
+                "AIPopupWindow ctor running:\r\n" +
+                "  Location: {0}\r\n" +
+                "  FullName: {1}\r\n" +
+                "  Version:  {2}\r\n",
+                asm.Location,
+                asm.FullName,
+                asm.GetName().Version);
+            File.AppendAllText(GetDiagnosticLogPath(), diag + "\r\n");
+
             try
             {
                 InitializeComponent();
@@ -40,9 +54,11 @@ namespace LaserficheAIExtension.Popup
             catch (Exception ex)
             {
                 string fullDetails = FormatExceptionDetails(ex);
+                string msg = "Failed to initialize AI popup window.\r\n\r\n" + fullDetails;
+                File.AppendAllText(GetDiagnosticLogPath(), "InitializeComponent FAILED:\r\n" + msg + "\r\n\r\n");
                 System.Diagnostics.Debug.WriteLine("AIPopupWindow.InitializeComponent failed:\r\n" + fullDetails);
                 MessageBox.Show(
-                    "Failed to initialize AI popup window.\r\n\r\n" + fullDetails,
+                    msg,
                     "GovSearch AI — Popup Error",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
@@ -60,6 +76,12 @@ namespace LaserficheAIExtension.Popup
             StateChanged += OnWindowStateChanged;
             LocationChanged += OnWindowLocationChanged;
             SizeChanged += OnWindowSizeChanged;
+        }
+
+        private static string GetDiagnosticLogPath()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "GovSearchAI_Diagnostic.log");
+            return path;
         }
 
         private static string FormatExceptionDetails(Exception ex)

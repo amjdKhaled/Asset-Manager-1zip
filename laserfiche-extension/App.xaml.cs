@@ -26,6 +26,20 @@ namespace LaserficheAIExtension
         {
             base.OnStartup(e);
 
+            // --- Diagnostic logging: prove which EXE Laserfiche launched ---
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+            string diag = string.Format(
+                "App.OnStartup running:\r\n" +
+                "  Location: {0}\r\n" +
+                "  FullName: {1}\r\n" +
+                "  Version:  {2}\r\n" +
+                "  Args:     {3}\r\n",
+                asm.Location,
+                asm.FullName,
+                asm.GetName().Version,
+                string.Join(" ", e.Args));
+            System.IO.File.AppendAllText(GetDiagnosticLogPath(), diag + "\r\n");
+
             string[] args = e.Args;
 
             // Retry loop — mirrors the sample's while(true) { try { if (MainHandler(args)) break; } catch { ... } }
@@ -38,8 +52,10 @@ namespace LaserficheAIExtension
                 }
                 catch (Exception ex)
                 {
+                    string err = ex.Message + ", Retry?";
+                    System.IO.File.AppendAllText(GetDiagnosticLogPath(), "MainHandler EXCEPTION: " + ex.ToString() + "\r\n\r\n");
                     var result = MessageBox.Show(
-                        ex.Message + ", Retry?",
+                        err,
                         "GovSearch AI",
                         MessageBoxButton.YesNo,
                         MessageBoxImage.Error);
@@ -48,6 +64,12 @@ namespace LaserficheAIExtension
                         break;
                 }
             }
+        }
+
+        private static string GetDiagnosticLogPath()
+        {
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "GovSearchAI_Diagnostic.log");
+            return path;
         }
 
         /// <summary>

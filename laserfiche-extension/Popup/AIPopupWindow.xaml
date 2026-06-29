@@ -27,32 +27,6 @@
                              From="0" To="360" Duration="0:0:1" RepeatBehavior="Forever"/>
         </Storyboard>
 
-        <Style x:Key="WindowChromeButton" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Width" Value="34"/>
-            <Setter Property="Height" Value="30"/>
-            <Setter Property="FontSize" Value="10"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="4">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#22ffffff"/>
-                </Trigger>
-                <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="#33ffffff"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
     </Window.Resources>
 
     <Border CornerRadius="12" Background="White" BorderBrush="Transparent" BorderThickness="0"
@@ -85,15 +59,42 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,8,0">
-                        <Button Style="{StaticResource WindowChromeButton}"
+                        <Button Background="Transparent" Foreground="White" BorderThickness="0"
+                                Width="34" Height="30" FontSize="10" Cursor="Hand"
                                 Content="&#xE921;" FontFamily="Segoe MDL2 Assets"
-                                Click="MinimizeButton_Click" ToolTip="Minimize"/>
-                        <Button Style="{StaticResource WindowChromeButton}"
+                                Click="MinimizeButton_Click" ToolTip="Minimize">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                        <Button Background="Transparent" Foreground="White" BorderThickness="0"
+                                Width="34" Height="30" FontSize="10" Cursor="Hand"
                                 Content="&#xE922;" FontFamily="Segoe MDL2 Assets"
-                                Click="MaximizeButton_Click" ToolTip="Maximize"/>
-                        <Button Style="{StaticResource WindowChromeButton}"
+                                Click="MaximizeButton_Click" ToolTip="Maximize">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                        <Button Background="Transparent" Foreground="White" BorderThickness="0"
+                                Width="34" Height="30" FontSize="10" Cursor="Hand"
                                 Content="&#xE8BB;" FontFamily="Segoe MDL2 Assets"
-                                Click="CloseButton_Click" ToolTip="Close"/>
+                                Click="CloseButton_Click" ToolTip="Close">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
                     </StackPanel>
                 </Grid>
             </Border>
