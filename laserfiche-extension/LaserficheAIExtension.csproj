@@ -36,8 +36,12 @@
                         <HintPath>C:\Program Files\Common Files\Laserfiche\Client Helper\Laserfiche.DocumentServices.dll</HintPath>
                 </Reference>
 
-                <Reference Include="Laserfiche.ClientAutomation">
-                        <HintPath>C:\Program Files\Laserfiche\Client\Laserfiche.ClientAutomation.dll</HintPath>
+                <Reference Include="ClientAutomation">
+                        <HintPath>C:\Program Files\Laserfiche\SDK 10.4\bin\10.4\net-4.0\ClientAutomation.dll</HintPath>
+                </Reference>
+
+                <Reference Include="Interop.LFSO104Lib">
+                        <HintPath>C:\Program Files\Laserfiche\SDK 10.4\bin\10.4\net-4.0\Interop.LFSO104Lib.dll</HintPath>
                 </Reference>
 
                 <Reference Include="System.Net.Http" />
