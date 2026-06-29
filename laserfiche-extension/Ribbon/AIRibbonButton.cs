@@ -1,3 +1,4 @@
+using LaserficheAIExtension.Infrastructure.DependencyInjection;
 using LaserficheAIExtension.Models;
 using LaserficheAIExtension.Popup;
 using LaserficheAIExtension.Services;

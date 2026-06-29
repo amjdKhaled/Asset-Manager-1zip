@@ -190,10 +190,17 @@ namespace LaserficheAIExtension.Popup
             _isClosing = true;
 
             // Save position
+            double left = 0, top = 0, width = 0, height = 0;
+            bool isMaximized = false;
             WindowPositionHelper.CaptureFromWindow(this,
-                out _settings.WindowLeft, out _settings.WindowTop,
-                out _settings.WindowWidth, out _settings.WindowHeight,
-                out _settings.IsMaximized);
+                out left, out top,
+                out width, out height,
+                out isMaximized);
+            _settings.WindowLeft = left;
+            _settings.WindowTop = top;
+            _settings.WindowWidth = width;
+            _settings.WindowHeight = height;
+            _settings.IsMaximized = isMaximized;
             _settings.Save();
 
             // Cleanup
