@@ -130,7 +130,7 @@ namespace LaserficheAIExtension.Services
 
         private void OnProcessFailed(object sender, CoreWebView2ProcessFailedEventArgs e)
         {
-            _logger.Error("WebView2 process failed: {Reason}", e.ProcessFailedKind.ToString());
+            _logger.Error($"WebView2 process failed: {e.ProcessFailedKind}");
             IsConnected = false;
         }
 
