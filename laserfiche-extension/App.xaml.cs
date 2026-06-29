@@ -202,9 +202,9 @@ namespace LaserficheAIExtension
                     // Add toolbar (mirrors sample).
                     toolbarmgr.AddToolbar(strToolbarName, toolbarPosition);
 
-                    // Add "AI Assistant" custom button.
+                    // Add "AI" custom button.
                     CustomButtonInfo newButtonInfo = new CustomButtonInfo();
-                    newButtonInfo.Description = "AI Assistant";
+                    newButtonInfo.Description = "AI";
                     newButtonInfo.Command = "\"" + strProcessPath + "\"" + argsbase + "-command ai";
 
                     int nPathSlashPos = strProcessPath.LastIndexOf("\\");
