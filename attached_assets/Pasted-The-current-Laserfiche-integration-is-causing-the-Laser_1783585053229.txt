@@ -1,0 +1,92 @@
+The current Laserfiche integration is causing the Laserfiche Desktop Client to freeze, become unresponsive, and sometimes crash after the AI toolbar button is clicked.
+
+Your task is NOT to add new features.
+
+Your task is to audit and fix the extension so it behaves like a production-quality Laserfiche ClientAutomation application.
+
+Investigate and fix all possible causes of freezes, deadlocks, UI blocking, memory leaks, and crashes.
+
+Specifically audit the following:
+
+1. Ensure the Laserfiche UI thread is NEVER blocked.
+   - No synchronous waits (.Wait(), .Result, Thread.Sleep).
+   - No long-running work on the UI thread.
+   - Use async/await correctly.
+
+2. Ensure WebView2 initialization is completely asynchronous.
+   - Do not block the WPF dispatcher.
+   - Initialize WebView2 after the window is shown.
+
+3. Audit every event handler.
+   - Remove duplicate event subscriptions.
+   - Ensure events are unsubscribed on window close.
+   - Prevent memory leaks.
+
+4. Verify only ONE popup instance can exist.
+   - Clicking the toolbar button repeatedly must activate the existing window instead of creating new ones.
+
+5. Audit Dispatcher usage.
+   - Avoid unnecessary Dispatcher.Invoke.
+   - Prefer Dispatcher.BeginInvoke when appropriate.
+   - Never create Dispatcher deadlocks.
+
+6. Audit ClientAutomation usage.
+   - Ensure ClientManager, ToolbarManager, and RepositoryConnection objects are disposed correctly.
+   - Never hold Laserfiche COM objects longer than necessary.
+
+7. Audit RepositoryAccess usage.
+   - Dispose every Session, RepositoryRegistration, SearchResult, Entry, and stream.
+   - Use using statements everywhere required.
+
+8. Audit WebView2 lifetime.
+   - Dispose WebView2 when the popup closes.
+   - Dispose CoreWebView2 resources.
+   - Prevent orphan browser processes.
+
+9. Audit dependency injection.
+   - Ensure singleton services are not recreated unnecessarily.
+   - Dispose scoped services correctly.
+
+10. Add global exception handling.
+   - Catch unhandled UI exceptions.
+   - Catch TaskScheduler.UnobservedTaskException.
+   - Catch AppDomain.CurrentDomain.UnhandledException.
+   - Log all exceptions.
+
+11. Add detailed logging.
+   Log:
+   - Button click
+   - Popup creation
+   - Popup activation
+   - WebView2 initialization
+   - API connection
+   - Disposal
+   - Window closing
+   - Any exception
+   - Execution time for major operations
+
+12. Verify no infinite loops or recursive event handlers exist.
+
+13. Verify no background thread touches WPF controls directly.
+
+14. Verify no COM object is accessed from the wrong thread.
+
+15. Ensure closing the popup completely releases every resource.
+
+16. Ensure repeated open/close cycles (100+ times) do not leak memory.
+
+17. Ensure the extension never causes Laserfiche Desktop Client to freeze even if:
+   - the local web server is offline,
+   - WebView2 fails,
+   - Laserfiche API fails,
+   - authentication fails,
+   - AI backend is unavailable.
+
+18. If the popup cannot be created, Laserfiche must continue working normally.
+   Never allow an exception inside the extension to destabilize the Desktop Client.
+
+Do not hide exceptions.
+
+Fix the root causes.
+
+Produce production-quality code suitable for long-running Laserfiche Desktop Client sessions.

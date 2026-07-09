@@ -1,7 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using Laserfiche.ClientAutomation;
 using LaserficheAIExtension.Infrastructure.DependencyInjection;
 using LaserficheAIExtension.Models;
@@ -22,54 +27,135 @@ namespace LaserficheAIExtension
     /// </summary>
     public partial class App : Application
     {
+        private static readonly string LogPath = Path.Combine(
+            Path.GetTempPath(), "GovSearchAI_Extension.log");
+        private static Mutex _singleInstanceMutex;
+
+        public App()
+        {
+            // --- Global exception handlers (must attach before any UI runs) ---
+            DispatcherUnhandledException += OnDispatcherUnhandledException;
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+            AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+        }
+
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
 
-            // --- Diagnostic logging: prove which EXE Laserfiche launched ---
-            var asm = System.Reflection.Assembly.GetExecutingAssembly();
-            string diag = string.Format(
-                "App.OnStartup running:\r\n" +
-                "  Location: {0}\r\n" +
-                "  FullName: {1}\r\n" +
-                "  Version:  {2}\r\n" +
-                "  Args:     {3}\r\n",
-                asm.Location,
-                asm.FullName,
-                asm.GetName().Version,
-                string.Join(" ", e.Args));
-            System.IO.File.AppendAllText(GetDiagnosticLogPath(), diag + "\r\n");
-
             string[] args = e.Args;
+            Log("=== OnStartup === Args: " + string.Join(" ", args));
 
-            // Retry loop — mirrors the sample's while(true) { try { if (MainHandler(args)) break; } catch { ... } }
-            while (true)
+            // --- Single-instance enforcement for popup mode ---
+            if (args.Length > 0 && args[0] == "-buttonclick")
             {
-                try
+                bool createdNew;
+                _singleInstanceMutex = new Mutex(true, "GovSearchAIExtension_SingleInstance", out createdNew);
+                if (!createdNew)
                 {
-                    if (MainHandler(args))
-                        break;
+                    Log("Single instance already running. Activating existing window and exiting.");
+                    // Try to activate the existing window via named event / window handle lookup
+                    try { ActivateExistingWindow(); } catch { /* best effort */ }
+                    Shutdown(0);
+                    return;
                 }
-                catch (Exception ex)
-                {
-                    string err = ex.Message + ", Retry?";
-                    System.IO.File.AppendAllText(GetDiagnosticLogPath(), "MainHandler EXCEPTION: " + ex.ToString() + "\r\n\r\n");
-                    var result = MessageBox.Show(
-                        err,
-                        "GovSearch AI",
-                        MessageBoxButton.YesNo,
-                        MessageBoxImage.Error);
+            }
 
-                    if (result == MessageBoxResult.No)
-                        break;
+            try
+            {
+                bool success = MainHandler(args);
+                if (!success)
+                {
+                    Log("MainHandler returned false. Shutting down.");
+                    Shutdown(1);
                 }
+            }
+            catch (Exception ex)
+            {
+                Log("FATAL: MainHandler threw exception: " + ex);
+                MessageBox.Show(
+                    "GovSearch AI extension failed to start.\r\n\r\n" + ex.Message,
+                    "GovSearch AI",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                Shutdown(1);
             }
         }
 
-        private static string GetDiagnosticLogPath()
+        // ------------------------------------------------------------------
+        // Global exception handlers — never allow an exception to crash Laserfiche
+        // ------------------------------------------------------------------
+        private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
         {
-            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "GovSearchAI_Diagnostic.log");
-            return path;
+            Log("DispatcherUnhandledException: " + e.Exception);
+            e.Handled = true;
+            try
+            {
+                MessageBox.Show(
+                    "An unexpected error occurred in the AI extension.\r\n\r\n" + e.Exception.Message,
+                    "GovSearch AI",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            catch { /* MessageBox can also fail */ }
+        }
+
+        private void OnUnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs e)
+        {
+            Log("UnobservedTaskException: " + e.Exception);
+            e.SetObserved();
+        }
+
+        private void OnAppDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            Log("AppDomainUnhandledException: " + e.ExceptionObject);
+        }
+
+        // ------------------------------------------------------------------
+        // Logging helper — simple file append, no external dependencies
+        // ------------------------------------------------------------------
+        private static void Log(string message)
+        {
+            try
+            {
+                string line = string.Format("[{0:yyyy-MM-dd HH:mm:ss.fff}] {1}", DateTime.Now, message);
+                File.AppendAllText(LogPath, line + "\r\n");
+            }
+            catch { /* logging must never throw */ }
+        }
+
+        private static void ActivateExistingWindow()
+        {
+            try
+            {
+                // Find existing GovSearch AI popup window by class name
+                var current = Process.GetCurrentProcess();
+                foreach (var proc in Process.GetProcessesByName(current.ProcessName))
+                {
+                    if (proc.Id != current.Id)
+                    {
+                        // Bring to foreground via Win32 (best effort)
+                        var hwnd = proc.MainWindowHandle;
+                        if (hwnd != IntPtr.Zero)
+                        {
+                            NativeMethods.SetForegroundWindow(hwnd);
+                            if (NativeMethods.IsIconic(hwnd))
+                                NativeMethods.ShowWindow(hwnd, 9 /* SW_RESTORE */);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static class NativeMethods
+        {
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern bool IsIconic(IntPtr hWnd);
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
         }
 
         /// <summary>
@@ -321,32 +407,51 @@ namespace LaserficheAIExtension
         static bool HandleButtonClick(int buttonid, Guid connguid, int pid, int hwnd, string command,
                                         List<int> selectedentries, PageSet selectedpages)
         {
-            // Build DI container exactly like the original extension.
-            var services = new ServiceCollection();
-            services.AddLaserficheAIExtension();
-            var serviceProvider = services.BuildServiceProvider();
+            var sw = Stopwatch.StartNew();
+            Log("HandleButtonClick started");
 
-            var communication = serviceProvider.GetRequiredService<IWebAppCommunicationService>();
-            var monitor = serviceProvider.GetRequiredService<IConnectionMonitorService>();
-            var tracker = serviceProvider.GetRequiredService<IDocumentContextTracker>();
-            var handler = serviceProvider.GetRequiredService<ICommandHandlerService>();
-            var settings = serviceProvider.GetRequiredService<ExtensionSettings>();
-
-            // Create and show the floating WPF popup (embedded WebView2, never an external browser).
-            var currentApp = Application.Current;
-            var popup = new AIPopupWindow(communication, monitor, tracker, handler, settings);
-
-            popup.Closed += (s, e) => currentApp.Shutdown();
-
-            // If Laserfiche passed selected entry IDs, update the document tracker.
-            if (selectedentries != null && selectedentries.Count > 0)
+            try
             {
-                tracker.UpdateSelectionAsync(selectedentries[0]).ConfigureAwait(false);
+                // Build DI container exactly like the original extension.
+                var services = new ServiceCollection();
+                services.AddLaserficheAIExtension();
+                var serviceProvider = services.BuildServiceProvider();
+
+                var communication = serviceProvider.GetRequiredService<IWebAppCommunicationService>();
+                var monitor = serviceProvider.GetRequiredService<IConnectionMonitorService>();
+                var tracker = serviceProvider.GetRequiredService<IDocumentContextTracker>();
+                var handler = serviceProvider.GetRequiredService<ICommandHandlerService>();
+                var settings = serviceProvider.GetRequiredService<ExtensionSettings>();
+
+                Log("DI container built in " + sw.ElapsedMilliseconds + "ms");
+
+                // Create and show the floating WPF popup (embedded WebView2, never an external browser).
+                var currentApp = Application.Current;
+                var popup = new AIPopupWindow(communication, monitor, tracker, handler, settings);
+
+                popup.Closed += (s, e) =>
+                {
+                    Log("Popup closed. Shutting down application.");
+                    try { serviceProvider.Dispose(); }
+                    catch (Exception ex) { Log("ServiceProvider dispose failed: " + ex); }
+                    currentApp.Shutdown();
+                };
+
+                // If Laserfiche passed selected entry IDs, update the document tracker.
+                if (selectedentries != null && selectedentries.Count > 0)
+                {
+                    _ = tracker.UpdateSelectionAsync(selectedentries[0]);
+                }
+
+                popup.Show();
+                Log("Popup shown. Total startup: " + sw.ElapsedMilliseconds + "ms");
+                return true;
             }
-
-            popup.Show();
-
-            return true;
+            catch (Exception ex)
+            {
+                Log("HandleButtonClick FAILED after " + sw.ElapsedMilliseconds + "ms: " + ex);
+                throw;
+            }
         }
     }
 }

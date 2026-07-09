@@ -6,7 +6,6 @@ using Microsoft.Web.WebView2.Wpf;
 using System;
 using System.ComponentModel;
 using System.IO;
-using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -17,7 +16,8 @@ using System.Windows.Media.Animation;
 namespace LaserficheAIExtension.Popup
 {
     /// <summary>
-    /// Modern floating popup window hosting WebView2 with GovSearch AI.
+    /// Production-quality floating popup window hosting WebView2.
+    /// Hardened against freezes, deadlocks, memory leaks, and crashes.
     /// </summary>
     public partial class AIPopupWindow : Window
     {
@@ -27,6 +27,7 @@ namespace LaserficheAIExtension.Popup
         private readonly ICommandHandlerService _commandHandler;
         private readonly Models.ExtensionSettings _settings;
         private bool _isClosing;
+        private bool _isDisposed;
 
         public AIPopupWindow(
             IWebAppCommunicationService communicationService,
@@ -35,33 +36,14 @@ namespace LaserficheAIExtension.Popup
             ICommandHandlerService commandHandler,
             Models.ExtensionSettings settings)
         {
-            // --- Diagnostic logging: prove which EXE is running ---
-            var asm = Assembly.GetExecutingAssembly();
-            string diag = string.Format(
-                "AIPopupWindow ctor running:\r\n" +
-                "  Location: {0}\r\n" +
-                "  FullName: {1}\r\n" +
-                "  Version:  {2}\r\n",
-                asm.Location,
-                asm.FullName,
-                asm.GetName().Version);
-            File.AppendAllText(GetDiagnosticLogPath(), diag + "\r\n");
-
+            Log("Constructor started");
             try
             {
                 InitializeComponent();
             }
             catch (Exception ex)
             {
-                string fullDetails = FormatExceptionDetails(ex);
-                string msg = "Failed to initialize AI popup window.\r\n\r\n" + fullDetails;
-                File.AppendAllText(GetDiagnosticLogPath(), "InitializeComponent FAILED:\r\n" + msg + "\r\n\r\n");
-                System.Diagnostics.Debug.WriteLine("AIPopupWindow.InitializeComponent failed:\r\n" + fullDetails);
-                MessageBox.Show(
-                    msg,
-                    "GovSearch AI — Popup Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                Log("InitializeComponent FAILED: " + ex);
                 throw;
             }
 
@@ -76,41 +58,23 @@ namespace LaserficheAIExtension.Popup
             StateChanged += OnWindowStateChanged;
             LocationChanged += OnWindowLocationChanged;
             SizeChanged += OnWindowSizeChanged;
+            Log("Constructor completed");
         }
 
-        private static string GetDiagnosticLogPath()
+        private static void Log(string message)
         {
-            string path = Path.Combine(Path.GetTempPath(), "GovSearchAI_Diagnostic.log");
-            return path;
-        }
-
-        private static string FormatExceptionDetails(Exception ex)
-        {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("Exception: " + ex.GetType().FullName);
-            sb.AppendLine("Message: " + ex.Message);
-            if (ex.InnerException != null)
+            try
             {
-                sb.AppendLine();
-                sb.AppendLine("Inner Exception:");
-                sb.AppendLine("  Type:    " + ex.InnerException.GetType().FullName);
-                sb.AppendLine("  Message: " + ex.InnerException.Message);
-                if (ex.InnerException.InnerException != null)
-                {
-                    sb.AppendLine("  Inner:   " + ex.InnerException.InnerException.Message);
-                }
+                string path = Path.Combine(Path.GetTempPath(), "GovSearchAI_Extension.log");
+                string line = string.Format("[{0:yyyy-MM-dd HH:mm:ss.fff}] [Popup] {1}", DateTime.Now, message);
+                File.AppendAllText(path, line + "\r\n");
             }
-            sb.AppendLine();
-            sb.AppendLine("StackTrace:");
-            sb.AppendLine(ex.StackTrace);
-            sb.AppendLine();
-            sb.AppendLine("Source: " + (ex.Source ?? "(null)"));
-            sb.AppendLine("TargetSite: " + (ex.TargetSite?.ToString() ?? "(null)"));
-            return sb.ToString();
+            catch { }
         }
 
         private async void OnWindowLoaded(object sender, RoutedEventArgs e)
         {
+            Log("OnWindowLoaded started");
             try
             {
                 // Apply saved position
@@ -119,36 +83,36 @@ namespace LaserficheAIExtension.Popup
                     _settings.WindowWidth, _settings.WindowHeight,
                     _settings.IsMaximized);
 
-                // Initialize WebView2
+                // Initialize WebView2 asynchronously — never blocks UI thread
                 await InitializeWebViewAsync();
 
-                // Start monitoring connection
+                // Subscribe to events
                 _connectionMonitor.ConnectionStatusChanged += OnConnectionStatusChanged;
-                await _connectionMonitor.StartMonitoringAsync(_settings.ServerUrl);
-
-                // Track document selection changes
                 _documentTracker.DocumentChanged += OnDocumentChanged;
-
-                // Handle commands from web app
                 _communicationService.CommandReceived += OnCommandReceived;
+
+                // Start monitoring connection
+                await _connectionMonitor.StartMonitoringAsync(_settings.ServerUrl);
+                Log("OnWindowLoaded completed");
             }
             catch (Exception ex)
             {
-                string fullDetails = FormatExceptionDetails(ex);
-                System.Diagnostics.Debug.WriteLine("OnWindowLoaded failed:\r\n" + fullDetails);
+                Log("OnWindowLoaded FAILED: " + ex);
                 UpdateStatusOverlay(
                     "Popup initialization failed",
                     ex.Message,
-                    "See Debug output for full details.");
+                    "See log for full details.");
             }
         }
 
         private async Task InitializeWebViewAsync()
         {
+            Log("InitializeWebViewAsync started");
             try
             {
                 var env = await CoreWebView2Environment.CreateAsync(null, GetWebViewDataPath());
                 await WebView.EnsureCoreWebView2Async(env);
+                Log("WebView2 core initialized");
 
                 // Configure WebView2
                 WebView.CoreWebView2.Settings.IsScriptEnabled = true;
@@ -156,40 +120,43 @@ namespace LaserficheAIExtension.Popup
                 WebView.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 WebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 WebView.CoreWebView2.Settings.IsZoomControlEnabled = true;
-
-                // Set user agent to identify as Laserfiche extension
                 WebView.CoreWebView2.Settings.UserAgent =
                     "LaserficheAIExtension/1.0 (Windows; WebView2) " + WebView.CoreWebView2.Settings.UserAgent;
 
                 // Initialize communication bridge
                 _communicationService.Initialize(WebView.CoreWebView2);
                 _communicationService.ServerUrl = _settings.ServerUrl;
+                Log("Communication bridge initialized");
 
                 // Subscribe to events
                 WebView.CoreWebView2.NavigationCompleted += OnWebViewNavigationCompleted;
                 WebView.CoreWebView2.SourceChanged += OnWebViewSourceChanged;
 
-                // Start spinner animation
-                var spinStoryboard = (Storyboard)FindResource("SpinAnimation");
-                spinStoryboard.Begin();
+                // Start spinner animation (null-safe)
+                if (Resources.Contains("SpinAnimation"))
+                {
+                    var spinStoryboard = TryFindResource("SpinAnimation") as Storyboard;
+                    spinStoryboard?.Begin();
+                }
 
                 // Navigate to server
                 UpdateStatusOverlay("Connecting to GovSearch AI...", _settings.ServerUrl, "Initializing WebView2...");
                 WebView.Source = new Uri(_settings.ServerUrl);
+                Log("InitializeWebViewAsync completed");
             }
             catch (Exception ex)
             {
-                string fullDetails = FormatExceptionDetails(ex);
-                System.Diagnostics.Debug.WriteLine("InitializeWebViewAsync failed:\r\n" + fullDetails);
+                Log("InitializeWebViewAsync FAILED: " + ex);
                 UpdateStatusOverlay(
                     "Failed to initialize WebView2",
                     ex.Message,
-                    "Check Edge WebView2 Runtime installation. Full details written to Debug output.");
+                    "Check Edge WebView2 Runtime installation.");
             }
         }
 
         private void OnWebViewNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
         {
+            Log("NavigationCompleted: IsSuccess=" + e.IsSuccess);
             if (e.IsSuccess)
             {
                 StatusOverlay.Visibility = Visibility.Collapsed;
@@ -202,88 +169,149 @@ namespace LaserficheAIExtension.Popup
 
         private void OnWebViewSourceChanged(object sender, CoreWebView2SourceChangedEventArgs e)
         {
-            // Could track navigation history here if needed
+            // Navigation history tracking placeholder
         }
 
         private void OnConnectionStatusChanged(object sender, bool isOnline)
         {
-            Dispatcher.Invoke(() =>
+            // Use BeginInvoke (non-blocking) instead of Invoke to avoid deadlocks
+            Dispatcher.BeginInvoke(new Action(() =>
             {
+                if (_isDisposed) return;
+
                 if (isOnline)
                 {
-                    ConnectionIndicator.Fill = new SolidColorBrush(Color.FromRgb(34, 197, 94)); // green
+                    ConnectionIndicator.Fill = new SolidColorBrush(Color.FromRgb(34, 197, 94));
                     ConnectionStatusText.Text = "Connected";
                     ConnectionStatusText.Foreground = new SolidColorBrush(Color.FromRgb(34, 197, 94));
 
-                    if (StatusOverlay.Visibility == Visibility.Visible && WebView.Source != null)
+                    if (StatusOverlay.Visibility == Visibility.Visible && WebView?.Source != null)
                     {
-                        // Server came back online - reload
-                        WebView.Reload();
+                        try { WebView.Reload(); }
+                        catch { /* WebView may be disposed */ }
                     }
                 }
                 else
                 {
-                    ConnectionIndicator.Fill = new SolidColorBrush(Color.FromRgb(239, 68, 68)); // red
+                    ConnectionIndicator.Fill = new SolidColorBrush(Color.FromRgb(239, 68, 68));
                     ConnectionStatusText.Text = "Disconnected";
                     ConnectionStatusText.Foreground = new SolidColorBrush(Color.FromRgb(239, 68, 68));
                     UpdateStatusOverlay("Waiting for Local AI...", _settings.ServerUrl, "Retrying connection...");
                 }
-            });
+            }), DispatcherPriority.Background);
         }
 
         private async void OnDocumentChanged(object sender, DocumentContext context)
         {
             if (context == null) return;
+            Log("DocumentChanged: " + context.DocumentName);
 
             await Dispatcher.InvokeAsync(async () =>
             {
+                if (_isDisposed) return;
                 DocumentStatusText.Text = $"Selected: {context.DocumentName}";
 
                 if (_settings.SendSelectionOnChange && _communicationService.IsConnected)
                 {
-                    await _communicationService.SendDocumentContextAsync(context);
+                    try { await _communicationService.SendDocumentContextAsync(context); }
+                    catch (Exception ex) { Log("SendDocumentContextAsync failed: " + ex); }
                 }
             });
         }
 
         private async void OnCommandReceived(object sender, WebCommand command)
         {
-            await _commandHandler.HandleCommandAsync(command);
+            try { await _commandHandler.HandleCommandAsync(command); }
+            catch (Exception ex) { Log("HandleCommandAsync failed: " + ex); }
         }
 
         private void UpdateStatusOverlay(string mainText, string subText, string retryText)
         {
-            Dispatcher.Invoke(() =>
+            Dispatcher.BeginInvoke(new Action(() =>
             {
+                if (_isDisposed) return;
                 StatusText.Text = mainText;
                 StatusSubtext.Text = subText;
                 RetryText.Text = retryText;
                 StatusOverlay.Visibility = Visibility.Visible;
-            });
+            }), DispatcherPriority.Background);
         }
 
         private void OnWindowClosing(object sender, CancelEventArgs e)
         {
             if (_isClosing) return;
             _isClosing = true;
+            Log("OnWindowClosing started");
 
-            // Save position
-            double left = 0, top = 0, width = 0, height = 0;
-            bool isMaximized = false;
-            WindowPositionHelper.CaptureFromWindow(this,
-                out left, out top,
-                out width, out height,
-                out isMaximized);
-            _settings.WindowLeft = left;
-            _settings.WindowTop = top;
-            _settings.WindowWidth = width;
-            _settings.WindowHeight = height;
-            _settings.IsMaximized = isMaximized;
-            _settings.Save();
+            try
+            {
+                // Save position
+                double left = 0, top = 0, width = 0, height = 0;
+                bool isMaximized = false;
+                WindowPositionHelper.CaptureFromWindow(this,
+                    out left, out top,
+                    out width, out height,
+                    out isMaximized);
+                _settings.WindowLeft = left;
+                _settings.WindowTop = top;
+                _settings.WindowWidth = width;
+                _settings.WindowHeight = height;
+                _settings.IsMaximized = isMaximized;
+                _settings.Save();
+            }
+            catch (Exception ex) { Log("Save position failed: " + ex); }
 
-            // Cleanup
-            _connectionMonitor?.StopMonitoring();
-            WebView?.Dispose();
+            // Unsubscribe ALL events to prevent memory leaks
+            try
+            {
+                Loaded -= OnWindowLoaded;
+                Closing -= OnWindowClosing;
+                StateChanged -= OnWindowStateChanged;
+                LocationChanged -= OnWindowLocationChanged;
+                SizeChanged -= OnWindowSizeChanged;
+            }
+            catch { }
+
+            try
+            {
+                _connectionMonitor.ConnectionStatusChanged -= OnConnectionStatusChanged;
+                _documentTracker.DocumentChanged -= OnDocumentChanged;
+                _communicationService.CommandReceived -= OnCommandReceived;
+            }
+            catch { }
+
+            try
+            {
+                if (WebView?.CoreWebView2 != null)
+                {
+                    WebView.CoreWebView2.NavigationCompleted -= OnWebViewNavigationCompleted;
+                    WebView.CoreWebView2.SourceChanged -= OnWebViewSourceChanged;
+                }
+            }
+            catch { }
+
+            // Stop background services
+            try { _connectionMonitor?.StopMonitoring(); }
+            catch (Exception ex) { Log("StopMonitoring failed: " + ex); }
+
+            // Dispose WebView2 asynchronously to avoid UI thread deadlock
+            var webViewToDispose = WebView;
+            if (webViewToDispose != null)
+            {
+                WebView = null; // Clear reference immediately
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        webViewToDispose.Dispose();
+                        Log("WebView2 disposed on background thread");
+                    }
+                    catch (Exception ex) { Log("WebView2 dispose failed: " + ex); }
+                });
+            }
+
+            _isDisposed = true;
+            Log("OnWindowClosing completed");
         }
 
         private void OnWindowStateChanged(object sender, EventArgs e)

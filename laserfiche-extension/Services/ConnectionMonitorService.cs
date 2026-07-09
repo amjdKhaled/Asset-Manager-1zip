@@ -9,13 +9,14 @@ namespace LaserficheAIExtension.Services
     /// <summary>
     /// Background service that pings the web app server and fires events on status change.
     /// </summary>
-    public class ConnectionMonitorService : IConnectionMonitorService
+    public class ConnectionMonitorService : IConnectionMonitorService, IDisposable
     {
         private readonly ILogger<ConnectionMonitorService> _logger;
-        private readonly HttpClient _httpClient;
+        private HttpClient _httpClient;
         private CancellationTokenSource _cts;
         private string _serverUrl;
         private bool _isReachable;
+        private bool _isDisposed;
 
         public event EventHandler<bool> ConnectionStatusChanged;
 
@@ -41,15 +42,15 @@ namespace LaserficheAIExtension.Services
 
         public async Task StartMonitoringAsync(string serverUrl)
         {
+            if (_isDisposed) throw new ObjectDisposedException(nameof(ConnectionMonitorService));
             _serverUrl = serverUrl;
-            _cts?.Cancel();
+            StopMonitoringInternal();
             _cts = new CancellationTokenSource();
 
             _logger.Information("Starting connection monitor for {Url}", serverUrl);
 
             try
             {
-                // Immediate check
                 await CheckConnectionAsync(_cts.Token);
             }
             catch (OperationCanceledException)
@@ -57,6 +58,7 @@ namespace LaserficheAIExtension.Services
                 return;
             }
 
+            // Fire-and-forget background loop — safe because we hold CTS
             _ = Task.Run(async () =>
             {
                 while (!_cts.Token.IsCancellationRequested)
@@ -80,8 +82,20 @@ namespace LaserficheAIExtension.Services
 
         public void StopMonitoring()
         {
-            _cts?.Cancel();
+            if (_isDisposed) return;
+            StopMonitoringInternal();
             _logger.Information("Connection monitor stopped");
+        }
+
+        private void StopMonitoringInternal()
+        {
+            try
+            {
+                _cts?.Cancel();
+                _cts?.Dispose();
+                _cts = null;
+            }
+            catch { /* best effort */ }
         }
 
         private async Task CheckConnectionAsync(CancellationToken cancellationToken)
@@ -95,6 +109,17 @@ namespace LaserficheAIExtension.Services
             {
                 IsServerReachable = false;
             }
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed) return;
+            _isDisposed = true;
+            _logger.Information("ConnectionMonitorService disposing");
+            StopMonitoringInternal();
+            try { _httpClient?.Dispose(); }
+            catch { }
+            _httpClient = null;
         }
     }
 }

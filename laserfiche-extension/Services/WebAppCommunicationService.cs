@@ -11,11 +11,12 @@ namespace LaserficheAIExtension.Services
     /// Handles all communication between the WPF host and the embedded web application.
     /// Uses WebView2's WebMessage API for bidirectional JSON messaging.
     /// </summary>
-    public class WebAppCommunicationService : IWebAppCommunicationService
+    public class WebAppCommunicationService : IWebAppCommunicationService, IDisposable
     {
         private CoreWebView2 _webView;
         private readonly ILogger<WebAppCommunicationService> _logger;
         private bool _isConnected;
+        private bool _isDisposed;
 
         public event EventHandler<WebCommand> CommandReceived;
         public event EventHandler<bool> ConnectionStateChanged;
@@ -42,18 +43,18 @@ namespace LaserficheAIExtension.Services
 
         public void Initialize(object webView)
         {
+            if (_isDisposed) throw new ObjectDisposedException(nameof(WebAppCommunicationService));
             if (webView is CoreWebView2 coreWebView)
             {
+                // Unsubscribe from previous WebView if re-initializing
+                UnsubscribeEvents();
                 _webView = coreWebView;
                 _webView.WebMessageReceived += OnWebMessageReceived;
                 _webView.NavigationCompleted += OnNavigationCompleted;
                 _webView.ProcessFailed += OnProcessFailed;
 
-                // Inject a bridge script that lets the web app send messages back
-                _webView.DOMContentLoaded += async (s, e) =>
-                {
-                    await InjectBridgeScriptAsync();
-                };
+                // Inject bridge script on DOMContentLoaded
+                _webView.DOMContentLoaded += OnDomContentLoaded;
 
                 _logger.Information("WebView2 communication initialized");
             }
@@ -61,6 +62,34 @@ namespace LaserficheAIExtension.Services
             {
                 throw new ArgumentException("Expected CoreWebView2 instance", nameof(webView));
             }
+        }
+
+        private async void OnDomContentLoaded(object sender, CoreWebView2DOMContentLoadedEventArgs e)
+        {
+            try { await InjectBridgeScriptAsync(); }
+            catch (Exception ex) { _logger.Error(ex, "Failed to inject bridge script"); }
+        }
+
+        private void UnsubscribeEvents()
+        {
+            if (_webView == null) return;
+            try
+            {
+                _webView.WebMessageReceived -= OnWebMessageReceived;
+                _webView.NavigationCompleted -= OnNavigationCompleted;
+                _webView.ProcessFailed -= OnProcessFailed;
+                _webView.DOMContentLoaded -= OnDomContentLoaded;
+            }
+            catch { /* best effort */ }
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed) return;
+            _isDisposed = true;
+            _logger.Information("WebAppCommunicationService disposing");
+            UnsubscribeEvents();
+            _webView = null;
         }
 
         private async Task InjectBridgeScriptAsync()

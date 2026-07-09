@@ -1,0 +1,54 @@
+----------------------------------------
+Timestamp: 2026-07-09 07:41:15.548
+Local Time: 7/9/2026 10:41:15 AM
+Category: Errors
+Machine: DESKTOP-K1SVI53
+Severity: Error
+Application Domain: Laserfiche.Workflow.Subscriber.exe
+Process Id: 7100
+Process Name: C:\Program Files\Laserfiche\Workflow\Laserfiche.Workflow.Subscriber.exe
+Win32 Thread Id: 35308 - LFNewRepoWF Notification Thread
+Thread Name: LFNewRepoWF Notification Thread
+Message: <Exception handlingInstanceId="ec52f374-bed8-40ea-ad3c-315bcf94f936">
+  <Description>An exception of type 'Laserfiche.Connection.LFSOException' occurred and was caught.</Description>
+  <DateTime>2026-07-09 10:41:15Z</DateTime>
+  <ExceptionType>Laserfiche.Connection.LFSOException, Laserfiche.Workflow.Common, Version=8.3.0.0, Culture=neutral, PublicKeyToken=d8428ff9263e6cda</ExceptionType>
+  <Message>The current session has been terminated. [9067]</Message>
+  <Source />
+  <HelpLink />
+  <Property name="LFROError">False</Property>
+  <Property name="LFSOError">False</Property>
+  <Property name="ErrorCode">9067</Property>
+  <Property name="TargetSite">&lt;undefined value&gt;</Property>
+  <Property name="HResult">-2146233088</Property>
+  <StackTrace />
+  <additionalInfo>
+    <info name="MachineName" value="DESKTOP-K1SVI53" />
+    <info name="TimeStamp" value="7/9/2026 7:41:15 AM" />
+    <info name="FullName" value="Microsoft.Practices.EnterpriseLibrary.ExceptionHandling, Version=6.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35" />
+    <info name="AppDomainName" value="Laserfiche.Workflow.Subscriber.exe" />
+    <info name="ThreadIdentity" value="" />
+    <info name="WindowsIdentity" value="NT AUTHORITY\SYSTEM" />
+  </additionalInfo>
+  <InnerException>
+    <ExceptionType>Laserfiche.RepositoryAccess.AccessDeniedException, Laserfiche.RepositoryAccess, Version=11.0.0.0, Culture=neutral, PublicKeyToken=3f98b3eaee6c16a6</ExceptionType>
+    <Message>The current session has been terminated. [9067]</Message>
+    <Source>Laserfiche.RepositoryAccess</Source>
+    <HelpLink />
+    <Property name="ErrorCode">9067</Property>
+    <Property name="UnlocalizedMessage">The current session has been terminated. [9067]</Property>
+    <Property name="Server">desktop-k1svi53</Property>
+    <Property name="Repository">LFNewRepoWF</Property>
+    <Property name="User">WFUser$</Property>
+    <Property name="Thread">LFNewRepoWF Notification Thread</Property>
+    <Property name="LastASN">4200</Property>
+    <Property name="TargetSite">Laserfiche.RepositoryAccess.Activity.Notification WaitForNotification(Int32)</Property>
+    <Property name="HResult">-2146233088</Property>
+    <StackTrace>   at Laserfiche.RepositoryAccess.Activity.HttpNotificationManager.WaitForNotification(Int32 seconds)
+   at Laserfiche.Connection.Lfso.RepositoryAccess91.LFNotificationManagerRA.WaitGetNotification(Int32 timeoutMilliseconds)
+   at Laserfiche.Workflow.Subscriber.Runtime.Threads.NotificationThread.ListenToLaserfiche(LFDatabase database, Int64 lastASN)
+   at Laserfiche.Workflow.Subscriber.Runtime.Threads.NotificationThread.ListenToNotifications()
+   at Laserfiche.Workflow.Subscriber.Runtime.Threads.NotificationThread.Run(Object state)</StackTrace>
+  </InnerException>
+</Exception>
+----------------------------------------

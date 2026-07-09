@@ -7,7 +7,7 @@ namespace LaserficheAIExtension.SDK
     /// <summary>
     /// Abstracts all Laserfiche SDK interactions for testability and clean separation.
     /// </summary>
-    public interface ILaserficheSdkWrapper
+    public interface ILaserficheSdkWrapper : System.IDisposable
     {
         Task<DocumentContext> GetDocumentContextAsync(int entryId);
         Task<Dictionary<string, object>> GetDocumentMetadataAsync(int entryId);
