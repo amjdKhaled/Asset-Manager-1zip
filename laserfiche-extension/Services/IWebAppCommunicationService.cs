@@ -7,7 +7,7 @@ namespace LaserficheAIExtension.Services
     /// <summary>
     /// Service for bidirectional communication with the embedded web app.
     /// </summary>
-    public interface IWebAppCommunicationService
+    public interface IWebAppCommunicationService : IDisposable
     {
         event EventHandler<WebCommand> CommandReceived;
         event EventHandler<bool> ConnectionStateChanged;

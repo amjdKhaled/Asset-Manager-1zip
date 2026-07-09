@@ -12,6 +12,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 
 namespace LaserficheAIExtension.Popup
 {
@@ -93,7 +94,7 @@ namespace LaserficheAIExtension.Popup
                 {
                     // Phase 1: Initialize WebView2 (must be on UI thread)
                     var webViewTcs = new TaskCompletionSource<bool>();
-                    Dispatcher.BeginInvoke(new Action(async () =>
+                    _ = Dispatcher.BeginInvoke(new Action(async () =>
                     {
                         // Window may have started closing while the invoke was queued.
                         if (_isDisposed || _isClosing) { webViewTcs.TrySetResult(true); return; }
