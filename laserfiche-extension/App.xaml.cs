@@ -465,8 +465,7 @@ namespace LaserficheAIExtension
                 try
                 {
                     MessageBox.Show(
-                        "GovSearch AI popup could not start.\r\n\r
-" + ex.Message,
+                        "GovSearch AI popup could not start.\r\n\r\n" + ex.Message,
                         "GovSearch AI",
                         MessageBoxButton.OK,
                         MessageBoxImage.Error);
