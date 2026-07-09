@@ -130,19 +130,27 @@ namespace LaserficheAIExtension
             {
                 // Find existing GovSearch AI popup window by class name
                 var current = Process.GetCurrentProcess();
-                foreach (var proc in Process.GetProcessesByName(current.ProcessName))
+                var processes = Process.GetProcessesByName(current.ProcessName);
+                try
                 {
-                    if (proc.Id != current.Id)
+                    foreach (var proc in processes)
                     {
-                        // Bring to foreground via Win32 (best effort)
-                        var hwnd = proc.MainWindowHandle;
-                        if (hwnd != IntPtr.Zero)
+                        if (proc.Id != current.Id)
                         {
-                            NativeMethods.SetForegroundWindow(hwnd);
-                            if (NativeMethods.IsIconic(hwnd))
-                                NativeMethods.ShowWindow(hwnd, 9 /* SW_RESTORE */);
+                            // Bring to foreground via Win32 (best effort)
+                            var hwnd = proc.MainWindowHandle;
+                            if (hwnd != IntPtr.Zero)
+                            {
+                                NativeMethods.SetForegroundWindow(hwnd);
+                                if (NativeMethods.IsIconic(hwnd))
+                                    NativeMethods.ShowWindow(hwnd, 9 /* SW_RESTORE */);
+                            }
                         }
                     }
+                }
+                finally
+                {
+                    foreach (var proc in processes) { try { proc.Dispose(); } catch { } }
                 }
             }
             catch { }
@@ -440,7 +448,11 @@ namespace LaserficheAIExtension
                 // If Laserfiche passed selected entry IDs, update the document tracker.
                 if (selectedentries != null && selectedentries.Count > 0)
                 {
-                    _ = tracker.UpdateSelectionAsync(selectedentries[0]);
+                    _ = Task.Run(async () =>
+                    {
+                        try { await tracker.UpdateSelectionAsync(selectedentries[0]); }
+                        catch (Exception ex) { Log("UpdateSelectionAsync failed: " + ex); }
+                    });
                 }
 
                 popup.Show();
@@ -450,7 +462,17 @@ namespace LaserficheAIExtension
             catch (Exception ex)
             {
                 Log("HandleButtonClick FAILED after " + sw.ElapsedMilliseconds + "ms: " + ex);
-                throw;
+                try
+                {
+                    MessageBox.Show(
+                        "GovSearch AI popup could not start.\r\n\r
+" + ex.Message,
+                        "GovSearch AI",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                }
+                catch { /* MessageBox can fail too */ }
+                return false;
             }
         }
     }

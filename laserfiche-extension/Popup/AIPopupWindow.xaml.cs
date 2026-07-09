@@ -53,6 +53,8 @@ namespace LaserficheAIExtension.Popup
             _commandHandler = commandHandler ?? throw new ArgumentNullException(nameof(commandHandler));
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
 
+            // Event subscriptions are one-shot: constructor runs once per window instance.
+            // Re-entry is prevented by _isDisposed in all handlers.
             Loaded += OnWindowLoaded;
             Closing += OnWindowClosing;
             StateChanged += OnWindowStateChanged;
@@ -72,37 +74,55 @@ namespace LaserficheAIExtension.Popup
             catch { }
         }
 
-        private async void OnWindowLoaded(object sender, RoutedEventArgs e)
+        private void OnWindowLoaded(object sender, RoutedEventArgs e)
         {
             Log("OnWindowLoaded started");
-            try
+
+            // Apply saved position (synchronous)
+            WindowPositionHelper.ApplyToWindow(this,
+                _settings.WindowLeft, _settings.WindowTop,
+                _settings.WindowWidth, _settings.WindowHeight,
+                _settings.IsMaximized);
+
+            // Initialize WebView2 + services on a fire-and-forget Task.
+            // A TaskCompletionSource bridges the UI-thread async work back to the
+            // background thread so each phase is truly awaited in sequence.
+            _ = Task.Run(async () =>
             {
-                // Apply saved position
-                WindowPositionHelper.ApplyToWindow(this,
-                    _settings.WindowLeft, _settings.WindowTop,
-                    _settings.WindowWidth, _settings.WindowHeight,
-                    _settings.IsMaximized);
+                try
+                {
+                    // Phase 1: Initialize WebView2 (must be on UI thread)
+                    var webViewTcs = new TaskCompletionSource<bool>();
+                    Dispatcher.BeginInvoke(new Action(async () =>
+                    {
+                        // Window may have started closing while the invoke was queued.
+                        if (_isDisposed || _isClosing) { webViewTcs.TrySetResult(true); return; }
+                        try { await InitializeWebViewAsync(); webViewTcs.TrySetResult(true); }
+                        catch (Exception ex) { webViewTcs.TrySetException(ex); }
+                    }));
+                    await webViewTcs.Task;
 
-                // Initialize WebView2 asynchronously — never blocks UI thread
-                await InitializeWebViewAsync();
+                    // Phase 2: Subscribe events (must be on UI thread)
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        _connectionMonitor.ConnectionStatusChanged += OnConnectionStatusChanged;
+                        _documentTracker.DocumentChanged += OnDocumentChanged;
+                        _communicationService.CommandReceived += OnCommandReceived;
+                    });
 
-                // Subscribe to events
-                _connectionMonitor.ConnectionStatusChanged += OnConnectionStatusChanged;
-                _documentTracker.DocumentChanged += OnDocumentChanged;
-                _communicationService.CommandReceived += OnCommandReceived;
-
-                // Start monitoring connection
-                await _connectionMonitor.StartMonitoringAsync(_settings.ServerUrl);
-                Log("OnWindowLoaded completed");
-            }
-            catch (Exception ex)
-            {
-                Log("OnWindowLoaded FAILED: " + ex);
-                UpdateStatusOverlay(
-                    "Popup initialization failed",
-                    ex.Message,
-                    "See log for full details.");
-            }
+                    // Phase 3: Start monitoring connection (safe from any thread)
+                    await _connectionMonitor.StartMonitoringAsync(_settings.ServerUrl);
+                    Log("OnWindowLoaded completed");
+                }
+                catch (Exception ex)
+                {
+                    Log("OnWindowLoaded FAILED: " + ex);
+                    UpdateStatusOverlay(
+                        "Popup initialization failed",
+                        ex.Message,
+                        "See log for full details.");
+                }
+            });
         }
 
         private async Task InitializeWebViewAsync()
@@ -201,28 +221,37 @@ namespace LaserficheAIExtension.Popup
             }), DispatcherPriority.Background);
         }
 
-        private async void OnDocumentChanged(object sender, DocumentContext context)
+        private void OnDocumentChanged(object sender, DocumentContext context)
         {
             if (context == null) return;
             Log("DocumentChanged: " + context.DocumentName);
 
-            await Dispatcher.InvokeAsync(async () =>
+            // Use non-blocking BeginInvoke; the inner async work is dispatched safely.
+            Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (_isDisposed) return;
                 DocumentStatusText.Text = $"Selected: {context.DocumentName}";
 
                 if (_settings.SendSelectionOnChange && _communicationService.IsConnected)
                 {
-                    try { await _communicationService.SendDocumentContextAsync(context); }
-                    catch (Exception ex) { Log("SendDocumentContextAsync failed: " + ex); }
+                    // Fire-and-forget with explicit exception handling — no await on UI thread.
+                    _ = Task.Run(async () =>
+                    {
+                        try { await _communicationService.SendDocumentContextAsync(context); }
+                        catch (Exception ex) { Log("SendDocumentContextAsync failed: " + ex); }
+                    });
                 }
-            });
+            }), DispatcherPriority.Background);
         }
 
-        private async void OnCommandReceived(object sender, WebCommand command)
+        private void OnCommandReceived(object sender, WebCommand command)
         {
-            try { await _commandHandler.HandleCommandAsync(command); }
-            catch (Exception ex) { Log("HandleCommandAsync failed: " + ex); }
+            // Fire async work on thread-pool so event handler stays synchronous.
+            _ = Task.Run(async () =>
+            {
+                try { await _commandHandler.HandleCommandAsync(command); }
+                catch (Exception ex) { Log("HandleCommandAsync failed: " + ex); }
+            });
         }
 
         private void UpdateStatusOverlay(string mainText, string subText, string retryText)
@@ -289,6 +318,12 @@ namespace LaserficheAIExtension.Popup
                 }
             }
             catch { }
+
+            // Dispose communication service FIRST so it unsubscribes from CoreWebView2
+            // events BEFORE the WebView2 control is disposed. Unsubscribing from a
+            // mid-disposal COM object can throw AccessViolationException.
+            try { _communicationService?.Dispose(); }
+            catch (Exception ex) { Log("CommunicationService dispose failed: " + ex); }
 
             // Stop background services
             try { _connectionMonitor?.StopMonitoring(); }

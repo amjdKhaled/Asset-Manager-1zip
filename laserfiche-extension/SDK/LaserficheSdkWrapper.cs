@@ -19,6 +19,7 @@ namespace LaserficheAIExtension.SDK
         private readonly ExtensionSettings _settings;
         private Session _session;
         private readonly object _sessionLock = new object();
+        private bool _isDisposed;
 
         public bool IsConnected
         {
@@ -43,6 +44,7 @@ namespace LaserficheAIExtension.SDK
         /// </summary>
         private void EnsureSession()
         {
+            ThrowIfDisposed();
             lock (_sessionLock)
             {
                 if (_session != null && _session.IsConnected)
@@ -366,21 +368,23 @@ namespace LaserficheAIExtension.SDK
 
         public void Dispose()
         {
+            if (_isDisposed) return;
+            _isDisposed = true;
             lock (_sessionLock)
             {
                 if (_session != null)
                 {
-                    try
-                    {
-                        _session.Close();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Debug(ex, "Error closing Laserfiche session");
-                    }
+                    try { _session.Close(); }
+                    catch (Exception ex) { _logger.Debug(ex, "Error closing Laserfiche session"); }
                     _session = null;
                 }
             }
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (_isDisposed)
+                throw new ObjectDisposedException(nameof(LaserficheSdkWrapper));
         }
     }
 }

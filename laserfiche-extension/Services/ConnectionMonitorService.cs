@@ -58,15 +58,18 @@ namespace LaserficheAIExtension.Services
                 return;
             }
 
-            // Fire-and-forget background loop — safe because we hold CTS
-            _ = Task.Run(async () =>
+            // Background loop on a dedicated thread to avoid thread-pool starvation.
+            // The loop body blocks with GetAwaiter().GetResult() because ThreadStart
+            // must be synchronous; every async point is wrapped in try/catch.
+            var capturedCts = _cts;  // Capture so Dispose() nulling _cts does not race.
+            var thread = new Thread(() =>
             {
-                while (!_cts.Token.IsCancellationRequested)
+                while (!capturedCts.Token.IsCancellationRequested)
                 {
                     try
                     {
-                        await Task.Delay(3000, _cts.Token);
-                        await CheckConnectionAsync(_cts.Token);
+                        Task.Delay(3000, capturedCts.Token).GetAwaiter().GetResult();
+                        CheckConnectionAsync(capturedCts.Token).GetAwaiter().GetResult();
                     }
                     catch (OperationCanceledException)
                     {
@@ -77,7 +80,9 @@ namespace LaserficheAIExtension.Services
                         _logger.Debug(ex, "Connection check error");
                     }
                 }
-            }, _cts.Token);
+            })
+            { IsBackground = true, Name = "ConnectionMonitor" };
+            thread.Start();
         }
 
         public void StopMonitoring()
@@ -100,9 +105,13 @@ namespace LaserficheAIExtension.Services
 
         private async Task CheckConnectionAsync(CancellationToken cancellationToken)
         {
+            // Capture local reference so Dispose() nulling _httpClient does not race.
+            var client = _httpClient;
+            if (client == null) return;
+
             try
             {
-                var response = await _httpClient.GetAsync(_serverUrl, cancellationToken);
+                var response = await client.GetAsync(_serverUrl, cancellationToken);
                 IsServerReachable = response.IsSuccessStatusCode;
             }
             catch

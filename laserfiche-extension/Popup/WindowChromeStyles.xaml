@@ -1,4 +1,0 @@
-<!-- DEPRECATED: styles inlined into AIPopupWindow.xaml to avoid missing resource dictionary errors.
-     Kept as a reference; safe to delete once the popup is fully verified. -->
-<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"/>

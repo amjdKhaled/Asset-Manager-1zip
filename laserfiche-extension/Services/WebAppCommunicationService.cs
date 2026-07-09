@@ -64,10 +64,13 @@ namespace LaserficheAIExtension.Services
             }
         }
 
-        private async void OnDomContentLoaded(object sender, CoreWebView2DOMContentLoadedEventArgs e)
+        private void OnDomContentLoaded(object sender, CoreWebView2DOMContentLoadedEventArgs e)
         {
-            try { await InjectBridgeScriptAsync(); }
-            catch (Exception ex) { _logger.Error(ex, "Failed to inject bridge script"); }
+            Task.Run(async () =>
+            {
+                try { await InjectBridgeScriptAsync(); }
+                catch (Exception ex) { _logger.Error(ex, "Failed to inject bridge script"); }
+            });
         }
 
         private void UnsubscribeEvents()
