@@ -31,32 +31,89 @@ const PALETTE = [
   "#A855F7", "#F43F5E", "#10B981", "#FBBF24", "#60A5FA",
 ];
 
-const tooltipStyle = {
+/**
+ * Returns clean integer Y-axis ticks for a given maximum value.
+ * Always produces whole-number intervals that look professional.
+ *
+ * Examples:
+ *   max=7   → [0,1,2,3,4,5,6,7]
+ *   max=23  → [0,5,10,15,20,25]
+ *   max=43  → [0,10,20,30,40,50]
+ *   max=260 → [0,50,100,150,200,250,300]
+ */
+function computeYTicks(maxValue: number): number[] {
+  if (!maxValue || maxValue <= 0) return [0, 1];
+
+  // For very small values, use step=1
+  if (maxValue <= 10) {
+    const ticks: number[] = [];
+    for (let i = 0; i <= maxValue; i++) ticks.push(i);
+    return ticks;
+  }
+
+  // Aim for ~5–6 ticks; find a "nice" step size
+  const rawStep = maxValue / 5;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const normalized = rawStep / magnitude;
+
+  let step: number;
+  if (normalized <= 1)       step = magnitude;
+  else if (normalized <= 2)  step = 2 * magnitude;
+  else if (normalized <= 5)  step = 5 * magnitude;
+  else if (normalized <= 7.5) step = 5 * magnitude;
+  else                        step = 10 * magnitude;
+
+  const ceiling = Math.ceil(maxValue / step) * step;
+  const ticks: number[] = [];
+  for (let t = 0; t <= ceiling; t += step) ticks.push(t);
+  return ticks;
+}
+
+/** Truncate a label for the X-axis; full name remains in bar tooltip. */
+function truncateLabel(name: string, maxLen: number): string {
+  return name.length > maxLen ? name.slice(0, maxLen - 1) + "…" : name;
+}
+
+const TOOLTIP_STYLE = {
   contentStyle: {
     background: "hsl(var(--popover))",
     border: "1px solid hsl(var(--border))",
     borderRadius: "8px",
     fontSize: "12px",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
   },
   itemStyle: { color: "hsl(var(--popover-foreground))" },
-  cursor: { fill: "hsl(var(--muted))" },
+  labelStyle: { color: "hsl(var(--muted-foreground))", fontWeight: 500 },
+  cursor: { fill: "hsl(var(--muted))", opacity: 0.6 },
 };
 
+// ─── Shared sub-components ──────────────────────────────────────────────────
+
 function StatCard({
-  icon: Icon, label, labelAr, value, colorClass = "bg-primary/15", iconClass = "text-primary", sub,
+  icon: Icon, label, labelAr, value,
+  colorClass = "bg-primary/15", iconClass = "text-primary", sub,
 }: {
   icon: any; label: string; labelAr: string; value: string | number;
   colorClass?: string; iconClass?: string; sub?: string;
 }) {
   return (
-    <div className="bg-card border border-border rounded-xl p-5 shadow-sm" data-testid={`stat-card-${label.replace(/\s+/g, "-").toLowerCase()}`}>
+    <div
+      className="bg-card border border-border rounded-xl p-5 shadow-sm"
+      data-testid={`stat-card-${label.replace(/\s+/g, "-").toLowerCase()}`}
+    >
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className={`w-11 h-11 rounded-lg ${colorClass} flex items-center justify-center flex-shrink-0`}>
           <Icon className={`w-5 h-5 ${iconClass}`} />
         </div>
-        {sub && <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{sub}</span>}
+        {sub && (
+          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+            {sub}
+          </span>
+        )}
       </div>
-      <p className="text-3xl font-bold text-foreground mb-1 tabular-nums">{typeof value === "number" ? value.toLocaleString() : value}</p>
+      <p className="text-3xl font-bold text-foreground mb-1 tabular-nums">
+        {typeof value === "number" ? value.toLocaleString() : value}
+      </p>
       <p className="text-sm text-muted-foreground leading-tight">{label}</p>
       <p className="text-xs text-muted-foreground/70 font-arabic mt-0.5" dir="rtl">{labelAr}</p>
     </div>
@@ -66,9 +123,9 @@ function StatCard({
 function SectionHeader({ title, sub }: { title: string; sub?: string }) {
   return (
     <div className="flex items-center gap-2 mb-4">
-      <div className="h-5 w-1 rounded-full bg-primary" />
+      <div className="h-5 w-1 rounded-full bg-primary flex-shrink-0" />
       <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-      {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
+      {sub && <span className="text-xs text-muted-foreground truncate">{sub}</span>}
     </div>
   );
 }
@@ -85,33 +142,86 @@ function ChartCard({ title, sub, children }: { title: string; sub?: string; chil
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
-      <AlertCircle className="w-8 h-8 opacity-40" />
+      <AlertCircle className="w-8 h-8 opacity-30" />
       <p className="text-sm">{message}</p>
     </div>
   );
 }
 
+// ─── Chart components ────────────────────────────────────────────────────────
+
 function RootFoldersChart({ data }: { data: DashboardStats["rootFolders"] | undefined }) {
   if (!data?.length) return <EmptyState message="No folder data available." />;
-  const chartData = data.map((f) => ({ name: f.name, documents: f.documents }));
+
+  const count = data.length;
+  const maxDocs = Math.max(...data.map((f) => f.documents), 0);
+  const yTicks = computeYTicks(maxDocs);
+  const yMax = yTicks[yTicks.length - 1];
+
+  // Scale chart height and label angle based on number of bars
+  const chartHeight = count <= 6 ? 220 : count <= 12 ? 260 : 300;
+  const labelAngle = count > 5 ? -35 : 0;
+  const textAnchor = count > 5 ? "end" : "middle";
+  const bottomMargin = count > 5 ? 64 : 28;
+  const maxBarSize = count <= 4 ? 56 : count <= 8 ? 44 : count <= 14 ? 32 : 20;
+  // Truncate label length based on number of bars
+  const maxLabelLen = count <= 4 ? 20 : count <= 8 ? 14 : 10;
+
+  const chartData = data.map((f) => ({
+    name: f.name,
+    label: truncateLabel(f.name, maxLabelLen),
+    documents: f.documents,
+  }));
+
   return (
-    <ResponsiveContainer width="100%" height={240}>
-      <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 40, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
+    <ResponsiveContainer width="100%" height={chartHeight}>
+      <BarChart
+        data={chartData}
+        margin={{ top: 8, right: 12, bottom: bottomMargin, left: 0 }}
+        barCategoryGap={count > 12 ? "15%" : "25%"}
+      >
+        <CartesianGrid
+          strokeDasharray="4 4"
+          stroke="hsl(var(--border))"
+          opacity={0.5}
+          vertical={false}
+        />
         <XAxis
-          dataKey="name"
+          dataKey="label"
           tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
           interval={0}
-          angle={-25}
-          textAnchor="end"
-          height={60}
+          angle={labelAngle}
+          textAnchor={textAnchor}
+          height={bottomMargin}
+          tickLine={false}
+          axisLine={{ stroke: "hsl(var(--border))" }}
         />
-        <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} width={40} />
+        <YAxis
+          ticks={yTicks}
+          domain={[0, yMax]}
+          allowDecimals={false}
+          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+          tickLine={false}
+          axisLine={false}
+          width={yMax >= 1000 ? 48 : 36}
+          tickFormatter={(v) => v.toLocaleString()}
+        />
         <Tooltip
-          {...tooltipStyle}
-          formatter={(v: any) => [v.toLocaleString(), "Documents"]}
+          {...TOOLTIP_STYLE}
+          formatter={(v: any) => [Number(v).toLocaleString(), "Documents"]}
+          labelFormatter={(label) => {
+            const match = chartData.find((d) => d.label === label);
+            return match?.name ?? label;
+          }}
         />
-        <Bar dataKey="documents" radius={[6, 6, 0, 0]} maxBarSize={52}>
+        <Bar
+          dataKey="documents"
+          radius={[5, 5, 0, 0]}
+          maxBarSize={maxBarSize}
+          isAnimationActive={true}
+          animationDuration={600}
+          animationEasing="ease-out"
+        >
           {chartData.map((_, i) => (
             <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
           ))}
@@ -123,6 +233,11 @@ function RootFoldersChart({ data }: { data: DashboardStats["rootFolders"] | unde
 
 function TemplatePieChart({ data }: { data: DashboardStats["templateStats"] | undefined }) {
   if (!data?.length) return <EmptyState message="No template information available." />;
+
+  const count = data.length;
+  const outerR = count > 8 ? 80 : 90;
+  const innerR = count > 8 ? 40 : 46;
+
   return (
     <ResponsiveContainer width="100%" height={280}>
       <PieChart>
@@ -132,29 +247,33 @@ function TemplatePieChart({ data }: { data: DashboardStats["templateStats"] | un
           nameKey="name"
           cx="50%"
           cy="45%"
-          outerRadius={90}
-          innerRadius={46}
-          paddingAngle={2}
-          label={({ name, percent }) =>
-            percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ""
+          outerRadius={outerR}
+          innerRadius={innerR}
+          paddingAngle={count > 10 ? 1 : 2}
+          label={({ percent }) =>
+            percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : ""
           }
           labelLine={false}
+          isAnimationActive={true}
+          animationDuration={700}
+          animationEasing="ease-out"
         >
           {data.map((_, i) => (
             <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
           ))}
         </Pie>
         <Tooltip
-          contentStyle={tooltipStyle.contentStyle}
-          itemStyle={tooltipStyle.itemStyle}
-          formatter={(v: any, name: string) => [v.toLocaleString(), name]}
+          contentStyle={TOOLTIP_STYLE.contentStyle}
+          itemStyle={TOOLTIP_STYLE.itemStyle}
+          formatter={(v: any, name: string) => [Number(v).toLocaleString(), name]}
         />
         <Legend
           iconType="circle"
           iconSize={8}
+          wrapperStyle={{ paddingTop: 8, fontSize: 11 }}
           formatter={(value) => (
-            <span style={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }}>
-              {value}
+            <span style={{ color: "hsl(var(--muted-foreground))" }}>
+              {truncateLabel(String(value), 22)}
             </span>
           )}
         />
@@ -165,25 +284,52 @@ function TemplatePieChart({ data }: { data: DashboardStats["templateStats"] | un
 
 function SearchActivityChart({ data }: { data: DashboardStats["searchesByDay"] | undefined }) {
   if (!data?.length) return <EmptyState message="No search activity recorded." />;
+
+  const maxCount = Math.max(...data.map((d) => d.count), 0);
+  const yTicks = computeYTicks(maxCount);
+  const yMax = yTicks[yTicks.length - 1];
   const formatted = data.map((d) => ({ ...d, date: d.date.slice(5) }));
+
   return (
     <ResponsiveContainer width="100%" height={180}>
-      <LineChart data={formatted} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
-        <XAxis dataKey="date" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-        <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} width={32} allowDecimals={false} />
+      <LineChart data={formatted} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
+        <CartesianGrid
+          strokeDasharray="4 4"
+          stroke="hsl(var(--border))"
+          opacity={0.5}
+          vertical={false}
+        />
+        <XAxis
+          dataKey="date"
+          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+          tickLine={false}
+          axisLine={{ stroke: "hsl(var(--border))" }}
+        />
+        <YAxis
+          ticks={yTicks}
+          domain={[0, yMax]}
+          allowDecimals={false}
+          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+          tickLine={false}
+          axisLine={false}
+          width={32}
+        />
         <Tooltip
-          contentStyle={tooltipStyle.contentStyle}
-          itemStyle={tooltipStyle.itemStyle}
+          contentStyle={TOOLTIP_STYLE.contentStyle}
+          itemStyle={TOOLTIP_STYLE.itemStyle}
+          labelStyle={TOOLTIP_STYLE.labelStyle}
           formatter={(v: any) => [v, "Searches"]}
         />
         <Line
           type="monotone"
           dataKey="count"
           stroke="#3B82F6"
-          strokeWidth={2}
-          dot={{ r: 3, fill: "#3B82F6" }}
-          activeDot={{ r: 5 }}
+          strokeWidth={2.5}
+          dot={{ r: 3.5, fill: "#3B82F6", strokeWidth: 0 }}
+          activeDot={{ r: 5, fill: "#3B82F6", strokeWidth: 2, stroke: "#fff" }}
+          isAnimationActive={true}
+          animationDuration={600}
+          animationEasing="ease-out"
         />
       </LineChart>
     </ResponsiveContainer>
@@ -210,10 +356,13 @@ function TemplateTable({ data }: { data: DashboardStats["templateStats"] | undef
           {data.map((t, i) => {
             const pct = total > 0 ? Math.round((t.count / total) * 100) : 0;
             return (
-              <tr key={t.name} className="border-t border-border hover:bg-muted/30 transition-colors">
+              <tr
+                key={t.name}
+                className="border-t border-border hover:bg-muted/30 transition-colors"
+              >
                 <td className="px-3 py-2.5">
                   <span
-                    className="inline-block w-2.5 h-2.5 rounded-full"
+                    className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
                     style={{ background: PALETTE[i % PALETTE.length] }}
                   />
                 </td>
@@ -231,8 +380,12 @@ function TemplateTable({ data }: { data: DashboardStats["templateStats"] | undef
   );
 }
 
+// ─── Page ────────────────────────────────────────────────────────────────────
+
 export default function DashboardPage() {
-  const { data: stats, isLoading, isError, error, refetch, isFetching } = useQuery<DashboardStats>({
+  const {
+    data: stats, isLoading, isError, error, refetch, isFetching,
+  } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
     staleTime: 2 * 60 * 1000,
   });
@@ -242,7 +395,9 @@ export default function DashboardPage() {
       <div className="h-full overflow-auto px-6 py-5 space-y-4">
         <Skeleton className="h-9 w-64 rounded-lg" />
         <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
-          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-28 rounded-xl" />
+          ))}
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <Skeleton className="h-72 rounded-xl" />
@@ -261,7 +416,8 @@ export default function DashboardPage() {
           <h2 className="text-base font-semibold text-foreground mb-1">Dashboard unavailable</h2>
           <p className="text-sm text-muted-foreground mb-4">{message}</p>
           <Button onClick={() => refetch()} disabled={isFetching} data-testid="button-retry">
-            <RefreshCw className="w-4 h-4 mr-2" /> {isFetching ? "Retrying..." : "Retry"}
+            <RefreshCw className="w-4 h-4 mr-2" />
+            {isFetching ? "Retrying..." : "Retry"}
           </Button>
         </div>
       </div>
@@ -274,20 +430,28 @@ export default function DashboardPage() {
         <div className="max-w-7xl space-y-5">
 
           {/* Header */}
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
               <h1 className="text-xl font-semibold text-foreground">Analytics Dashboard</h1>
-              <p className="text-sm text-muted-foreground mt-0.5 font-arabic" dir="rtl">لوحة التحليلات</p>
+              <p className="text-sm text-muted-foreground mt-0.5 font-arabic" dir="rtl">
+                لوحة التحليلات
+              </p>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               {stats.isLive && stats.repositoryId && (
-                <div className="flex items-center gap-1.5 text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-full" data-testid="badge-repository">
+                <div
+                  className="flex items-center gap-1.5 text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-full"
+                  data-testid="badge-repository"
+                >
                   <Database className="w-3 h-3" />
                   <span className="font-medium">{stats.repositoryId}</span>
                 </div>
               )}
               {!stats.isLive && (
-                <div className="flex items-center gap-1.5 text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-full" data-testid="badge-offline">
+                <div
+                  className="flex items-center gap-1.5 text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-full"
+                  data-testid="badge-offline"
+                >
                   <AlertCircle className="w-3 h-3" />
                   <span>Not connected to Laserfiche</span>
                 </div>
@@ -311,7 +475,7 @@ export default function DashboardPage() {
               icon={FolderOpen}
               label="Total Folders"
               labelAr="إجمالي المجلدات"
-              value={stats.totalFolders}
+              value={stats.totalFolders ?? 0}
               colorClass="bg-blue-500/15"
               iconClass="text-blue-500"
             />
@@ -319,7 +483,7 @@ export default function DashboardPage() {
               icon={FileText}
               label="Total Documents"
               labelAr="إجمالي الوثائق"
-              value={stats.totalDocuments}
+              value={stats.totalDocuments ?? 0}
               colorClass="bg-teal-500/15"
               iconClass="text-teal-500"
             />
@@ -327,7 +491,7 @@ export default function DashboardPage() {
               icon={Layers}
               label="Total Templates"
               labelAr="إجمالي القوالب"
-              value={stats.totalTemplates}
+              value={stats.totalTemplates ?? 0}
               colorClass="bg-violet-500/15"
               iconClass="text-violet-500"
             />
@@ -335,7 +499,7 @@ export default function DashboardPage() {
               icon={CheckCircle2}
               label="Docs with Template"
               labelAr="وثائق بها قالب"
-              value={stats.docsWithTemplate}
+              value={stats.docsWithTemplate ?? 0}
               colorClass="bg-emerald-500/15"
               iconClass="text-emerald-500"
             />
@@ -343,7 +507,7 @@ export default function DashboardPage() {
               icon={AlertCircle}
               label="Docs without Template"
               labelAr="وثائق بدون قالب"
-              value={stats.docsWithoutTemplate}
+              value={stats.docsWithoutTemplate ?? 0}
               colorClass="bg-orange-500/15"
               iconClass="text-orange-500"
             />
@@ -369,9 +533,11 @@ export default function DashboardPage() {
           {/* Template Detail Table */}
           <ChartCard
             title="Template Statistics"
-            sub={(stats.templateStats?.length ?? 0) > 0
-              ? `${stats.templateStats.length} template${stats.templateStats.length !== 1 ? "s" : ""} discovered automatically`
-              : "No templates found"}
+            sub={
+              (stats.templateStats?.length ?? 0) > 0
+                ? `${stats.templateStats.length} template${stats.templateStats.length !== 1 ? "s" : ""} discovered automatically`
+                : "No templates found"
+            }
           >
             <TemplateTable data={stats.templateStats ?? []} />
           </ChartCard>
@@ -386,7 +552,9 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-4 mb-3">
                   <div className="flex items-center gap-1.5">
                     <TrendingUp className="w-4 h-4 text-blue-500" />
-                    <span className="text-2xl font-bold text-foreground tabular-nums">{(stats.totalSearches ?? 0).toLocaleString()}</span>
+                    <span className="text-2xl font-bold text-foreground tabular-nums">
+                      {(stats.totalSearches ?? 0).toLocaleString()}
+                    </span>
                   </div>
                   <span className="text-sm text-muted-foreground">total queries logged</span>
                 </div>
@@ -394,18 +562,15 @@ export default function DashboardPage() {
               </ChartCard>
             </div>
 
-            <ChartCard
-              title="Top Searches"
-              sub="Most frequent queries"
-            >
-              {stats.topSearches.length === 0 ? (
+            <ChartCard title="Top Searches" sub="Most frequent queries">
+              {!(stats.topSearches?.length) ? (
                 <EmptyState message="No search history yet." />
               ) : (
-                <div className="space-y-2" data-testid="top-searches-list">
+                <div className="space-y-1" data-testid="top-searches-list">
                   {stats.topSearches.map((s, i) => (
                     <div
                       key={s.query}
-                      className="flex items-center gap-2.5 py-1.5"
+                      className="flex items-center gap-2.5 py-1.5 px-1 rounded-lg hover:bg-muted/40 transition-colors"
                       data-testid={`top-search-${i}`}
                     >
                       <Search className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />

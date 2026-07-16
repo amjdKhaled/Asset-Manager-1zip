@@ -1,0 +1,181 @@
+Prompt 2 – Fix Dashboard Startup, Authentication, and Runtime Stability
+
+You are a senior .NET, WPF, Electron, Node.js, and Laserfiche SDK engineer.
+
+Do NOT modify the Dashboard features themselves.
+
+Only fix the runtime, startup, authentication, and initialization problems.
+
+Problem 1 — Dashboard only works after launching from Visual Studio
+
+Currently the Dashboard only works after running the project from Visual Studio.
+
+This is unacceptable.
+
+The application must work when launched directly from the Laserfiche toolbar button.
+
+Requirements:
+
+No dependency on Visual Studio.
+No dependency on debugging mode.
+No dependency on localhost already running manually.
+The web application must start automatically when the Laserfiche extension starts.
+The extension must detect whether the backend is already running.
+If it is already running:
+Reuse the existing process.
+If it is not running:
+Start it automatically.
+Wait until the backend is healthy before loading the WebView.
+Never open a blank window.
+Never freeze Laserfiche while waiting.
+Problem 2 — Different users cannot use the dashboard
+
+The Dashboard currently works correctly only with the Administrator account.
+
+When another Laserfiche user logs in:
+
+Dashboard fails
+Statistics disappear
+API errors occur
+Sometimes pages become blank
+
+This must be fixed.
+
+Requirements:
+
+Use the currently authenticated Laserfiche session.
+
+Never assume:
+
+admin
+Administrator
+fixed username
+fixed password
+
+Never create a second login.
+
+Reuse the active Laserfiche session whenever possible.
+
+If repository permissions are limited:
+
+Show only accessible information.
+
+Never fail.
+
+Never crash.
+
+Never require administrator permissions.
+
+Problem 3 — Authentication
+
+Remove every hidden dependency on stored administrator credentials.
+
+Authentication must be dynamic.
+
+The application must always work using the currently logged-in Laserfiche user.
+
+If authentication expires:
+
+Reconnect gracefully.
+
+Never crash.
+
+Problem 4 — Startup sequence
+
+Redesign the startup flow.
+
+Desired flow:
+
+Laserfiche starts
+
+↓
+
+User clicks AI button
+
+↓
+
+Extension starts
+
+↓
+
+Backend health check
+
+↓
+
+Start backend if needed
+
+↓
+
+Wait until backend is ready
+
+↓
+
+Open WebView
+
+↓
+
+Dashboard loads
+
+↓
+
+Repository data loads
+
+Everything must happen automatically.
+
+No manual steps.
+
+Problem 5 — Robust backend management
+
+Implement proper backend lifecycle management.
+
+Requirements:
+
+Detect running backend.
+Detect crashed backend.
+Restart automatically.
+Prevent duplicate backend processes.
+Dispose processes correctly.
+Log startup failures.
+Problem 6 — Error Handling
+
+Never show:
+
+blank pages
+HTTP 500
+connection refused
+timeout
+authentication popup
+unhandled exception
+
+Instead show friendly messages.
+
+Problem 7 — Logging
+
+Create detailed logs for:
+
+startup
+backend launch
+backend health
+authentication
+repository connection
+dashboard initialization
+
+Include timestamps.
+
+Problem 8 — Performance
+
+Startup must be fast.
+
+Avoid:
+
+blocking UI thread
+Thread.Sleep
+synchronous waits
+infinite retry loops
+
+Use:
+
+async/await
+cancellation tokens
+health polling
+timeout handling
