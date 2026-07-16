@@ -1,5 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import html2canvas from "html2canvas";
+import * as XLSX from "xlsx";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
   PieChart, Pie, Legend, LineChart, Line,
@@ -435,10 +439,6 @@ function TemplateTable({ data }: { data: DashboardStats["templateStats"] | undef
 // ─── Export functions ────────────────────────────────────────────────────────
 
 async function exportToPdf(stats: DashboardStats) {
-  const { jsPDF } = await import("jspdf");
-  const autoTable = (await import("jspdf-autotable")).default;
-  const html2canvas = (await import("html2canvas")).default;
-
   const doc = new jsPDF("p", "mm", "a4");
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
@@ -670,8 +670,6 @@ async function exportToPdf(stats: DashboardStats) {
 }
 
 async function exportToExcel(stats: DashboardStats) {
-  const XLSX = await import("xlsx");
-
   const wb = XLSX.utils.book_new();
 
   // ── Sheet 1: KPI Summary ─────────────────────────────────────────────────
