@@ -43,6 +43,12 @@ import { executeSmartSearch } from "./smart-search";
 const requestSignal = (req: unknown): AbortSignal | undefined =>
   (req as { signal?: AbortSignal })?.signal;
 
+// Active repository override — set by the WPF Desktop Client extension via
+// POST /api/session/active-repository when the user switches repositories.
+// This allows the dashboard to follow the currently opened LF repository
+// without requiring the user to update the Settings page.
+let activeRepositoryOverride: string | null = null;
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.get("/api/documents", async (req, res) => {
     try {
@@ -179,27 +185,43 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/dashboard/stats", async (req, res) => {
     try {
-      const lfConfig = getLaserficheConfig();
+      const savedConfig = getLaserficheConfig();
 
-      // ── Audit log stats (always available, regardless of LF connection) ──
-      const buildAuditStats = async () => {
-        const logs = await storage.getAuditLogs(500);
+      // ── Resolve the active repository ─────────────────────────────────────
+      // Priority: 1) ?repoId= query param  2) session override (set by WPF
+      // extension via POST /api/session/active-repository)  3) saved config.
+      const repoIdOverride = (req.query.repoId as string | undefined)?.trim()
+        || activeRepositoryOverride
+        || null;
+
+      const lfConfig = savedConfig
+        ? repoIdOverride
+          ? { ...savedConfig, repositoryId: repoIdOverride }
+          : savedConfig
+        : null;
+
+      // ── GovSearch audit log stats (real data from this app's search log) ──
+      // Source: every search performed through the GovSearch web interface is
+      // recorded in an in-process audit log. This reflects real GovSearch
+      // activity, NOT Laserfiche server analytics.
+      const buildGovSearchAuditStats = async () => {
+        const logs = await storage.getAuditLogs(1000);
         const today = new Date();
-        const searchesByDayMap: Record<string, number> = {};
+        const byDayMap: Record<string, number> = {};
         for (let i = 6; i >= 0; i--) {
           const d = new Date(today);
           d.setDate(today.getDate() - i);
-          searchesByDayMap[d.toISOString().slice(0, 10)] = 0;
+          byDayMap[d.toISOString().slice(0, 10)] = 0;
         }
         for (const log of logs) {
           const day = new Date(log.searchedAt as any).toISOString().slice(0, 10);
-          if (day in searchesByDayMap) searchesByDayMap[day] += 1;
+          if (day in byDayMap) byDayMap[day] += 1;
         }
         const topMap: Record<string, number> = {};
         for (const l of logs) topMap[l.query] = (topMap[l.query] || 0) + 1;
         return {
           totalSearches: logs.length,
-          searchesByDay: Object.entries(searchesByDayMap).map(([date, count]) => ({ date, count })),
+          searchesByDay: Object.entries(byDayMap).map(([date, count]) => ({ date, count })),
           topSearches: Object.entries(topMap)
             .map(([query, count]) => ({ query, count }))
             .sort((a, b) => b.count - a.count)
@@ -211,33 +233,65 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         try {
           const token = await getLaserficheToken(lfConfig);
 
-          // ── Helper: count docs + folders recursively from a folder ──
+          // ── Recursive folder scanner ──────────────────────────────────────
+          // Collects document counts, folder counts, AND template assignments
+          // in a single pass. templateName is part of the standard folder
+          // children response in both LF REST API v1 (TemplateName) and v2
+          // (templateName), so no extra API calls are required.
+          type ScanResult = {
+            documents: number;
+            folders: number;
+            templateCounts: Record<string, number>;
+          };
+
           const scanFolder = async (
             folderId: number,
             visited: Set<number>
-          ): Promise<{ documents: number; folders: number }> => {
-            if (visited.has(folderId)) return { documents: 0, folders: 0 };
+          ): Promise<ScanResult> => {
+            if (visited.has(folderId)) return { documents: 0, folders: 0, templateCounts: {} };
             visited.add(folderId);
             let children: any[];
             try {
               children = await laserficheGetFolderChildren(lfConfig, token, folderId);
             } catch {
-              return { documents: 0, folders: 0 };
+              return { documents: 0, folders: 0, templateCounts: {} };
             }
-            const docs = children.filter(
+
+            const docEntries = children.filter(
               (e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document")
-            ).length;
-            const subfolders = children.filter((e: any) => e.entryType?.toLowerCase().includes("folder"));
+            );
+            const subfolders = children.filter(
+              (e: any) => e.entryType?.toLowerCase().includes("folder")
+            );
+
+            // Read templateName from this level's documents.
+            // v1 API uses PascalCase (TemplateName), v2 uses camelCase (templateName).
+            const localTmpl: Record<string, number> = {};
+            for (const doc of docEntries) {
+              const name = ((doc.templateName || doc.TemplateName || "") as string).trim();
+              if (name) localTmpl[name] = (localTmpl[name] || 0) + 1;
+            }
+
             const nested = await Promise.all(
               subfolders.map((f: any) => scanFolder(Number(f.id), visited))
             );
+
+            // Merge template counts from all sub-scans
+            const mergedTmpl: Record<string, number> = { ...localTmpl };
+            for (const n of nested) {
+              for (const [tmpl, cnt] of Object.entries(n.templateCounts)) {
+                mergedTmpl[tmpl] = (mergedTmpl[tmpl] || 0) + cnt;
+              }
+            }
+
             return {
-              documents: docs + nested.reduce((s, n) => s + n.documents, 0),
+              documents: docEntries.length + nested.reduce((s, n) => s + n.documents, 0),
               folders: subfolders.length + nested.reduce((s, n) => s + n.folders, 0),
+              templateCounts: mergedTmpl,
             };
           };
 
-          // ── Step 1 (parallel): get root children + template definitions ──
+          // ── Step 1 (parallel): root children + template definitions ───────
           const [rootChildren, templateDefs] = await Promise.all([
             laserficheGetFolderChildren(lfConfig, token, 1).catch(() => [] as any[]),
             laserficheGetTemplateDefinitions(lfConfig, token).catch(() => []),
@@ -246,41 +300,57 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           const rootFolderEntries = rootChildren.filter(
             (c: any) => c.entryType?.toLowerCase().includes("folder")
           );
-          const rootDocsDirect = rootChildren.filter(
+          const rootDocEntries = rootChildren.filter(
             (c: any) => c.isElectronicDocument || c.entryType?.toLowerCase().includes("document")
-          ).length;
+          );
 
-          // ── Step 2 (parallel): count docs + folders inside each root folder ──
-          const rootFolderCounts = await Promise.all(
+          // ── Step 2 (parallel): scan every root-level folder ───────────────
+          const rootFolderResults = await Promise.all(
             rootFolderEntries.map((f: any) =>
               scanFolder(Number(f.id), new Set<number>()).then((r) => ({
                 name: String(f.name || `Folder ${f.id}`),
                 documents: r.documents,
                 folders: r.folders,
+                templateCounts: r.templateCounts,
               }))
             )
           );
 
-          const totalDocuments = rootDocsDirect + rootFolderCounts.reduce((s, f) => s + f.documents, 0);
-          const totalFolders = rootFolderEntries.length + rootFolderCounts.reduce((s, f) => s + f.folders, 0);
+          // ── Step 3: aggregate totals ───────────────────────────────────────
+          const totalDocuments =
+            rootDocEntries.length +
+            rootFolderResults.reduce((s, f) => s + f.documents, 0);
+          const totalFolders =
+            rootFolderEntries.length +
+            rootFolderResults.reduce((s, f) => s + f.folders, 0);
 
-          // ── Step 3 (parallel): count documents per template ──
-          const templateCounts = await Promise.all(
-            templateDefs.map((tmpl) =>
-              laserficheCountByTemplate(lfConfig, token, tmpl.name)
-                .then((count) => ({ name: tmpl.name, count }))
-                .catch(() => ({ name: tmpl.name, count: 0 }))
-            )
-          );
-          const templateStats = templateCounts
-            .filter((t) => t.count > 0)
+          // Collect templateName from root-level documents
+          const globalTmpl: Record<string, number> = {};
+          for (const doc of rootDocEntries) {
+            const name = ((doc.templateName || doc.TemplateName || "") as string).trim();
+            if (name) globalTmpl[name] = (globalTmpl[name] || 0) + 1;
+          }
+          for (const f of rootFolderResults) {
+            for (const [tmpl, cnt] of Object.entries(f.templateCounts)) {
+              globalTmpl[tmpl] = (globalTmpl[tmpl] || 0) + cnt;
+            }
+          }
+
+          const templateStats = Object.entries(globalTmpl)
+            .map(([name, count]) => ({ name, count }))
             .sort((a, b) => b.count - a.count);
 
           const docsWithTemplate = templateStats.reduce((s, t) => s + t.count, 0);
           const docsWithoutTemplate = Math.max(0, totalDocuments - docsWithTemplate);
 
-          // ── Step 4: audit log stats ──
-          const auditStats = await buildAuditStats();
+          const rootFolderCounts = rootFolderResults.map(({ name, documents, folders }) => ({
+            name,
+            documents,
+            folders,
+          }));
+
+          // ── Step 4: GovSearch audit log stats ─────────────────────────────
+          const auditStats = await buildGovSearchAuditStats();
 
           return res.json({
             repositoryId: lfConfig.repositoryId,
@@ -299,28 +369,52 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // ── Fallback: no LF connection or LF unavailable ──
-      const auditStats = await buildAuditStats();
-      const memStats = await storage.getDashboardStats();
+      // ── Fallback: Laserfiche not configured or unreachable ────────────────
+      // Show only real GovSearch data; do not return demo/in-memory document
+      // statistics as repository analytics.
+      const auditStats = await buildGovSearchAuditStats();
       return res.json({
         repositoryId: null,
         isLive: false,
         totalFolders: 0,
-        totalDocuments: memStats.totalDocuments,
+        totalDocuments: 0,
         totalTemplates: 0,
         docsWithTemplate: 0,
-        docsWithoutTemplate: memStats.totalDocuments,
+        docsWithoutTemplate: 0,
         templateStats: [],
-        rootFolders: Object.entries(memStats.docsByDepartment).map(([name, documents]) => ({
-          name,
-          documents,
-          folders: 0,
-        })),
+        rootFolders: [],
         ...auditStats,
       });
     } catch {
       res.status(500).json({ error: "Failed to fetch dashboard stats" });
     }
+  });
+
+  // ── Session: active repository override ───────────────────────────────────
+  // The WPF Desktop Client extension calls this endpoint whenever the user
+  // switches repositories, so the dashboard always reflects the currently
+  // opened repository without requiring a Settings change.
+  //
+  // Expected payload: { "repositoryId": "TestEmployee" }
+  // To clear the override (revert to saved config): { "repositoryId": "" }
+  app.post("/api/session/active-repository", (req, res) => {
+    const id = (req.body?.repositoryId as string | undefined)?.trim() || null;
+    activeRepositoryOverride = id || null;
+    console.log(
+      id
+        ? `[session] Active repository set to: ${id}`
+        : "[session] Active repository override cleared"
+    );
+    res.json({ ok: true, activeRepositoryId: activeRepositoryOverride });
+  });
+
+  app.get("/api/session/active-repository", (_req, res) => {
+    res.json({
+      activeRepositoryId: activeRepositoryOverride,
+      savedRepositoryId: getLaserficheConfig()?.repositoryId ?? null,
+      effectiveRepositoryId:
+        activeRepositoryOverride ?? getLaserficheConfig()?.repositoryId ?? null,
+    });
   });
 
   app.get("/api/laserfiche/config", async (req, res) => {

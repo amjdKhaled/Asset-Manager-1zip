@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
   RefreshCw, FileText, FolderOpen, Layers, CheckCircle2, AlertCircle,
-  Database, TrendingUp, Search,
+  Database, TrendingUp, Search, Info,
 } from "lucide-react";
 
 type DashboardStats = {
@@ -30,46 +30,59 @@ const PALETTE = [
   "#22C55E", "#F97316", "#06B6D4", "#EC4899", "#84CC16",
   "#A855F7", "#F43F5E", "#10B981", "#FBBF24", "#60A5FA",
 ];
+const OTHERS_COLOR = "#94A3B8";
+const TOP_N = 15;
 
 /**
- * Returns clean integer Y-axis ticks for a given maximum value.
- * Always produces whole-number intervals that look professional.
+ * Aggregate a folder list into the Top N by document count plus an "Others"
+ * bar that sums all remaining folders. Returns the original list unchanged
+ * if it has N or fewer entries.
+ */
+function aggregateTopN(
+  data: DashboardStats["rootFolders"],
+  n = TOP_N
+): Array<{ name: string; documents: number; folders: number; isOthers?: boolean }> {
+  if (data.length <= n) return data;
+  const sorted = [...data].sort((a, b) => b.documents - a.documents);
+  const top = sorted.slice(0, n);
+  const rest = sorted.slice(n);
+  const othersDocuments = rest.reduce((s, f) => s + f.documents, 0);
+  const othersFolders = rest.reduce((s, f) => s + f.folders, 0);
+  return [
+    ...top,
+    { name: `Others (${rest.length})`, documents: othersDocuments, folders: othersFolders, isOthers: true },
+  ];
+}
+
+/**
+ * Compute clean integer Y-axis ticks for a given maximum value.
  *
- * Examples:
- *   max=7   → [0,1,2,3,4,5,6,7]
- *   max=23  → [0,5,10,15,20,25]
- *   max=43  → [0,10,20,30,40,50]
- *   max=260 → [0,50,100,150,200,250,300]
+ * Max=7   → [0,1,2,3,4,5,6,7]
+ * Max=23  → [0,5,10,15,20,25]
+ * Max=43  → [0,10,20,30,40,50]
+ * Max=260 → [0,50,100,150,200,250,300]
  */
 function computeYTicks(maxValue: number): number[] {
   if (!maxValue || maxValue <= 0) return [0, 1];
-
-  // For very small values, use step=1
   if (maxValue <= 10) {
     const ticks: number[] = [];
     for (let i = 0; i <= maxValue; i++) ticks.push(i);
     return ticks;
   }
-
-  // Aim for ~5–6 ticks; find a "nice" step size
   const rawStep = maxValue / 5;
   const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
   const normalized = rawStep / magnitude;
-
   let step: number;
-  if (normalized <= 1)       step = magnitude;
-  else if (normalized <= 2)  step = 2 * magnitude;
-  else if (normalized <= 5)  step = 5 * magnitude;
+  if (normalized <= 1)        step = magnitude;
+  else if (normalized <= 2)   step = 2 * magnitude;
   else if (normalized <= 7.5) step = 5 * magnitude;
-  else                        step = 10 * magnitude;
-
+  else                         step = 10 * magnitude;
   const ceiling = Math.ceil(maxValue / step) * step;
   const ticks: number[] = [];
   for (let t = 0; t <= ceiling; t += step) ticks.push(t);
   return ticks;
 }
 
-/** Truncate a label for the X-axis; full name remains in bar tooltip. */
 function truncateLabel(name: string, maxLen: number): string {
   return name.length > maxLen ? name.slice(0, maxLen - 1) + "…" : name;
 }
@@ -130,10 +143,19 @@ function SectionHeader({ title, sub }: { title: string; sub?: string }) {
   );
 }
 
-function ChartCard({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
+function ChartCard({ title, sub, badge, children }: {
+  title: string; sub?: string; badge?: React.ReactNode; children: React.ReactNode;
+}) {
   return (
     <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
-      <SectionHeader title={title} sub={sub} />
+      <div className="flex items-start justify-between gap-2 mb-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="h-5 w-1 rounded-full bg-primary flex-shrink-0" />
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          {sub && <span className="text-xs text-muted-foreground truncate">{sub}</span>}
+        </div>
+        {badge}
+      </div>
       {children}
     </div>
   );
@@ -150,84 +172,97 @@ function EmptyState({ message }: { message: string }) {
 
 // ─── Chart components ────────────────────────────────────────────────────────
 
+type AggFolder = { name: string; documents: number; folders: number; isOthers?: boolean };
+
 function RootFoldersChart({ data }: { data: DashboardStats["rootFolders"] | undefined }) {
   if (!data?.length) return <EmptyState message="No folder data available." />;
 
-  const count = data.length;
-  const maxDocs = Math.max(...data.map((f) => f.documents), 0);
+  const aggregated: AggFolder[] = aggregateTopN(data);
+  const wasAggregated = aggregated.length < data.length + (aggregated.some((f) => f.isOthers) ? 0 : 1);
+  const count = aggregated.length;
+  const maxDocs = Math.max(...aggregated.map((f) => f.documents), 0);
   const yTicks = computeYTicks(maxDocs);
   const yMax = yTicks[yTicks.length - 1];
 
-  // Scale chart height and label angle based on number of bars
   const chartHeight = count <= 6 ? 220 : count <= 12 ? 260 : 300;
   const labelAngle = count > 5 ? -35 : 0;
   const textAnchor = count > 5 ? "end" : "middle";
   const bottomMargin = count > 5 ? 64 : 28;
   const maxBarSize = count <= 4 ? 56 : count <= 8 ? 44 : count <= 14 ? 32 : 20;
-  // Truncate label length based on number of bars
   const maxLabelLen = count <= 4 ? 20 : count <= 8 ? 14 : 10;
 
-  const chartData = data.map((f) => ({
+  const chartData = aggregated.map((f) => ({
     name: f.name,
     label: truncateLabel(f.name, maxLabelLen),
     documents: f.documents,
+    isOthers: !!f.isOthers,
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={chartHeight}>
-      <BarChart
-        data={chartData}
-        margin={{ top: 8, right: 12, bottom: bottomMargin, left: 0 }}
-        barCategoryGap={count > 12 ? "15%" : "25%"}
-      >
-        <CartesianGrid
-          strokeDasharray="4 4"
-          stroke="hsl(var(--border))"
-          opacity={0.5}
-          vertical={false}
-        />
-        <XAxis
-          dataKey="label"
-          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-          interval={0}
-          angle={labelAngle}
-          textAnchor={textAnchor}
-          height={bottomMargin}
-          tickLine={false}
-          axisLine={{ stroke: "hsl(var(--border))" }}
-        />
-        <YAxis
-          ticks={yTicks}
-          domain={[0, yMax]}
-          allowDecimals={false}
-          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-          tickLine={false}
-          axisLine={false}
-          width={yMax >= 1000 ? 48 : 36}
-          tickFormatter={(v) => v.toLocaleString()}
-        />
-        <Tooltip
-          {...TOOLTIP_STYLE}
-          formatter={(v: any) => [Number(v).toLocaleString(), "Documents"]}
-          labelFormatter={(label) => {
-            const match = chartData.find((d) => d.label === label);
-            return match?.name ?? label;
-          }}
-        />
-        <Bar
-          dataKey="documents"
-          radius={[5, 5, 0, 0]}
-          maxBarSize={maxBarSize}
-          isAnimationActive={true}
-          animationDuration={600}
-          animationEasing="ease-out"
+    <>
+      {wasAggregated && (
+        <p className="text-xs text-muted-foreground mb-2">
+          Showing top {TOP_N} folders · remaining folders combined as "Others"
+        </p>
+      )}
+      <ResponsiveContainer width="100%" height={chartHeight}>
+        <BarChart
+          data={chartData}
+          margin={{ top: 8, right: 12, bottom: bottomMargin, left: 0 }}
+          barCategoryGap={count > 12 ? "15%" : "25%"}
         >
-          {chartData.map((_, i) => (
-            <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
-          ))}
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+          <CartesianGrid
+            strokeDasharray="4 4"
+            stroke="hsl(var(--border))"
+            opacity={0.5}
+            vertical={false}
+          />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+            interval={0}
+            angle={labelAngle}
+            textAnchor={textAnchor}
+            height={bottomMargin}
+            tickLine={false}
+            axisLine={{ stroke: "hsl(var(--border))" }}
+          />
+          <YAxis
+            ticks={yTicks}
+            domain={[0, yMax]}
+            allowDecimals={false}
+            tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+            tickLine={false}
+            axisLine={false}
+            width={yMax >= 1000 ? 48 : 36}
+            tickFormatter={(v) => v.toLocaleString()}
+          />
+          <Tooltip
+            {...TOOLTIP_STYLE}
+            formatter={(v: any) => [Number(v).toLocaleString(), "Documents"]}
+            labelFormatter={(label) => {
+              const match = chartData.find((d) => d.label === label);
+              return match?.name ?? label;
+            }}
+          />
+          <Bar
+            dataKey="documents"
+            radius={[5, 5, 0, 0]}
+            maxBarSize={maxBarSize}
+            isAnimationActive={true}
+            animationDuration={600}
+            animationEasing="ease-out"
+          >
+            {chartData.map((entry, i) => (
+              <Cell
+                key={i}
+                fill={entry.isOthers ? OTHERS_COLOR : PALETTE[i % PALETTE.length]}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </>
   );
 }
 
@@ -362,7 +397,7 @@ function TemplateTable({ data }: { data: DashboardStats["templateStats"] | undef
               >
                 <td className="px-3 py-2.5">
                   <span
-                    className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    className="inline-block w-2.5 h-2.5 rounded-full"
                     style={{ background: PALETTE[i % PALETTE.length] }}
                   />
                 </td>
@@ -383,10 +418,18 @@ function TemplateTable({ data }: { data: DashboardStats["templateStats"] | undef
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  // Read optional ?repoId= from the URL. The WPF Desktop Client extension
+  // injects this parameter when opening the popup so the dashboard
+  // automatically uses the currently active repository.
+  const urlRepoId = new URLSearchParams(window.location.search).get("repoId") || undefined;
+
   const {
     data: stats, isLoading, isError, error, refetch, isFetching,
   } = useQuery<DashboardStats>({
-    queryKey: ["/api/dashboard/stats"],
+    queryKey: ["/api/dashboard/stats", urlRepoId ?? ""],
+    queryFn: () =>
+      fetch(`/api/dashboard/stats${urlRepoId ? `?repoId=${encodeURIComponent(urlRepoId)}` : ""}`)
+        .then((r) => r.json()),
     staleTime: 2 * 60 * 1000,
   });
 
@@ -437,7 +480,7 @@ export default function DashboardPage() {
                 لوحة التحليلات
               </p>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
               {stats.isLive && stats.repositoryId && (
                 <div
                   className="flex items-center gap-1.5 text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-full"
@@ -445,6 +488,12 @@ export default function DashboardPage() {
                 >
                   <Database className="w-3 h-3" />
                   <span className="font-medium">{stats.repositoryId}</span>
+                </div>
+              )}
+              {urlRepoId && urlRepoId !== stats.repositoryId && (
+                <div className="flex items-center gap-1.5 text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-2.5 py-1 rounded-full">
+                  <Database className="w-3 h-3" />
+                  <span>Active: {urlRepoId}</span>
                 </div>
               )}
               {!stats.isLive && (
@@ -468,6 +517,17 @@ export default function DashboardPage() {
               </Button>
             </div>
           </div>
+
+          {/* Not connected notice */}
+          {!stats.isLive && (
+            <div className="flex items-start gap-3 bg-amber-500/8 border border-amber-500/20 rounded-xl px-4 py-3">
+              <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                Dashboard is not connected to Laserfiche. Repository statistics are unavailable.
+                Configure the connection in <strong>LF Settings</strong> to see live data.
+              </p>
+            </div>
+          )}
 
           {/* KPI Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4">
@@ -514,40 +574,50 @@ export default function DashboardPage() {
           </div>
 
           {/* Charts Row: Root Folders + Template Distribution */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            <ChartCard
-              title="Documents by Folder"
-              sub="Root-level folders · live from repository"
-            >
-              <RootFoldersChart data={stats.rootFolders ?? []} />
-            </ChartCard>
+          {stats.isLive && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+              <ChartCard
+                title="Documents by Folder"
+                sub={`Root-level folders · live from ${stats.repositoryId}`}
+              >
+                <RootFoldersChart data={stats.rootFolders ?? []} />
+              </ChartCard>
 
-            <ChartCard
-              title="Template Distribution"
-              sub="Auto-discovered · each template different color"
-            >
-              <TemplatePieChart data={stats.templateStats ?? []} />
-            </ChartCard>
-          </div>
+              <ChartCard
+                title="Template Distribution"
+                sub="Auto-discovered · each template different color"
+              >
+                <TemplatePieChart data={stats.templateStats ?? []} />
+              </ChartCard>
+            </div>
+          )}
 
           {/* Template Detail Table */}
-          <ChartCard
-            title="Template Statistics"
-            sub={
-              (stats.templateStats?.length ?? 0) > 0
-                ? `${stats.templateStats.length} template${stats.templateStats.length !== 1 ? "s" : ""} discovered automatically`
-                : "No templates found"
-            }
-          >
-            <TemplateTable data={stats.templateStats ?? []} />
-          </ChartCard>
+          {stats.isLive && (
+            <ChartCard
+              title="Template Statistics"
+              sub={
+                (stats.templateStats?.length ?? 0) > 0
+                  ? `${stats.templateStats.length} template${stats.templateStats.length !== 1 ? "s" : ""} with assigned documents`
+                  : "No templates assigned to documents"
+              }
+            >
+              <TemplateTable data={stats.templateStats ?? []} />
+            </ChartCard>
+          )}
 
-          {/* Search Activity + Top Searches */}
+          {/* GovSearch Search Activity */}
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
             <div className="xl:col-span-2">
               <ChartCard
-                title="Search Activity"
-                sub={`${(stats.totalSearches ?? 0).toLocaleString()} total searches · last 7 days`}
+                title="GovSearch Search Activity"
+                sub="Queries performed via the GovSearch interface · last 7 days"
+                badge={
+                  <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full">
+                    <Info className="w-3 h-3" />
+                    GovSearch audit log
+                  </span>
+                }
               >
                 <div className="flex items-center gap-4 mb-3">
                   <div className="flex items-center gap-1.5">
@@ -556,13 +626,22 @@ export default function DashboardPage() {
                       {(stats.totalSearches ?? 0).toLocaleString()}
                     </span>
                   </div>
-                  <span className="text-sm text-muted-foreground">total queries logged</span>
+                  <span className="text-sm text-muted-foreground">searches via GovSearch</span>
                 </div>
                 <SearchActivityChart data={stats.searchesByDay ?? []} />
               </ChartCard>
             </div>
 
-            <ChartCard title="Top Searches" sub="Most frequent queries">
+            <ChartCard
+              title="Top Queries"
+              sub="Most frequent via GovSearch"
+              badge={
+                <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full">
+                  <Info className="w-3 h-3" />
+                  GovSearch audit log
+                </span>
+              }
+            >
               {!(stats.topSearches?.length) ? (
                 <EmptyState message="No search history yet." />
               ) : (
