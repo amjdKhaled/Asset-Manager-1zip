@@ -1,0 +1,217 @@
+The current dashboard is stable. I do NOT want you to rewrite it or remove any existing functionality.
+
+Your task is to EXTEND the dashboard with new analytics while preserving everything that already works.
+
+Rules:
+
+- Do not remove or redesign any existing widgets.
+- Do not break repository-agnostic behavior.
+- All statistics must work for ANY Laserfiche repository.
+- Never hardcode folder names, template names, or IDs.
+- Continue using recursive scanning.
+- Keep the dashboard fast.
+- Reuse the existing recursive scan instead of making unnecessary API calls.
+
+Add the following analytics:
+
+==========================================================
+1. Repository Health
+==========================================================
+
+Create a Repository Health card showing:
+
+- Repository Name
+- Connection Status
+- Last Refresh Time
+- Live / Offline state
+- Laserfiche Version (if available)
+
+==========================================================
+2. Folder Statistics
+==========================================================
+
+For every root folder display:
+
+- Folder Name
+- Total Documents
+- Total Subfolders
+
+Create a table or expandable card.
+
+==========================================================
+3. Largest Folders
+==========================================================
+
+Create a chart showing the Top 10 folders containing the largest number of documents.
+
+If there are more than 10 folders:
+
+- show Top 10
+- merge the rest into "Others"
+
+==========================================================
+4. Empty Folders
+==========================================================
+
+Show:
+
+- Number of folders containing zero documents.
+
+Also provide a list of empty folders.
+
+==========================================================
+5. Template Coverage
+==========================================================
+
+Create a Gauge / Progress visualization showing
+
+Documents with template
+vs
+Documents without template
+
+Display percentage.
+
+Example:
+
+92% documents have templates
+
+==========================================================
+6. Document Type Distribution
+==========================================================
+
+Automatically detect document types:
+
+PDF
+Word
+Excel
+PowerPoint
+Image
+TXT
+Other
+
+Display:
+
+- count
+- percentage
+- colorful pie chart
+
+No hardcoded extensions.
+
+==========================================================
+7. Recently Uploaded Documents
+==========================================================
+
+Show latest uploaded documents.
+
+Display:
+
+- Name
+- Folder
+- Creation Date
+
+Top 10.
+
+==========================================================
+8. Recently Modified Documents
+==========================================================
+
+Show latest modified documents.
+
+Display:
+
+- Name
+- Last Modified
+- Folder
+
+Top 10.
+
+==========================================================
+9. Documents By User
+==========================================================
+
+If audit/history information is available:
+
+Show ranking:
+
+User
+Documents Created
+Documents Modified
+
+If the repository cannot provide this information:
+
+Hide the widget automatically.
+
+Never display fake data.
+
+==========================================================
+10. Export Dashboard
+==========================================================
+
+Add buttons:
+
+Export PDF
+
+Export Excel
+
+The exported report must include:
+
+All KPI cards
+
+Charts
+
+Tables
+
+Repository name
+
+Generation timestamp
+
+==========================================================
+11. Growth Analytics
+==========================================================
+
+Display growth indicators.
+
+Example:
+
+Documents
+
+1,250
+
++8%
+
+Compared to previous month
+
+If previous month information is unavailable:
+
+Hide the percentage automatically.
+
+==========================================================
+
+Performance Requirements
+
+- Maximum one recursive scan.
+- Build every statistic from the same collected dataset.
+- Avoid duplicate API requests.
+- Cache expensive calculations.
+- Keep loading under 3 seconds whenever possible.
+
+UI Requirements
+
+- Professional analytics dashboard.
+- Responsive.
+- Multi-color charts.
+- Consistent spacing.
+- Smooth animations.
+- No chart overlap.
+- Integer axis values only.
+- Proper scaling for repositories with thousands of folders/documents.
+
+Before changing anything:
+
+Explain your implementation plan.
+
+After finishing:
+
+List every new API endpoint,
+every modified file,
+and every new component created.

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
   PieChart, Pie, Legend, LineChart, Line,
@@ -7,12 +8,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
   RefreshCw, FileText, FolderOpen, Layers, CheckCircle2, AlertCircle,
-  Database, TrendingUp, Search, Info,
+  Database, TrendingUp, Search, Info, Download, FileSpreadsheet,
+  Users, Clock, Upload, Activity, Folder,
 } from "lucide-react";
+
+type RecentDoc = {
+  name: string; folder: string;
+  creationTime: string; lastModifiedTime: string; creator: string;
+};
+type FolderStat = { name: string; path: string; documents: number };
 
 type DashboardStats = {
   repositoryId: string | null;
   isLive: boolean;
+  lastRefreshedAt?: string;
   totalFolders: number;
   totalDocuments: number;
   totalTemplates: number;
@@ -20,6 +29,14 @@ type DashboardStats = {
   docsWithoutTemplate: number;
   templateStats: Array<{ name: string; count: number }>;
   rootFolders: Array<{ name: string; documents: number; folders: number }>;
+  allFolderStats?: FolderStat[];
+  emptyFolderCount?: number;
+  emptyFolders?: Array<{ name: string; path: string }>;
+  docTypeDistribution?: Array<{ label: string; count: number }>;
+  recentlyCreated?: RecentDoc[];
+  recentlyModified?: RecentDoc[];
+  documentsByCreator?: Array<{ creator: string; count: number }> | null;
+  growthStats?: { thisMonth: number; lastMonth: number; growthPercent: number | null } | null;
   totalSearches: number;
   searchesByDay: Array<{ date: string; count: number }>;
   topSearches: Array<{ query: string; count: number }>;
@@ -415,6 +432,616 @@ function TemplateTable({ data }: { data: DashboardStats["templateStats"] | undef
   );
 }
 
+// ─── Export functions ────────────────────────────────────────────────────────
+
+async function exportToPdf(stats: DashboardStats) {
+  const { jsPDF } = await import("jspdf");
+  const autoTable = (await import("jspdf-autotable")).default;
+  const html2canvas = (await import("html2canvas")).default;
+
+  const doc = new jsPDF("p", "mm", "a4");
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const M = 14;
+  const CW = W - 2 * M;
+
+  const captureEl = async (id: string): Promise<string | null> => {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    try {
+      const canvas = await html2canvas(el as HTMLElement, {
+        scale: 2, useCORS: true, logging: false, backgroundColor: "#ffffff",
+      });
+      return canvas.toDataURL("image/png");
+    } catch { return null; }
+  };
+
+  const addFooter = (pageNum: number, total: number) => {
+    doc.setFillColor(21, 60, 112);
+    doc.rect(0, H - 9, W, 9, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(7); doc.setFont("helvetica", "normal");
+    doc.text("GovSearch AI — Confidential Analytics Report", M, H - 3.5);
+    doc.text(`Page ${pageNum} of ${total}`, W - M, H - 3.5, { align: "right" });
+  };
+
+  // ── Page 1 ──────────────────────────────────────────────────────────────
+  doc.setFillColor(21, 60, 112);
+  doc.rect(0, 0, W, 40, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(17); doc.setFont("helvetica", "bold");
+  doc.text("GovSearch AI — Repository Analytics Report", M, 14);
+  doc.setFontSize(9); doc.setFont("helvetica", "normal");
+  doc.text(`Repository: ${stats.repositoryId ?? "Not connected"}`, M, 23);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, M, 30);
+  const live = stats.isLive;
+  doc.setFillColor(...(live ? [34, 197, 94] : [239, 68, 68]) as [number,number,number]);
+  doc.roundedRect(W - M - 22, 10, 22, 10, 2, 2, "F");
+  doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.setFont("helvetica", "bold");
+  doc.text(live ? "LIVE" : "OFFLINE", W - M - 11, 16.5, { align: "center" });
+
+  let y = 48;
+
+  // KPI cards
+  doc.setTextColor(25, 25, 25); doc.setFontSize(12); doc.setFont("helvetica", "bold");
+  doc.text("Key Performance Indicators", M, y); y += 7;
+  const kpis = [
+    { label: "Total Folders",        value: (stats.totalFolders ?? 0).toLocaleString(), r: 59,  g: 130, b: 246 },
+    { label: "Total Documents",       value: (stats.totalDocuments ?? 0).toLocaleString(), r: 20,  g: 184, b: 166 },
+    { label: "Total Templates",       value: (stats.totalTemplates ?? 0).toLocaleString(), r: 139, g: 92,  b: 246 },
+    { label: "With Template",         value: (stats.docsWithTemplate ?? 0).toLocaleString(), r: 34,  g: 197, b: 94 },
+    { label: "Without Template",      value: (stats.docsWithoutTemplate ?? 0).toLocaleString(), r: 249, g: 115, b: 22 },
+  ];
+  const cw = (CW - 4) / 5;
+  kpis.forEach((k, i) => {
+    const x = M + i * (cw + 1);
+    doc.setFillColor(k.r, k.g, k.b);
+    doc.roundedRect(x, y, cw, 23, 2, 2, "F");
+    doc.setTextColor(255, 255, 255); doc.setFontSize(15); doc.setFont("helvetica", "bold");
+    doc.text(k.value, x + cw / 2, y + 10, { align: "center" });
+    doc.setFontSize(7); doc.setFont("helvetica", "normal");
+    doc.text(k.label, x + cw / 2, y + 17, { align: "center", maxWidth: cw - 2 });
+  });
+  y += 30;
+
+  // Growth stats
+  if (stats.growthStats?.growthPercent != null) {
+    const g = stats.growthStats.growthPercent;
+    const pos = g >= 0;
+    doc.setFillColor(pos ? 240 : 254, pos ? 253 : 226, pos ? 244 : 226);
+    doc.roundedRect(M, y, CW, 10, 2, 2, "F");
+    doc.setTextColor(pos ? 21 : 153, pos ? 128 : 27, pos ? 61 : 27);
+    doc.setFontSize(9); doc.setFont("helvetica", "bold");
+    doc.text(
+      `${pos ? "▲" : "▼"} ${Math.abs(g)}% document growth vs last month  (this month: ${stats.growthStats.thisMonth} · last month: ${stats.growthStats.lastMonth})`,
+      M + 4, y + 6.5
+    );
+    y += 14;
+  }
+
+  // Template coverage bar
+  if (stats.totalDocuments > 0) {
+    const pct = Math.round((stats.docsWithTemplate / stats.totalDocuments) * 100);
+    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    doc.text("Template Coverage", M, y); y += 5;
+    doc.setFillColor(229, 231, 235); doc.roundedRect(M, y, CW, 7, 2, 2, "F");
+    doc.setFillColor(34, 197, 94); doc.roundedRect(M, y, (pct / 100) * CW, 7, 2, 2, "F");
+    doc.setTextColor(80, 80, 80); doc.setFontSize(8); doc.setFont("helvetica", "normal");
+    doc.text(`${pct}%  ·  ${stats.docsWithTemplate.toLocaleString()} with template, ${stats.docsWithoutTemplate.toLocaleString()} without`, M + 2, y + 14);
+    y += 18;
+  }
+
+  // Chart: Root folders
+  const rfImg = await captureEl("chart-root-folders");
+  if (rfImg && y < 200) {
+    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    doc.text("Documents by Folder", M, y); y += 4;
+    const ih = 55;
+    doc.addImage(rfImg, "PNG", M, y, CW, ih); y += ih + 6;
+  }
+
+  if (y > 225) { addFooter(1, 4); doc.addPage(); y = 14; }
+
+  // Chart: Template + Doc Type side by side
+  const tpImg = await captureEl("chart-template-pie");
+  const dtImg = await captureEl("chart-doc-types");
+  if (tpImg || dtImg) {
+    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    if (tpImg) doc.text("Template Distribution", M, y);
+    if (dtImg) doc.text("Document Types", M + CW / 2 + 2, y);
+    y += 4;
+    const ih = 58;
+    if (tpImg) doc.addImage(tpImg, "PNG", M, y, CW / 2 - 2, ih);
+    if (dtImg) doc.addImage(dtImg, "PNG", M + CW / 2 + 2, y, CW / 2 - 2, ih);
+    y += ih + 6;
+  }
+
+  // ── Page 2: Folder + Template tables ────────────────────────────────────
+  addFooter(1, 4); doc.addPage(); y = 14;
+  if (stats.rootFolders?.length) {
+    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    doc.text("Folder Statistics", M, y); y += 4;
+    autoTable(doc, {
+      startY: y, margin: { left: M, right: M },
+      head: [["Folder", "Total Documents", "Subfolders"]],
+      body: stats.rootFolders.map((f) => [f.name, f.documents.toLocaleString(), f.folders.toLocaleString()]),
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [21, 60, 112], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+  }
+  if (stats.templateStats?.length) {
+    if (y > 220) { addFooter(2, 4); doc.addPage(); y = 14; }
+    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    doc.text("Template Statistics", M, y); y += 4;
+    const total = stats.docsWithTemplate;
+    autoTable(doc, {
+      startY: y, margin: { left: M, right: M },
+      head: [["Template Name", "Documents", "Share"]],
+      body: stats.templateStats.map((t) => [
+        t.name, t.count.toLocaleString(),
+        total > 0 ? `${Math.round((t.count / total) * 100)}%` : "0%",
+      ]),
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [139, 92, 246], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [250, 245, 255] },
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+  }
+
+  // ── Page 3: Doc types + Recent docs ─────────────────────────────────────
+  addFooter(2, 4); doc.addPage(); y = 14;
+  if (stats.docTypeDistribution?.length) {
+    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    doc.text("Document Type Distribution", M, y); y += 4;
+    const dtTotal = stats.docTypeDistribution.reduce((s, d) => s + d.count, 0);
+    autoTable(doc, {
+      startY: y, margin: { left: M, right: M },
+      head: [["Document Type", "Count", "Percentage"]],
+      body: stats.docTypeDistribution.map((d) => [
+        d.label, d.count.toLocaleString(),
+        dtTotal > 0 ? `${Math.round((d.count / dtTotal) * 100)}%` : "0%",
+      ]),
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [8, 145, 178], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [236, 254, 255] },
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+  }
+  if (stats.recentlyCreated?.length) {
+    if (y > 185) { addFooter(3, 4); doc.addPage(); y = 14; }
+    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    doc.text("Recently Created Documents", M, y); y += 4;
+    autoTable(doc, {
+      startY: y, margin: { left: M, right: M },
+      head: [["Document Name", "Folder", "Created At", "Creator"]],
+      body: stats.recentlyCreated.map((d) => [
+        d.name, d.folder || "/",
+        d.creationTime ? new Date(d.creationTime).toLocaleDateString() : "",
+        d.creator || "",
+      ]),
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: [22, 163, 74], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [240, 253, 244] },
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+  }
+  if (stats.recentlyModified?.length) {
+    if (y > 185) { addFooter(3, 4); doc.addPage(); y = 14; }
+    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    doc.text("Recently Modified Documents", M, y); y += 4;
+    autoTable(doc, {
+      startY: y, margin: { left: M, right: M },
+      head: [["Document Name", "Folder", "Last Modified", "Creator"]],
+      body: stats.recentlyModified.map((d) => [
+        d.name, d.folder || "/",
+        d.lastModifiedTime ? new Date(d.lastModifiedTime).toLocaleDateString() : "",
+        d.creator || "",
+      ]),
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: [234, 88, 12], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [255, 247, 237] },
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+  }
+
+  // ── Page 4: Documents by creator ────────────────────────────────────────
+  addFooter(3, 4); doc.addPage(); y = 14;
+  if (stats.documentsByCreator?.length) {
+    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    doc.text("Documents by Creator", M, y); y += 4;
+    autoTable(doc, {
+      startY: y, margin: { left: M, right: M },
+      head: [["#", "Creator", "Documents"]],
+      body: stats.documentsByCreator.map((d, i) => [i + 1, d.creator, d.count.toLocaleString()]),
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [88, 28, 135], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [250, 245, 255] },
+    });
+  } else {
+    doc.setTextColor(120, 120, 120); doc.setFontSize(10); doc.setFont("helvetica", "italic");
+    doc.text("No creator data available for this repository.", M, y + 20);
+  }
+  addFooter(4, 4);
+
+  const fname = `GovSearch_Analytics_${stats.repositoryId ?? "repo"}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  doc.save(fname);
+}
+
+async function exportToExcel(stats: DashboardStats) {
+  const XLSX = await import("xlsx");
+
+  const wb = XLSX.utils.book_new();
+
+  // ── Sheet 1: KPI Summary ─────────────────────────────────────────────────
+  const kpiRows: any[][] = [
+    ["GovSearch AI — Repository Analytics"],
+    [],
+    ["Repository", stats.repositoryId ?? "Not connected"],
+    ["Generated", new Date().toLocaleString()],
+    ["Connection Status", stats.isLive ? "Live" : "Offline"],
+    [],
+    ["Metric", "Value"],
+    ["Total Folders", stats.totalFolders ?? 0],
+    ["Total Documents", stats.totalDocuments ?? 0],
+    ["Total Templates", stats.totalTemplates ?? 0],
+    ["Documents with Template", stats.docsWithTemplate ?? 0],
+    ["Documents without Template", stats.docsWithoutTemplate ?? 0],
+    ["Total GovSearch Queries", stats.totalSearches ?? 0],
+  ];
+  if (stats.growthStats) {
+    kpiRows.push(
+      [], ["Growth Analytics"],
+      ["Documents Created This Month", stats.growthStats.thisMonth],
+      ["Documents Created Last Month", stats.growthStats.lastMonth],
+      ["Month-over-Month Growth", stats.growthStats.growthPercent != null
+        ? `${stats.growthStats.growthPercent >= 0 ? "+" : ""}${stats.growthStats.growthPercent}%`
+        : "Insufficient data"],
+    );
+  }
+  const wsKpi = XLSX.utils.aoa_to_sheet(kpiRows);
+  wsKpi["!cols"] = [{ wch: 36 }, { wch: 26 }];
+  XLSX.utils.book_append_sheet(wb, wsKpi, "KPI Summary");
+
+  // ── Sheet 2: Folder Statistics ───────────────────────────────────────────
+  if (stats.rootFolders?.length) {
+    const rows: any[][] = [
+      ["Folder Name", "Total Documents", "Total Subfolders"],
+      ...stats.rootFolders.map((f) => [f.name, f.documents, f.folders]),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 40 }, { wch: 20 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, ws, "Folder Statistics");
+  }
+
+  // ── Sheet 3: All Folder Stats (largest folders) ──────────────────────────
+  if (stats.allFolderStats?.length) {
+    const sorted = [...stats.allFolderStats].sort((a, b) => b.documents - a.documents);
+    const rows: any[][] = [
+      ["Folder Name", "Path", "Documents"],
+      ...sorted.map((f) => [f.name, f.path, f.documents]),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 35 }, { wch: 55 }, { wch: 15 }];
+    XLSX.utils.book_append_sheet(wb, ws, "All Folders");
+  }
+
+  // ── Sheet 4: Template Statistics ─────────────────────────────────────────
+  if (stats.templateStats?.length) {
+    const total = stats.docsWithTemplate;
+    const rows: any[][] = [
+      ["Template Name", "Document Count", "Share (%)"],
+      ...stats.templateStats.map((t) => [
+        t.name, t.count,
+        total > 0 ? `${Math.round((t.count / total) * 100)}%` : "0%",
+      ]),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 40 }, { wch: 18 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws, "Template Statistics");
+  }
+
+  // ── Sheet 5: Document Types ───────────────────────────────────────────────
+  if (stats.docTypeDistribution?.length) {
+    const dtTotal = stats.docTypeDistribution.reduce((s, d) => s + d.count, 0);
+    const rows: any[][] = [
+      ["Document Type", "Count", "Percentage"],
+      ...stats.docTypeDistribution.map((d) => [
+        d.label, d.count,
+        dtTotal > 0 ? `${Math.round((d.count / dtTotal) * 100)}%` : "0%",
+      ]),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 22 }, { wch: 15 }, { wch: 15 }];
+    XLSX.utils.book_append_sheet(wb, ws, "Document Types");
+  }
+
+  // ── Sheet 6: Recent Documents ─────────────────────────────────────────────
+  const recentRows: any[][] = [["Name", "Folder", "Created At", "Last Modified", "Creator"]];
+  const seen = new Set<string>();
+  for (const d of [...(stats.recentlyCreated ?? []), ...(stats.recentlyModified ?? [])]) {
+    const key = `${d.name}||${d.folder}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      recentRows.push([
+        d.name, d.folder || "/",
+        d.creationTime ? new Date(d.creationTime).toLocaleString() : "",
+        d.lastModifiedTime ? new Date(d.lastModifiedTime).toLocaleString() : "",
+        d.creator || "",
+      ]);
+    }
+  }
+  if (recentRows.length > 1) {
+    const ws = XLSX.utils.aoa_to_sheet(recentRows);
+    ws["!cols"] = [{ wch: 42 }, { wch: 32 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, ws, "Recent Documents");
+  }
+
+  // ── Sheet 7: Documents by Creator ─────────────────────────────────────────
+  if (stats.documentsByCreator?.length) {
+    const rows: any[][] = [
+      ["Rank", "Creator", "Documents Created"],
+      ...stats.documentsByCreator.map((d, i) => [i + 1, d.creator, d.count]),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 8 }, { wch: 38 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, ws, "Documents by Creator");
+  }
+
+  // ── Sheet 8: GovSearch Search Queries ─────────────────────────────────────
+  if (stats.topSearches?.length) {
+    const rows: any[][] = [
+      ["Query", "Count"],
+      ...stats.topSearches.map((s) => [s.query, s.count]),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 55 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws, "Search Queries");
+  }
+
+  const fname = `GovSearch_Analytics_${stats.repositoryId ?? "repo"}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+}
+
+// ─── New widget components ───────────────────────────────────────────────────
+
+function RepositoryHealthCard({ stats }: { stats: DashboardStats }) {
+  const refreshTime = stats.lastRefreshedAt
+    ? new Date(stats.lastRefreshedAt).toLocaleTimeString()
+    : null;
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 shadow-sm" data-testid="repo-health-card">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="h-5 w-1 rounded-full bg-primary flex-shrink-0" />
+        <Activity className="w-4 h-4 text-muted-foreground" />
+        <h2 className="text-sm font-semibold text-foreground">Repository Health</h2>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Repository</span>
+          <span className="text-sm font-semibold text-foreground truncate" title={stats.repositoryId ?? "—"}>
+            {stats.repositoryId ?? "—"}
+          </span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Connection</span>
+          <span className={`inline-flex items-center gap-1.5 text-sm font-semibold ${
+            stats.isLive ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"
+          }`}>
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${stats.isLive ? "bg-emerald-500 animate-pulse" : "bg-red-500"}`} />
+            {stats.isLive ? "Live" : "Offline"}
+          </span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Last Refresh</span>
+          <span className="text-sm font-semibold text-foreground">{refreshTime ?? "—"}</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Data Source</span>
+          <span className="text-sm font-semibold text-foreground">
+            {stats.isLive ? "Laserfiche REST API" : "Not available"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LargestFoldersChart({ data }: { data: FolderStat[] | undefined }) {
+  if (!data?.length) return <EmptyState message="No folder data available." />;
+  const sorted = [...data].sort((a, b) => b.documents - a.documents);
+  const top10 = sorted.slice(0, 10);
+  const rest = sorted.slice(10);
+  const chartData = [
+    ...top10.map((f) => ({ name: f.name, label: truncateLabel(f.name, 11), documents: f.documents, isOthers: false })),
+    ...(rest.length > 0 ? [{ name: `Others (${rest.length})`, label: "Others", documents: rest.reduce((s, f) => s + f.documents, 0), isOthers: true }] : []),
+  ];
+  const maxDocs = Math.max(...chartData.map((f) => f.documents), 0);
+  const yTicks = computeYTicks(maxDocs);
+  const yMax = yTicks[yTicks.length - 1];
+  const count = chartData.length;
+  const labelAngle = count > 5 ? -35 : 0;
+  const textAnchor = count > 5 ? ("end" as const) : ("middle" as const);
+  const bottomMargin = count > 5 ? 64 : 28;
+  return (
+    <ResponsiveContainer width="100%" height={count <= 6 ? 220 : 260}>
+      <BarChart data={chartData} margin={{ top: 8, right: 12, bottom: bottomMargin, left: 0 }} barCategoryGap="25%">
+        <CartesianGrid strokeDasharray="4 4" stroke="hsl(var(--border))" opacity={0.5} vertical={false} />
+        <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} interval={0} angle={labelAngle} textAnchor={textAnchor} height={bottomMargin} tickLine={false} axisLine={{ stroke: "hsl(var(--border))" }} />
+        <YAxis ticks={yTicks} domain={[0, yMax]} allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} width={yMax >= 1000 ? 48 : 36} tickFormatter={(v) => v.toLocaleString()} />
+        <Tooltip {...TOOLTIP_STYLE} formatter={(v: any) => [Number(v).toLocaleString(), "Documents"]} labelFormatter={(label) => chartData.find((d) => d.label === label)?.name ?? label} />
+        <Bar dataKey="documents" radius={[5, 5, 0, 0]} maxBarSize={44} isAnimationActive animationDuration={600} animationEasing="ease-out">
+          {chartData.map((entry, i) => <Cell key={i} fill={entry.isOthers ? OTHERS_COLOR : PALETTE[i % PALETTE.length]} />)}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function EmptyFoldersCard({ count, folders }: { count: number; folders: Array<{ name: string; path: string }> }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 shadow-sm h-full" data-testid="empty-folders-card">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="h-5 w-1 rounded-full bg-primary flex-shrink-0" />
+        <Folder className="w-4 h-4 text-muted-foreground" />
+        <h2 className="text-sm font-semibold text-foreground">Empty Folders</h2>
+      </div>
+      <div className="flex items-center gap-4 mb-3">
+        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${count > 0 ? "bg-amber-500/15" : "bg-emerald-500/15"}`}>
+          <Folder className={`w-5 h-5 ${count > 0 ? "text-amber-500" : "text-emerald-500"}`} />
+        </div>
+        <div>
+          <p className="text-3xl font-bold text-foreground tabular-nums">{count.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground">{count === 0 ? "All folders contain documents" : `empty folder${count !== 1 ? "s" : ""} detected`}</p>
+        </div>
+      </div>
+      {count > 0 && folders.length > 0 && (
+        <>
+          <button onClick={() => setExpanded((v) => !v)} className="text-xs text-primary hover:underline mb-2 flex items-center gap-1" data-testid="button-toggle-empty-folders">
+            {expanded ? "Hide" : "Show"} folder list ({folders.length})
+          </button>
+          {expanded && (
+            <div className="overflow-hidden rounded-lg border border-border max-h-44 overflow-y-auto">
+              {folders.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 px-3 py-2 border-t border-border first:border-t-0 hover:bg-muted/30">
+                  <Folder className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                  <span className="text-xs text-foreground truncate flex-1" title={f.path}>{f.name}</span>
+                  {f.path !== f.name && <span className="text-xs text-muted-foreground truncate ml-auto max-w-[100px]" title={f.path}>{f.path}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function TemplateCoverageWidget({ docsWithTemplate, totalDocuments }: { docsWithTemplate: number; totalDocuments: number }) {
+  const pct = totalDocuments > 0 ? Math.round((docsWithTemplate / totalDocuments) * 100) : 0;
+  const [colorBar, textColor] = pct >= 80
+    ? ["bg-emerald-500", "text-emerald-600 dark:text-emerald-400"]
+    : pct >= 50
+    ? ["bg-amber-500", "text-amber-600 dark:text-amber-400"]
+    : ["bg-red-500", "text-red-600 dark:text-red-400"];
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 shadow-sm h-full" data-testid="template-coverage-widget">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="h-5 w-1 rounded-full bg-primary flex-shrink-0" />
+        <Layers className="w-4 h-4 text-muted-foreground" />
+        <h2 className="text-sm font-semibold text-foreground">Template Coverage</h2>
+      </div>
+      <div className="flex items-end gap-3 mb-4">
+        <span className={`text-5xl font-extrabold tabular-nums ${textColor}`}>{pct}%</span>
+        <div className="mb-1">
+          <p className="text-sm font-medium text-foreground">of documents have templates</p>
+          <p className="text-xs text-muted-foreground">{docsWithTemplate.toLocaleString()} with · {(totalDocuments - docsWithTemplate).toLocaleString()} without</p>
+        </div>
+      </div>
+      <div className="relative h-3 w-full bg-muted rounded-full overflow-hidden">
+        <div className={`absolute left-0 top-0 h-full rounded-full transition-all duration-700 ease-out ${colorBar}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="flex justify-between mt-1.5">
+        <span className="text-xs text-muted-foreground">0%</span>
+        <span className="text-xs text-muted-foreground">100%</span>
+      </div>
+    </div>
+  );
+}
+
+const DOC_TYPE_COLORS = ["#3B82F6","#EF4444","#22C55E","#F59E0B","#8B5CF6","#06B6D4","#94A3B8"];
+
+function DocTypeChart({ data }: { data: Array<{ label: string; count: number }> | undefined }) {
+  if (!data?.length) return <EmptyState message="No document type information available." />;
+  const total = data.reduce((s, d) => s + d.count, 0);
+  return (
+    <div className="flex flex-col gap-3">
+      <ResponsiveContainer width="100%" height={190}>
+        <PieChart>
+          <Pie data={data} dataKey="count" nameKey="label" cx="50%" cy="46%" outerRadius={80} innerRadius={38} paddingAngle={2}
+            label={({ percent }) => percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : ""} labelLine={false}
+            isAnimationActive animationDuration={700} animationEasing="ease-out">
+            {data.map((_, i) => <Cell key={i} fill={DOC_TYPE_COLORS[i % DOC_TYPE_COLORS.length]} />)}
+          </Pie>
+          <Tooltip contentStyle={TOOLTIP_STYLE.contentStyle} itemStyle={TOOLTIP_STYLE.itemStyle} formatter={(v: any, name: string) => [Number(v).toLocaleString(), name]} />
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="space-y-1">
+        {data.map((d, i) => (
+          <div key={d.label} className="flex items-center gap-2 text-xs">
+            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: DOC_TYPE_COLORS[i % DOC_TYPE_COLORS.length] }} />
+            <span className="flex-1 text-foreground font-medium">{d.label}</span>
+            <span className="tabular-nums text-muted-foreground">{d.count.toLocaleString()}</span>
+            <span className="tabular-nums text-muted-foreground w-10 text-right">
+              {total > 0 ? `${Math.round((d.count / total) * 100)}%` : "0%"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RecentDocsTable({ data, dateKey, dateLabel }: {
+  data: RecentDoc[] | undefined;
+  dateKey: "creationTime" | "lastModifiedTime";
+  dateLabel: string;
+}) {
+  if (!data?.length) return <EmptyState message="No recent documents available." />;
+  return (
+    <div className="overflow-hidden rounded-lg border border-border">
+      <table className="w-full text-xs" data-testid={`recent-${dateKey}-table`}>
+        <thead>
+          <tr className="bg-muted/50">
+            <th className="text-left px-3 py-2.5 font-semibold text-foreground">Document</th>
+            <th className="text-left px-3 py-2.5 font-semibold text-foreground hidden md:table-cell">Folder</th>
+            <th className="text-left px-3 py-2.5 font-semibold text-foreground w-24">{dateLabel}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((doc, i) => (
+            <tr key={i} className="border-t border-border hover:bg-muted/30 transition-colors" data-testid={`recent-doc-row-${i}`}>
+              <td className="px-3 py-2 font-medium text-foreground truncate max-w-[180px]" title={doc.name}>{doc.name}</td>
+              <td className="px-3 py-2 text-muted-foreground hidden md:table-cell truncate max-w-[140px]" title={doc.folder}>{doc.folder || "/"}</td>
+              <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                {doc[dateKey] ? new Date(doc[dateKey]).toLocaleDateString() : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DocumentsByUserTable({ data }: { data: Array<{ creator: string; count: number }> | null | undefined }) {
+  if (!data?.length) return null;
+  return (
+    <div className="overflow-hidden rounded-lg border border-border">
+      <table className="w-full text-sm" data-testid="docs-by-user-table">
+        <thead>
+          <tr className="bg-muted/50">
+            <th className="text-left px-3 py-2.5 font-semibold text-foreground w-10">#</th>
+            <th className="text-left px-3 py-2.5 font-semibold text-foreground">Creator</th>
+            <th className="text-right px-3 py-2.5 font-semibold text-foreground w-32">Documents</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((row, i) => (
+            <tr key={row.creator} className="border-t border-border hover:bg-muted/30 transition-colors" data-testid={`user-row-${i}`}>
+              <td className="px-3 py-2.5 text-muted-foreground tabular-nums">{i + 1}</td>
+              <td className="px-3 py-2.5 font-medium text-foreground">{row.creator}</td>
+              <td className="px-3 py-2.5 text-right font-semibold text-foreground tabular-nums">{row.count.toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -515,6 +1142,24 @@ export default function DashboardPage() {
                 <RefreshCw className={`w-4 h-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
                 {isFetching ? "Loading..." : "Refresh"}
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => exportToExcel(stats)}
+                data-testid="button-export-excel"
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-1.5 text-emerald-600" />
+                Excel
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => exportToPdf(stats)}
+                data-testid="button-export-pdf"
+              >
+                <Download className="w-4 h-4 mr-1.5 text-primary" />
+                PDF Report
+              </Button>
             </div>
           </div>
 
@@ -528,6 +1173,9 @@ export default function DashboardPage() {
               </p>
             </div>
           )}
+
+          {/* Repository Health */}
+          {stats.isLive && <RepositoryHealthCard stats={stats} />}
 
           {/* KPI Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4">
@@ -546,6 +1194,11 @@ export default function DashboardPage() {
               value={stats.totalDocuments ?? 0}
               colorClass="bg-teal-500/15"
               iconClass="text-teal-500"
+              sub={
+                stats.growthStats?.growthPercent != null
+                  ? `${stats.growthStats.growthPercent >= 0 ? "+" : ""}${stats.growthStats.growthPercent}% this month`
+                  : undefined
+              }
             />
             <StatCard
               icon={Layers}
@@ -580,14 +1233,18 @@ export default function DashboardPage() {
                 title="Documents by Folder"
                 sub={`Root-level folders · live from ${stats.repositoryId}`}
               >
-                <RootFoldersChart data={stats.rootFolders ?? []} />
+                <div id="chart-root-folders">
+                  <RootFoldersChart data={stats.rootFolders ?? []} />
+                </div>
               </ChartCard>
 
               <ChartCard
                 title="Template Distribution"
                 sub="Auto-discovered · each template different color"
               >
-                <TemplatePieChart data={stats.templateStats ?? []} />
+                <div id="chart-template-pie">
+                  <TemplatePieChart data={stats.templateStats ?? []} />
+                </div>
               </ChartCard>
             </div>
           )}
@@ -603,6 +1260,99 @@ export default function DashboardPage() {
               }
             >
               <TemplateTable data={stats.templateStats ?? []} />
+            </ChartCard>
+          )}
+
+          {/* ── NEW ANALYTICS SECTIONS ── */}
+
+          {/* Largest Folders + Empty Folders */}
+          {stats.isLive && (
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+              <div className="xl:col-span-2">
+                <ChartCard
+                  title="Largest Folders"
+                  sub="Top 10 folders across all levels by document count"
+                >
+                  <LargestFoldersChart data={stats.allFolderStats} />
+                </ChartCard>
+              </div>
+              <EmptyFoldersCard
+                count={stats.emptyFolderCount ?? 0}
+                folders={stats.emptyFolders ?? []}
+              />
+            </div>
+          )}
+
+          {/* Template Coverage + Document Type Distribution */}
+          {stats.isLive && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+              <TemplateCoverageWidget
+                docsWithTemplate={stats.docsWithTemplate ?? 0}
+                totalDocuments={stats.totalDocuments ?? 0}
+              />
+              <ChartCard
+                title="Document Type Distribution"
+                sub="Breakdown by file extension across all documents"
+              >
+                <div id="chart-doc-types">
+                  <DocTypeChart data={stats.docTypeDistribution} />
+                </div>
+              </ChartCard>
+            </div>
+          )}
+
+          {/* Recently Created + Recently Modified */}
+          {stats.isLive && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+              <ChartCard
+                title="Recently Created"
+                sub="Latest 10 documents added to the repository"
+                badge={
+                  <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                    <Upload className="w-3 h-3" />
+                    By creation date
+                  </span>
+                }
+              >
+                <RecentDocsTable
+                  data={stats.recentlyCreated}
+                  dateKey="creationTime"
+                  dateLabel="Created"
+                />
+              </ChartCard>
+
+              <ChartCard
+                title="Recently Modified"
+                sub="Latest 10 documents changed in the repository"
+                badge={
+                  <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 px-2 py-0.5 rounded-full">
+                    <Clock className="w-3 h-3" />
+                    By modified date
+                  </span>
+                }
+              >
+                <RecentDocsTable
+                  data={stats.recentlyModified}
+                  dateKey="lastModifiedTime"
+                  dateLabel="Modified"
+                />
+              </ChartCard>
+            </div>
+          )}
+
+          {/* Documents by Creator */}
+          {stats.isLive && stats.documentsByCreator && (
+            <ChartCard
+              title="Documents by Creator"
+              sub="Top contributors by document count in the repository"
+              badge={
+                <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20 px-2 py-0.5 rounded-full">
+                  <Users className="w-3 h-3" />
+                  From creator field
+                </span>
+              }
+            >
+              <DocumentsByUserTable data={stats.documentsByCreator} />
             </ChartCard>
           )}
 
@@ -745,6 +1495,62 @@ const AUDIT_ROWS: AuditRow[] = [
     origin: "laserfiche",
     liveOnly: true,
     notes: "Sorted by document count; shows % share per template",
+  },
+  {
+    widget: "Largest Folders",
+    dataSource: "LF REST API — recursive folder scan (allFolderStats)",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Top 10 folders by doc count; collected across all depths in single scan pass",
+  },
+  {
+    widget: "Empty Folders",
+    dataSource: "LF REST API — recursive folder scan (emptyFolderNames)",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Folder considered empty when its entire subtree has 0 documents",
+  },
+  {
+    widget: "Template Coverage",
+    dataSource: "Derived: docsWithTemplate ÷ totalDocuments",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "% of docs with a template assigned; computed from scan-pass template counts",
+  },
+  {
+    widget: "Document Type Distribution",
+    dataSource: "LF REST API — extension field on folder children",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "v1 Extension / v2 extension; mapped to friendly labels (PDF, Word, Excel…)",
+  },
+  {
+    widget: "Recently Created",
+    dataSource: "LF REST API — creationTime field on folder children",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Bounded merge across all folders; top 10 most recently created docs",
+  },
+  {
+    widget: "Recently Modified",
+    dataSource: "LF REST API — lastModifiedTime field on folder children",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Bounded merge across all folders; top 10 most recently modified docs",
+  },
+  {
+    widget: "Documents by Creator",
+    dataSource: "LF REST API — creator field on folder children",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Shown only when at least one document has a creator field; v1 Creator / v2 creator",
+  },
+  {
+    widget: "Growth Stats (Total Documents badge)",
+    dataSource: "LF REST API — creationTime field (monthCounts map)",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Month-over-month % change; current calendar month vs previous month",
   },
   {
     widget: "GovSearch Search Activity",

@@ -233,54 +233,163 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         try {
           const token = await getLaserficheToken(lfConfig);
 
-          // ── Recursive folder scanner ──────────────────────────────────────
-          // Collects document counts, folder counts, AND template assignments
-          // in a single pass. templateName is part of the standard folder
-          // children response in both LF REST API v1 (TemplateName) and v2
-          // (templateName), so no extra API calls are required.
+          // ── Single-pass recursive scanner ─────────────────────────────────
+          // All analytics (counts, templates, extensions, creators, growth,
+          // recent docs, per-folder stats, empty-folder detection) are built
+          // from ONE recursive traversal — zero extra API calls.
+
+          type RecentDoc = {
+            name: string; folder: string;
+            creationTime: string; lastModifiedTime: string; creator: string;
+          };
+          type FolderStat = { name: string; path: string; documents: number };
           type ScanResult = {
             documents: number;
             folders: number;
             templateCounts: Record<string, number>;
+            ownDocs: number;
+            extCounts: Record<string, number>;
+            creatorCounts: Record<string, number>;
+            monthCounts: Record<string, number>;
+            recentCreated: RecentDoc[];
+            recentModified: RecentDoc[];
+            allFolderStats: FolderStat[];
+            emptyFolderNames: Array<{ name: string; path: string }>;
           };
+
+          const RECENT_CAP = 20;
+          const FOLDER_CAP = 300;
+
+          const emptyResult = (): ScanResult => ({
+            documents: 0, folders: 0, templateCounts: {},
+            ownDocs: 0, extCounts: {}, creatorCounts: {}, monthCounts: {},
+            recentCreated: [], recentModified: [], allFolderStats: [], emptyFolderNames: [],
+          });
+
+          const mergeCountMap = (
+            a: Record<string, number>, b: Record<string, number>
+          ): Record<string, number> => {
+            const m = { ...a };
+            for (const [k, v] of Object.entries(b)) m[k] = (m[k] || 0) + v;
+            return m;
+          };
+
+          const mergeRecent = (
+            a: RecentDoc[], b: RecentDoc[], dateKey: keyof RecentDoc
+          ): RecentDoc[] =>
+            [...a, ...b]
+              .filter((d) => d[dateKey])
+              .sort((x, y) => String(y[dateKey]).localeCompare(String(x[dateKey])))
+              .slice(0, RECENT_CAP);
 
           const scanFolder = async (
             folderId: number,
-            visited: Set<number>
+            visited: Set<number>,
+            folderPath: string
           ): Promise<ScanResult> => {
-            if (visited.has(folderId)) return { documents: 0, folders: 0, templateCounts: {} };
+            if (visited.has(folderId)) return emptyResult();
             visited.add(folderId);
+
             let children: any[];
             try {
               children = await laserficheGetFolderChildren(lfConfig, token, folderId);
             } catch {
-              return { documents: 0, folders: 0, templateCounts: {} };
+              return emptyResult();
             }
 
-            const docEntries = children.filter(
-              (e: any) => e.isElectronicDocument || e.entryType?.toLowerCase().includes("document")
-            );
-            const subfolders = children.filter(
-              (e: any) => e.entryType?.toLowerCase().includes("folder")
-            );
+            const isDoc = (e: any) =>
+              e.isElectronicDocument || e.entryType?.toLowerCase().includes("document");
+            const isFolder = (e: any) => e.entryType?.toLowerCase().includes("folder");
 
-            // Read templateName from this level's documents.
-            // v1 API uses PascalCase (TemplateName), v2 uses camelCase (templateName).
+            const docEntries = children.filter(isDoc);
+            const subfolders = children.filter(isFolder);
+
             const localTmpl: Record<string, number> = {};
+            const localExt: Record<string, number> = {};
+            const localCreator: Record<string, number> = {};
+            const localMonth: Record<string, number> = {};
+            const localDocs: RecentDoc[] = [];
+
             for (const doc of docEntries) {
-              const name = ((doc.templateName || doc.TemplateName || "") as string).trim();
-              if (name) localTmpl[name] = (localTmpl[name] || 0) + 1;
+              const tmpl = ((doc.templateName || doc.TemplateName || "") as string).trim();
+              if (tmpl) localTmpl[tmpl] = (localTmpl[tmpl] || 0) + 1;
+
+              const ext = ((doc.extension || doc.Extension || "") as string)
+                .trim().toLowerCase().replace(/^\./, "") || "__none__";
+              localExt[ext] = (localExt[ext] || 0) + 1;
+
+              const creator = ((doc.creator || doc.Creator || "") as string).trim();
+              if (creator) localCreator[creator] = (localCreator[creator] || 0) + 1;
+
+              const ct = ((doc.creationTime || doc.CreationTime || "") as string).trim();
+              if (ct.length >= 7) localMonth[ct.slice(0, 7)] = (localMonth[ct.slice(0, 7)] || 0) + 1;
+
+              localDocs.push({
+                name: String(doc.name || ""),
+                folder: folderPath,
+                creationTime: ct,
+                lastModifiedTime: ((doc.lastModifiedTime || doc.LastModifiedTime || "") as string).trim(),
+                creator,
+              });
             }
+
+            const localCreatedSorted = [...localDocs]
+              .filter((d) => d.creationTime)
+              .sort((a, b) => b.creationTime.localeCompare(a.creationTime))
+              .slice(0, RECENT_CAP);
+
+            const localModifiedSorted = [...localDocs]
+              .filter((d) => d.lastModifiedTime)
+              .sort((a, b) => b.lastModifiedTime.localeCompare(a.lastModifiedTime))
+              .slice(0, RECENT_CAP);
 
             const nested = await Promise.all(
-              subfolders.map((f: any) => scanFolder(Number(f.id), visited))
+              subfolders.map((f: any) =>
+                scanFolder(
+                  Number(f.id),
+                  visited,
+                  folderPath ? `${folderPath}/${f.name || f.id}` : String(f.name || f.id)
+                )
+              )
             );
 
-            // Merge template counts from all sub-scans
-            const mergedTmpl: Record<string, number> = { ...localTmpl };
+            let mergedTmpl = localTmpl;
+            let mergedExt = localExt;
+            let mergedCreator = localCreator;
+            let mergedMonth = localMonth;
+            let mergedCreated = localCreatedSorted;
+            let mergedModified = localModifiedSorted;
+
             for (const n of nested) {
-              for (const [tmpl, cnt] of Object.entries(n.templateCounts)) {
-                mergedTmpl[tmpl] = (mergedTmpl[tmpl] || 0) + cnt;
+              mergedTmpl = mergeCountMap(mergedTmpl, n.templateCounts);
+              mergedExt = mergeCountMap(mergedExt, n.extCounts);
+              mergedCreator = mergeCountMap(mergedCreator, n.creatorCounts);
+              mergedMonth = mergeCountMap(mergedMonth, n.monthCounts);
+              mergedCreated = mergeRecent(mergedCreated, n.recentCreated, "creationTime");
+              mergedModified = mergeRecent(mergedModified, n.recentModified, "lastModifiedTime");
+            }
+
+            // Per-folder stats at this level
+            const myFolderStats: FolderStat[] = subfolders.map((f: any, i: number) => ({
+              name: String(f.name || f.id || ""),
+              path: folderPath ? `${folderPath}/${f.name || f.id}` : String(f.name || f.id),
+              documents: nested[i]?.documents ?? 0,
+            }));
+            const allFolderStats = [
+              ...myFolderStats,
+              ...nested.flatMap((n) => n.allFolderStats),
+            ].slice(0, FOLDER_CAP);
+
+            // Empty folder detection: a folder is empty when its entire subtree has 0 docs
+            const emptyFolderNames: Array<{ name: string; path: string }> = [];
+            for (let i = 0; i < subfolders.length; i++) {
+              const n = nested[i];
+              const subName = String(subfolders[i]?.name || subfolders[i]?.id || "");
+              const subPath = folderPath ? `${folderPath}/${subName}` : subName;
+              if (n.documents === 0) {
+                emptyFolderNames.push({ name: subName, path: subPath });
+              } else {
+                emptyFolderNames.push(...n.emptyFolderNames);
               }
             }
 
@@ -288,10 +397,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               documents: docEntries.length + nested.reduce((s, n) => s + n.documents, 0),
               folders: subfolders.length + nested.reduce((s, n) => s + n.folders, 0),
               templateCounts: mergedTmpl,
+              ownDocs: docEntries.length,
+              extCounts: mergedExt,
+              creatorCounts: mergedCreator,
+              monthCounts: mergedMonth,
+              recentCreated: mergedCreated,
+              recentModified: mergedModified,
+              allFolderStats,
+              emptyFolderNames,
             };
           };
 
           // ── Step 1 (parallel): root children + template definitions ───────
+          const lastRefreshedAt = new Date().toISOString();
           const [rootChildren, templateDefs] = await Promise.all([
             laserficheGetFolderChildren(lfConfig, token, 1).catch(() => [] as any[]),
             laserficheGetTemplateDefinitions(lfConfig, token).catch(() => []),
@@ -307,46 +425,136 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           // ── Step 2 (parallel): scan every root-level folder ───────────────
           const rootFolderResults = await Promise.all(
             rootFolderEntries.map((f: any) =>
-              scanFolder(Number(f.id), new Set<number>()).then((r) => ({
-                name: String(f.name || `Folder ${f.id}`),
-                documents: r.documents,
-                folders: r.folders,
-                templateCounts: r.templateCounts,
-              }))
+              scanFolder(Number(f.id), new Set<number>(), String(f.name || `Folder ${f.id}`))
+                .then((r) => ({ ...r, name: String(f.name || `Folder ${f.id}`) }))
             )
           );
 
-          // ── Step 3: aggregate totals ───────────────────────────────────────
+          // ── Step 3: aggregate all collected data ──────────────────────────
           const totalDocuments =
-            rootDocEntries.length +
-            rootFolderResults.reduce((s, f) => s + f.documents, 0);
+            rootDocEntries.length + rootFolderResults.reduce((s, f) => s + f.documents, 0);
           const totalFolders =
-            rootFolderEntries.length +
-            rootFolderResults.reduce((s, f) => s + f.folders, 0);
+            rootFolderEntries.length + rootFolderResults.reduce((s, f) => s + f.folders, 0);
 
-          // Collect templateName from root-level documents
-          const globalTmpl: Record<string, number> = {};
+          // Process root-level documents (those directly in the root folder)
+          const rootDocData: {
+            tmpl: Record<string, number>;
+            ext: Record<string, number>;
+            creator: Record<string, number>;
+            month: Record<string, number>;
+            created: RecentDoc[];
+            modified: RecentDoc[];
+          } = { tmpl: {}, ext: {}, creator: {}, month: {}, created: [], modified: [] };
+
           for (const doc of rootDocEntries) {
-            const name = ((doc.templateName || doc.TemplateName || "") as string).trim();
-            if (name) globalTmpl[name] = (globalTmpl[name] || 0) + 1;
+            const tmpl = ((doc.templateName || doc.TemplateName || "") as string).trim();
+            if (tmpl) rootDocData.tmpl[tmpl] = (rootDocData.tmpl[tmpl] || 0) + 1;
+
+            const ext = ((doc.extension || doc.Extension || "") as string)
+              .trim().toLowerCase().replace(/^\./, "") || "__none__";
+            rootDocData.ext[ext] = (rootDocData.ext[ext] || 0) + 1;
+
+            const creator = ((doc.creator || doc.Creator || "") as string).trim();
+            if (creator) rootDocData.creator[creator] = (rootDocData.creator[creator] || 0) + 1;
+
+            const ct = ((doc.creationTime || doc.CreationTime || "") as string).trim();
+            if (ct.length >= 7) rootDocData.month[ct.slice(0, 7)] = (rootDocData.month[ct.slice(0, 7)] || 0) + 1;
+
+            const entry: RecentDoc = {
+              name: String(doc.name || ""),
+              folder: "",
+              creationTime: ct,
+              lastModifiedTime: ((doc.lastModifiedTime || doc.LastModifiedTime || "") as string).trim(),
+              creator,
+            };
+            rootDocData.created.push(entry);
+            rootDocData.modified.push(entry);
           }
+
+          // Merge root-level doc data with folder scan data
+          let globalTmpl = rootDocData.tmpl;
+          let globalExt = rootDocData.ext;
+          let globalCreator = rootDocData.creator;
+          let globalMonth = rootDocData.month;
+          let globalCreated = rootDocData.created
+            .filter((d) => d.creationTime)
+            .sort((a, b) => b.creationTime.localeCompare(a.creationTime))
+            .slice(0, RECENT_CAP);
+          let globalModified = rootDocData.modified
+            .filter((d) => d.lastModifiedTime)
+            .sort((a, b) => b.lastModifiedTime.localeCompare(a.lastModifiedTime))
+            .slice(0, RECENT_CAP);
+          const globalEmptyFolders: Array<{ name: string; path: string }> = [];
+          let globalAllFolderStats: FolderStat[] = [];
+
           for (const f of rootFolderResults) {
-            for (const [tmpl, cnt] of Object.entries(f.templateCounts)) {
-              globalTmpl[tmpl] = (globalTmpl[tmpl] || 0) + cnt;
+            globalTmpl = mergeCountMap(globalTmpl, f.templateCounts);
+            globalExt = mergeCountMap(globalExt, f.extCounts);
+            globalCreator = mergeCountMap(globalCreator, f.creatorCounts);
+            globalMonth = mergeCountMap(globalMonth, f.monthCounts);
+            globalCreated = mergeRecent(globalCreated, f.recentCreated, "creationTime");
+            globalModified = mergeRecent(globalModified, f.recentModified, "lastModifiedTime");
+
+            // Add this root folder to allFolderStats + its children
+            globalAllFolderStats.push({ name: f.name, path: f.name, documents: f.documents });
+            globalAllFolderStats.push(...f.allFolderStats);
+
+            // Empty folders
+            if (f.documents === 0) {
+              globalEmptyFolders.push({ name: f.name, path: f.name });
+            } else {
+              globalEmptyFolders.push(...f.emptyFolderNames);
             }
           }
+          globalAllFolderStats = globalAllFolderStats.slice(0, FOLDER_CAP);
 
+          // Template stats
           const templateStats = Object.entries(globalTmpl)
             .map(([name, count]) => ({ name, count }))
             .sort((a, b) => b.count - a.count);
-
           const docsWithTemplate = templateStats.reduce((s, t) => s + t.count, 0);
           const docsWithoutTemplate = Math.max(0, totalDocuments - docsWithTemplate);
 
+          // Extension → friendly label mapping
+          const EXT_LABELS: Record<string, string> = {
+            pdf: "PDF", doc: "Word", docx: "Word", xls: "Excel", xlsx: "Excel",
+            ppt: "PowerPoint", pptx: "PowerPoint", jpg: "Image", jpeg: "Image",
+            png: "Image", gif: "Image", bmp: "Image", tiff: "Image", svg: "Image",
+            webp: "Image", txt: "TXT", text: "TXT", __none__: "Other",
+          };
+          const labelCounts: Record<string, number> = {};
+          for (const [ext, cnt] of Object.entries(globalExt)) {
+            const label = EXT_LABELS[ext] ?? "Other";
+            labelCounts[label] = (labelCounts[label] || 0) + cnt;
+          }
+          const docTypeDistribution = Object.entries(labelCounts)
+            .map(([label, count]) => ({ label, count }))
+            .sort((a, b) => b.count - a.count);
+
+          // Documents by creator (hide if no creator data)
+          const creatorEntries = Object.entries(globalCreator)
+            .map(([creator, count]) => ({ creator, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 20);
+          const documentsByCreator = creatorEntries.length > 0 ? creatorEntries : null;
+
+          // Growth stats — compare current calendar month vs previous month
+          const now = new Date();
+          const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+          const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
+          const thisMonthDocs = globalMonth[currentMonth] ?? 0;
+          const lastMonthDocs = globalMonth[prevMonth] ?? 0;
+          const growthPercent = lastMonthDocs > 0
+            ? Math.round(((thisMonthDocs - lastMonthDocs) / lastMonthDocs) * 100)
+            : null;
+          const growthStats = (thisMonthDocs > 0 || lastMonthDocs > 0)
+            ? { thisMonth: thisMonthDocs, lastMonth: lastMonthDocs, growthPercent }
+            : null;
+
+          // Root folder counts for existing widget
           const rootFolderCounts = rootFolderResults.map(({ name, documents, folders }) => ({
-            name,
-            documents,
-            folders,
+            name, documents, folders,
           }));
 
           // ── Step 4: GovSearch audit log stats ─────────────────────────────
@@ -355,6 +563,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           return res.json({
             repositoryId: lfConfig.repositoryId,
             isLive: true,
+            lastRefreshedAt,
             totalFolders,
             totalDocuments,
             totalTemplates: templateDefs.length,
@@ -362,6 +571,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             docsWithoutTemplate,
             templateStats,
             rootFolders: rootFolderCounts,
+            allFolderStats: globalAllFolderStats,
+            emptyFolderCount: globalEmptyFolders.length,
+            emptyFolders: globalEmptyFolders.slice(0, 20),
+            docTypeDistribution,
+            recentlyCreated: globalCreated.slice(0, 10),
+            recentlyModified: globalModified.slice(0, 10),
+            documentsByCreator,
+            growthStats,
             ...auditStats,
           });
         } catch (err: any) {
@@ -370,12 +587,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // ── Fallback: Laserfiche not configured or unreachable ────────────────
-      // Show only real GovSearch data; do not return demo/in-memory document
-      // statistics as repository analytics.
       const auditStats = await buildGovSearchAuditStats();
       return res.json({
         repositoryId: null,
         isLive: false,
+        lastRefreshedAt: new Date().toISOString(),
         totalFolders: 0,
         totalDocuments: 0,
         totalTemplates: 0,
@@ -383,6 +599,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         docsWithoutTemplate: 0,
         templateStats: [],
         rootFolders: [],
+        allFolderStats: [],
+        emptyFolderCount: 0,
+        emptyFolders: [],
+        docTypeDistribution: [],
+        recentlyCreated: [],
+        recentlyModified: [],
+        documentsByCreator: null,
+        growthStats: null,
         ...auditStats,
       });
     } catch {
