@@ -31,9 +31,6 @@ export default defineConfig({
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
   },
-  optimizeDeps: {
-    include: ["jspdf", "jspdf-autotable", "html2canvas", "xlsx"],
-  },
   server: {
     proxy: {
       "/api": {

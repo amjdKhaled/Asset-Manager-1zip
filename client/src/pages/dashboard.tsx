@@ -1,9 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import html2canvas from "html2canvas";
-import * as XLSX from "xlsx";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
   PieChart, Pie, Legend, LineChart, Line,
@@ -438,368 +434,256 @@ function TemplateTable({ data }: { data: DashboardStats["templateStats"] | undef
 
 // ─── Export functions ────────────────────────────────────────────────────────
 
-async function exportToPdf(stats: DashboardStats) {
-  const doc = new jsPDF("p", "mm", "a4");
-  const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight();
-  const M = 14;
-  const CW = W - 2 * M;
-
-  const captureEl = async (id: string): Promise<string | null> => {
-    const el = document.getElementById(id);
-    if (!el) return null;
-    try {
-      const canvas = await html2canvas(el as HTMLElement, {
-        scale: 2, useCORS: true, logging: false, backgroundColor: "#ffffff",
-      });
-      return canvas.toDataURL("image/png");
-    } catch { return null; }
-  };
-
-  const addFooter = (pageNum: number, total: number) => {
-    doc.setFillColor(21, 60, 112);
-    doc.rect(0, H - 9, W, 9, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(7); doc.setFont("helvetica", "normal");
-    doc.text("GovSearch AI — Confidential Analytics Report", M, H - 3.5);
-    doc.text(`Page ${pageNum} of ${total}`, W - M, H - 3.5, { align: "right" });
-  };
-
-  // ── Page 1 ──────────────────────────────────────────────────────────────
-  doc.setFillColor(21, 60, 112);
-  doc.rect(0, 0, W, 40, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(17); doc.setFont("helvetica", "bold");
-  doc.text("GovSearch AI — Repository Analytics Report", M, 14);
-  doc.setFontSize(9); doc.setFont("helvetica", "normal");
-  doc.text(`Repository: ${stats.repositoryId ?? "Not connected"}`, M, 23);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, M, 30);
+function exportToPdf(stats: DashboardStats) {
+  const date = new Date().toLocaleString();
+  const repo = stats.repositoryId ?? "Not connected";
   const live = stats.isLive;
-  doc.setFillColor(...(live ? [34, 197, 94] : [239, 68, 68]) as [number,number,number]);
-  doc.roundedRect(W - M - 22, 10, 22, 10, 2, 2, "F");
-  doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.setFont("helvetica", "bold");
-  doc.text(live ? "LIVE" : "OFFLINE", W - M - 11, 16.5, { align: "center" });
+  const pct = stats.totalDocuments > 0
+    ? Math.round((stats.docsWithTemplate / stats.totalDocuments) * 100)
+    : 0;
 
-  let y = 48;
+  const makeTable = (
+    headers: string[],
+    rows: (string | number)[][],
+    hColor = "#153c70",
+    altColor = "#f8fafc",
+  ) => {
+    const ths = headers.map(h => `<th style="background:${hColor};color:#fff;padding:7px 10px;text-align:left">${h}</th>`).join("");
+    const trs = rows.map((r, i) => {
+      const bg = i % 2 === 1 ? `background:${altColor}` : "";
+      return `<tr>${r.map(c => `<td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;${bg}">${c}</td>`).join("")}</tr>`;
+    }).join("");
+    return `<table style="border-collapse:collapse;width:100%;margin-bottom:20px;font-size:11px"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`;
+  };
 
-  // KPI cards
-  doc.setTextColor(25, 25, 25); doc.setFontSize(12); doc.setFont("helvetica", "bold");
-  doc.text("Key Performance Indicators", M, y); y += 7;
-  const kpis = [
-    { label: "Total Folders",        value: (stats.totalFolders ?? 0).toLocaleString(), r: 59,  g: 130, b: 246 },
-    { label: "Total Documents",       value: (stats.totalDocuments ?? 0).toLocaleString(), r: 20,  g: 184, b: 166 },
-    { label: "Total Templates",       value: (stats.totalTemplates ?? 0).toLocaleString(), r: 139, g: 92,  b: 246 },
-    { label: "With Template",         value: (stats.docsWithTemplate ?? 0).toLocaleString(), r: 34,  g: 197, b: 94 },
-    { label: "Without Template",      value: (stats.docsWithoutTemplate ?? 0).toLocaleString(), r: 249, g: 115, b: 22 },
-  ];
-  const cw = (CW - 4) / 5;
-  kpis.forEach((k, i) => {
-    const x = M + i * (cw + 1);
-    doc.setFillColor(k.r, k.g, k.b);
-    doc.roundedRect(x, y, cw, 23, 2, 2, "F");
-    doc.setTextColor(255, 255, 255); doc.setFontSize(15); doc.setFont("helvetica", "bold");
-    doc.text(k.value, x + cw / 2, y + 10, { align: "center" });
-    doc.setFontSize(7); doc.setFont("helvetica", "normal");
-    doc.text(k.label, x + cw / 2, y + 17, { align: "center", maxWidth: cw - 2 });
-  });
-  y += 30;
+  let body = `
+    <div style="background:#153c70;color:#fff;padding:24px 32px">
+      <h1 style="margin:0 0 6px;font-size:20px">GovSearch AI — Repository Analytics Report</h1>
+      <p style="margin:3px 0;font-size:12px;opacity:.85">Repository: ${repo}</p>
+      <p style="margin:3px 0;font-size:12px;opacity:.85">Generated: ${date}</p>
+      <span style="display:inline-block;margin-top:8px;padding:2px 12px;border-radius:99px;font-size:11px;font-weight:bold;background:${live ? "#22c55e" : "#ef4444"}">${live ? "LIVE" : "OFFLINE"}</span>
+    </div>
+    <div style="padding:24px 32px">
+    <h2 style="font-size:14px;color:#153c70;border-bottom:2px solid #153c70;padding-bottom:4px">Key Performance Indicators</h2>
+    <div style="display:flex;gap:10px;margin-bottom:20px">
+      ${[
+        ["#3b82f6", stats.totalFolders ?? 0, "Total Folders"],
+        ["#14b8a6", stats.totalDocuments ?? 0, "Total Documents"],
+        ["#8b5cf6", stats.totalTemplates ?? 0, "Total Templates"],
+        ["#22c55e", stats.docsWithTemplate ?? 0, "With Template"],
+        ["#f97316", stats.docsWithoutTemplate ?? 0, "Without Template"],
+      ].map(([bg, val, lbl]) =>
+        `<div style="flex:1;background:${bg};color:#fff;padding:12px;border-radius:8px;text-align:center">
+          <div style="font-size:22px;font-weight:bold">${Number(val).toLocaleString()}</div>
+          <div style="font-size:10px;margin-top:4px">${lbl}</div>
+        </div>`
+      ).join("")}
+    </div>`;
 
-  // Growth stats
   if (stats.growthStats?.growthPercent != null) {
     const g = stats.growthStats.growthPercent;
     const pos = g >= 0;
-    doc.setFillColor(pos ? 240 : 254, pos ? 253 : 226, pos ? 244 : 226);
-    doc.roundedRect(M, y, CW, 10, 2, 2, "F");
-    doc.setTextColor(pos ? 21 : 153, pos ? 128 : 27, pos ? 61 : 27);
-    doc.setFontSize(9); doc.setFont("helvetica", "bold");
-    doc.text(
-      `${pos ? "▲" : "▼"} ${Math.abs(g)}% document growth vs last month  (this month: ${stats.growthStats.thisMonth} · last month: ${stats.growthStats.lastMonth})`,
-      M + 4, y + 6.5
-    );
-    y += 14;
+    body += `<div style="padding:8px 12px;border-radius:6px;font-size:12px;font-weight:bold;margin-bottom:14px;background:${pos ? "#f0fdf4" : "#fef2f2"};color:${pos ? "#15803d" : "#991b1b"}">
+      ${pos ? "▲" : "▼"} ${Math.abs(g)}% document growth vs last month &nbsp;·&nbsp;
+      This month: ${stats.growthStats.thisMonth} &nbsp;·&nbsp; Last month: ${stats.growthStats.lastMonth}
+    </div>`;
   }
 
-  // Template coverage bar
   if (stats.totalDocuments > 0) {
-    const pct = Math.round((stats.docsWithTemplate / stats.totalDocuments) * 100);
-    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-    doc.text("Template Coverage", M, y); y += 5;
-    doc.setFillColor(229, 231, 235); doc.roundedRect(M, y, CW, 7, 2, 2, "F");
-    doc.setFillColor(34, 197, 94); doc.roundedRect(M, y, (pct / 100) * CW, 7, 2, 2, "F");
-    doc.setTextColor(80, 80, 80); doc.setFontSize(8); doc.setFont("helvetica", "normal");
-    doc.text(`${pct}%  ·  ${stats.docsWithTemplate.toLocaleString()} with template, ${stats.docsWithoutTemplate.toLocaleString()} without`, M + 2, y + 14);
-    y += 18;
+    body += `<h2 style="font-size:14px;color:#153c70;border-bottom:2px solid #153c70;padding-bottom:4px">Template Coverage</h2>
+    <div style="background:#e5e7eb;border-radius:4px;height:14px;margin:4px 0 6px;overflow:hidden">
+      <div style="height:14px;border-radius:4px;background:#22c55e;width:${pct}%"></div>
+    </div>
+    <p style="font-size:11px;margin:0 0 16px">${pct}% &nbsp;·&nbsp; ${stats.docsWithTemplate.toLocaleString()} with template, ${stats.docsWithoutTemplate.toLocaleString()} without</p>`;
   }
 
-  // Chart: Root folders
-  const rfImg = await captureEl("chart-root-folders");
-  if (rfImg && y < 200) {
-    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-    doc.text("Documents by Folder", M, y); y += 4;
-    const ih = 55;
-    doc.addImage(rfImg, "PNG", M, y, CW, ih); y += ih + 6;
-  }
-
-  if (y > 225) { addFooter(1, 4); doc.addPage(); y = 14; }
-
-  // Chart: Template + Doc Type side by side
-  const tpImg = await captureEl("chart-template-pie");
-  const dtImg = await captureEl("chart-doc-types");
-  if (tpImg || dtImg) {
-    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-    if (tpImg) doc.text("Template Distribution", M, y);
-    if (dtImg) doc.text("Document Types", M + CW / 2 + 2, y);
-    y += 4;
-    const ih = 58;
-    if (tpImg) doc.addImage(tpImg, "PNG", M, y, CW / 2 - 2, ih);
-    if (dtImg) doc.addImage(dtImg, "PNG", M + CW / 2 + 2, y, CW / 2 - 2, ih);
-    y += ih + 6;
-  }
-
-  // ── Page 2: Folder + Template tables ────────────────────────────────────
-  addFooter(1, 4); doc.addPage(); y = 14;
   if (stats.rootFolders?.length) {
-    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-    doc.text("Folder Statistics", M, y); y += 4;
-    autoTable(doc, {
-      startY: y, margin: { left: M, right: M },
-      head: [["Folder", "Total Documents", "Subfolders"]],
-      body: stats.rootFolders.map((f) => [f.name, f.documents.toLocaleString(), f.folders.toLocaleString()]),
-      styles: { fontSize: 9, cellPadding: 3 },
-      headStyles: { fillColor: [21, 60, 112], textColor: 255, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
-    });
-    y = (doc as any).lastAutoTable.finalY + 8;
+    body += `<h2 style="font-size:14px;color:#153c70;border-bottom:2px solid #153c70;padding-bottom:4px">Folder Statistics</h2>`;
+    body += makeTable(["Folder", "Documents", "Subfolders"],
+      stats.rootFolders.map(f => [f.name, f.documents.toLocaleString(), f.folders.toLocaleString()]));
   }
+
   if (stats.templateStats?.length) {
-    if (y > 220) { addFooter(2, 4); doc.addPage(); y = 14; }
-    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-    doc.text("Template Statistics", M, y); y += 4;
-    const total = stats.docsWithTemplate;
-    autoTable(doc, {
-      startY: y, margin: { left: M, right: M },
-      head: [["Template Name", "Documents", "Share"]],
-      body: stats.templateStats.map((t) => [
-        t.name, t.count.toLocaleString(),
-        total > 0 ? `${Math.round((t.count / total) * 100)}%` : "0%",
-      ]),
-      styles: { fontSize: 9, cellPadding: 3 },
-      headStyles: { fillColor: [139, 92, 246], textColor: 255, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [250, 245, 255] },
-    });
-    y = (doc as any).lastAutoTable.finalY + 8;
+    const tot = stats.docsWithTemplate;
+    body += `<div style="page-break-before:always"></div><h2 style="font-size:14px;color:#153c70;border-bottom:2px solid #153c70;padding-bottom:4px">Template Statistics</h2>`;
+    body += makeTable(["Template Name", "Documents", "Share"],
+      stats.templateStats.map(t => [t.name, t.count.toLocaleString(), tot > 0 ? `${Math.round((t.count / tot) * 100)}%` : "0%"]),
+      "#7c3aed", "#faf5ff");
   }
 
-  // ── Page 3: Doc types + Recent docs ─────────────────────────────────────
-  addFooter(2, 4); doc.addPage(); y = 14;
   if (stats.docTypeDistribution?.length) {
-    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-    doc.text("Document Type Distribution", M, y); y += 4;
-    const dtTotal = stats.docTypeDistribution.reduce((s, d) => s + d.count, 0);
-    autoTable(doc, {
-      startY: y, margin: { left: M, right: M },
-      head: [["Document Type", "Count", "Percentage"]],
-      body: stats.docTypeDistribution.map((d) => [
-        d.label, d.count.toLocaleString(),
-        dtTotal > 0 ? `${Math.round((d.count / dtTotal) * 100)}%` : "0%",
-      ]),
-      styles: { fontSize: 9, cellPadding: 3 },
-      headStyles: { fillColor: [8, 145, 178], textColor: 255, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [236, 254, 255] },
-    });
-    y = (doc as any).lastAutoTable.finalY + 8;
+    const dtTot = stats.docTypeDistribution.reduce((s, d) => s + d.count, 0);
+    body += `<div style="page-break-before:always"></div><h2 style="font-size:14px;color:#153c70;border-bottom:2px solid #153c70;padding-bottom:4px">Document Type Distribution</h2>`;
+    body += makeTable(["Document Type", "Count", "Percentage"],
+      stats.docTypeDistribution.map(d => [d.label, d.count.toLocaleString(), dtTot > 0 ? `${Math.round((d.count / dtTot) * 100)}%` : "0%"]),
+      "#0891b2", "#ecfeff");
   }
+
   if (stats.recentlyCreated?.length) {
-    if (y > 185) { addFooter(3, 4); doc.addPage(); y = 14; }
-    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-    doc.text("Recently Created Documents", M, y); y += 4;
-    autoTable(doc, {
-      startY: y, margin: { left: M, right: M },
-      head: [["Document Name", "Folder", "Created At", "Creator"]],
-      body: stats.recentlyCreated.map((d) => [
-        d.name, d.folder || "/",
-        d.creationTime ? new Date(d.creationTime).toLocaleDateString() : "",
-        d.creator || "",
-      ]),
-      styles: { fontSize: 8, cellPadding: 2.5 },
-      headStyles: { fillColor: [22, 163, 74], textColor: 255, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [240, 253, 244] },
-    });
-    y = (doc as any).lastAutoTable.finalY + 8;
+    body += `<h2 style="font-size:14px;color:#153c70;border-bottom:2px solid #153c70;padding-bottom:4px">Recently Created Documents</h2>`;
+    body += makeTable(["Document Name", "Folder", "Created At", "Creator"],
+      stats.recentlyCreated.map(d => [d.name, d.folder || "/", d.creationTime ? new Date(d.creationTime).toLocaleDateString() : "", d.creator || ""]));
   }
+
   if (stats.recentlyModified?.length) {
-    if (y > 185) { addFooter(3, 4); doc.addPage(); y = 14; }
-    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-    doc.text("Recently Modified Documents", M, y); y += 4;
-    autoTable(doc, {
-      startY: y, margin: { left: M, right: M },
-      head: [["Document Name", "Folder", "Last Modified", "Creator"]],
-      body: stats.recentlyModified.map((d) => [
-        d.name, d.folder || "/",
-        d.lastModifiedTime ? new Date(d.lastModifiedTime).toLocaleDateString() : "",
-        d.creator || "",
-      ]),
-      styles: { fontSize: 8, cellPadding: 2.5 },
-      headStyles: { fillColor: [234, 88, 12], textColor: 255, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [255, 247, 237] },
-    });
-    y = (doc as any).lastAutoTable.finalY + 8;
+    body += `<h2 style="font-size:14px;color:#153c70;border-bottom:2px solid #153c70;padding-bottom:4px">Recently Modified Documents</h2>`;
+    body += makeTable(["Document Name", "Folder", "Last Modified", "Creator"],
+      stats.recentlyModified.map(d => [d.name, d.folder || "/", d.lastModifiedTime ? new Date(d.lastModifiedTime).toLocaleDateString() : "", d.creator || ""]),
+      "#ea580c", "#fff7ed");
   }
 
-  // ── Page 4: Documents by creator ────────────────────────────────────────
-  addFooter(3, 4); doc.addPage(); y = 14;
   if (stats.documentsByCreator?.length) {
-    doc.setTextColor(25, 25, 25); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-    doc.text("Documents by Creator", M, y); y += 4;
-    autoTable(doc, {
-      startY: y, margin: { left: M, right: M },
-      head: [["#", "Creator", "Documents"]],
-      body: stats.documentsByCreator.map((d, i) => [i + 1, d.creator, d.count.toLocaleString()]),
-      styles: { fontSize: 9, cellPadding: 3 },
-      headStyles: { fillColor: [88, 28, 135], textColor: 255, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [250, 245, 255] },
-    });
-  } else {
-    doc.setTextColor(120, 120, 120); doc.setFontSize(10); doc.setFont("helvetica", "italic");
-    doc.text("No creator data available for this repository.", M, y + 20);
+    body += `<div style="page-break-before:always"></div><h2 style="font-size:14px;color:#153c70;border-bottom:2px solid #153c70;padding-bottom:4px">Documents by Creator</h2>`;
+    body += makeTable(["#", "Creator", "Documents"],
+      stats.documentsByCreator.map((d, i) => [i + 1, d.creator, d.count.toLocaleString()]),
+      "#581c87", "#faf5ff");
   }
-  addFooter(4, 4);
 
-  const fname = `GovSearch_Analytics_${stats.repositoryId ?? "repo"}_${new Date().toISOString().slice(0, 10)}.pdf`;
-  doc.save(fname);
+  body += `<div style="text-align:center;font-size:10px;color:#999;margin-top:40px;border-top:1px solid #e5e7eb;padding-top:10px">
+    GovSearch AI — Confidential Analytics Report — Generated ${date}
+  </div></div>`;
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+    <title>GovSearch Analytics</title>
+    <style>@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+    body{font-family:Arial,sans-serif;margin:0;padding:0;color:#111}</style>
+  </head><body>${body}</body></html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { win.print(); }, 600);
 }
 
-async function exportToExcel(stats: DashboardStats) {
-  const wb = XLSX.utils.book_new();
+function exportToExcel(stats: DashboardStats) {
+  const esc = (v: string | number) =>
+    String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const c = (v: string | number, t: "String" | "Number" = "String") =>
+    `<Cell><Data ss:Type="${t}">${esc(v)}</Data></Cell>`;
+
+  const r = (...cells: string[]) => `<Row>${cells.join("")}</Row>`;
+
+  const ws = (name: string, rows: string[]) =>
+    `<Worksheet ss:Name="${esc(name)}"><Table>${rows.join("")}</Table></Worksheet>`;
+
+  const date = new Date().toLocaleString();
+  const sheets: string[] = [];
 
   // ── Sheet 1: KPI Summary ─────────────────────────────────────────────────
-  const kpiRows: any[][] = [
-    ["GovSearch AI — Repository Analytics"],
-    [],
-    ["Repository", stats.repositoryId ?? "Not connected"],
-    ["Generated", new Date().toLocaleString()],
-    ["Connection Status", stats.isLive ? "Live" : "Offline"],
-    [],
-    ["Metric", "Value"],
-    ["Total Folders", stats.totalFolders ?? 0],
-    ["Total Documents", stats.totalDocuments ?? 0],
-    ["Total Templates", stats.totalTemplates ?? 0],
-    ["Documents with Template", stats.docsWithTemplate ?? 0],
-    ["Documents without Template", stats.docsWithoutTemplate ?? 0],
-    ["Total GovSearch Queries", stats.totalSearches ?? 0],
+  const kpi = [
+    r(c("GovSearch AI — Repository Analytics")),
+    r(),
+    r(c("Repository"), c(stats.repositoryId ?? "Not connected")),
+    r(c("Generated"), c(date)),
+    r(c("Connection Status"), c(stats.isLive ? "Live" : "Offline")),
+    r(),
+    r(c("Metric"), c("Value")),
+    r(c("Total Folders"), c(stats.totalFolders ?? 0, "Number")),
+    r(c("Total Documents"), c(stats.totalDocuments ?? 0, "Number")),
+    r(c("Total Templates"), c(stats.totalTemplates ?? 0, "Number")),
+    r(c("Documents with Template"), c(stats.docsWithTemplate ?? 0, "Number")),
+    r(c("Documents without Template"), c(stats.docsWithoutTemplate ?? 0, "Number")),
+    r(c("Total GovSearch Queries"), c(stats.totalSearches ?? 0, "Number")),
   ];
   if (stats.growthStats) {
-    kpiRows.push(
-      [], ["Growth Analytics"],
-      ["Documents Created This Month", stats.growthStats.thisMonth],
-      ["Documents Created Last Month", stats.growthStats.lastMonth],
-      ["Month-over-Month Growth", stats.growthStats.growthPercent != null
+    kpi.push(
+      r(), r(c("Growth Analytics")),
+      r(c("Documents Created This Month"), c(stats.growthStats.thisMonth, "Number")),
+      r(c("Documents Created Last Month"), c(stats.growthStats.lastMonth, "Number")),
+      r(c("Month-over-Month Growth"), c(stats.growthStats.growthPercent != null
         ? `${stats.growthStats.growthPercent >= 0 ? "+" : ""}${stats.growthStats.growthPercent}%`
-        : "Insufficient data"],
+        : "Insufficient data")),
     );
   }
-  const wsKpi = XLSX.utils.aoa_to_sheet(kpiRows);
-  wsKpi["!cols"] = [{ wch: 36 }, { wch: 26 }];
-  XLSX.utils.book_append_sheet(wb, wsKpi, "KPI Summary");
+  sheets.push(ws("KPI Summary", kpi));
 
   // ── Sheet 2: Folder Statistics ───────────────────────────────────────────
   if (stats.rootFolders?.length) {
-    const rows: any[][] = [
-      ["Folder Name", "Total Documents", "Total Subfolders"],
-      ...stats.rootFolders.map((f) => [f.name, f.documents, f.folders]),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 40 }, { wch: 20 }, { wch: 20 }];
-    XLSX.utils.book_append_sheet(wb, ws, "Folder Statistics");
+    sheets.push(ws("Folder Statistics", [
+      r(c("Folder Name"), c("Total Documents"), c("Total Subfolders")),
+      ...stats.rootFolders.map(f => r(c(f.name), c(f.documents, "Number"), c(f.folders, "Number"))),
+    ]));
   }
 
-  // ── Sheet 3: All Folder Stats (largest folders) ──────────────────────────
+  // ── Sheet 3: All Folders ─────────────────────────────────────────────────
   if (stats.allFolderStats?.length) {
     const sorted = [...stats.allFolderStats].sort((a, b) => b.documents - a.documents);
-    const rows: any[][] = [
-      ["Folder Name", "Path", "Documents"],
-      ...sorted.map((f) => [f.name, f.path, f.documents]),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 35 }, { wch: 55 }, { wch: 15 }];
-    XLSX.utils.book_append_sheet(wb, ws, "All Folders");
+    sheets.push(ws("All Folders", [
+      r(c("Folder Name"), c("Path"), c("Documents")),
+      ...sorted.map(f => r(c(f.name), c(f.path), c(f.documents, "Number"))),
+    ]));
   }
 
   // ── Sheet 4: Template Statistics ─────────────────────────────────────────
   if (stats.templateStats?.length) {
-    const total = stats.docsWithTemplate;
-    const rows: any[][] = [
-      ["Template Name", "Document Count", "Share (%)"],
-      ...stats.templateStats.map((t) => [
-        t.name, t.count,
-        total > 0 ? `${Math.round((t.count / total) * 100)}%` : "0%",
-      ]),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 40 }, { wch: 18 }, { wch: 12 }];
-    XLSX.utils.book_append_sheet(wb, ws, "Template Statistics");
+    const tot = stats.docsWithTemplate;
+    sheets.push(ws("Template Statistics", [
+      r(c("Template Name"), c("Document Count"), c("Share (%)")),
+      ...stats.templateStats.map(t => r(c(t.name), c(t.count, "Number"),
+        c(tot > 0 ? `${Math.round((t.count / tot) * 100)}%` : "0%"))),
+    ]));
   }
 
   // ── Sheet 5: Document Types ───────────────────────────────────────────────
   if (stats.docTypeDistribution?.length) {
-    const dtTotal = stats.docTypeDistribution.reduce((s, d) => s + d.count, 0);
-    const rows: any[][] = [
-      ["Document Type", "Count", "Percentage"],
-      ...stats.docTypeDistribution.map((d) => [
-        d.label, d.count,
-        dtTotal > 0 ? `${Math.round((d.count / dtTotal) * 100)}%` : "0%",
-      ]),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 22 }, { wch: 15 }, { wch: 15 }];
-    XLSX.utils.book_append_sheet(wb, ws, "Document Types");
+    const dtTot = stats.docTypeDistribution.reduce((s, d) => s + d.count, 0);
+    sheets.push(ws("Document Types", [
+      r(c("Document Type"), c("Count"), c("Percentage")),
+      ...stats.docTypeDistribution.map(d => r(c(d.label), c(d.count, "Number"),
+        c(dtTot > 0 ? `${Math.round((d.count / dtTot) * 100)}%` : "0%"))),
+    ]));
   }
 
   // ── Sheet 6: Recent Documents ─────────────────────────────────────────────
-  const recentRows: any[][] = [["Name", "Folder", "Created At", "Last Modified", "Creator"]];
   const seen = new Set<string>();
+  const recentRows: string[] = [r(c("Name"), c("Folder"), c("Created At"), c("Last Modified"), c("Creator"))];
   for (const d of [...(stats.recentlyCreated ?? []), ...(stats.recentlyModified ?? [])]) {
     const key = `${d.name}||${d.folder}`;
     if (!seen.has(key)) {
       seen.add(key);
-      recentRows.push([
-        d.name, d.folder || "/",
-        d.creationTime ? new Date(d.creationTime).toLocaleString() : "",
-        d.lastModifiedTime ? new Date(d.lastModifiedTime).toLocaleString() : "",
-        d.creator || "",
-      ]);
+      recentRows.push(r(
+        c(d.name), c(d.folder || "/"),
+        c(d.creationTime ? new Date(d.creationTime).toLocaleString() : ""),
+        c(d.lastModifiedTime ? new Date(d.lastModifiedTime).toLocaleString() : ""),
+        c(d.creator || ""),
+      ));
     }
   }
-  if (recentRows.length > 1) {
-    const ws = XLSX.utils.aoa_to_sheet(recentRows);
-    ws["!cols"] = [{ wch: 42 }, { wch: 32 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
-    XLSX.utils.book_append_sheet(wb, ws, "Recent Documents");
-  }
+  if (recentRows.length > 1) sheets.push(ws("Recent Documents", recentRows));
 
   // ── Sheet 7: Documents by Creator ─────────────────────────────────────────
   if (stats.documentsByCreator?.length) {
-    const rows: any[][] = [
-      ["Rank", "Creator", "Documents Created"],
-      ...stats.documentsByCreator.map((d, i) => [i + 1, d.creator, d.count]),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 8 }, { wch: 38 }, { wch: 22 }];
-    XLSX.utils.book_append_sheet(wb, ws, "Documents by Creator");
+    sheets.push(ws("Documents by Creator", [
+      r(c("Rank"), c("Creator"), c("Documents Created")),
+      ...stats.documentsByCreator.map((d, i) => r(c(i + 1, "Number"), c(d.creator), c(d.count, "Number"))),
+    ]));
   }
 
-  // ── Sheet 8: GovSearch Search Queries ─────────────────────────────────────
+  // ── Sheet 8: Search Queries ───────────────────────────────────────────────
   if (stats.topSearches?.length) {
-    const rows: any[][] = [
-      ["Query", "Count"],
-      ...stats.topSearches.map((s) => [s.query, s.count]),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 55 }, { wch: 12 }];
-    XLSX.utils.book_append_sheet(wb, ws, "Search Queries");
+    sheets.push(ws("Search Queries", [
+      r(c("Query"), c("Count")),
+      ...stats.topSearches.map(s => r(c(s.query), c(s.count, "Number"))),
+    ]));
   }
 
-  const fname = `GovSearch_Analytics_${stats.repositoryId ?? "repo"}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-  XLSX.writeFile(wb, fname);
+  const xml = `<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+          xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+          xmlns:x="urn:schemas-microsoft-com:office:excel">
+${sheets.join("\n")}
+</Workbook>`;
+
+  const blob = new Blob([xml], { type: "application/vnd.ms-excel" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `GovSearch_Analytics_${stats.repositoryId ?? "repo"}_${new Date().toISOString().slice(0, 10)}.xls`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ─── New widget components ───────────────────────────────────────────────────
