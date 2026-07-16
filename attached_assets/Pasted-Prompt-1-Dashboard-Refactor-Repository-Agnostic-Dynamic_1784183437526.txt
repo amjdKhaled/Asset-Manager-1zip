@@ -1,0 +1,144 @@
+Prompt 1 – Dashboard Refactor (Repository-Agnostic + Dynamic Statistics)
+
+You are a senior Full Stack Engineer and Laserfiche architect.
+
+Refactor the Dashboard completely. Do NOT modify any other page (Document Archive, AI Assistant, Settings, OCR, etc.). Only work on the Dashboard.
+
+Primary Goal
+
+The dashboard must work dynamically with ANY Laserfiche repository, not only the repository that was used during development.
+
+The dashboard must never contain hardcoded repository names, folder IDs, template names, or paths.
+
+1. Repository Independence
+
+Remove every hardcoded repository dependency.
+
+The dashboard must automatically detect the currently connected repository from the Laserfiche connection.
+
+Everything displayed on the dashboard must be generated from the current repository.
+
+It must work correctly for:
+
+TestEmployee
+LFNewRepoWF
+Any future repository
+
+without changing a single line of code.
+
+2. Repository Statistics
+
+Add summary cards that always show:
+
+Total folders
+Total documents
+Total templates
+Documents with templates
+Documents without templates
+
+These values must always be calculated live from the repository.
+
+Do not hardcode anything.
+
+3. Template Statistics
+
+Automatically read every template that exists in the repository.
+
+For every template display:
+
+Template Name
+Number of documents using that template
+
+Example:
+
+Training on Aviation .......... 145
+
+Employee Records ............. 82
+
+Contracts .................... 31
+
+Invoices ..................... 418
+
+The code must discover templates automatically.
+
+Never hardcode template names.
+
+If tomorrow someone creates a new template it must appear automatically.
+
+4. Charts
+
+Redesign every chart.
+
+Requirements:
+
+Modern appearance
+Multiple colors
+Each category has a different color
+Good spacing
+Proper legends
+Tooltips
+Responsive
+Dark mode compatible
+
+Do NOT use one single color.
+
+Charts should look professional.
+
+5. Dashboard Performance
+
+The dashboard must load quickly.
+
+Use:
+
+parallel requests when possible
+caching where appropriate
+avoid repeated API calls
+avoid scanning the repository multiple times unnecessarily
+6. Error Handling
+
+The dashboard must never crash.
+
+If something cannot be loaded:
+
+Show a friendly card such as:
+
+"No template information available."
+
+instead of throwing an exception.
+
+7. Permissions
+
+The dashboard must respect Laserfiche permissions.
+
+If a user only has access to part of the repository:
+
+Show statistics only for accessible entries.
+
+Never attempt to bypass security.
+
+8. Code Quality
+
+Refactor the dashboard code.
+
+Remove:
+
+duplicated code
+hardcoded IDs
+hardcoded repository names
+unnecessary API calls
+
+Create reusable services where appropriate.
+
+9. Deliverables
+
+After implementing:
+
+Explain every change.
+List every file modified.
+Explain how repository discovery works.
+Explain how template discovery works.
+Explain how folder/document counting works.
+Explain how permissions are handled.
+Explain any performance optimizations.
+
+Do not change any other module outside the Dashboard.

@@ -712,4 +712,65 @@ export async function laserficheGetEdoc(
   return { buffer: Buffer.from(arrayBuffer), contentType, fileName };
 }
 
+export interface LFTemplateDefinition {
+  id: number;
+  name: string;
+  description?: string;
+}
+
+export async function laserficheGetTemplateDefinitions(
+  config: LaserficheConfig,
+  token: string
+): Promise<LFTemplateDefinition[]> {
+  const urls = [
+    `${config.serverUrl}/v1/Repositories/${config.repositoryId}/TemplateDefinitions`,
+    `${config.serverUrl}/v2/Repositories/${config.repositoryId}/TemplateDefinitions`,
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      });
+      if (!res.ok) continue;
+      const data = await res.json() as { value?: Array<{ id?: number; name?: string; description?: string }> };
+      const defs = (data.value || [])
+        .map((t) => ({ id: t.id ?? 0, name: (t.name ?? "").trim(), description: t.description }))
+        .filter((t) => t.name);
+      if (defs.length > 0) return defs;
+    } catch {
+      continue;
+    }
+  }
+  return [];
+}
+
+export async function laserficheCountByTemplate(
+  config: LaserficheConfig,
+  token: string,
+  templateName: string
+): Promise<number> {
+  try {
+    const createUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Searches`;
+    const createRes = await fetch(createUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ searchCommand: `{Template:"${templateName}"}` }),
+    });
+    if (!createRes.ok) return 0;
+    const createBody = await safeJson<LFSearchTokenResponse>(createRes, "count by template");
+    const searchToken = createBody.searchToken || createBody.token || createBody.id;
+    if (!searchToken) return 0;
+
+    const countUrl = `${config.serverUrl}/v1/Repositories/${config.repositoryId}/Searches/${encodeURIComponent(searchToken)}?$top=1&$count=true`;
+    const countRes = await fetch(countUrl, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+    if (!countRes.ok) return 0;
+    const data = await safeJson<{ "@odata.count"?: number; count?: number; value?: unknown[] }>(countRes, "count result");
+    return data["@odata.count"] ?? data.count ?? (Array.isArray(data.value) ? data.value.length : 0);
+  } catch {
+    return 0;
+  }
+}
+
 export type { LaserficheConfig as LFConfig };
