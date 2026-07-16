@@ -181,6 +181,33 @@ namespace LaserficheAIExtension.Popup
             if (e.IsSuccess)
             {
                 StatusOverlay.Visibility = Visibility.Collapsed;
+
+                // Push the active repository to the web app so the dashboard
+                // automatically uses the correct repository without URL params.
+                // The Laserfiche.RepositoryAccess SDK exposes the connected
+                // repository via Session.Repository.Name; here we read it from
+                // ExtensionSettings (which was used to establish that session).
+                // To use the Desktop Client's live session instead, call
+                // LFApplication.Connect(connguid) via Laserfiche.ClientAutomation
+                // (connguid is available in HandleButtonClick in App.xaml.cs).
+                var repoId = _settings.LaserficheRepository?.Trim();
+                if (!string.IsNullOrEmpty(repoId) && _communicationService.IsConnected)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _communicationService.SendCommandAsync(
+                                Models.WebCommandTypes.SetActiveRepository,
+                                new { repositoryId = repoId });
+                            Log("SetActiveRepository sent: " + repoId);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log("SetActiveRepository failed: " + ex.Message);
+                        }
+                    });
+                }
             }
             else
             {

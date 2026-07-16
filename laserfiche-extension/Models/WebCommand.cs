@@ -25,6 +25,7 @@ namespace LaserficheAIExtension.Models
 
     public static class WebCommandTypes
     {
+        // ── Commands sent FROM the web app TO the extension ──────────────────
         public const string OpenDocument = "OpenDocument";
         public const string UpdateMetadata = "UpdateMetadata";
         public const string MoveDocument = "MoveDocument";
@@ -36,5 +37,11 @@ namespace LaserficheAIExtension.Models
         public const string GetDocumentFields = "GetDocumentFields";
         public const string Ping = "Ping";
         public const string SetTheme = "SetTheme";
+
+        // ── Commands sent FROM the extension TO the web app ──────────────────
+        // Sent on navigation completion so the web app always knows which
+        // Laserfiche repository this popup is connected to.
+        // Payload: { "repositoryId": "<repo name>" }
+        public const string SetActiveRepository = "SetActiveRepository";
     }
 }

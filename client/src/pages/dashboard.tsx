@@ -611,7 +611,7 @@ export default function DashboardPage() {
             <div className="xl:col-span-2">
               <ChartCard
                 title="GovSearch Search Activity"
-                sub="Queries performed via the GovSearch interface · last 7 days"
+                sub="Based on searches performed inside GovSearch · last 7 days"
                 badge={
                   <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full">
                     <Info className="w-3 h-3" />
@@ -634,7 +634,7 @@ export default function DashboardPage() {
 
             <ChartCard
               title="Top Queries"
-              sub="Most frequent via GovSearch"
+              sub="Based on searches performed inside GovSearch"
               badge={
                 <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full">
                   <Info className="w-3 h-3" />
@@ -670,7 +670,172 @@ export default function DashboardPage() {
             </ChartCard>
           </div>
 
+          {/* Widget Audit Table */}
+          <WidgetAuditTable isLive={stats.isLive} />
+
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Widget Audit Table ───────────────────────────────────────────────────────
+
+type AuditRow = {
+  widget: string;
+  dataSource: string;
+  origin: "laserfiche" | "govsearch" | "both";
+  liveOnly: boolean;
+  notes: string;
+};
+
+const AUDIT_ROWS: AuditRow[] = [
+  {
+    widget: "Total Folders",
+    dataSource: "LF REST API — recursive folder scan",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Counts subfolders at all depths via scanFolder()",
+  },
+  {
+    widget: "Total Documents",
+    dataSource: "LF REST API — recursive folder scan",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Counts electronic documents at all depths",
+  },
+  {
+    widget: "Total Templates",
+    dataSource: "LF REST API — /TemplateDefinitions",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Counts template definitions from the repository schema",
+  },
+  {
+    widget: "Docs with Template",
+    dataSource: "LF REST API — templateName field on folder children",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Counted during the folder scan pass; v1 TemplateName / v2 templateName",
+  },
+  {
+    widget: "Docs without Template",
+    dataSource: "Derived: Total Documents − Docs with Template",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Computed, not a separate API call",
+  },
+  {
+    widget: "Documents by Folder",
+    dataSource: "LF REST API — recursive folder scan",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Top 15 root-level folders by document count; Others bar aggregates rest",
+  },
+  {
+    widget: "Template Distribution (pie)",
+    dataSource: "LF REST API — templateName field on folder children",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Same scan pass as template counting; one slice per template",
+  },
+  {
+    widget: "Template Statistics (table)",
+    dataSource: "LF REST API — templateName field on folder children",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Sorted by document count; shows % share per template",
+  },
+  {
+    widget: "GovSearch Search Activity",
+    dataSource: "GovSearch in-process audit log (storage.getAuditLogs)",
+    origin: "govsearch",
+    liveOnly: false,
+    notes: "Based on searches performed inside GovSearch · last 7 days · NOT from LF server",
+  },
+  {
+    widget: "Top Queries",
+    dataSource: "GovSearch in-process audit log (storage.getAuditLogs)",
+    origin: "govsearch",
+    liveOnly: false,
+    notes: "Based on searches performed inside GovSearch · top 5 by frequency · NOT from LF server",
+  },
+];
+
+const ORIGIN_BADGE: Record<AuditRow["origin"], { label: string; cls: string }> = {
+  laserfiche: {
+    label: "Laserfiche",
+    cls: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+  },
+  govsearch: {
+    label: "GovSearch",
+    cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+  },
+  both: {
+    label: "Both",
+    cls: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
+  },
+};
+
+function WidgetAuditTable({ isLive }: { isLive: boolean }) {
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-2 mb-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="h-5 w-1 rounded-full bg-primary flex-shrink-0" />
+          <h2 className="text-sm font-semibold text-foreground">Widget Data Source Audit</h2>
+          <span className="text-xs text-muted-foreground truncate">
+            What powers each widget on this dashboard
+          </span>
+        </div>
+        {!isLive && (
+          <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full">
+            <AlertCircle className="w-3 h-3" />
+            LF widgets hidden (not connected)
+          </span>
+        )}
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-border">
+        <table className="w-full text-xs" data-testid="widget-audit-table">
+          <thead>
+            <tr className="bg-muted/50">
+              <th className="text-left px-3 py-2.5 font-semibold text-foreground">Widget</th>
+              <th className="text-left px-3 py-2.5 font-semibold text-foreground">Data Source</th>
+              <th className="text-left px-3 py-2.5 font-semibold text-foreground w-28">Origin</th>
+              <th className="text-left px-3 py-2.5 font-semibold text-foreground hidden lg:table-cell">Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {AUDIT_ROWS.map((row) => (
+              <tr
+                key={row.widget}
+                className="border-t border-border hover:bg-muted/30 transition-colors"
+                data-testid={`audit-row-${row.widget.replace(/\s+/g, "-").toLowerCase()}`}
+              >
+                <td className="px-3 py-2.5 font-medium text-foreground whitespace-nowrap">
+                  {row.widget}
+                  {row.liveOnly && (
+                    <span className="ml-1.5 text-xs text-amber-600 dark:text-amber-400 opacity-70">
+                      (live only)
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2.5 text-muted-foreground">{row.dataSource}</td>
+                <td className="px-3 py-2.5">
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium ${ORIGIN_BADGE[row.origin].cls}`}
+                  >
+                    {ORIGIN_BADGE[row.origin].label}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 text-muted-foreground hidden lg:table-cell">
+                  {row.notes}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

@@ -18,6 +18,42 @@ import PdfExtractionPage from "@/pages/pdf-extraction";
 import { Moon, Sun } from "lucide-react";
 import { useState, useEffect } from "react";
 
+/**
+ * Listen for commands dispatched by the Laserfiche WPF Desktop Client
+ * extension via the WebView2 bridge (IWebAppCommunicationService.SendCommandAsync).
+ * The extension fires a "laserfiche-command" CustomEvent on window with
+ * detail = { command: string, payload: object }.
+ *
+ * Handled commands:
+ *   SetActiveRepository — extension tells the web app which LF repository
+ *     it is connected to. We call POST /api/session/active-repository so
+ *     all subsequent dashboard stats calls automatically use the right repo.
+ */
+function useLaserficheCommandBridge() {
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const { command, payload } = (event as CustomEvent).detail ?? {};
+      if (!command) return;
+
+      if (command === "SetActiveRepository") {
+        const repositoryId = (payload?.repositoryId as string | undefined)?.trim() ?? "";
+        fetch("/api/session/active-repository", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repositoryId }),
+        })
+          .then(() =>
+            queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] })
+          )
+          .catch(() => {});
+      }
+    };
+
+    window.addEventListener("laserfiche-command", handler);
+    return () => window.removeEventListener("laserfiche-command", handler);
+  }, []);
+}
+
 function ThemeToggle() {
   const [dark, setDark] = useState(false);
 
@@ -103,6 +139,8 @@ function Router() {
 }
 
 function App() {
+  useLaserficheCommandBridge();
+
   const style = {
     "--sidebar-width": "18rem",
     "--sidebar-width-icon": "3rem",
