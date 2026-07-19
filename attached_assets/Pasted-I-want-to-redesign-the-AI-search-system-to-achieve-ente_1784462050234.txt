@@ -1,0 +1,290 @@
+I want to redesign the AI search system to achieve enterprise-grade accuracy.
+
+The goal is NOT to simply answer questions.
+
+The goal is to become an expert assistant that understands every Arabic document in the Laserfiche repository.
+
+I want the AI to make as few mistakes as possible.
+
+========================================
+1. Improve Retrieval (Highest Priority)
+========================================
+
+Improve retrieval before improving prompting.
+
+The AI should always retrieve the best matching documents before generating an answer.
+
+Implement:
+
+- Hybrid Search
+    - Semantic Search
+    - BM25 / Keyword Search
+
+Merge both result sets.
+
+========================================
+2. Add Re-ranking
+========================================
+
+After retrieving documents,
+
+rerank them using a reranker model.
+
+The reranker should understand Arabic.
+
+The final answer should only use the highest-confidence documents.
+
+========================================
+3. Better Context Building
+========================================
+
+Instead of sending whole documents,
+
+extract only the most relevant chunks.
+
+Each chunk should include:
+
+- document name
+- template
+- metadata
+- folder
+- entry ID
+
+========================================
+4. Metadata First
+========================================
+
+Always search metadata before body text.
+
+Highest priority:
+
+Document Name
+
+Template
+
+Metadata Fields
+
+Tags
+
+Folder
+
+Entry ID
+
+Then search OCR and document body.
+
+========================================
+5. Arabic Prompt Engineering
+========================================
+
+Rewrite the system prompt.
+
+The assistant must:
+
+- answer in Arabic
+- understand Saudi government terminology
+- never hallucinate
+- never invent document information
+- admit when information is missing
+- cite which document the answer came from
+
+========================================
+6. Confidence Score
+========================================
+
+Every answer should calculate confidence.
+
+If confidence is low:
+
+Do not guess.
+
+Instead say:
+
+"I couldn't find enough evidence."
+
+========================================
+7. Multi-document Reasoning
+========================================
+
+If information exists across multiple documents,
+
+combine them into one answer.
+
+========================================
+8. Intelligent Citations
+========================================
+
+Every answer should include:
+
+Document Name
+
+Entry ID
+
+Folder
+
+Template
+
+Repository
+
+========================================
+9. Better Chunking
+========================================
+
+Chunk by:
+
+headings
+
+sections
+
+paragraphs
+
+metadata
+
+Never split sentences.
+
+========================================
+10. OCR Improvement
+========================================
+
+If OCR exists,
+
+include OCR text in embeddings.
+
+If OCR is missing,
+
+generate OCR before indexing.
+
+========================================
+11. Image Understanding
+========================================
+
+If documents contain:
+
+tables
+
+forms
+
+charts
+
+screenshots
+
+stamps
+
+signatures
+
+extract useful information.
+
+========================================
+12. Query Expansion
+========================================
+
+Expand Arabic queries automatically.
+
+Example:
+
+"ترشيح"
+
+should search:
+
+ترشيح
+
+طلب ترشيح
+
+نموذج ترشيح
+
+ترشيح موظف
+
+اعتماد ترشيح
+
+========================================
+13. Synonym Expansion
+========================================
+
+Support Arabic synonyms.
+
+Examples:
+
+معاملة
+
+طلب
+
+خطاب
+
+وثيقة
+
+نموذج
+
+قرار
+
+تعميم
+
+========================================
+14. Better Answer Generation
+========================================
+
+Answer only from retrieved evidence.
+
+Never answer from model memory.
+
+Never fabricate.
+
+========================================
+15. Search Pipeline
+========================================
+
+Implement this pipeline:
+
+User Question
+
+↓
+
+Arabic Query Expansion
+
+↓
+
+Hybrid Search
+
+↓
+
+Metadata Search
+
+↓
+
+Semantic Search
+
+↓
+
+BM25 Search
+
+↓
+
+Merge Results
+
+↓
+
+Reranking
+
+↓
+
+Chunk Selection
+
+↓
+
+LLM
+
+↓
+
+Grounded Answer
+
+========================================
+16. Explain Before Implementing
+========================================
+
+Before writing code,
+
+review the existing search architecture.
+
+Identify weaknesses.
+
+Explain exactly what should be improved.
+
+Then implement the improvements incrementally without breaking the existing application.

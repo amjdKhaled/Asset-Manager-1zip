@@ -1136,55 +1136,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // ── Detect Laserfiche natural-language search intent ──────────────────
     const lfSearchKeywords = /وثيقة|معاملة|ملف|أرشيف|document|archive|file|report|contract|سجل|تقرير|عقد|ابحث|search|find/iu;
     let lfContextBlock = "";
-    let lfEntries: any[] = [];
 
-    const normalizeText = (s: string) =>
-      (s || "")
-        .toLowerCase()
-        .normalize("NFKD")
-        .replace(/[\u064B-\u065F\u0670]/g, "")
-        .replace(/[إأآا]/g, "ا")
-        .replace(/[ة]/g, "ه")
-        .replace(/[ى]/g, "ي")
-        .replace(/\s+/g, " ")
-        .trim();
-    const stopWords = new Set([
-      "ابحث", "عن", "فيها", "التي", "يكون", "يوجد", "وثيقه", "وثيقة", "وثايق", "الوثيقه", "الوثيقة",
-      "search", "find", "for", "the", "with", "document", "documents", "file", "archive"
-    ]);
-    const extractKeywords = (queryText: string) =>
-      normalizeText(queryText)
-        .split(" ")
-        .map((w) => w.trim())
-        .filter((w) => w.length > 2 && !stopWords.has(w));
-    const levenshtein = (a: string, b: string): number => {
-      const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
-      for (let i = 0; i <= a.length; i++) dp[i][0] = i;
-      for (let j = 0; j <= b.length; j++) dp[0][j] = j;
-      for (let i = 1; i <= a.length; i++) {
-        for (let j = 1; j <= b.length; j++) {
-          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-          dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
-        }
-      }
-      return dp[a.length][b.length];
-    };
-    const keywordExists = (keyword: string, text: string) => {
-      if (text.includes(keyword)) return true;
-      const tokens = text.split(/[\s|,:;\n]+/).filter(Boolean);
-      return tokens.some((t) => t.startsWith(keyword) || keyword.startsWith(t) || (keyword.length > 3 && levenshtein(t, keyword) <= 1));
-    };
-
-    if (lfConfig && lfSearchKeywords.test(userQuery)) {
+    // ── Enterprise RAG Pipeline: retrieve from Laserfiche repository ────
+    let pipelineResult: import("./rag-pipeline").RetrievalResult | null = null;
+    if (lfConfig && lfSearchKeywords.test(userQuery) && !selectedMetadataContext) {
       try {
+        const { retrieveDocs, buildStructuredContext } = await import("./rag-pipeline");
+
+        // Load all documents from the repository (already cached by /api/lf/documents scan)
+        // We fetch them fresh here to ensure we have the latest full set
         const token = await getLaserficheToken(lfConfig);
-        const fieldDefinitions = await laserficheGetFieldDefinitions(lfConfig, token).catch(() => []);
-        const fieldNameTokens = new Set(
-          (fieldDefinitions || [])
-            .flatMap((f: any) => String(f?.name || "").split(/\s+/))
-            .map((w: string) => normalizeText(w))
-            .filter((w: string) => w.length > 2)
-        );
         const visited = new Set<number>();
         const collectDocs = async (folderId: number): Promise<any[]> => {
           if (visited.has(folderId)) return [];
@@ -1195,83 +1156,41 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           const nested = await Promise.all(subfolders.map((f: any) => collectDocs(Number(f.id))));
           return [...docsHere, ...nested.flat()];
         };
-        lfEntries = (await collectDocs(1)).slice(0, 300);
-        const normalizedQuery = normalizeText(userQuery);
-        const keywords = extractKeywords(userQuery);
-        const effectiveKeywords = keywords.filter((k) => !fieldNameTokens.has(k));
+        const allEntries = (await collectDocs(1)).slice(0, 300);
 
-        const inspected = await Promise.all(
-          lfEntries.map(async (entry: any) => {
-            let rawFields: any[] = [];
-            try {
-              rawFields = await laserficheGetEntryFieldsRaw(lfConfig, token, entry.id);
-            } catch {}
+        const searchableDocs = allEntries.map((e: any) => ({
+          id: Number(e.id),
+          name: e.name || `Entry ${e.id}`,
+          path: e.fullPath || "",
+          folderName: "Repository",
+          templateName: e.templateName || "",
+          creator: e.creator || "",
+          creationTime: e.creationTime || "",
+          lastModifiedTime: e.lastModifiedTime || "",
+          metadata: e.metadata || {},
+          isElectronicDocument: e.isElectronicDocument !== false,
+        }));
 
-            const metadataLines = rawFields
-              .map((f: any) => {
-                const name = f?.fieldName || f?.name || "Unknown";
-                const value = Array.isArray(f?.values)
-                  ? f.values.map((v: any) => v?.value ?? "").filter(Boolean).join(", ")
-                  : "";
-                return value ? `${name}: ${value}` : "";
-              })
-              .filter(Boolean);
+        pipelineResult = retrieveDocs(userQuery, searchableDocs, { topK: 15 });
 
-            const searchableText = normalizeText(
-              [
-                `ID: ${entry.id}`,
-                `Name: ${entry.name || ""}`,
-                `Path: ${entry.fullPath || ""}`,
-                "Metadata:",
-                ...metadataLines,
-              ].join("\n")
-            );
-
-            const keywordHits = effectiveKeywords.filter((k) => keywordExists(k, searchableText)).length;
-            const score =
-              keywordHits * 5 +
-              (normalizeText(entry.name || "").includes(normalizedQuery) ? 3 : 0) +
-              (normalizeText(entry.fullPath || "").includes(normalizedQuery) ? 2 : 0);
-
-            return {
-              id: entry.id,
-              name: entry.name,
-              path: entry.fullPath || "",
-              metadataPreview: metadataLines.slice(0, 6),
-              searchableText,
-              score,
-            };
-          })
-        );
-
-        const matched = inspected
-          .filter((d) => {
-            if (!normalizedQuery) return false;
-            if (effectiveKeywords.length === 0) return d.searchableText.includes(normalizedQuery);
-            return effectiveKeywords.every((k) => keywordExists(k, d.searchableText));
-          })
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 20);
-
-        if (matched.length > 0) {
-          const resultLines = matched.map((d, i) => {
-            const meta = d.metadataPreview.length ? ` | ${d.metadataPreview.join(" | ")}` : "";
-            return `[${i + 1}] ID:${d.id} | ${d.name} | ${d.path}${meta}`;
-          });
-          lfContextBlock = (lang === "ar"
-            ? `نتائج بحث Laserfiche الحقيقية (تمت فلترتها بواسطة النظام):\n${resultLines.join("\n")}\n\nالتعليمات:\n- استخدم النتائج فقط.\n- لا تخترع وثائق غير موجودة.\n- اعرض الاسم وID والمسار لكل نتيجة.`
-            : `Real Laserfiche search results (already filtered by system):\n${resultLines.join("\n")}\n\nInstructions:\n- Use only these results.\n- Do not invent documents.\n- Return name, ID, and path for each result.`);
+        if (pipelineResult.docs.length > 0) {
+          lfContextBlock = buildStructuredContext(pipelineResult, lang);
         } else {
           lfContextBlock = lang === "ar"
-            ? "نتائج بحث Laserfiche الحقيقية: لم يتم العثور على وثائق مطابقة."
-            : "Real Laserfiche search results: no matching documents were found.";
+            ? "\u200f" + "لم يتم العثور على أي وثائق مطابقة في مخزن Laserfiche."
+            : "No matching documents were found in the Laserfiche repository.";
         }
-      } catch {}
+      } catch (err: any) {
+        console.error("[Chat RAG] Pipeline error:", err?.message || err);
+        lfContextBlock = lang === "ar"
+          ? "\u200f" + "تعذر، لم يمكن اجراء البحث في مخزن Laserfiche."
+          : "Sorry, could not search the Laserfiche repository.";
+      }
     }
 
-    // ── Fall back: local document DB context (only when no specific LF entry context) ──
+    // ── Fall back: local document DB context ──
     let contextDocs: any[] = [];
-    if (!selectedMetadataContext) {
+    if (!selectedMetadataContext && !pipelineResult) {
       try {
         const searchResult = await storage.searchDocuments({ query: userQuery, searchType: "hybrid", page: 1, limit: 5 });
         contextDocs = searchResult.results.map((r) => r.document);
@@ -1280,6 +1199,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     const systemPrompt = buildSystemPrompt(lang);
     const localContext = buildContextBlock(contextDocs, lang);
+
+    // Confidence gating: if pipeline ran but confidence is low, prepend a warning
+    let confidenceNote = "";
+    if (pipelineResult && pipelineResult.confidenceLabel === "low") {
+      confidenceNote = lang === "ar"
+        ? "\n\n\u200f" + "تحذير: درجة الثقة في النتائج منخفضة. أجب بالحظر واعتمد فقط على الوثائق المسترجعة. إذا لم تكن الإجابة كافية، قل: 'لم أجد معلومات كافية.'"
+        : "\n\nWarning: search confidence is low. Be cautious and rely only on the retrieved documents. If the answer is not clear, say: 'I couldn't find enough evidence.'";
+    }
+
     const fullSystemPrompt = selectedMetadataContext
       ? `${systemPrompt}
 
@@ -1299,7 +1227,7 @@ IMPORTANT:
 - If data is missing, say it is not available in the document.
 - If the user asks for a summary (e.g., "لخص الوثيقة"), provide a medium-length summary (about 5-7 sentences) with key metadata highlights and useful details.
 - Respond in the same language as user input.`
-      : `${systemPrompt}\n\n${lfContextBlock || localContext}`;
+      : `${systemPrompt}${confidenceNote}\n\n${lfContextBlock || localContext}`;
 
     const effectiveUserPrompt = selectedMetadataContext
       ? `User request:\n${userQuery}\n\nThis request is about Entry ID ${contextEntryId}.`
