@@ -1,0 +1,86 @@
+البرومبت 6 — Document Type Distribution Widget
+
+Task: Add a new Dashboard widget called "Document Type Distribution".
+
+This widget should provide administrators with an overview of how documents are distributed across the repository based on their assigned Laserfiche Templates (Document Types).
+
+Purpose
+
+Help administrators understand:
+
+Which document types are used the most.
+Which templates have little or no usage.
+Overall document distribution across the repository.
+Requirements
+
+Display:
+
+Total Templates
+Total Documents
+Documents grouped by Template
+Percentage of repository documents for each Template
+Visualization
+
+Include one of the following:
+
+Horizontal Bar Chart (preferred)
+Vertical Bar Chart
+Treemap (optional if already supported)
+
+Each bar should display:
+
+Template Name
+Document Count
+Percentage of Total Documents
+Ranking
+
+Display the Top 10 most-used Templates.
+
+If additional Templates exist:
+
+Combine the remaining Templates into a single "Others" category.
+Tooltips
+
+Hovering over a Template should display:
+
+Full Template Name
+Total Documents
+Percentage of Repository
+Summary Panel
+
+Include:
+
+Most Used Template
+Least Used Template (excluding templates with zero documents if desired)
+Average Documents per Template
+Number of Templates with Zero Documents
+Colors
+Assign a unique color to each Template.
+Keep colors consistent after refresh.
+Use a clean, professional color palette.
+Performance
+Do NOT perform another repository scan.
+Reuse the existing dashboard data and template statistics.
+Do not introduce unnecessary Laserfiche API calls.
+UI
+Match the existing dashboard theme.
+Responsive layout.
+Support repositories containing dozens or hundreds of Templates.
+Automatically resize charts when many Templates exist.
+Very Important
+
+Do NOT modify:
+
+Existing widgets
+Repository scanning logic
+Statistics calculations
+Existing API contracts
+Search functionality
+
+This task should only add the Document Type Distribution widget while reusing the existing dashboard data.
+
+After implementation, explain:
+
+Which files were modified.
+Why each file was modified.
+How the widget reuses the existing dashboard scan without adding extra API requests.

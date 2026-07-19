@@ -184,12 +184,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.get("/api/dashboard/stats", async (req, res) => {
+    const requestStart = Date.now();
     try {
       const savedConfig = getLaserficheConfig();
 
       // ── Resolve the active repository ─────────────────────────────────────
-      // Priority: 1) ?repoId= query param  2) session override (set by WPF
-      // extension via POST /api/session/active-repository)  3) saved config.
       const repoIdOverride = (req.query.repoId as string | undefined)?.trim()
         || activeRepositoryOverride
         || null;
@@ -200,10 +199,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           : savedConfig
         : null;
 
-      // ── GovSearch audit log stats (real data from this app's search log) ──
-      // Source: every search performed through the GovSearch web interface is
-      // recorded in an in-process audit log. This reflects real GovSearch
-      // activity, NOT Laserfiche server analytics.
       const buildGovSearchAuditStats = async () => {
         const logs = await storage.getAuditLogs(1000);
         const today = new Date();
@@ -231,30 +226,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       if (lfConfig) {
         try {
+          // ── Measure token acquisition time ────────────────────────────────
+          const tokenStart = Date.now();
           const token = await getLaserficheToken(lfConfig);
+          const tokenDurationMs = Date.now() - tokenStart;
 
           // ── Recursive folder scanner ──────────────────────────────────────
-          // Collects document counts, folder counts, AND template assignments
-          // in a single pass. templateName is part of the standard folder
-          // children response in both LF REST API v1 (TemplateName) and v2
-          // (templateName), so no extra API calls are required.
+          // Collects document counts, folder counts, template assignments,
+          // and per-folder metadata in a single pass. No extra API calls.
+          type FolderNode = { name: string; documents: number; folders: number };
           type ScanResult = {
             documents: number;
             folders: number;
             templateCounts: Record<string, number>;
+            allFolders: FolderNode[];
           };
 
           const scanFolder = async (
             folderId: number,
-            visited: Set<number>
+            visited: Set<number>,
+            folderName: string
           ): Promise<ScanResult> => {
-            if (visited.has(folderId)) return { documents: 0, folders: 0, templateCounts: {} };
+            if (visited.has(folderId))
+              return { documents: 0, folders: 0, templateCounts: {}, allFolders: [] };
             visited.add(folderId);
             let children: any[];
             try {
               children = await laserficheGetFolderChildren(lfConfig, token, folderId);
             } catch {
-              return { documents: 0, folders: 0, templateCounts: {} };
+              return { documents: 0, folders: 0, templateCounts: {}, allFolders: [] };
             }
 
             const docEntries = children.filter(
@@ -264,8 +264,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               (e: any) => e.entryType?.toLowerCase().includes("folder")
             );
 
-            // Read templateName from this level's documents.
-            // v1 API uses PascalCase (TemplateName), v2 uses camelCase (templateName).
             const localTmpl: Record<string, number> = {};
             for (const doc of docEntries) {
               const name = ((doc.templateName || doc.TemplateName || "") as string).trim();
@@ -273,10 +271,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             }
 
             const nested = await Promise.all(
-              subfolders.map((f: any) => scanFolder(Number(f.id), visited))
+              subfolders.map((f: any) =>
+                scanFolder(Number(f.id), visited, String(f.name || `Folder ${f.id}`))
+              )
             );
 
-            // Merge template counts from all sub-scans
             const mergedTmpl: Record<string, number> = { ...localTmpl };
             for (const n of nested) {
               for (const [tmpl, cnt] of Object.entries(n.templateCounts)) {
@@ -284,10 +283,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               }
             }
 
+            const totalDocs = docEntries.length + nested.reduce((s, n) => s + n.documents, 0);
+            const totalSubfolders = subfolders.length + nested.reduce((s, n) => s + n.folders, 0);
+
+            const allFolders: FolderNode[] = [
+              { name: folderName, documents: totalDocs, folders: subfolders.length },
+              ...nested.flatMap((n) => n.allFolders),
+            ];
+
             return {
-              documents: docEntries.length + nested.reduce((s, n) => s + n.documents, 0),
-              folders: subfolders.length + nested.reduce((s, n) => s + n.folders, 0),
+              documents: totalDocs,
+              folders: totalSubfolders,
               templateCounts: mergedTmpl,
+              allFolders,
             };
           };
 
@@ -305,16 +313,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           );
 
           // ── Step 2 (parallel): scan every root-level folder ───────────────
+          const scanStart = Date.now();
           const rootFolderResults = await Promise.all(
             rootFolderEntries.map((f: any) =>
-              scanFolder(Number(f.id), new Set<number>()).then((r) => ({
+              scanFolder(Number(f.id), new Set<number>(), String(f.name || `Folder ${f.id}`)).then((r) => ({
                 name: String(f.name || `Folder ${f.id}`),
                 documents: r.documents,
                 folders: r.folders,
                 templateCounts: r.templateCounts,
+                allFolders: r.allFolders,
               }))
             )
           );
+          const scanDurationMs = Date.now() - scanStart;
 
           // ── Step 3: aggregate totals ───────────────────────────────────────
           const totalDocuments =
@@ -324,7 +335,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             rootFolderEntries.length +
             rootFolderResults.reduce((s, f) => s + f.folders, 0);
 
-          // Collect templateName from root-level documents
           const globalTmpl: Record<string, number> = {};
           for (const doc of rootDocEntries) {
             const name = ((doc.templateName || doc.TemplateName || "") as string).trim();
@@ -349,8 +359,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             folders,
           }));
 
-          // ── Step 4: GovSearch audit log stats ─────────────────────────────
           const auditStats = await buildGovSearchAuditStats();
+          const lastRefresh = new Date().toISOString();
+
+          // ── Health info ───────────────────────────────────────────────────
+          const health = {
+            status: "connected" as const,
+            repositoryId: lfConfig.repositoryId,
+            serverUrl: lfConfig.serverUrl,
+            username: lfConfig.username || "",
+            lastRefresh,
+            scanDurationMs,
+            tokenDurationMs,
+          };
 
           return res.json({
             repositoryId: lfConfig.repositoryId,
@@ -362,6 +383,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             docsWithoutTemplate,
             templateStats,
             rootFolders: rootFolderCounts,
+            allFolders: rootFolderResults.flatMap((r: any) => r.allFolders ?? []),
+            health,
             ...auditStats,
           });
         } catch (err: any) {
@@ -370,9 +393,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // ── Fallback: Laserfiche not configured or unreachable ────────────────
-      // Show only real GovSearch data; do not return demo/in-memory document
-      // statistics as repository analytics.
       const auditStats = await buildGovSearchAuditStats();
+      const fallbackHealth = {
+        status: "disconnected" as const,
+        repositoryId: lfConfig?.repositoryId ?? null,
+        serverUrl: lfConfig?.serverUrl ?? "",
+        username: lfConfig?.username ?? "",
+        lastRefresh: new Date().toISOString(),
+        scanDurationMs: 0,
+        tokenDurationMs: 0,
+      };
       return res.json({
         repositoryId: null,
         isLive: false,
@@ -383,6 +413,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         docsWithoutTemplate: 0,
         templateStats: [],
         rootFolders: [],
+        allFolders: [],
+        health: fallbackHealth,
         ...auditStats,
       });
     } catch {

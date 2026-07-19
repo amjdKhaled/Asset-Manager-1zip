@@ -1,0 +1,111 @@
+البرومبت 10 — Export Dashboard Reports (PDF / Excel / CSV)
+
+Task: Add an export feature to the Dashboard that allows administrators to export the current dashboard information without affecting any existing functionality.
+
+Purpose
+
+Allow administrators to generate professional reports that can be shared with management or archived for future reference.
+
+Export Formats
+
+Support exporting the dashboard as:
+
+PDF
+Excel (.xlsx)
+CSV
+PDF Report
+
+Generate a professional report including:
+
+Dashboard Title
+Repository Name
+Report Generation Date & Time
+Current User
+Summary Statistics
+Total Documents
+Total Folders
+Total Templates
+Documents with Templates
+Documents without Templates
+Repository Health Summary (if available)
+All Dashboard Charts
+Largest Folders
+Template Distribution
+Empty Folder Statistics (if available)
+Recently Created Documents (optional)
+Recently Modified Documents (optional)
+
+The report should:
+
+Automatically span multiple pages when necessary.
+Preserve chart quality.
+Include page numbers.
+Include a footer with the application name and report generation timestamp.
+Excel Export
+
+Create a workbook containing separate worksheets:
+
+Dashboard Summary
+Largest Folders
+Template Statistics
+Document Type Distribution
+Empty Folders (if available)
+Recently Created Documents
+Recently Modified Documents
+User Activity (if available)
+
+Apply:
+
+Styled headers
+Auto-sized columns
+Filters
+Frozen header row
+CSV Export
+
+Export tabular dashboard data in CSV format.
+
+Each dataset may be exported individually if appropriate.
+
+Export Options
+
+Provide an Export menu with:
+
+Export PDF
+Export Excel
+Export CSV
+
+Optionally allow exporting:
+
+Entire Dashboard
+Current Widget only
+Performance
+Generate reports using already loaded dashboard data.
+Do NOT perform another repository scan.
+Do NOT make additional Laserfiche REST API calls.
+Do not reload the dashboard before exporting.
+UI
+Add a professional Export button in the dashboard header.
+Show a loading indicator while the report is being generated.
+Display a success or failure notification after export.
+Match the existing dashboard theme.
+Very Important
+
+Do NOT modify:
+
+Existing dashboard widgets
+Existing charts
+Repository scanning logic
+Statistics calculations
+Existing API contracts
+Search functionality
+WPF integration
+Laserfiche integration
+
+This task should only add the export functionality while preserving all existing dashboard behavior.
+
+After implementation, explain:
+Which files were modified.
+Why each file was modified.
+Which libraries (if any) were added for PDF, Excel, or CSV generation.
+How the export feature reuses the existing dashboard state without performing additional repository scans or Laserfiche API requests.
+Any limitations of the exported reports (if applicable).

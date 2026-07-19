@@ -1,0 +1,87 @@
+البرومبت 7 — Recently Created Documents Widget
+
+Task: Add a new Dashboard widget called "Recently Created Documents".
+
+This widget should display the most recently created documents in the currently connected Laserfiche repository.
+
+Purpose
+
+Provide administrators with a quick overview of newly added documents without opening the repository.
+
+Requirements
+
+Display the 20 most recently created documents.
+
+For each document display:
+
+Document Name
+Template Name (if assigned)
+Folder Path
+Created Date & Time
+Created By (if available)
+Document ID
+Sorting
+Sort by Created Date (Newest → Oldest).
+Search & Filter
+
+Include:
+
+Search by document name
+Filter by Template
+Filter by Date Range
+
+Filtering should occur client-side whenever possible using already loaded data.
+
+User Interaction
+
+Clicking a document should:
+
+Open the document in the existing viewer if supported.
+Otherwise navigate to the document in the repository.
+If neither is available, display the document information only.
+Visual Design
+
+Display as a modern table with:
+
+Sortable columns
+Pagination (10/20/50 rows)
+Row hover effect
+Repository icons
+Template badges
+Relative time (e.g., "2 hours ago") in addition to the exact timestamp
+Summary Section
+
+Above the table display:
+
+Documents Created Today
+Documents Created This Week
+Documents Created This Month
+Performance
+Reuse existing dashboard repository data whenever possible.
+Do NOT perform a second full repository scan.
+Only request additional data if absolutely necessary.
+Avoid unnecessary Laserfiche API calls.
+UI
+Match the current dashboard theme.
+Fully responsive.
+Professional appearance.
+Support repositories with thousands of documents.
+Very Important
+
+Do NOT modify:
+
+Existing dashboard widgets
+Charts
+Repository scanning logic
+Statistics calculations
+Existing APIs
+Search functionality
+
+This task should only add the Recently Created Documents widget while reusing existing dashboard data whenever possible.
+
+After implementation, explain:
+
+Which files were modified.
+Why each file was modified.
+Whether any additional API calls were required and why.
+How the widget avoids unnecessary repository scans.

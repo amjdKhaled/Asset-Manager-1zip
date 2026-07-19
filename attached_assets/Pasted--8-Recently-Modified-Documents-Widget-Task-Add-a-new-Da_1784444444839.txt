@@ -1,0 +1,90 @@
+البرومبت 8 — Recently Modified Documents Widget
+
+Task: Add a new Dashboard widget called "Recently Modified Documents".
+
+This widget should display the most recently modified documents in the currently connected Laserfiche repository.
+
+Purpose
+
+Help administrators quickly identify recently updated documents, monitor repository activity, and track recent modifications without browsing the repository.
+
+Requirements
+
+Display the 20 most recently modified documents.
+
+For each document display:
+
+Document Name
+Template Name (if assigned)
+Folder Path
+Last Modified Date & Time
+Last Modified By (if available)
+Created Date
+Document ID
+Sorting
+Sort by Last Modified Date (Newest → Oldest).
+Search & Filter
+
+Include:
+
+Search by document name
+Filter by Template
+Filter by Date Range
+Filter by Modified User (if available)
+
+Filtering should be performed client-side whenever possible using existing dashboard data.
+
+User Interaction
+
+Clicking a document should:
+
+Open the document in the existing viewer if available.
+Otherwise navigate to the document inside the repository.
+If neither action is supported, display the document details only.
+Visual Design
+
+Display the information in a modern data table with:
+
+Sortable columns
+Pagination (10 / 20 / 50 rows)
+Row hover effects
+Repository icons
+Template badges
+Relative time (e.g. "15 minutes ago") together with the exact modification timestamp
+Summary Section
+
+Above the table display:
+
+Documents Modified Today
+Documents Modified This Week
+Documents Modified This Month
+Last Repository Update Time
+Performance
+Reuse existing dashboard repository data whenever possible.
+Do NOT perform another full repository scan.
+Only retrieve additional information if absolutely necessary.
+Avoid unnecessary Laserfiche REST API requests.
+UI
+Match the existing dashboard theme.
+Fully responsive.
+Professional and clean design.
+Support repositories containing thousands of documents.
+Very Important
+
+Do NOT modify:
+
+Existing dashboard widgets
+Existing charts
+Repository scanning logic
+Statistics calculations
+Existing API contracts
+Search functionality
+
+This task should only add the Recently Modified Documents widget while reusing existing dashboard data whenever possible.
+
+After implementation, explain:
+
+Which files were modified.
+Why each file was modified.
+Whether any additional API calls were introduced (and why).
+How the widget avoids unnecessary repository scans and minimizes performance impact.

@@ -1,0 +1,96 @@
+البرومبت 9 — Documents by User Activity Widget
+
+Task: Add a new Dashboard widget called "Documents by User Activity".
+
+This widget should provide administrators with insights into repository activity by showing which users are creating and modifying documents most frequently.
+
+Purpose
+
+Help administrators monitor repository usage, identify the most active users, and better understand document activity across the system.
+
+Requirements
+
+Display the Top 10 most active users based on document activity.
+
+Activity may include:
+
+Documents Created
+Documents Modified
+Total Activity (Created + Modified)
+
+If some information is unavailable from the current data source, gracefully omit it without breaking the widget.
+
+Visualization
+
+Include one of the following:
+
+Horizontal Bar Chart (preferred)
+Vertical Bar Chart
+
+Each bar should display:
+
+User Name
+Total Activity Count
+Percentage of Total Repository Activity
+User Details
+
+When selecting or hovering over a user, display:
+
+User Name
+Documents Created
+Documents Modified
+Last Activity Date
+Percentage of Overall Activity
+Activity Table
+
+Include a table showing:
+
+User
+Created Documents
+Modified Documents
+Total Activity
+Last Activity
+
+Support:
+
+Column sorting
+Search by user name
+Pagination (10 / 20 / 50 rows)
+Summary Cards
+
+Above the chart display:
+
+Total Active Users
+Most Active User
+Average Activity per User
+Repository Activity Today
+Performance
+Reuse existing dashboard data whenever possible.
+Do NOT perform another full repository scan.
+Do not introduce unnecessary Laserfiche REST API requests.
+If user activity information is unavailable, display an informative message rather than generating inaccurate data.
+UI
+Match the existing dashboard theme.
+Responsive layout.
+Professional appearance.
+Support repositories with many users.
+Very Important
+
+Do NOT modify:
+
+Existing dashboard widgets
+Existing charts
+Repository scanning logic
+Statistics calculations
+Existing API contracts
+Search functionality
+
+This task should only add the Documents by User Activity widget while preserving all existing functionality.
+
+After implementation, explain:
+
+Which files were modified.
+Why each file was modified.
+Whether any additional API calls were required.
+How the widget reuses existing dashboard data to minimize performance impact.
+If certain user activity data cannot be obtained from the available Laserfiche APIs, clearly explain those limitations instead of estimating or fabricating the data.

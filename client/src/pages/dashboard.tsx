@@ -8,7 +8,13 @@ import { Button } from "@/components/ui/button";
 import {
   RefreshCw, FileText, FolderOpen, Layers, CheckCircle2, AlertCircle,
   Database, TrendingUp, Search, Info,
+  Activity, Wifi, WifiOff, User, Timer, Globe, Clock,
+  ShieldCheck, ShieldAlert, AlertTriangle, ChevronRight,
 } from "lucide-react";
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Types
+// ═══════════════════════════════════════════════════════════════════════════
 
 type DashboardStats = {
   repositoryId: string | null;
@@ -20,15 +26,28 @@ type DashboardStats = {
   docsWithoutTemplate: number;
   templateStats: Array<{ name: string; count: number }>;
   rootFolders: Array<{ name: string; documents: number; folders: number }>;
+  allFolders: Array<{ name: string; documents: number; folders: number }>;
   totalSearches: number;
   searchesByDay: Array<{ date: string; count: number }>;
   topSearches: Array<{ query: string; count: number }>;
+  health?: {
+    status: "connected" | "disconnected" | "reconnecting";
+    repositoryId: string | null;
+    serverUrl: string;
+    username: string;
+    lastRefresh: string;
+    scanDurationMs: number;
+    tokenDurationMs: number;
+  };
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Design tokens
+// ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * Professional 24-color palette. Every bar/pie slice gets a deterministic,
- * stable color (index % PALETTE.length). Colors are hand-picked for
- * distinguishability in both light and dark modes.
+ * stable color (index % PALETTE.length). Hand-picked for light + dark modes.
  */
 const PALETTE = [
   "#3B82F6", "#14B8A6", "#F59E0B", "#8B5CF6", "#EF4444",
@@ -40,35 +59,6 @@ const PALETTE = [
 const OTHERS_COLOR = "#94A3B8";
 const TOP_N = 15;
 
-/**
- * Aggregate a folder list into the Top N by document count plus an "Others"
- * bar that sums all remaining folders. Returns the original list unchanged
- * if it has N or fewer entries.
- */
-function aggregateTopN(
-  data: DashboardStats["rootFolders"],
-  n = TOP_N
-): Array<{ name: string; documents: number; folders: number; isOthers?: boolean }> {
-  if (data.length <= n) return data;
-  const sorted = [...data].sort((a, b) => b.documents - a.documents);
-  const top = sorted.slice(0, n);
-  const rest = sorted.slice(n);
-  const othersDocuments = rest.reduce((s, f) => s + f.documents, 0);
-  const othersFolders = rest.reduce((s, f) => s + f.folders, 0);
-  return [
-    ...top,
-    { name: `Others (${rest.length})`, documents: othersDocuments, folders: othersFolders, isOthers: true },
-  ];
-}
-
-/**
- * Compute clean integer Y-axis ticks for a given maximum value.
- *
- * Max=7   → [0,1,2,3,4,5,6,7]
- * Max=23  → [0,5,10,15,20,25]
- * Max=43  → [0,10,20,30,40,50]
- * Max=260 → [0,50,100,150,200,250,300]
- */
 function computeYTicks(maxValue: number): number[] {
   if (!maxValue || maxValue <= 0) return [0, 1];
   if (maxValue <= 10) {
@@ -91,7 +81,20 @@ function computeYTicks(maxValue: number): number[] {
 }
 
 function truncateLabel(name: string, maxLen: number): string {
-  return name.length > maxLen ? name.slice(0, maxLen - 1) + "…" : name;
+  return name.length > maxLen ? name.slice(0, maxLen - 1) + "\u2026" : name;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatTimeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60_000) return "Just now";
+  if (diff < 3600_000) return `${Math.round(diff / 60_000)}m ago`;
+  if (diff < 86400_000) return `${Math.round(diff / 3600_000)}h ago`;
+  return `${Math.round(diff / 86400_000)}d ago`;
 }
 
 const TOOLTIP_STYLE = {
@@ -108,7 +111,9 @@ const TOOLTIP_STYLE = {
   cursor: { fill: "hsl(var(--muted))", opacity: 0.35 },
 };
 
-// ─── Shared sub-components ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// Shared sub-components
+// ═══════════════════════════════════════════════════════════════════════════
 
 function StatCard({
   icon: Icon, label, labelAr, value,
@@ -178,11 +183,10 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-// ─── Chart components ────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// Existing chart components (unchanged except where noted)
+// ═══════════════════════════════════════════════════════════════════════════
 
-type AggFolder = { name: string; documents: number; folders: number; isOthers?: boolean };
-
-/** Responsive chart-height based on bar count so bars never overlap. */
 function computeBarChartHeight(count: number): number {
   if (count <= 4)  return 260;
   if (count <= 8)  return 320;
@@ -191,7 +195,6 @@ function computeBarChartHeight(count: number): number {
   return Math.min(600, 40 + count * 22);
 }
 
-/** Compute max bar width so bars stay proportional and never collide. */
 function computeMaxBarSize(count: number): number {
   if (count <= 4)  return 64;
   if (count <= 8)  return 48;
@@ -200,7 +203,6 @@ function computeMaxBarSize(count: number): number {
   return 20;
 }
 
-/** Smart label length: fewer bars → longer labels, many bars → shorter. */
 function computeLabelMaxLen(count: number): number {
   if (count <= 4)  return 24;
   if (count <= 8)  return 16;
@@ -208,7 +210,24 @@ function computeLabelMaxLen(count: number): number {
   return 9;
 }
 
-/** Rich tooltip for the folder bar chart. */
+type AggFolder = { name: string; documents: number; folders: number; isOthers?: boolean };
+
+function aggregateTopN(
+  data: DashboardStats["rootFolders"],
+  n = TOP_N
+): Array<{ name: string; documents: number; folders: number; isOthers?: boolean }> {
+  if (data.length <= n) return data;
+  const sorted = [...data].sort((a, b) => b.documents - a.documents);
+  const top = sorted.slice(0, n);
+  const rest = sorted.slice(n);
+  const othersDocuments = rest.reduce((s, f) => s + f.documents, 0);
+  const othersFolders = rest.reduce((s, f) => s + f.folders, 0);
+  return [
+    ...top,
+    { name: `Others (${rest.length})`, documents: othersDocuments, folders: othersFolders, isOthers: true },
+  ];
+}
+
 function FolderTooltip({
   active,
   payload,
@@ -234,9 +253,7 @@ function FolderTooltip({
       className="rounded-lg border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs"
       style={{ borderColor: "hsl(var(--border))" }}
     >
-      <p className="font-semibold mb-1" style={{ color }}>
-        {item.name}
-      </p>
+      <p className="font-semibold mb-1" style={{ color }}>{item.name}</p>
       <div className="space-y-0.5 text-muted-foreground">
         <p>
           <span className="font-medium text-foreground">{item.documents.toLocaleString()}</span>{" "}
@@ -263,7 +280,6 @@ function RootFoldersChart({ data }: { data: DashboardStats["rootFolders"] | unde
   const maxBarSize = computeMaxBarSize(count);
   const maxLabelLen = computeLabelMaxLen(count);
 
-  // Label rotation: only when bars are dense enough that labels would collide.
   const labelAngle = count > 6 ? -40 : count > 3 ? -25 : 0;
   const textAnchor = count > 6 ? "end" : "middle";
   const bottomMargin = count > 6 ? 72 : count > 3 ? 48 : 28;
@@ -292,12 +308,7 @@ function RootFoldersChart({ data }: { data: DashboardStats["rootFolders"] | unde
           margin={{ top: 8, right: 12, bottom: bottomMargin, left: 0 }}
           barCategoryGap={count > 12 ? "12%" : count > 6 ? "20%" : "30%"}
         >
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="hsl(var(--border))"
-            opacity={0.35}
-            vertical={false}
-          />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} vertical={false} />
           <XAxis
             dataKey="label"
             tick={{ fontSize: count > 12 ? 9 : 11, fill: "hsl(var(--muted-foreground))" }}
@@ -318,23 +329,8 @@ function RootFoldersChart({ data }: { data: DashboardStats["rootFolders"] | unde
             width={yMax >= 1000 ? 52 : yMax >= 100 ? 40 : 32}
             tickFormatter={(v) => v.toLocaleString()}
           />
-          <Tooltip
-            cursor={{ fill: "hsl(var(--muted))", opacity: 0.3 }}
-            content={
-              <FolderTooltip
-                totalDocs={totalDocs}
-                lookup={lookup}
-              /> as any
-            }
-          />
-          <Bar
-            dataKey="documents"
-            radius={[6, 6, 0, 0]}
-            maxBarSize={maxBarSize}
-            isAnimationActive={true}
-            animationDuration={500}
-            animationEasing="ease-out"
-          >
+          <Tooltip cursor={{ fill: "hsl(var(--muted))", opacity: 0.3 }} content={<FolderTooltip totalDocs={totalDocs} lookup={lookup} /> as any} />
+          <Bar dataKey="documents" radius={[6, 6, 0, 0]} maxBarSize={maxBarSize} isAnimationActive animationDuration={500} animationEasing="ease-out">
             {chartData.map((entry, i) => (
               <Cell key={i} fill={entry.color} />
             ))}
@@ -345,14 +341,7 @@ function RootFoldersChart({ data }: { data: DashboardStats["rootFolders"] | unde
   );
 }
 
-/** Rich tooltip for the template pie chart with percentage and count. */
-function TemplateTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: any[];
-}) {
+function TemplateTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
   if (!active || !payload?.length) return null;
   const p = payload[0];
   const name = p.name as string;
@@ -362,13 +351,8 @@ function TemplateTooltip({
   const i = p.payload?.__index ?? 0;
   const color = PALETTE[i % PALETTE.length];
   return (
-    <div
-      className="rounded-lg border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs"
-      style={{ borderColor: "hsl(var(--border))" }}
-    >
-      <p className="font-semibold mb-1" style={{ color }}>
-        {name}
-      </p>
+    <div className="rounded-lg border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs" style={{ borderColor: "hsl(var(--border))" }}>
+      <p className="font-semibold mb-1" style={{ color }}>{name}</p>
       <div className="space-y-0.5 text-muted-foreground">
         <p>
           <span className="font-medium text-foreground">{value.toLocaleString()}</span>{" "}
@@ -385,13 +369,9 @@ function TemplatePieChart({ data }: { data: DashboardStats["templateStats"] | un
 
   const count = data.length;
   const total = data.reduce((s, t) => s + t.count, 0);
-
-  // Responsive donut sizing based on slice count
   const outerR = count > 12 ? 70 : count > 8 ? 80 : 92;
   const innerR = count > 12 ? 38 : count > 8 ? 42 : 48;
   const chartHeight = count > 12 ? 320 : 300;
-
-  // Enrich data with total and index for tooltip percentage calculation
   const enriched = data.map((t, i) => ({ ...t, totalCount: total, __index: i }));
 
   return (
@@ -406,11 +386,9 @@ function TemplatePieChart({ data }: { data: DashboardStats["templateStats"] | un
           outerRadius={outerR}
           innerRadius={innerR}
           paddingAngle={count > 10 ? 1 : 2}
-          label={({ percent }) =>
-            percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ""
-          }
+          label={({ percent }) => (percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : "")}
           labelLine={false}
-          isAnimationActive={true}
+          isAnimationActive
           animationDuration={600}
           animationEasing="ease-out"
         >
@@ -418,48 +396,25 @@ function TemplatePieChart({ data }: { data: DashboardStats["templateStats"] | un
             <Cell key={i} fill={PALETTE[i % PALETTE.length]} stroke="none" />
           ))}
         </Pie>
-        <Tooltip
-          cursor={{ fill: "transparent" }}
-          content={<TemplateTooltip /> as any}
-        />
+        <Tooltip cursor={{ fill: "transparent" }} content={<TemplateTooltip /> as any} />
         <Legend
           iconType="circle"
           iconSize={8}
           wrapperStyle={{ paddingTop: 10, fontSize: 11 }}
-          formatter={(value) => (
-            <span style={{ color: "hsl(var(--muted-foreground))" }}>
-              {truncateLabel(String(value), 24)}
-            </span>
-          )}
+          formatter={(value) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{truncateLabel(String(value), 24)}</span>}
         />
       </PieChart>
     </ResponsiveContainer>
   );
 }
 
-/** Rich tooltip for the search activity line chart. */
-function SearchTooltip({
-  active,
-  payload,
-  label,
-  total,
-}: {
-  active?: boolean;
-  payload?: any[];
-  label?: string;
-  total: number;
-}) {
+function SearchTooltip({ active, payload, label, total }: { active?: boolean; payload?: any[]; label?: string; total: number }) {
   if (!active || !payload?.length) return null;
   const value = Number(payload[0].value ?? 0);
   const pct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
-    <div
-      className="rounded-lg border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs"
-      style={{ borderColor: "hsl(var(--border))" }}
-    >
-      <p className="font-semibold mb-1 text-blue-500">
-        {label}
-      </p>
+    <div className="rounded-lg border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs" style={{ borderColor: "hsl(var(--border))" }}>
+      <p className="font-semibold mb-1 text-blue-500">{label}</p>
       <div className="space-y-0.5 text-muted-foreground">
         <p>
           <span className="font-medium text-foreground">{value.toLocaleString()}</span>{" "}
@@ -479,49 +434,16 @@ function SearchActivityChart({ data }: { data: DashboardStats["searchesByDay"] |
   const yMax = yTicks[yTicks.length - 1];
   const formatted = data.map((d) => ({ ...d, date: d.date.slice(5) }));
   const total = data.reduce((s, d) => s + d.count, 0);
-
   const chartHeight = data.length > 10 ? 220 : 190;
 
   return (
     <ResponsiveContainer width="100%" height={chartHeight}>
       <LineChart data={formatted} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
-        <CartesianGrid
-          strokeDasharray="3 3"
-          stroke="hsl(var(--border))"
-          opacity={0.35}
-          vertical={false}
-        />
-        <XAxis
-          dataKey="date"
-          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-          tickLine={false}
-          axisLine={{ stroke: "hsl(var(--border))" }}
-        />
-        <YAxis
-          ticks={yTicks}
-          domain={[0, yMax]}
-          allowDecimals={false}
-          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-          tickLine={false}
-          axisLine={false}
-          width={yMax >= 100 ? 40 : 32}
-          tickFormatter={(v) => v.toLocaleString()}
-        />
-        <Tooltip
-          cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1, strokeDasharray: "3 3" }}
-          content={<SearchTooltip total={total} /> as any}
-        />
-        <Line
-          type="monotone"
-          dataKey="count"
-          stroke="#3B82F6"
-          strokeWidth={2.5}
-          dot={{ r: 3.5, fill: "#3B82F6", strokeWidth: 0 }}
-          activeDot={{ r: 5, fill: "#3B82F6", strokeWidth: 2, stroke: "#fff" }}
-          isAnimationActive={true}
-          animationDuration={500}
-          animationEasing="ease-out"
-        />
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} vertical={false} />
+        <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={{ stroke: "hsl(var(--border))" }} />
+        <YAxis ticks={yTicks} domain={[0, yMax]} allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} width={yMax >= 100 ? 40 : 32} tickFormatter={(v) => v.toLocaleString()} />
+        <Tooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1, strokeDasharray: "3 3" }} content={<SearchTooltip total={total} /> as any} />
+        <Line type="monotone" dataKey="count" stroke="#3B82F6" strokeWidth={2.5} dot={{ r: 3.5, fill: "#3B82F6", strokeWidth: 0 }} activeDot={{ r: 5, fill: "#3B82F6", strokeWidth: 2, stroke: "#fff" }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
       </LineChart>
     </ResponsiveContainer>
   );
@@ -547,20 +469,12 @@ function TemplateTable({ data }: { data: DashboardStats["templateStats"] | undef
           {data.map((t, i) => {
             const pct = total > 0 ? Math.round((t.count / total) * 100) : 0;
             return (
-              <tr
-                key={t.name}
-                className="border-t border-border hover:bg-muted/30 transition-colors"
-              >
+              <tr key={t.name} className="border-t border-border hover:bg-muted/30 transition-colors">
                 <td className="px-3 py-2.5">
-                  <span
-                    className="inline-block w-2.5 h-2.5 rounded-full"
-                    style={{ background: PALETTE[i % PALETTE.length] }}
-                  />
+                  <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: PALETTE[i % PALETTE.length] }} />
                 </td>
                 <td className="px-3 py-2.5 text-foreground font-medium">{t.name}</td>
-                <td className="px-3 py-2.5 text-right font-semibold text-foreground tabular-nums">
-                  {t.count.toLocaleString()}
-                </td>
+                <td className="px-3 py-2.5 text-right font-semibold text-foreground tabular-nums">{t.count.toLocaleString()}</td>
                 <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">{pct}%</td>
               </tr>
             );
@@ -571,12 +485,440 @@ function TemplateTable({ data }: { data: DashboardStats["templateStats"] | undef
   );
 }
 
-// ─── Page ────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW WIDGET 1 — Repository Health
+// ═══════════════════════════════════════════════════════════════════════════
+
+function HealthBadge({ status }: { status: string }) {
+  const config: Record<string, { icon: any; label: string; cls: string }> = {
+    connected:    { icon: ShieldCheck,  label: "Healthy",   cls: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" },
+    disconnected: { icon: AlertTriangle, label: "Error",    cls: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20" },
+    reconnecting: { icon: ShieldAlert,   label: "Warning",  cls: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" },
+  };
+  const c = config[status] || config.disconnected;
+  const Icon = c.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs border px-2 py-0.5 rounded-full font-medium ${c.cls}`}>
+      <Icon className="w-3 h-3" />
+      {c.label}
+    </span>
+  );
+}
+
+function StatusPill({ icon: Icon, label, value, color = "text-muted-foreground" }: {
+  icon: any; label: string; value: string; color?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <Icon className={`w-3.5 h-3.5 ${color}`} />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
+    </div>
+  );
+}
+
+function RepositoryHealthWidget({
+  stats,
+  onRefresh,
+  isRefreshing,
+}: {
+  stats: DashboardStats | undefined;
+  onRefresh: () => void;
+  isRefreshing: boolean;
+}) {
+  const h = stats?.health;
+  const isLive = stats?.isLive ?? false;
+
+  const status = h?.status ?? (isLive ? "connected" : "disconnected");
+  const repoId = h?.repositoryId ?? stats?.repositoryId ?? "N/A";
+  const serverUrl = h?.serverUrl ?? "";
+  const username = h?.username ?? "";
+  const scanDur = h?.scanDurationMs ?? 0;
+  const tokenDur = h?.tokenDurationMs ?? 0;
+  const lastRefresh = h?.lastRefresh ?? "";
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="h-5 w-1 rounded-full bg-primary flex-shrink-0" />
+          <h2 className="text-sm font-semibold text-foreground">Repository Health</h2>
+          <span className="text-xs text-muted-foreground truncate">Connection status &amp; performance</span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <HealthBadge status={status} />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs px-2"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            data-testid="button-health-refresh"
+          >
+            <RefreshCw className={`w-3 h-3 mr-1 ${isRefreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <StatusPill
+            icon={isLive ? Wifi : WifiOff}
+            label="Connection"
+            value={isLive ? "Connected" : "Disconnected"}
+            color={isLive ? "text-emerald-500" : "text-red-500"}
+          />
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <StatusPill icon={Database} label="Repository" value={String(repoId)} />
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <StatusPill icon={Globe} label="Server" value={serverUrl || "N/A"} />
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <StatusPill icon={User} label="User" value={username || "N/A"} />
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <StatusPill icon={Timer} label="Token API" value={tokenDur > 0 ? formatDuration(tokenDur) : "N/A"} />
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <StatusPill icon={Activity} label="Scan Duration" value={scanDur > 0 ? formatDuration(scanDur) : "N/A"} />
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <StatusPill icon={Clock} label="Last Refresh" value={lastRefresh ? formatTimeAgo(lastRefresh) : "N/A"} />
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <StatusPill
+            icon={isLive ? CheckCircle2 : AlertCircle}
+            label="API"
+            value={isLive ? "Available" : "Unavailable"}
+            color={isLive ? "text-emerald-500" : "text-red-500"}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW WIDGET 2 — Largest Folders (horizontal bar chart)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function LargestFoldersTooltip({ active, payload, totalDocs }: { active?: boolean; payload?: any[]; totalDocs: number }) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0];
+  const name = p.payload?.name as string;
+  const value = Number(p.value ?? 0);
+  const pct = totalDocs > 0 ? Math.round((value / totalDocs) * 100) : 0;
+  const i = p.payload?.__index ?? 0;
+  const color = PALETTE[i % PALETTE.length];
+  return (
+    <div className="rounded-lg border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs" style={{ borderColor: "hsl(var(--border))" }}>
+      <p className="font-semibold mb-1" style={{ color }}>{name}</p>
+      <div className="space-y-0.5 text-muted-foreground">
+        <p>
+          <span className="font-medium text-foreground">{value.toLocaleString()}</span>{" "}
+          document{value !== 1 ? "s" : ""}
+        </p>
+        <p>{pct}% of total documents</p>
+      </div>
+    </div>
+  );
+}
+
+function LargestFoldersChart({ data, totalDocs }: { data: DashboardStats["allFolders"]; totalDocs: number }) {
+  if (!data?.length) return <EmptyState message="No folder data available." />;
+
+  const TOP = 10;
+  const sorted = [...data].sort((a, b) => b.documents - a.documents);
+  const top = sorted.slice(0, TOP);
+  const rest = sorted.slice(TOP);
+  const othersDocs = rest.reduce((s, f) => s + f.documents, 0);
+  const hasOthers = rest.length > 0;
+
+  const chartData = [
+    ...top.map((f, i) => ({
+      name: f.name,
+      shortName: truncateLabel(f.name, 22),
+      documents: f.documents,
+      __index: i,
+      color: PALETTE[i % PALETTE.length],
+    })),
+    ...(hasOthers ? [{ name: `Others (${rest.length})`, shortName: `Others (${rest.length})`, documents: othersDocs, __index: TOP, color: OTHERS_COLOR }] : []),
+  ].reverse(); // reverse so largest is at top
+
+  const maxDocs = Math.max(...chartData.map((d) => d.documents), 0);
+  const yTicks = computeYTicks(maxDocs);
+  const yMax = yTicks[yTicks.length - 1];
+  const count = chartData.length;
+  const chartHeight = count <= 5 ? 260 : count <= 8 ? 320 : 380;
+
+  return (
+    <ResponsiveContainer width="100%" height={chartHeight}>
+      <BarChart
+        data={chartData}
+        layout="vertical"
+        margin={{ top: 8, right: 24, bottom: 8, left: 0 }}
+        barCategoryGap={count > 8 ? "12%" : "20%"}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.35} horizontal={false} />
+        <XAxis
+          type="number"
+          ticks={yTicks}
+          domain={[0, yMax]}
+          allowDecimals={false}
+          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={(v) => v.toLocaleString()}
+        />
+        <YAxis
+          type="category"
+          dataKey="shortName"
+          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+          tickLine={false}
+          axisLine={false}
+          width={140}
+        />
+        <Tooltip content={<LargestFoldersTooltip totalDocs={totalDocs} /> as any} />
+        <Bar dataKey="documents" radius={[0, 6, 6, 0]} maxBarSize={28} isAnimationActive animationDuration={500} animationEasing="ease-out">
+          {chartData.map((entry, i) => (
+            <Cell key={i} fill={entry.color} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW WIDGET 3 — Template Coverage
+// ═══════════════════════════════════════════════════════════════════════════
+
+function TemplateCoverageWidget({ stats }: { stats: DashboardStats | undefined }) {
+  if (!stats?.isLive) return <EmptyState message="Connect to Laserfiche to see template coverage." />;
+
+  const total = stats.totalDocuments ?? 0;
+  const withTmpl = stats.docsWithTemplate ?? 0;
+  const withoutTmpl = stats.docsWithoutTemplate ?? 0;
+  const tmplCount = stats.totalTemplates ?? 0;
+  const coveragePct = total > 0 ? Math.round((withTmpl / total) * 100) : 0;
+  const missingPct = 100 - coveragePct;
+
+  const templateStats = stats.templateStats ?? [];
+  const avgDocsPerTemplate = tmplCount > 0 ? Math.round(withTmpl / tmplCount) : 0;
+  const mostUsed = templateStats[0] ?? null;
+  const leastUsed = templateStats.length > 1 ? templateStats[templateStats.length - 1] : null;
+
+  const donutData = [
+    { name: "With Template", value: withTmpl, color: "#10B981" },
+    { name: "Without Template", value: withoutTmpl, color: "#F97316" },
+  ];
+
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+      {/* Donut */}
+      <div className="xl:col-span-1">
+        <ResponsiveContainer width="100%" height={220}>
+          <PieChart>
+            <Pie
+              data={donutData}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={60}
+              outerRadius={85}
+              paddingAngle={3}
+              stroke="none"
+              isAnimationActive
+              animationDuration={600}
+            >
+              {donutData.map((entry, i) => (
+                <Cell key={i} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              contentStyle={TOOLTIP_STYLE.contentStyle}
+              itemStyle={TOOLTIP_STYLE.itemStyle}
+              formatter={(v: any, name: string) => [Number(v).toLocaleString(), name]}
+            />
+            <Legend
+              iconType="circle"
+              iconSize={8}
+              wrapperStyle={{ fontSize: 11 }}
+              formatter={(value) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{value}</span>}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="text-center -mt-2">
+          <p className="text-2xl font-bold text-foreground tabular-nums">{coveragePct}%</p>
+          <p className="text-xs text-muted-foreground">Coverage</p>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="xl:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <p className="text-xs text-muted-foreground mb-1">Total Documents</p>
+          <p className="text-lg font-bold text-foreground tabular-nums">{total.toLocaleString()}</p>
+        </div>
+        <div className="rounded-lg border border-border bg-emerald-500/5 p-3">
+          <p className="text-xs text-emerald-600 dark:text-emerald-400 mb-1">With Template</p>
+          <p className="text-lg font-bold text-foreground tabular-nums">{withTmpl.toLocaleString()}</p>
+        </div>
+        <div className="rounded-lg border border-border bg-orange-500/5 p-3">
+          <p className="text-xs text-orange-600 dark:text-orange-400 mb-1">Without Template</p>
+          <p className="text-lg font-bold text-foreground tabular-nums">{withoutTmpl.toLocaleString()}</p>
+        </div>
+        <div className="rounded-lg border border-border bg-blue-500/5 p-3">
+          <p className="text-xs text-blue-600 dark:text-blue-400 mb-1">Templates Available</p>
+          <p className="text-lg font-bold text-foreground tabular-nums">{tmplCount.toLocaleString()}</p>
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <p className="text-xs text-muted-foreground mb-1">Avg / Template</p>
+          <p className="text-lg font-bold text-foreground tabular-nums">{avgDocsPerTemplate.toLocaleString()}</p>
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <p className="text-xs text-muted-foreground mb-1">Missing</p>
+          <p className="text-lg font-bold text-orange-500 tabular-nums">{missingPct}%</p>
+        </div>
+        {mostUsed && (
+          <div className="rounded-lg border border-border bg-muted/20 p-3 col-span-2 sm:col-span-3">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="text-muted-foreground">Most used:</span>
+              <span className="font-medium text-foreground">{mostUsed.name}</span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{mostUsed.count.toLocaleString()} docs</span>
+            </div>
+            {leastUsed && mostUsed.name !== leastUsed.name && (
+              <div className="flex items-center justify-between gap-2 text-xs mt-1">
+                <span className="text-muted-foreground">Least used:</span>
+                <span className="font-medium text-foreground">{leastUsed.name}</span>
+                <span className="text-orange-600 dark:text-orange-400 font-semibold">{leastUsed.count.toLocaleString()} docs</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW WIDGET 4 — Empty Folders
+// ═══════════════════════════════════════════════════════════════════════════
+
+function EmptyFoldersWidget({ stats }: { stats: DashboardStats | undefined }) {
+  if (!stats?.isLive) return <EmptyState message="Connect to Laserfiche to see empty folders." />;
+
+  const all = stats.allFolders ?? [];
+  const empty = all.filter((f) => f.documents === 0).sort((a, b) => b.folders - a.folders);
+  const nonEmpty = all.filter((f) => f.documents > 0);
+  const total = all.length;
+  const emptyCount = empty.length;
+  const nonEmptyCount = nonEmpty.length;
+  const emptyPct = total > 0 ? Math.round((emptyCount / total) * 100) : 0;
+
+  const show = empty.slice(0, 20);
+  const remaining = empty.length - show.length;
+
+  const donutData = [
+    { name: "Empty", value: emptyCount, color: "#F97316" },
+    { name: "Non-Empty", value: nonEmptyCount, color: "#3B82F6" },
+  ];
+
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+      {/* Donut */}
+      <div className="xl:col-span-1">
+        <ResponsiveContainer width="100%" height={200}>
+          <PieChart>
+            <Pie
+              data={donutData}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={45}
+              outerRadius={72}
+              paddingAngle={3}
+              stroke="none"
+              isAnimationActive
+              animationDuration={600}
+            >
+              {donutData.map((entry, i) => (
+                <Cell key={i} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              contentStyle={TOOLTIP_STYLE.contentStyle}
+              itemStyle={TOOLTIP_STYLE.itemStyle}
+              formatter={(v: any, name: string) => [Number(v).toLocaleString(), name]}
+            />
+            <Legend
+              iconType="circle"
+              iconSize={8}
+              wrapperStyle={{ fontSize: 11 }}
+              formatter={(value) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{value}</span>}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="text-center -mt-2">
+          <p className="text-2xl font-bold text-foreground tabular-nums">{emptyCount.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground">Empty folders ({emptyPct}%)</p>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="xl:col-span-2">
+        <div className="overflow-hidden rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50">
+                <th className="text-left px-3 py-2 font-semibold text-foreground">Folder</th>
+                <th className="text-right px-3 py-2 font-semibold text-foreground w-28">Subfolders</th>
+                <th className="text-right px-3 py-2 font-semibold text-foreground w-28">Documents</th>
+              </tr>
+            </thead>
+            <tbody>
+              {show.map((f, i) => (
+                <tr key={i} className="border-t border-border hover:bg-muted/30 transition-colors">
+                  <td className="px-3 py-2 text-foreground font-medium truncate" title={f.name}>
+                    <FolderOpen className="w-3.5 h-3.5 text-muted-foreground inline mr-1.5 -mt-0.5" />
+                    {f.name}
+                  </td>
+                  <td className="px-3 py-2 text-right text-muted-foreground tabular-nums">{f.folders.toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right text-muted-foreground tabular-nums">{f.documents.toLocaleString()}</td>
+                </tr>
+              ))}
+              {remaining > 0 && (
+                <tr className="border-t border-border">
+                  <td colSpan={3} className="px-3 py-2 text-xs text-muted-foreground text-center">
+                    + {remaining.toLocaleString()} more empty folder{remaining !== 1 ? "s" : ""}
+                  </td>
+                </tr>
+              )}
+              {emptyCount === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                    No empty folders found in this repository.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Page
+// ═══════════════════════════════════════════════════════════════════════════
 
 export default function DashboardPage() {
-  // Read optional ?repoId= from the URL. The WPF Desktop Client extension
-  // injects this parameter when opening the popup so the dashboard
-  // automatically uses the currently active repository.
   const urlRepoId = new URLSearchParams(window.location.search).get("repoId") || undefined;
 
   const {
@@ -685,58 +1027,26 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* NEW: Repository Health */}
+          <RepositoryHealthWidget stats={stats} onRefresh={refetch} isRefreshing={isFetching} />
+
           {/* KPI Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4">
-            <StatCard
-              icon={FolderOpen}
-              label="Total Folders"
-              labelAr="إجمالي المجلدات"
-              value={stats.totalFolders ?? 0}
-              colorClass="bg-blue-500/15"
-              iconClass="text-blue-500"
-            />
-            <StatCard
-              icon={FileText}
-              label="Total Documents"
-              labelAr="إجمالي الوثائق"
-              value={stats.totalDocuments ?? 0}
-              colorClass="bg-teal-500/15"
-              iconClass="text-teal-500"
-            />
-            <StatCard
-              icon={Layers}
-              label="Total Templates"
-              labelAr="إجمالي القوالب"
-              value={stats.totalTemplates ?? 0}
-              colorClass="bg-violet-500/15"
-              iconClass="text-violet-500"
-            />
-            <StatCard
-              icon={CheckCircle2}
-              label="Docs with Template"
-              labelAr="وثائق بها قالب"
-              value={stats.docsWithTemplate ?? 0}
-              colorClass="bg-emerald-500/15"
-              iconClass="text-emerald-500"
-            />
-            <StatCard
-              icon={AlertCircle}
-              label="Docs without Template"
-              labelAr="وثائق بدون قالب"
-              value={stats.docsWithoutTemplate ?? 0}
-              colorClass="bg-orange-500/15"
-              iconClass="text-orange-500"
-            />
+            <StatCard icon={FolderOpen} label="Total Folders" labelAr="إجمالي المجلدات" value={stats.totalFolders ?? 0} colorClass="bg-blue-500/15" iconClass="text-blue-500" />
+            <StatCard icon={FileText} label="Total Documents" labelAr="إجمالي الوثائق" value={stats.totalDocuments ?? 0} colorClass="bg-teal-500/15" iconClass="text-teal-500" />
+            <StatCard icon={Layers} label="Total Templates" labelAr="إجمالي القوالب" value={stats.totalTemplates ?? 0} colorClass="bg-violet-500/15" iconClass="text-violet-500" />
+            <StatCard icon={CheckCircle2} label="Docs with Template" labelAr="وثائق بها قالب" value={stats.docsWithTemplate ?? 0} colorClass="bg-emerald-500/15" iconClass="text-emerald-500" />
+            <StatCard icon={AlertCircle} label="Docs without Template" labelAr="وثائق بدون قالب" value={stats.docsWithoutTemplate ?? 0} colorClass="bg-orange-500/15" iconClass="text-orange-500" />
           </div>
 
-          {/* Charts Row: Root Folders + Template Distribution */}
+          {/* Charts Row: Largest Folders + Template Distribution */}
           {stats.isLive && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
               <ChartCard
-                title="Documents by Folder"
-                sub={`Root-level folders · live from ${stats.repositoryId}`}
+                title="Largest Folders"
+                sub={`Top 10 by document count · recursive · ${stats.repositoryId}`}
               >
-                <RootFoldersChart data={stats.rootFolders ?? []} />
+                <LargestFoldersChart data={stats.allFolders ?? []} totalDocs={stats.totalDocuments ?? 0} />
               </ChartCard>
 
               <ChartCard
@@ -759,6 +1069,26 @@ export default function DashboardPage() {
               }
             >
               <TemplateTable data={stats.templateStats ?? []} />
+            </ChartCard>
+          )}
+
+          {/* NEW: Template Coverage */}
+          {stats.isLive && (
+            <ChartCard
+              title="Template Coverage"
+              sub="Template adoption across the repository"
+            >
+              <TemplateCoverageWidget stats={stats} />
+            </ChartCard>
+          )}
+
+          {/* NEW: Empty Folders */}
+          {stats.isLive && (
+            <ChartCard
+              title="Empty Folders"
+              sub="Folders with zero documents that may need cleanup"
+            >
+              <EmptyFoldersWidget stats={stats} />
             </ChartCard>
           )}
 
@@ -809,11 +1139,7 @@ export default function DashboardPage() {
                       data-testid={`top-search-${i}`}
                     >
                       <Search className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                      <span
-                        className="flex-1 text-sm text-foreground truncate"
-                        title={s.query}
-                        dir="auto"
-                      >
+                      <span className="flex-1 text-sm text-foreground truncate" title={s.query} dir="auto">
                         {s.query}
                       </span>
                       <span className="text-xs font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded tabular-nums flex-shrink-0">
@@ -835,7 +1161,9 @@ export default function DashboardPage() {
   );
 }
 
-// ─── Widget Audit Table ───────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// Widget Audit Table
+// ═══════════════════════════════════════════════════════════════════════════
 
 type AuditRow = {
   widget: string;
@@ -846,91 +1174,25 @@ type AuditRow = {
 };
 
 const AUDIT_ROWS: AuditRow[] = [
-  {
-    widget: "Total Folders",
-    dataSource: "LF REST API — recursive folder scan",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Counts subfolders at all depths via scanFolder()",
-  },
-  {
-    widget: "Total Documents",
-    dataSource: "LF REST API — recursive folder scan",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Counts electronic documents at all depths",
-  },
-  {
-    widget: "Total Templates",
-    dataSource: "LF REST API — /TemplateDefinitions",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Counts template definitions from the repository schema",
-  },
-  {
-    widget: "Docs with Template",
-    dataSource: "LF REST API — templateName field on folder children",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Counted during the folder scan pass; v1 TemplateName / v2 templateName",
-  },
-  {
-    widget: "Docs without Template",
-    dataSource: "Derived: Total Documents − Docs with Template",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Computed, not a separate API call",
-  },
-  {
-    widget: "Documents by Folder",
-    dataSource: "LF REST API — recursive folder scan",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Top 15 root-level folders by document count; Others bar aggregates rest",
-  },
-  {
-    widget: "Template Distribution (pie)",
-    dataSource: "LF REST API — templateName field on folder children",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Same scan pass as template counting; one slice per template",
-  },
-  {
-    widget: "Template Statistics (table)",
-    dataSource: "LF REST API — templateName field on folder children",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Sorted by document count; shows % share per template",
-  },
-  {
-    widget: "GovSearch Search Activity",
-    dataSource: "GovSearch in-process audit log (storage.getAuditLogs)",
-    origin: "govsearch",
-    liveOnly: false,
-    notes: "Based on searches performed inside GovSearch · last 7 days · NOT from LF server",
-  },
-  {
-    widget: "Top Queries",
-    dataSource: "GovSearch in-process audit log (storage.getAuditLogs)",
-    origin: "govsearch",
-    liveOnly: false,
-    notes: "Based on searches performed inside GovSearch · top 5 by frequency · NOT from LF server",
-  },
+  { widget: "Repository Health", dataSource: "LF REST API — token + scan timing", origin: "laserfiche", liveOnly: true, notes: "Shows connection status, API response time, scan duration" },
+  { widget: "Total Folders", dataSource: "LF REST API — recursive folder scan", origin: "laserfiche", liveOnly: true, notes: "Counts subfolders at all depths via scanFolder()" },
+  { widget: "Total Documents", dataSource: "LF REST API — recursive folder scan", origin: "laserfiche", liveOnly: true, notes: "Counts electronic documents at all depths" },
+  { widget: "Total Templates", dataSource: "LF REST API — /TemplateDefinitions", origin: "laserfiche", liveOnly: true, notes: "Counts template definitions from the repository schema" },
+  { widget: "Docs with Template", dataSource: "LF REST API — templateName field on folder children", origin: "laserfiche", liveOnly: true, notes: "Counted during the folder scan pass" },
+  { widget: "Docs without Template", dataSource: "Derived: Total Documents − Docs with Template", origin: "laserfiche", liveOnly: true, notes: "Computed, not a separate API call" },
+  { widget: "Largest Folders", dataSource: "LF REST API — allFolders from existing scan", origin: "laserfiche", liveOnly: true, notes: "Top 10 recursive folder document counts; no extra scan" },
+  { widget: "Template Distribution (pie)", dataSource: "LF REST API — templateName field on folder children", origin: "laserfiche", liveOnly: true, notes: "Same scan pass as template counting" },
+  { widget: "Template Statistics (table)", dataSource: "LF REST API — templateName field on folder children", origin: "laserfiche", liveOnly: true, notes: "Sorted by document count; shows % share per template" },
+  { widget: "Template Coverage", dataSource: "Derived from existing dashboard stats", origin: "laserfiche", liveOnly: true, notes: "Coverage %, avg docs/template, most/least used — no extra API" },
+  { widget: "Empty Folders", dataSource: "Derived from allFolders (existing scan)", origin: "laserfiche", liveOnly: true, notes: "Filters folders with documents === 0; top 20 + count" },
+  { widget: "GovSearch Search Activity", dataSource: "GovSearch in-process audit log", origin: "govsearch", liveOnly: false, notes: "Based on searches performed inside GovSearch · last 7 days" },
+  { widget: "Top Queries", dataSource: "GovSearch in-process audit log", origin: "govsearch", liveOnly: false, notes: "Based on searches performed inside GovSearch · top 5 by frequency" },
 ];
 
 const ORIGIN_BADGE: Record<AuditRow["origin"], { label: string; cls: string }> = {
-  laserfiche: {
-    label: "Laserfiche",
-    cls: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-  },
-  govsearch: {
-    label: "GovSearch",
-    cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
-  },
-  both: {
-    label: "Both",
-    cls: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
-  },
+  laserfiche: { label: "Laserfiche", cls: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" },
+  govsearch:  { label: "GovSearch",  cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20" },
+  both:       { label: "Both",       cls: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20" },
 };
 
 function WidgetAuditTable({ isLive }: { isLive: boolean }) {
@@ -940,9 +1202,7 @@ function WidgetAuditTable({ isLive }: { isLive: boolean }) {
         <div className="flex items-center gap-2 min-w-0">
           <div className="h-5 w-1 rounded-full bg-primary flex-shrink-0" />
           <h2 className="text-sm font-semibold text-foreground">Widget Data Source Audit</h2>
-          <span className="text-xs text-muted-foreground truncate">
-            What powers each widget on this dashboard
-          </span>
+          <span className="text-xs text-muted-foreground truncate">What powers each widget on this dashboard</span>
         </div>
         {!isLive && (
           <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full">
@@ -972,22 +1232,16 @@ function WidgetAuditTable({ isLive }: { isLive: boolean }) {
                 <td className="px-3 py-2.5 font-medium text-foreground whitespace-nowrap">
                   {row.widget}
                   {row.liveOnly && (
-                    <span className="ml-1.5 text-xs text-amber-600 dark:text-amber-400 opacity-70">
-                      (live only)
-                    </span>
+                    <span className="ml-1.5 text-xs text-amber-600 dark:text-amber-400 opacity-70">(live only)</span>
                   )}
                 </td>
                 <td className="px-3 py-2.5 text-muted-foreground">{row.dataSource}</td>
                 <td className="px-3 py-2.5">
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium ${ORIGIN_BADGE[row.origin].cls}`}
-                  >
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium ${ORIGIN_BADGE[row.origin].cls}`}>
                     {ORIGIN_BADGE[row.origin].label}
                   </span>
                 </td>
-                <td className="px-3 py-2.5 text-muted-foreground hidden lg:table-cell">
-                  {row.notes}
-                </td>
+                <td className="px-3 py-2.5 text-muted-foreground hidden lg:table-cell">{row.notes}</td>
               </tr>
             ))}
           </tbody>
