@@ -10,7 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
   Clock, Tag, Search, ChevronRight, Folder, FolderOpen,
-  ArrowLeft, Image as ImageIcon, FileDown, Eye, Trash2
+  ArrowLeft, Image as ImageIcon, FileDown, Eye, Trash2,
+  LayoutGrid, LayoutList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -365,6 +366,7 @@ export default function ArchivePage() {
   const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
   const [selectedFolderId, setSelectedFolderId] = useState("1");
   const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
+  const [layoutView, setLayoutView] = useState<"grid" | "list">("grid");
   const [trail, setTrail] = useState<TrailItem[]>([]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [details, setDetails] = useState<LaserficheDetails | null>(null);
@@ -663,6 +665,28 @@ export default function ArchivePage() {
               {filtered?.length ?? 0} of {lfDocsData.documents.length} documents
             </span>
           )}
+          <div className="flex items-center gap-1 ml-auto">
+            <Button
+              variant={layoutView === "grid" ? "default" : "outline"}
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setLayoutView("grid")}
+              data-testid="archive-view-grid"
+              title="Grid view"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </Button>
+            <Button
+              variant={layoutView === "list" ? "default" : "outline"}
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setLayoutView("list")}
+              data-testid="archive-view-list"
+              title="List view"
+            >
+              <LayoutList className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -677,52 +701,111 @@ export default function ArchivePage() {
                 <SmartViewer entry={viewerEntry} onClose={closeViewer} />
               </div>
             ) : isLoading ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-28 rounded-md" />)}
-              </div>
+              layoutView === "grid" ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-28 rounded-md" />)}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-12 rounded-md" />)}
+                </div>
+              )
             ) : filtered && filtered.length > 0 ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-6xl">
-                {filtered.map((doc) => (
-                  <button
-                    key={doc.id}
-                    type="button"
-                    onClick={() => setLocation(`/lf-document/${doc.id}`)}
-                    className="border border-border rounded-md p-3 bg-card text-left hover:bg-muted/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    data-testid={`archive-card-open-${doc.id}`}
-                  >
-                    <p className="text-lg font-semibold truncate">{doc.name}</p>
-                    <p className="text-sm text-muted-foreground truncate mt-1">{doc.path}</p>
-                    <div className="mt-3 flex items-center gap-2 flex-wrap">
-                      <Badge variant="secondary">Entry #{doc.id}</Badge>
-                      <Badge variant="outline">{doc.folderName}</Badge>
-                      <Badge variant="outline">{doc.repositoryName || doc.repositoryId || lfDocsData?.repositoryName || lfDocsData?.repositoryId || "Laserfiche"}</Badge>
-                    </div>
-                    {doc.metadata && Object.keys(doc.metadata).length > 0 && (
-                      <div className="mt-3 grid gap-1" data-testid={`archive-metadata-${doc.id}`}>
-                        {Object.entries(doc.metadata).slice(0, 3).map(([key, values]) => (
-                          <p key={key} className="text-xs text-muted-foreground truncate">
-                            <span className="font-medium text-foreground">{key}:</span> {values.join(", ") || "-"}
-                          </p>
-                        ))}
+              layoutView === "grid" ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-6xl">
+                  {filtered.map((doc) => (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      onClick={() => setLocation(`/lf-document/${doc.id}`)}
+                      className="border border-border rounded-md p-3 bg-card text-left hover:bg-muted/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      data-testid={`archive-card-open-${doc.id}`}
+                    >
+                      <p className="text-lg font-semibold truncate">{doc.name}</p>
+                      <p className="text-sm text-muted-foreground truncate mt-1">{doc.path}</p>
+                      <div className="mt-3 flex items-center gap-2 flex-wrap">
+                        <Badge variant="secondary">Entry #{doc.id}</Badge>
+                        <Badge variant="outline">{doc.folderName}</Badge>
+                        <Badge variant="outline">{doc.repositoryName || doc.repositoryId || lfDocsData?.repositoryName || lfDocsData?.repositoryId || "Laserfiche"}</Badge>
                       </div>
-                    )}
-                    <div className="mt-3">
-                      <div className="w-full h-px bg-border mb-3" />
-                      <Button
-                        type="button"
-                        size="lg"
-                        className="w-full h-10 text-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleAI({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "ElectronicDocument", isElectronicDocument: true } as LaserficheFileEntry);
-                        }}
-                      >
-                        AI Assistant
-                      </Button>
-                    </div>
-                  </button>
-                ))}
-              </div>
+                      {doc.metadata && Object.keys(doc.metadata).length > 0 && (
+                        <div className="mt-3 grid gap-1" data-testid={`archive-metadata-${doc.id}`}>
+                          {Object.entries(doc.metadata).slice(0, 3).map(([key, values]) => (
+                            <p key={key} className="text-xs text-muted-foreground truncate">
+                              <span className="font-medium text-foreground">{key}:</span> {values.join(", ") || "-"}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mt-3">
+                        <div className="w-full h-px bg-border mb-3" />
+                        <Button
+                          type="button"
+                          size="lg"
+                          className="w-full h-10 text-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAI({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "ElectronicDocument", isElectronicDocument: true } as LaserficheFileEntry);
+                          }}
+                        >
+                          AI Assistant
+                        </Button>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted/50">
+                        <th className="text-left px-3 py-2.5 font-semibold">Name</th>
+                        <th className="text-left px-3 py-2.5 font-semibold">Path</th>
+                        <th className="text-left px-3 py-2.5 font-semibold">Folder</th>
+                        <th className="text-left px-3 py-2.5 font-semibold w-20">ID</th>
+                        <th className="text-left px-3 py-2.5 font-semibold w-28">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((doc) => (
+                        <tr
+                          key={doc.id}
+                          className="border-t border-border hover:bg-muted/30 transition-colors"
+                          data-testid={`archive-list-row-${doc.id}`}
+                        >
+                          <td className="px-3 py-2.5">
+                            <button
+                              type="button"
+                              onClick={() => setLocation(`/lf-document/${doc.id}`)}
+                              className="text-left font-medium text-foreground hover:text-primary transition-colors"
+                              data-testid={`archive-list-open-${doc.id}`}
+                            >
+                              {doc.name}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[200px]" title={doc.path}>{doc.path}</td>
+                          <td className="px-3 py-2.5">
+                            <Badge variant="outline" className="text-xs">{doc.folderName}</Badge>
+                          </td>
+                          <td className="px-3 py-2.5 text-muted-foreground">#{doc.id}</td>
+                          <td className="px-3 py-2.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs"
+                              onClick={() => handleAI({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "ElectronicDocument", isElectronicDocument: true } as LaserficheFileEntry)}
+                              data-testid={`archive-list-ai-${doc.id}`}
+                            >
+                              AI
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
             ) : (
               <div className="flex flex-col items-center justify-center h-64 text-center">
                 <FileText className="w-12 h-12 text-muted-foreground/30 mb-4" />
