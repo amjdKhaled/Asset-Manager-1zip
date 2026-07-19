@@ -705,10 +705,7 @@ export default function DashboardPage() {
             </ChartCard>
           </div>
 
-          {/* Widget Audit Table */}
-          <WidgetAuditTable isLive={stats.isLive} />
-
-          {/* ═════ NEW WIDGETS (Prompts 6-10) ═════ */}
+          {/* ═════ New Widgets ═════ */}
 
           {/* Row 4: Document Type Distribution + System Health */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
@@ -785,7 +782,7 @@ export default function DashboardPage() {
             return (
               <ChartCard
                 title="Documents by User Activity"
-                sub="Documents created per user (Laserfiche API does not expose Modified By)"
+                sub="Based on Laserfiche Creator field"
                 badge={
                   <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full">
                     <User className="w-3 h-3" />
@@ -804,204 +801,7 @@ export default function DashboardPage() {
   );
 }
 
-// ─── Widget Audit Table ───────────────────────────────────────────────────────
-
-type AuditRow = {
-  widget: string;
-  dataSource: string;
-  origin: "laserfiche" | "govsearch" | "both";
-  liveOnly: boolean;
-  notes: string;
-};
-
-const AUDIT_ROWS: AuditRow[] = [
-  {
-    widget: "Total Folders",
-    dataSource: "LF REST API — recursive folder scan",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Counts subfolders at all depths via scanFolder()",
-  },
-  {
-    widget: "Total Documents",
-    dataSource: "LF REST API — recursive folder scan",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Counts electronic documents at all depths",
-  },
-  {
-    widget: "Total Templates",
-    dataSource: "LF REST API — /TemplateDefinitions",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Counts template definitions from the repository schema",
-  },
-  {
-    widget: "Docs with Template",
-    dataSource: "LF REST API — templateName field on folder children",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Counted during the folder scan pass; v1 TemplateName / v2 templateName",
-  },
-  {
-    widget: "Docs without Template",
-    dataSource: "Derived: Total Documents − Docs with Template",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Computed, not a separate API call",
-  },
-  {
-    widget: "Documents by Folder",
-    dataSource: "LF REST API — recursive folder scan",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Top 15 root-level folders by document count; Others bar aggregates rest",
-  },
-  {
-    widget: "Template Distribution (pie)",
-    dataSource: "LF REST API — templateName field on folder children",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Same scan pass as template counting; one slice per template",
-  },
-  {
-    widget: "Template Statistics (table)",
-    dataSource: "LF REST API — templateName field on folder children",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Sorted by document count; shows % share per template",
-  },
-  {
-    widget: "GovSearch Search Activity",
-    dataSource: "GovSearch in-process audit log (storage.getAuditLogs)",
-    origin: "govsearch",
-    liveOnly: false,
-    notes: "Based on searches performed inside GovSearch · last 7 days · NOT from LF server",
-  },
-  {
-    widget: "Top Queries",
-    dataSource: "GovSearch in-process audit log (storage.getAuditLogs)",
-    origin: "govsearch",
-    liveOnly: false,
-    notes: "Based on searches performed inside GovSearch · top 5 by frequency · NOT from LF server",
-  },
-  {
-    widget: "Document Type Distribution",
-    dataSource: "LF REST API — templateName field on folder children",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Same template data as Template Distribution; shown as horizontal bar list",
-  },
-  {
-    widget: "Recently Created Documents",
-    dataSource: "LF REST API — creationTime + creator on folder children",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Top documents sorted by creationTime descending; only when LF is connected",
-  },
-  {
-    widget: "Recently Modified Documents",
-    dataSource: "LF REST API — lastModifiedTime on folder children",
-    origin: "laserfiche",
-    liveOnly: true,
-    notes: "Top documents sorted by lastModifiedTime descending; LF API does not expose modifiedBy field",
-  },
-  {
-    widget: "Documents by User Activity",
-    dataSource: "LF REST API — creator field aggregated + GovSearch audit log fallback",
-    origin: "both",
-    liveOnly: false,
-    notes: "When LF is connected: counts creators. When disconnected: counts GovSearch usernames from audit logs.",
-  },
-  {
-    widget: "System Health",
-    dataSource: "LF REST API — connection status, scan timing, token timing",
-    origin: "laserfiche",
-    liveOnly: false,
-    notes: "Shows connection state even when disconnected; last refresh + scan duration when connected",
-  },
-];
-
-const ORIGIN_BADGE: Record<AuditRow["origin"], { label: string; cls: string }> = {
-  laserfiche: {
-    label: "Laserfiche",
-    cls: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-  },
-  govsearch: {
-    label: "GovSearch",
-    cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
-  },
-  both: {
-    label: "Both",
-    cls: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
-  },
-};
-
-function WidgetAuditTable({ isLive }: { isLive: boolean }) {
-  return (
-    <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-2 mb-4">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="h-5 w-1 rounded-full bg-primary flex-shrink-0" />
-          <h2 className="text-sm font-semibold text-foreground">Widget Data Source Audit</h2>
-          <span className="text-xs text-muted-foreground truncate">
-            What powers each widget on this dashboard
-          </span>
-        </div>
-        {!isLive && (
-          <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full">
-            <AlertCircle className="w-3 h-3" />
-            LF widgets hidden (not connected)
-          </span>
-        )}
-      </div>
-
-      <div className="overflow-hidden rounded-lg border border-border">
-        <table className="w-full text-xs" data-testid="widget-audit-table">
-          <thead>
-            <tr className="bg-muted/50">
-              <th className="text-left px-3 py-2.5 font-semibold text-foreground">Widget</th>
-              <th className="text-left px-3 py-2.5 font-semibold text-foreground">Data Source</th>
-              <th className="text-left px-3 py-2.5 font-semibold text-foreground w-28">Origin</th>
-              <th className="text-left px-3 py-2.5 font-semibold text-foreground hidden lg:table-cell">Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {AUDIT_ROWS.map((row) => (
-              <tr
-                key={row.widget}
-                className="border-t border-border hover:bg-muted/30 transition-colors"
-                data-testid={`audit-row-${row.widget.replace(/\s+/g, "-").toLowerCase()}`}
-              >
-                <td className="px-3 py-2.5 font-medium text-foreground whitespace-nowrap">
-                  {row.widget}
-                  {row.liveOnly && (
-                    <span className="ml-1.5 text-xs text-amber-600 dark:text-amber-400 opacity-70">
-                      (live only)
-                    </span>
-                  )}
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground">{row.dataSource}</td>
-                <td className="px-3 py-2.5">
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium ${ORIGIN_BADGE[row.origin].cls}`}
-                  >
-                    {ORIGIN_BADGE[row.origin].label}
-                  </span>
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground hidden lg:table-cell">
-                  {row.notes}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-// ═════ New Widget Components (Prompts 6-10) ═════
+// ═════ New Widget Components ═════
 
 /* ── Prompt 6: Document Type Distribution ── */
 function DocTypeChart({ data }: { data: Array<{ name: string; count: number }> }) {
@@ -1087,12 +887,6 @@ function RecentModifiedWidget({ docs }: { docs: DocEntry[] }) {
   if (!docs.length) return <EmptyState message="No recently modified documents found." />;
   return (
     <div className="space-y-3">
-      <div className="flex items-start gap-2 bg-amber-500/8 border border-amber-500/20 rounded-lg px-3 py-2">
-        <Info className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
-        <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-          Laserfiche REST API v2 does not expose a "modifiedBy" field. Only the modification timestamp is available.
-        </p>
-      </div>
       <Input
         placeholder="Search documents..."
         value={query}
@@ -1149,7 +943,7 @@ function computeUserActivity(
       .sort((a, b) => b.created - a.created);
     return {
       rows,
-      note: "Documents created per user, aggregated from the Laserfiche REST API 'creator' field. 'Modified By' is not exposed by the Repository API v2; per-user modification counts would require the separate Laserfiche Audit Trail module.",
+      note: "Based on Laserfiche Creator field.",
     };
   }
 
@@ -1171,10 +965,6 @@ function UserActivityWidget({ data, note }: UserActivityProps) {
   }
   return (
     <div className="space-y-3">
-      <div className="flex items-start gap-2 bg-blue-500/8 border border-blue-500/20 rounded-lg px-3 py-2">
-        <Info className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
-        <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">{note}</p>
-      </div>
       <div className="overflow-hidden rounded-lg border border-border">
         <table className="w-full text-xs">
           <thead>
@@ -1306,22 +1096,16 @@ function ExportDropdown({ stats }: { stats: DashboardStats | undefined }) {
         const imgWidth = canvas.width;
         const imgHeight = canvas.height;
         const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
-        let imgY = 10;
         const scaledHeight = imgHeight * ratio;
-        // Multi-page for tall dashboards
-        if (scaledHeight > pdfHeight - 20) {
-          let position = 0;
-          const pageHeightInPx = (pdfHeight - 20) / ratio;
-          pdf.addImage(imgData, "PNG", 0, imgY, imgWidth * ratio, imgHeight * ratio);
-          let heightLeft = scaledHeight;
-          while (heightLeft > pdfHeight - 20) {
-            position = heightLeft - scaledHeight + 10;
-            pdf.addPage();
-            pdf.addImage(imgData, "PNG", 0, position, imgWidth * ratio, imgHeight * ratio);
-            heightLeft -= (pdfHeight - 20);
-          }
-        } else {
-          pdf.addImage(imgData, "PNG", 0, imgY, imgWidth * ratio, imgHeight * ratio);
+        // Multi-page for tall dashboards: one screenshot, sliced across pages
+        let pageIndex = 0;
+        let heightLeft = scaledHeight;
+        while (heightLeft > 0) {
+          const position = 10 - pageIndex * (pdfHeight - 20);
+          if (pageIndex > 0) pdf.addPage();
+          pdf.addImage(imgData, "PNG", 0, position, imgWidth * ratio, imgHeight * ratio);
+          heightLeft -= (pdfHeight - 20);
+          pageIndex++;
         }
         pdf.save(`govsearch-dashboard-${dateLabel}.pdf`);
         toast({ title: "PDF Exported", description: "Dashboard report downloaded." });
