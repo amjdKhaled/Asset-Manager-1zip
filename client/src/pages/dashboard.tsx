@@ -467,12 +467,6 @@ export default function DashboardPage() {
     staleTime: 2 * 60 * 1000,
   });
 
-  const { data: auditLogs } = useQuery<Array<{ username?: string | null; query: string; searchedAt?: string | Date | null }>>({
-    queryKey: ["/api/audit-logs", 500],
-    queryFn: () => fetch("/api/audit-logs?limit=500").then((r) => r.json()),
-    staleTime: 2 * 60 * 1000,
-  });
-
   if (isLoading) {
     return (
       <div className="h-full overflow-auto px-6 py-5 space-y-4">
@@ -787,7 +781,7 @@ export default function DashboardPage() {
 
           {/* Row 6: Documents by User Activity */}
           {(() => {
-            const ua = computeUserActivity(stats.recentDocs ?? [], stats.modifiedDocs ?? [], auditLogs ?? []);
+            const ua = computeUserActivity(stats.recentDocs ?? [], stats.modifiedDocs ?? []);
             return (
               <ChartCard
                 title="Documents by User Activity"
@@ -795,11 +789,11 @@ export default function DashboardPage() {
                 badge={
                   <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full">
                     <User className="w-3 h-3" />
-                    {`${ua.rows.length} ${ua.source === "govsearch" ? "(GovSearch)" : ua.source === "laserfiche" ? "(LF)" : ""}`}
+                    {`${ua.rows.length} (LF)`}
                   </span>
                 }
               >
-                <UserActivityWidget data={ua.rows} source={ua.source} note={ua.note} />
+                <UserActivityWidget data={ua.rows} note={ua.note} />
               </ChartCard>
             );
           })()}
@@ -1140,9 +1134,8 @@ type UserRow = { name: string; created: number; modified: number; total: number;
 
 function computeUserActivity(
   recent: DocEntry[],
-  modified: DocEntry[],
-  auditLogs?: Array<{ username?: string | null; query: string; searchedAt?: string | Date | null }>
-): { rows: UserRow[]; source: "laserfiche" | "govsearch" | "none"; note: string } {
+  modified: DocEntry[]
+): { rows: UserRow[]; note: string } {
   const map = new Map<string, { created: number; modified: number; lastActivity: string }>();
   for (const d of recent) {
     const u = d.creator || "Unknown";
@@ -1165,36 +1158,21 @@ function computeUserActivity(
     const rows = Array.from(map.entries())
       .map(([name, v]) => ({ name, created: v.created, modified: v.modified, total: v.created + v.modified, lastActivity: formatDate(v.lastActivity) }))
       .sort((a, b) => b.total - a.total);
-    return { rows, source: "laserfiche", note: "Data from Laserfiche REST API (creator field on documents)." };
+    return {
+      rows,
+      note: "Data from Laserfiche REST API. 'Created' counts = documents where this user is the creator. 'Modified' counts = documents with recent modification activity attributed to the creator (Laserfiche Repository API v2 does not expose a modifiedBy field per entry; full per-user modification attribution requires the separate Laserfiche Audit Trail module).",
+    };
   }
 
-  // Fallback: GovSearch audit log usernames
-  if (auditLogs && auditLogs.length > 0) {
-    const amap = new Map<string, { created: number; modified: number; lastActivity: string }>();
-    for (const log of auditLogs) {
-      const u = log.username || "Anonymous";
-      const cur = amap.get(u) || { created: 0, modified: 0, lastActivity: "" };
-      cur.created += 1;
-      const t = log.searchedAt ? new Date(log.searchedAt).toISOString() : "";
-      if (t > cur.lastActivity) cur.lastActivity = t;
-      amap.set(u, cur);
-    }
-    const rows = Array.from(amap.entries())
-      .map(([name, v]) => ({ name, created: v.created, modified: v.modified, total: v.created + v.modified, lastActivity: formatDate(v.lastActivity) }))
-      .sort((a, b) => b.total - a.total);
-    return { rows, source: "govsearch", note: "Laserfiche not connected. Showing GovSearch audit log usernames instead." };
-  }
-
-  return { rows: [], source: "none", note: "No user activity data available. Connect to Laserfiche or perform searches in GovSearch to populate this widget." };
+  return { rows: [], note: "No Laserfiche documents found. Connect to Laserfiche and ensure documents exist in the repository to populate this widget." };
 }
 
 type UserActivityProps = {
   data: UserRow[];
-  source: "laserfiche" | "govsearch" | "none";
   note: string;
 };
 
-function UserActivityWidget({ data, source, note }: UserActivityProps) {
+function UserActivityWidget({ data, note }: UserActivityProps) {
   if (!data.length) {
     return (
       <div className="space-y-3">
@@ -1206,12 +1184,7 @@ function UserActivityWidget({ data, source, note }: UserActivityProps) {
     <div className="space-y-3">
       <div className="flex items-start gap-2 bg-blue-500/8 border border-blue-500/20 rounded-lg px-3 py-2">
         <Info className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
-        <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-          {source === "laserfiche"
-            ? "Data from Laserfiche REST API (creator field). "
-            : "Laserfiche not connected. Using GovSearch audit log usernames as fallback. "}
-          {note}
-        </p>
+        <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">{note}</p>
       </div>
       <div className="overflow-hidden rounded-lg border border-border">
         <table className="w-full text-xs">
