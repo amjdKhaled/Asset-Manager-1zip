@@ -199,31 +199,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           : savedConfig
         : null;
 
-      const buildGovSearchAuditStats = async () => {
-        const logs = await storage.getAuditLogs(1000);
-        const today = new Date();
-        const byDayMap: Record<string, number> = {};
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date(today);
-          d.setDate(today.getDate() - i);
-          byDayMap[d.toISOString().slice(0, 10)] = 0;
-        }
-        for (const log of logs) {
-          const day = new Date(log.searchedAt as any).toISOString().slice(0, 10);
-          if (day in byDayMap) byDayMap[day] += 1;
-        }
-        const topMap: Record<string, number> = {};
-        for (const l of logs) topMap[l.query] = (topMap[l.query] || 0) + 1;
-        return {
-          totalSearches: logs.length,
-          searchesByDay: Object.entries(byDayMap).map(([date, count]) => ({ date, count })),
-          topSearches: Object.entries(topMap)
-            .map(([query, count]) => ({ query, count }))
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 5),
-        };
-      };
-
       if (lfConfig) {
         try {
           // ── Measure token acquisition time ────────────────────────────────
@@ -252,6 +227,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             allFolders: FolderNode[];
             recentDocs: DocEntry[];
             modifiedDocs: DocEntry[];
+            allDocs: DocEntry[];
           };
           const DOC_CAP = 120;
 
@@ -261,7 +237,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             folderName: string
           ): Promise<ScanResult> => {
             if (visited.has(folderId))
-              return { documents: 0, folders: 0, templateCounts: {}, allFolders: [], recentDocs: [], modifiedDocs: [] };
+              return { documents: 0, folders: 0, templateCounts: {}, allFolders: [], recentDocs: [], modifiedDocs: [], allDocs: [] };
             visited.add(folderId);
             let children: any[];
             try {
@@ -316,6 +292,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             ];
 
             const allRecent = [...localRecent, ...nested.flatMap((n) => n.recentDocs)];
+            const allDocsCollected = [...localRecent, ...nested.flatMap((n) => n.allDocs)];
             const topRecent = allRecent
               .sort((a, b) => (b.creationTime || "").localeCompare(a.creationTime || ""))
               .slice(0, DOC_CAP);
@@ -330,6 +307,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               allFolders,
               recentDocs: topRecent,
               modifiedDocs: topModified,
+              allDocs: allDocsCollected,
             };
           };
 
@@ -369,6 +347,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 allFolders: r.allFolders,
                 recentDocs: r.recentDocs,
                 modifiedDocs: r.modifiedDocs,
+                allDocs: r.allDocs,
               }))
             )
           );
@@ -420,7 +399,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             .sort((a, b) => (b.lastModifiedTime || b.creationTime || "").localeCompare(a.lastModifiedTime || a.creationTime || ""))
             .slice(0, DOC_CAP);
 
-          const auditStats = await buildGovSearchAuditStats();
+          const allDocsFull = [
+            ...rootRecent,
+            ...rootFolderResults.flatMap((r: any) => r.allDocs ?? []),
+          ];
           const lastRefresh = new Date().toISOString();
 
           // ── Health info ───────────────────────────────────────────────────
@@ -447,8 +429,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             allFolders: rootFolderResults.flatMap((r: any) => r.allFolders ?? []),
             recentDocs: allRecent,
             modifiedDocs: allModified,
+            allDocs: allDocsFull,
             health,
-            ...auditStats,
           });
         } catch (err: any) {
           console.warn("Laserfiche dashboard stats failed, using fallback:", err?.message || err);
@@ -456,7 +438,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // ── Fallback: Laserfiche not configured or unreachable ────────────────
-      const auditStats = await buildGovSearchAuditStats();
       const fallbackHealth = {
         status: "disconnected" as const,
         repositoryId: lfConfig?.repositoryId ?? null,
@@ -479,8 +460,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         allFolders: [],
         recentDocs: [],
         modifiedDocs: [],
+        allDocs: [],
         health: fallbackHealth,
-        ...auditStats,
       });
     } catch {
       res.status(500).json({ error: "Failed to fetch dashboard stats" });
@@ -955,6 +936,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             extension: details.extension || entry.extension || null,
             pageCount: details.pageCount || entry.pageCount || null,
             isElectronicDocument: entry.isElectronicDocument !== false,
+            creator: details.creator || entry.creator || "",
+            creationTime: details.creationTime || entry.creationTime || "",
+            lastModifiedTime: details.lastModifiedTime || entry.lastModifiedTime || "",
+            templateName: details.templateName || entry.templateName || "",
           };
         })
       );

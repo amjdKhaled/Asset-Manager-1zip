@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   RefreshCw, FileText, FolderOpen, Layers, CheckCircle2, AlertCircle,
-  Database, TrendingUp, Search, Info,
+  Database, TrendingUp, Search,
   Clock, User, Timer, Globe, ShieldCheck, ShieldAlert, AlertTriangle,
   Wifi, WifiOff, Activity, FileSpreadsheet, FileCode, Printer,
   ChevronDown, Download,
@@ -51,11 +51,9 @@ type DashboardStats = {
   docsWithoutTemplate: number;
   templateStats: Array<{ name: string; count: number }>;
   rootFolders: Array<{ name: string; documents: number; folders: number }>;
-  totalSearches: number;
-  searchesByDay: Array<{ date: string; count: number }>;
-  topSearches: Array<{ query: string; count: number }>;
   recentDocs?: DocEntry[];
   modifiedDocs?: DocEntry[];
+  allDocs?: DocEntry[];
   health?: HealthInfo;
 };
 
@@ -351,60 +349,6 @@ function TemplatePieChart({ data }: { data: DashboardStats["templateStats"] | un
   );
 }
 
-function SearchActivityChart({ data }: { data: DashboardStats["searchesByDay"] | undefined }) {
-  if (!data?.length) return <EmptyState message="No search activity recorded." />;
-
-  const maxCount = Math.max(...data.map((d) => d.count), 0);
-  const yTicks = computeYTicks(maxCount);
-  const yMax = yTicks[yTicks.length - 1];
-  const formatted = data.map((d) => ({ ...d, date: d.date.slice(5) }));
-
-  return (
-    <ResponsiveContainer width="100%" height={180}>
-      <LineChart data={formatted} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
-        <CartesianGrid
-          strokeDasharray="4 4"
-          stroke="hsl(var(--border))"
-          opacity={0.5}
-          vertical={false}
-        />
-        <XAxis
-          dataKey="date"
-          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-          tickLine={false}
-          axisLine={{ stroke: "hsl(var(--border))" }}
-        />
-        <YAxis
-          ticks={yTicks}
-          domain={[0, yMax]}
-          allowDecimals={false}
-          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-          tickLine={false}
-          axisLine={false}
-          width={32}
-        />
-        <Tooltip
-          contentStyle={TOOLTIP_STYLE.contentStyle}
-          itemStyle={TOOLTIP_STYLE.itemStyle}
-          labelStyle={TOOLTIP_STYLE.labelStyle}
-          formatter={(v: any) => [v, "Searches"]}
-        />
-        <Line
-          type="monotone"
-          dataKey="count"
-          stroke="#3B82F6"
-          strokeWidth={2.5}
-          dot={{ r: 3.5, fill: "#3B82F6", strokeWidth: 0 }}
-          activeDot={{ r: 5, fill: "#3B82F6", strokeWidth: 2, stroke: "#fff" }}
-          isAnimationActive={true}
-          animationDuration={600}
-          animationEasing="ease-out"
-        />
-      </LineChart>
-    </ResponsiveContainer>
-  );
-}
-
 function TemplateTable({ data }: { data: DashboardStats["templateStats"] | undefined }) {
   if (!data?.length) {
     return <EmptyState message="No templates found in this repository." />;
@@ -641,70 +585,6 @@ export default function DashboardPage() {
             </ChartCard>
           )}
 
-          {/* GovSearch Search Activity */}
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-            <div className="xl:col-span-2">
-              <ChartCard
-                title="GovSearch Search Activity"
-                sub="Based on searches performed inside GovSearch · last 7 days"
-                badge={
-                  <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full">
-                    <Info className="w-3 h-3" />
-                    GovSearch audit log
-                  </span>
-                }
-              >
-                <div className="flex items-center gap-4 mb-3">
-                  <div className="flex items-center gap-1.5">
-                    <TrendingUp className="w-4 h-4 text-blue-500" />
-                    <span className="text-2xl font-bold text-foreground tabular-nums">
-                      {(stats.totalSearches ?? 0).toLocaleString()}
-                    </span>
-                  </div>
-                  <span className="text-sm text-muted-foreground">searches via GovSearch</span>
-                </div>
-                <SearchActivityChart data={stats.searchesByDay ?? []} />
-              </ChartCard>
-            </div>
-
-            <ChartCard
-              title="Top Queries"
-              sub="Based on searches performed inside GovSearch"
-              badge={
-                <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full">
-                  <Info className="w-3 h-3" />
-                  GovSearch audit log
-                </span>
-              }
-            >
-              {!(stats.topSearches?.length) ? (
-                <EmptyState message="No search history yet." />
-              ) : (
-                <div className="space-y-1" data-testid="top-searches-list">
-                  {stats.topSearches.map((s, i) => (
-                    <div
-                      key={s.query}
-                      className="flex items-center gap-2.5 py-1.5 px-1 rounded-lg hover:bg-muted/40 transition-colors"
-                      data-testid={`top-search-${i}`}
-                    >
-                      <Search className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                      <span
-                        className="flex-1 text-sm text-foreground truncate"
-                        title={s.query}
-                        dir="auto"
-                      >
-                        {s.query}
-                      </span>
-                      <span className="text-xs font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded tabular-nums flex-shrink-0">
-                        {s.count}×
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </ChartCard>
-          </div>
-
           {/* ═════ New Widgets ═════ */}
 
           {/* Row 4: Document Type Distribution + System Health */}
@@ -778,7 +658,7 @@ export default function DashboardPage() {
 
           {/* Row 6: Documents by User Activity */}
           {(() => {
-            const ua = computeUserActivity(stats.recentDocs ?? []);
+            const ua = computeUserActivity(stats.allDocs ?? []);
             return (
               <ChartCard
                 title="Documents by User Activity"
@@ -1041,13 +921,10 @@ function ExportDropdown({ stats }: { stats: DashboardStats | undefined }) {
           ["Total Folders", String(stats.totalFolders)],
           ["Total Documents", String(stats.totalDocuments)],
           ["Total Templates", String(stats.totalTemplates)],
-          ["Total Searches", String(stats.totalSearches)],
         ];
         const templates = [["Template", "Count"], ...stats.templateStats.map((t) => [t.name, String(t.count)])];
         const folders = [["Folder", "Documents", "Sub-folders"], ...stats.rootFolders.map((f) => [f.name, String(f.documents), String(f.folders)])];
-        const searches = [["Date", "Count"], ...stats.searchesByDay.map((s) => [s.date, String(s.count)])];
-        const top = [["Query", "Count"], ...stats.topSearches.map((s) => [s.query, String(s.count)])];
-        const blob = new Blob([BOM + csv(summary) + "\n\n" + csv(templates) + "\n\n" + csv(folders) + "\n\n" + csv(searches) + "\n\n" + csv(top)], { type: "text/csv;charset=utf-8" });
+        const blob = new Blob([BOM + csv(summary) + "\n\n" + csv(templates) + "\n\n" + csv(folders)], { type: "text/csv;charset=utf-8" });
         const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `govsearch-dashboard-${dateLabel}.csv`; a.click(); URL.revokeObjectURL(a.href);
         toast({ title: "CSV Exported", description: "Dashboard report downloaded." });
       } else if (format === "excel") {
@@ -1068,11 +945,9 @@ function ExportDropdown({ stats }: { stats: DashboardStats | undefined }) {
           ws["!cols"] = colWidths;
           XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
         };
-        add("Summary", [["Metric", "Value"], ["Repository", stats.repositoryId || "N/A"], ["Status", stats.isLive ? "Connected" : "Disconnected"], ["Total Folders", String(stats.totalFolders)], ["Total Documents", String(stats.totalDocuments)], ["Total Templates", String(stats.totalTemplates)], ["Total Searches", String(stats.totalSearches)]]);
+        add("Summary", [["Metric", "Value"], ["Repository", stats.repositoryId || "N/A"], ["Status", stats.isLive ? "Connected" : "Disconnected"], ["Total Folders", String(stats.totalFolders)], ["Total Documents", String(stats.totalDocuments)], ["Total Templates", String(stats.totalTemplates)]]);
         add("Templates", [["Template", "Count"], ...stats.templateStats.map((t) => [t.name, t.count])]);
         add("Folders", [["Folder", "Documents", "Sub-folders"], ...stats.rootFolders.map((f) => [f.name, f.documents, f.folders])]);
-        add("Searches", [["Date", "Count"], ...stats.searchesByDay.map((s) => [s.date, s.count])]);
-        add("Top Queries", [["Query", "Count"], ...stats.topSearches.map((s) => [s.query, s.count])]);
         if (stats.recentDocs && stats.recentDocs.length > 0) {
           add("Recent Docs", [["Document", "Template", "Folder", "Created", "By"], ...stats.recentDocs.map((d) => [d.name, d.templateName || "-", folderFromPath(d.fullPath), formatDate(d.creationTime), d.creator || "-"])]);
         }

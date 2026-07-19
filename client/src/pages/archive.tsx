@@ -11,7 +11,7 @@ import {
   FileText, FileCheck, Scroll, TrendingUp, Shield, Building2,
   Clock, Tag, Search, ChevronRight, Folder, FolderOpen,
   ArrowLeft, Image as ImageIcon, FileDown, Eye, Trash2,
-  LayoutGrid, LayoutList,
+  LayoutGrid, LayoutList, ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -365,8 +365,7 @@ export default function ArchivePage() {
   const [localSearch, setLocalSearch] = useState("");
   const [selectedFolderFilter, setSelectedFolderFilter] = useState("all");
   const [selectedFolderId, setSelectedFolderId] = useState("1");
-  const [viewMode, setViewMode] = useState<"archive" | "laserfiche">("archive");
-  const [layoutView, setLayoutView] = useState<"grid" | "list">("grid");
+  const [pageView, setPageView] = useState<"current" | "laserfiche">("current");
   const [trail, setTrail] = useState<TrailItem[]>([]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [details, setDetails] = useState<LaserficheDetails | null>(null);
@@ -399,6 +398,10 @@ export default function ArchivePage() {
       extension?: string | null;
       pageCount?: number | null;
       isElectronicDocument?: boolean;
+      creator?: string;
+      creationTime?: string;
+      lastModifiedTime?: string;
+      templateName?: string;
     }>;
   }>({
     queryKey: ["/api/lf/documents", "all"],
@@ -442,32 +445,20 @@ export default function ArchivePage() {
 
   const folders = useMemo(() => (preview?.children || []).filter(i => i.entryType?.toLowerCase().includes("folder")), [preview]);
   const files = useMemo(() => (preview?.children || []).filter(i => !i.entryType?.toLowerCase().includes("folder")), [preview]);
-  const { data: lfSearchData } = useQuery<{ results: Array<{ id: number; name: string; path: string }> }>({
-    queryKey: ["/api/laserfiche/search", currentFolderId, localSearch],
-    enabled: viewMode === "laserfiche" && localSearch.trim().length > 0,
-    queryFn: async () => {
-      const res = await fetch("/api/laserfiche/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ query: localSearch, folderId: Number(currentFolderId) || 1 }),
-      });
-      if (!res.ok) throw new Error("Search failed");
-      return res.json();
-    },
-  });
-  const filesToRender = useMemo(() => {
-    if (viewMode !== "laserfiche") return files;
-    if (!localSearch.trim()) return files;
-    const mapped = (lfSearchData?.results || []).map((r) => ({
-      id: r.id,
-      name: r.name,
-      fullPath: r.path,
-      entryType: "ElectronicDocument",
-      isElectronicDocument: true,
-    }));
-    return mapped as LaserficheFileEntry[];
-  }, [viewMode, localSearch, files, lfSearchData]);
+  // Sorting for Laserfiche View
+  const [sortKey, setSortKey] = useState<"name" | "id" | "folder" | "path">("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const sortedFiltered = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      const aVal = String((a as any)[sortKey] ?? "").toLowerCase();
+      const bVal = String((b as any)[sortKey] ?? "").toLowerCase();
+      if (aVal < bVal) return sortDir === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir]);
 
   const openFolder = async (folderId: string, folderName?: string) => {
     setSelectedFolderId(folderId);
@@ -667,24 +658,26 @@ export default function ArchivePage() {
           )}
           <div className="flex items-center gap-1 ml-auto">
             <Button
-              variant={layoutView === "grid" ? "default" : "outline"}
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setLayoutView("grid")}
-              data-testid="archive-view-grid"
-              title="Grid view"
+              variant={pageView === "current" ? "default" : "outline"}
+              size="sm"
+              className="h-8 text-xs gap-1"
+              onClick={() => setPageView("current")}
+              data-testid="archive-view-current"
+              title="Current View"
             >
-              <LayoutGrid className="w-4 h-4" />
+              <LayoutGrid className="w-3.5 h-3.5" />
+              Current View
             </Button>
             <Button
-              variant={layoutView === "list" ? "default" : "outline"}
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setLayoutView("list")}
-              data-testid="archive-view-list"
-              title="List view"
+              variant={pageView === "laserfiche" ? "default" : "outline"}
+              size="sm"
+              className="h-8 text-xs gap-1"
+              onClick={() => setPageView("laserfiche")}
+              data-testid="archive-view-laserfiche"
+              title="Laserfiche View"
             >
-              <LayoutList className="w-4 h-4" />
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+              Laserfiche View
             </Button>
           </div>
         </div>
@@ -701,17 +694,17 @@ export default function ArchivePage() {
                 <SmartViewer entry={viewerEntry} onClose={closeViewer} />
               </div>
             ) : isLoading ? (
-              layoutView === "grid" ? (
+              pageView === "current" ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-28 rounded-md" />)}
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-12 rounded-md" />)}
+                  {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-10 rounded-md" />)}
                 </div>
               )
             ) : filtered && filtered.length > 0 ? (
-              layoutView === "grid" ? (
+              pageView === "current" ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-6xl">
                   {filtered.map((doc) => (
                     <button
@@ -759,43 +752,64 @@ export default function ArchivePage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-muted/50">
-                        <th className="text-left px-3 py-2.5 font-semibold">Name</th>
-                        <th className="text-left px-3 py-2.5 font-semibold">Path</th>
-                        <th className="text-left px-3 py-2.5 font-semibold">Folder</th>
-                        <th className="text-left px-3 py-2.5 font-semibold w-20">ID</th>
-                        <th className="text-left px-3 py-2.5 font-semibold w-28">Actions</th>
+                        {[
+                          { key: "name", label: "Name" },
+                          { key: "id", label: "Entry ID" },
+                          { key: "folder", label: "Template" },
+                          { key: "path", label: "Created Date" },
+                          { key: "folder", label: "Modified Date" },
+                          { key: "name", label: "Created By" },
+                          { key: "folder", label: "Folder / Path" },
+                        ].map((col) => (
+                          <th
+                            key={col.label}
+                            className="text-left px-3 py-2.5 font-semibold cursor-pointer select-none hover:text-primary transition-colors"
+                            onClick={() => {
+                              if (sortKey === (col.key as any)) {
+                                setSortDir((d) => d === "asc" ? "desc" : "asc");
+                              } else {
+                                setSortKey(col.key as any);
+                                setSortDir("asc");
+                              }
+                            }}
+                          >
+                            {col.label}
+                            {sortKey === col.key && (
+                              <span className="ml-1 text-xs">{sortDir === "asc" ? "↑" : "↓"}</span>
+                            )}
+                          </th>
+                        ))}
+                        <th className="text-left px-3 py-2.5 font-semibold w-24">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((doc) => (
+                      {sortedFiltered.map((doc) => (
                         <tr
                           key={doc.id}
-                          className="border-t border-border hover:bg-muted/30 transition-colors"
-                          data-testid={`archive-list-row-${doc.id}`}
+                          className="border-t border-border hover:bg-muted/30 transition-colors cursor-pointer"
+                          onClick={() => setLocation(`/lf-document/${doc.id}`)}
+                          data-testid={`archive-lf-row-${doc.id}`}
                         >
-                          <td className="px-3 py-2.5">
-                            <button
-                              type="button"
-                              onClick={() => setLocation(`/lf-document/${doc.id}`)}
-                              className="text-left font-medium text-foreground hover:text-primary transition-colors"
-                              data-testid={`archive-list-open-${doc.id}`}
-                            >
-                              {doc.name}
-                            </button>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                              <span className="font-medium text-foreground truncate max-w-[220px]" title={doc.name}>{doc.name}</span>
+                            </div>
                           </td>
-                          <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[200px]" title={doc.path}>{doc.path}</td>
-                          <td className="px-3 py-2.5">
-                            <Badge variant="outline" className="text-xs">{doc.folderName}</Badge>
-                          </td>
-                          <td className="px-3 py-2.5 text-muted-foreground">#{doc.id}</td>
-                          <td className="px-3 py-2.5">
+                          <td className="px-3 py-2 text-muted-foreground tabular-nums">{doc.id}</td>
+                          <td className="px-3 py-2 text-muted-foreground truncate max-w-[140px]" title={doc.templateName || "-"}>{doc.templateName || "-"}</td>
+                          <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{doc.creationTime ? new Date(doc.creationTime).toLocaleDateString() : "-"}</td>
+                          <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{doc.lastModifiedTime ? new Date(doc.lastModifiedTime).toLocaleDateString() : "-"}</td>
+                          <td className="px-3 py-2 text-muted-foreground truncate max-w-[120px]" title={doc.creator || "-"}>{doc.creator || "-"}</td>
+                          <td className="px-3 py-2 text-muted-foreground truncate max-w-[200px]" title={doc.path}>{doc.path}</td>
+                          <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                             <Button
                               type="button"
                               size="sm"
                               variant="ghost"
                               className="h-7 text-xs"
                               onClick={() => handleAI({ id: doc.id, name: doc.name, fullPath: doc.path, entryType: "ElectronicDocument", isElectronicDocument: true } as LaserficheFileEntry)}
-                              data-testid={`archive-list-ai-${doc.id}`}
+                              data-testid={`archive-lf-ai-${doc.id}`}
                             >
                               AI
                             </Button>
