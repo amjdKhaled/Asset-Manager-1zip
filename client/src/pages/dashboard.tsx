@@ -25,10 +25,17 @@ type DashboardStats = {
   topSearches: Array<{ query: string; count: number }>;
 };
 
+/**
+ * Professional 24-color palette. Every bar/pie slice gets a deterministic,
+ * stable color (index % PALETTE.length). Colors are hand-picked for
+ * distinguishability in both light and dark modes.
+ */
 const PALETTE = [
   "#3B82F6", "#14B8A6", "#F59E0B", "#8B5CF6", "#EF4444",
   "#22C55E", "#F97316", "#06B6D4", "#EC4899", "#84CC16",
   "#A855F7", "#F43F5E", "#10B981", "#FBBF24", "#60A5FA",
+  "#6366F1", "#0EA5E9", "#D946EF", "#C2410C", "#0891B2",
+  "#7C3AED", "#E11D48", "#2563EB", "#16A34A",
 ];
 const OTHERS_COLOR = "#94A3B8";
 const TOP_N = 15;
@@ -93,11 +100,12 @@ const TOOLTIP_STYLE = {
     border: "1px solid hsl(var(--border))",
     borderRadius: "8px",
     fontSize: "12px",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+    padding: "8px 12px",
   },
   itemStyle: { color: "hsl(var(--popover-foreground))" },
   labelStyle: { color: "hsl(var(--muted-foreground))", fontWeight: 500 },
-  cursor: { fill: "hsl(var(--muted))", opacity: 0.6 },
+  cursor: { fill: "hsl(var(--muted))", opacity: 0.35 },
 };
 
 // ─── Shared sub-components ──────────────────────────────────────────────────
@@ -174,52 +182,125 @@ function EmptyState({ message }: { message: string }) {
 
 type AggFolder = { name: string; documents: number; folders: number; isOthers?: boolean };
 
+/** Responsive chart-height based on bar count so bars never overlap. */
+function computeBarChartHeight(count: number): number {
+  if (count <= 4)  return 260;
+  if (count <= 8)  return 320;
+  if (count <= 12) return 380;
+  if (count <= 20) return 440;
+  return Math.min(600, 40 + count * 22);
+}
+
+/** Compute max bar width so bars stay proportional and never collide. */
+function computeMaxBarSize(count: number): number {
+  if (count <= 4)  return 64;
+  if (count <= 8)  return 48;
+  if (count <= 14) return 34;
+  if (count <= 24) return 26;
+  return 20;
+}
+
+/** Smart label length: fewer bars → longer labels, many bars → shorter. */
+function computeLabelMaxLen(count: number): number {
+  if (count <= 4)  return 24;
+  if (count <= 8)  return 16;
+  if (count <= 14) return 12;
+  return 9;
+}
+
+/** Rich tooltip for the folder bar chart. */
+function FolderTooltip({
+  active,
+  payload,
+  label,
+  totalDocs,
+  lookup,
+}: {
+  active?: boolean;
+  payload?: any[];
+  label?: string;
+  totalDocs: number;
+  lookup: Record<string, { name: string; documents: number; isOthers: boolean }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const item = lookup[label ?? ""];
+  if (!item) return null;
+  const pct = totalDocs > 0 ? Math.round((item.documents / totalDocs) * 100) : 0;
+  const color = item.isOthers
+    ? OTHERS_COLOR
+    : PALETTE[Object.keys(lookup).indexOf(label ?? "") % PALETTE.length];
+  return (
+    <div
+      className="rounded-lg border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs"
+      style={{ borderColor: "hsl(var(--border))" }}
+    >
+      <p className="font-semibold mb-1" style={{ color }}>
+        {item.name}
+      </p>
+      <div className="space-y-0.5 text-muted-foreground">
+        <p>
+          <span className="font-medium text-foreground">{item.documents.toLocaleString()}</span>{" "}
+          document{item.documents !== 1 ? "s" : ""}
+        </p>
+        <p>{pct}% of total documents</p>
+      </div>
+    </div>
+  );
+}
+
 function RootFoldersChart({ data }: { data: DashboardStats["rootFolders"] | undefined }) {
   if (!data?.length) return <EmptyState message="No folder data available." />;
 
   const aggregated: AggFolder[] = aggregateTopN(data);
   const wasAggregated = aggregated.length < data.length + (aggregated.some((f) => f.isOthers) ? 0 : 1);
   const count = aggregated.length;
+  const totalDocs = aggregated.reduce((s, f) => s + f.documents, 0);
   const maxDocs = Math.max(...aggregated.map((f) => f.documents), 0);
   const yTicks = computeYTicks(maxDocs);
   const yMax = yTicks[yTicks.length - 1];
 
-  const chartHeight = count <= 6 ? 220 : count <= 12 ? 260 : 300;
-  const labelAngle = count > 5 ? -35 : 0;
-  const textAnchor = count > 5 ? "end" : "middle";
-  const bottomMargin = count > 5 ? 64 : 28;
-  const maxBarSize = count <= 4 ? 56 : count <= 8 ? 44 : count <= 14 ? 32 : 20;
-  const maxLabelLen = count <= 4 ? 20 : count <= 8 ? 14 : 10;
+  const chartHeight = computeBarChartHeight(count);
+  const maxBarSize = computeMaxBarSize(count);
+  const maxLabelLen = computeLabelMaxLen(count);
 
-  const chartData = aggregated.map((f) => ({
+  // Label rotation: only when bars are dense enough that labels would collide.
+  const labelAngle = count > 6 ? -40 : count > 3 ? -25 : 0;
+  const textAnchor = count > 6 ? "end" : "middle";
+  const bottomMargin = count > 6 ? 72 : count > 3 ? 48 : 28;
+
+  const chartData = aggregated.map((f, i) => ({
     name: f.name,
     label: truncateLabel(f.name, maxLabelLen),
     documents: f.documents,
     isOthers: !!f.isOthers,
+    color: f.isOthers ? OTHERS_COLOR : PALETTE[i % PALETTE.length],
   }));
+
+  const lookup: Record<string, { name: string; documents: number; isOthers: boolean }> = {};
+  for (const d of chartData) lookup[d.label] = { name: d.name, documents: d.documents, isOthers: d.isOthers };
 
   return (
     <>
       {wasAggregated && (
         <p className="text-xs text-muted-foreground mb-2">
-          Showing top {TOP_N} folders · remaining folders combined as "Others"
+          Showing top {TOP_N} folders by document count · remaining folders combined as "Others"
         </p>
       )}
       <ResponsiveContainer width="100%" height={chartHeight}>
         <BarChart
           data={chartData}
           margin={{ top: 8, right: 12, bottom: bottomMargin, left: 0 }}
-          barCategoryGap={count > 12 ? "15%" : "25%"}
+          barCategoryGap={count > 12 ? "12%" : count > 6 ? "20%" : "30%"}
         >
           <CartesianGrid
-            strokeDasharray="4 4"
+            strokeDasharray="3 3"
             stroke="hsl(var(--border))"
-            opacity={0.5}
+            opacity={0.35}
             vertical={false}
           />
           <XAxis
             dataKey="label"
-            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+            tick={{ fontSize: count > 12 ? 9 : 11, fill: "hsl(var(--muted-foreground))" }}
             interval={0}
             angle={labelAngle}
             textAnchor={textAnchor}
@@ -234,30 +315,28 @@ function RootFoldersChart({ data }: { data: DashboardStats["rootFolders"] | unde
             tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
             tickLine={false}
             axisLine={false}
-            width={yMax >= 1000 ? 48 : 36}
+            width={yMax >= 1000 ? 52 : yMax >= 100 ? 40 : 32}
             tickFormatter={(v) => v.toLocaleString()}
           />
           <Tooltip
-            {...TOOLTIP_STYLE}
-            formatter={(v: any) => [Number(v).toLocaleString(), "Documents"]}
-            labelFormatter={(label) => {
-              const match = chartData.find((d) => d.label === label);
-              return match?.name ?? label;
-            }}
+            cursor={{ fill: "hsl(var(--muted))", opacity: 0.3 }}
+            content={
+              <FolderTooltip
+                totalDocs={totalDocs}
+                lookup={lookup}
+              /> as any
+            }
           />
           <Bar
             dataKey="documents"
-            radius={[5, 5, 0, 0]}
+            radius={[6, 6, 0, 0]}
             maxBarSize={maxBarSize}
             isAnimationActive={true}
-            animationDuration={600}
+            animationDuration={500}
             animationEasing="ease-out"
           >
             {chartData.map((entry, i) => (
-              <Cell
-                key={i}
-                fill={entry.isOthers ? OTHERS_COLOR : PALETTE[i % PALETTE.length]}
-              />
+              <Cell key={i} fill={entry.color} />
             ))}
           </Bar>
         </BarChart>
@@ -266,18 +345,60 @@ function RootFoldersChart({ data }: { data: DashboardStats["rootFolders"] | unde
   );
 }
 
+/** Rich tooltip for the template pie chart with percentage and count. */
+function TemplateTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: any[];
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0];
+  const name = p.name as string;
+  const value = Number(p.value ?? 0);
+  const total = p.payload?.totalCount ?? value;
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  const i = p.payload?.__index ?? 0;
+  const color = PALETTE[i % PALETTE.length];
+  return (
+    <div
+      className="rounded-lg border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs"
+      style={{ borderColor: "hsl(var(--border))" }}
+    >
+      <p className="font-semibold mb-1" style={{ color }}>
+        {name}
+      </p>
+      <div className="space-y-0.5 text-muted-foreground">
+        <p>
+          <span className="font-medium text-foreground">{value.toLocaleString()}</span>{" "}
+          document{value !== 1 ? "s" : ""}
+        </p>
+        <p>{pct}% of all templated documents</p>
+      </div>
+    </div>
+  );
+}
+
 function TemplatePieChart({ data }: { data: DashboardStats["templateStats"] | undefined }) {
   if (!data?.length) return <EmptyState message="No template information available." />;
 
   const count = data.length;
-  const outerR = count > 8 ? 80 : 90;
-  const innerR = count > 8 ? 40 : 46;
+  const total = data.reduce((s, t) => s + t.count, 0);
+
+  // Responsive donut sizing based on slice count
+  const outerR = count > 12 ? 70 : count > 8 ? 80 : 92;
+  const innerR = count > 12 ? 38 : count > 8 ? 42 : 48;
+  const chartHeight = count > 12 ? 320 : 300;
+
+  // Enrich data with total and index for tooltip percentage calculation
+  const enriched = data.map((t, i) => ({ ...t, totalCount: total, __index: i }));
 
   return (
-    <ResponsiveContainer width="100%" height={280}>
+    <ResponsiveContainer width="100%" height={chartHeight}>
       <PieChart>
         <Pie
-          data={data}
+          data={enriched}
           dataKey="count"
           nameKey="name"
           cx="50%"
@@ -286,34 +407,67 @@ function TemplatePieChart({ data }: { data: DashboardStats["templateStats"] | un
           innerRadius={innerR}
           paddingAngle={count > 10 ? 1 : 2}
           label={({ percent }) =>
-            percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : ""
+            percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ""
           }
           labelLine={false}
           isAnimationActive={true}
-          animationDuration={700}
+          animationDuration={600}
           animationEasing="ease-out"
         >
-          {data.map((_, i) => (
-            <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+          {enriched.map((_, i) => (
+            <Cell key={i} fill={PALETTE[i % PALETTE.length]} stroke="none" />
           ))}
         </Pie>
         <Tooltip
-          contentStyle={TOOLTIP_STYLE.contentStyle}
-          itemStyle={TOOLTIP_STYLE.itemStyle}
-          formatter={(v: any, name: string) => [Number(v).toLocaleString(), name]}
+          cursor={{ fill: "transparent" }}
+          content={<TemplateTooltip /> as any}
         />
         <Legend
           iconType="circle"
           iconSize={8}
-          wrapperStyle={{ paddingTop: 8, fontSize: 11 }}
+          wrapperStyle={{ paddingTop: 10, fontSize: 11 }}
           formatter={(value) => (
             <span style={{ color: "hsl(var(--muted-foreground))" }}>
-              {truncateLabel(String(value), 22)}
+              {truncateLabel(String(value), 24)}
             </span>
           )}
         />
       </PieChart>
     </ResponsiveContainer>
+  );
+}
+
+/** Rich tooltip for the search activity line chart. */
+function SearchTooltip({
+  active,
+  payload,
+  label,
+  total,
+}: {
+  active?: boolean;
+  payload?: any[];
+  label?: string;
+  total: number;
+}) {
+  if (!active || !payload?.length) return null;
+  const value = Number(payload[0].value ?? 0);
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  return (
+    <div
+      className="rounded-lg border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs"
+      style={{ borderColor: "hsl(var(--border))" }}
+    >
+      <p className="font-semibold mb-1 text-blue-500">
+        {label}
+      </p>
+      <div className="space-y-0.5 text-muted-foreground">
+        <p>
+          <span className="font-medium text-foreground">{value.toLocaleString()}</span>{" "}
+          search{value !== 1 ? "es" : ""}
+        </p>
+        <p>{pct}% of weekly total</p>
+      </div>
+    </div>
   );
 }
 
@@ -324,19 +478,22 @@ function SearchActivityChart({ data }: { data: DashboardStats["searchesByDay"] |
   const yTicks = computeYTicks(maxCount);
   const yMax = yTicks[yTicks.length - 1];
   const formatted = data.map((d) => ({ ...d, date: d.date.slice(5) }));
+  const total = data.reduce((s, d) => s + d.count, 0);
+
+  const chartHeight = data.length > 10 ? 220 : 190;
 
   return (
-    <ResponsiveContainer width="100%" height={180}>
+    <ResponsiveContainer width="100%" height={chartHeight}>
       <LineChart data={formatted} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
         <CartesianGrid
-          strokeDasharray="4 4"
+          strokeDasharray="3 3"
           stroke="hsl(var(--border))"
-          opacity={0.5}
+          opacity={0.35}
           vertical={false}
         />
         <XAxis
           dataKey="date"
-          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={{ stroke: "hsl(var(--border))" }}
         />
@@ -347,13 +504,12 @@ function SearchActivityChart({ data }: { data: DashboardStats["searchesByDay"] |
           tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
-          width={32}
+          width={yMax >= 100 ? 40 : 32}
+          tickFormatter={(v) => v.toLocaleString()}
         />
         <Tooltip
-          contentStyle={TOOLTIP_STYLE.contentStyle}
-          itemStyle={TOOLTIP_STYLE.itemStyle}
-          labelStyle={TOOLTIP_STYLE.labelStyle}
-          formatter={(v: any) => [v, "Searches"]}
+          cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1, strokeDasharray: "3 3" }}
+          content={<SearchTooltip total={total} /> as any}
         />
         <Line
           type="monotone"
@@ -363,7 +519,7 @@ function SearchActivityChart({ data }: { data: DashboardStats["searchesByDay"] |
           dot={{ r: 3.5, fill: "#3B82F6", strokeWidth: 0 }}
           activeDot={{ r: 5, fill: "#3B82F6", strokeWidth: 2, stroke: "#fff" }}
           isAnimationActive={true}
-          animationDuration={600}
+          animationDuration={500}
           animationEasing="ease-out"
         />
       </LineChart>

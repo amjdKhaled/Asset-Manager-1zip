@@ -1,0 +1,83 @@
+البرومبت 5 — Empty Folders Widget
+
+Task: Add a new Dashboard widget called "Empty Folders".
+
+This widget should help administrators quickly identify repository folders that do not contain any documents.
+
+Purpose
+
+The goal is to improve repository organization by highlighting empty or unused folders that may require cleanup or review.
+
+Requirements
+
+Display:
+
+Total Empty Folders
+Percentage of Empty Folders
+Total Non-Empty Folders
+Empty vs Non-Empty ratio
+Folder Detection
+
+A folder is considered Empty when:
+
+It contains no documents.
+Optionally, folders containing only empty subfolders may also be treated as empty if supported by the existing scan logic.
+List View
+
+Show a table containing up to the 20 largest empty folders, including:
+
+Folder Name
+Full Repository Path
+Parent Folder
+Number of Child Folders
+Last Modified Date (if available)
+
+If there are more than 20 empty folders:
+
+Display only the first 20.
+Show the remaining count as:
+
+"+ XX more empty folders"
+
+Visualization
+
+Include one of the following:
+
+Doughnut Chart
+Pie Chart
+Horizontal Progress Bar
+
+showing:
+
+Empty Folders
+Non-Empty Folders
+User Experience
+Clicking a folder should navigate to or open the corresponding folder in the repository if that functionality already exists.
+Otherwise, simply display the folder path.
+Performance
+Do NOT perform another repository scan.
+Reuse the existing recursive repository scan already used by the dashboard.
+Avoid additional Laserfiche API requests whenever possible.
+UI
+Match the existing dashboard style.
+Responsive layout.
+Professional design.
+Support both small and large repositories.
+Very Important
+
+Do NOT modify:
+
+Existing widgets
+Charts
+Repository scanning logic
+Statistics calculations
+Existing APIs
+Search functionality
+
+This task should only add the Empty Folders widget while reusing the existing dashboard data.
+
+After implementation, explain:
+
+Which files were modified.
+Why each file was modified.
+How the widget determines empty folders using the existing repository scan without introducing additional API calls.
