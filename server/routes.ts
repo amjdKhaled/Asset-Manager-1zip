@@ -233,14 +233,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
           // ── Recursive folder scanner ──────────────────────────────────────
           // Collects document counts, folder counts, template assignments,
-          // and per-folder metadata in a single pass. No extra API calls.
+          // per-folder metadata, and top recent/modified documents in a single
+          // pass. No extra API calls beyond the folder enumeration already done.
           type FolderNode = { name: string; documents: number; folders: number };
+          type DocEntry = {
+            id: number;
+            name: string;
+            fullPath: string;
+            templateName: string;
+            creator: string;
+            creationTime?: string;
+            lastModifiedTime?: string;
+          };
           type ScanResult = {
             documents: number;
             folders: number;
             templateCounts: Record<string, number>;
             allFolders: FolderNode[];
+            recentDocs: DocEntry[];
+            modifiedDocs: DocEntry[];
           };
+          const DOC_CAP = 120;
 
           const scanFolder = async (
             folderId: number,
@@ -248,13 +261,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             folderName: string
           ): Promise<ScanResult> => {
             if (visited.has(folderId))
-              return { documents: 0, folders: 0, templateCounts: {}, allFolders: [] };
+              return { documents: 0, folders: 0, templateCounts: {}, allFolders: [], recentDocs: [], modifiedDocs: [] };
             visited.add(folderId);
             let children: any[];
             try {
               children = await laserficheGetFolderChildren(lfConfig, token, folderId);
             } catch {
-              return { documents: 0, folders: 0, templateCounts: {}, allFolders: [] };
+              return { documents: 0, folders: 0, templateCounts: {}, allFolders: [], recentDocs: [], modifiedDocs: [] };
             }
 
             const docEntries = children.filter(
@@ -265,9 +278,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             );
 
             const localTmpl: Record<string, number> = {};
+            const localRecent: DocEntry[] = [];
             for (const doc of docEntries) {
-              const name = ((doc.templateName || doc.TemplateName || "") as string).trim();
-              if (name) localTmpl[name] = (localTmpl[name] || 0) + 1;
+              const tmpl = ((doc.templateName || doc.TemplateName || "") as string).trim();
+              if (tmpl) localTmpl[tmpl] = (localTmpl[tmpl] || 0) + 1;
+              const de: DocEntry = {
+                id: doc.id ?? 0,
+                name: doc.name || "",
+                fullPath: (doc.fullPath || doc.path || `${folderName}/${doc.name || ""}`),
+                templateName: tmpl,
+                creator: doc.creator || "",
+                creationTime: doc.creationTime,
+                lastModifiedTime: doc.lastModifiedTime,
+              };
+              localRecent.push(de);
             }
 
             const nested = await Promise.all(
@@ -291,11 +315,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               ...nested.flatMap((n) => n.allFolders),
             ];
 
+            const allRecent = [...localRecent, ...nested.flatMap((n) => n.recentDocs)];
+            const topRecent = allRecent
+              .sort((a, b) => (b.creationTime || "").localeCompare(a.creationTime || ""))
+              .slice(0, DOC_CAP);
+            const topModified = [...allRecent]
+              .sort((a, b) => (b.lastModifiedTime || b.creationTime || "").localeCompare(a.lastModifiedTime || a.creationTime || ""))
+              .slice(0, DOC_CAP);
+
             return {
               documents: totalDocs,
               folders: totalSubfolders,
               templateCounts: mergedTmpl,
               allFolders,
+              recentDocs: topRecent,
+              modifiedDocs: topModified,
             };
           };
 
@@ -311,6 +345,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           const rootDocEntries = rootChildren.filter(
             (c: any) => c.isElectronicDocument || c.entryType?.toLowerCase().includes("document")
           );
+
+          // Collect root-level doc metadata
+          const rootRecent: DocEntry[] = rootDocEntries.map((doc: any) => ({
+            id: doc.id ?? 0,
+            name: doc.name || "",
+            fullPath: doc.fullPath || doc.path || `Root/${doc.name || ""}`,
+            templateName: ((doc.templateName || doc.TemplateName || "") as string).trim(),
+            creator: doc.creator || "",
+            creationTime: doc.creationTime,
+            lastModifiedTime: doc.lastModifiedTime,
+          }));
 
           // ── Step 2 (parallel): scan every root-level folder ───────────────
           const scanStart = Date.now();
@@ -359,6 +404,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             folders,
           }));
 
+          // Aggregate recent/modified docs from root + all sub-folders
+          const allRecent = [
+            ...rootRecent,
+            ...rootFolderResults.flatMap((r: any) => r.recentDocs ?? []),
+          ]
+            .sort((a, b) => (b.creationTime || "").localeCompare(a.creationTime || ""))
+            .slice(0, DOC_CAP);
+          const allModified = [
+            ...rootRecent,
+            ...rootFolderResults.flatMap((r: any) => r.modifiedDocs ?? []),
+          ]
+            .sort((a, b) => (b.lastModifiedTime || b.creationTime || "").localeCompare(a.lastModifiedTime || a.creationTime || ""))
+            .slice(0, DOC_CAP);
+
           const auditStats = await buildGovSearchAuditStats();
           const lastRefresh = new Date().toISOString();
 
@@ -384,6 +443,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             templateStats,
             rootFolders: rootFolderCounts,
             allFolders: rootFolderResults.flatMap((r: any) => r.allFolders ?? []),
+            recentDocs: allRecent,
+            modifiedDocs: allModified,
             health,
             ...auditStats,
           });
@@ -414,6 +475,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         templateStats: [],
         rootFolders: [],
         allFolders: [],
+        recentDocs: [],
+        modifiedDocs: [],
         health: fallbackHealth,
         ...auditStats,
       });
