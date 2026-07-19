@@ -5,3 +5,8 @@ server/public
 vite.config.ts.*
 *.tar.gz
 .local-secrets/
+
+# Replit-specific files (not needed outside Replit)
+.replit
+replit.nix
+.cache/replit/
