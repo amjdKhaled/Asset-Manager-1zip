@@ -1,0 +1,118 @@
+There are still several issues that need to be fixed.
+
+Please do NOT redesign the dashboard.
+
+Only fix the following problems.
+
+----------------------------------------
+1. PDF and Excel Export
+----------------------------------------
+
+Arabic text is corrupted in both PDF and Excel exports.
+
+Instead of Arabic, exported files contain garbled characters.
+
+Fix this by:
+
+- Properly supporting UTF-8.
+- Use an Arabic font in PDF (Amiri, Cairo, Noto Sans Arabic or equivalent).
+- Ensure RTL text renders correctly.
+- Preserve Arabic and English together.
+
+Excel:
+
+- Arabic must export correctly.
+- Dates must export correctly.
+- Auto-size all columns.
+- Remove ####### date cells.
+- Apply professional formatting.
+
+----------------------------------------
+2. Export Button Location
+----------------------------------------
+
+Move the Export functionality to the dashboard header.
+
+Place it beside Refresh.
+
+Use one Export button with a dropdown:
+
+Export
+    PDF
+    Excel
+    CSV
+
+Do not keep three buttons inside the page body.
+
+----------------------------------------
+3. Recently Created Documents
+----------------------------------------
+
+The widget exists but no data is displayed.
+
+My repository contains documents.
+
+Connect this widget to the existing repository scan.
+
+Do NOT return empty arrays.
+
+Show:
+
+- Document Name
+- Template
+- Folder
+- Created Date
+- Created By (if available)
+
+----------------------------------------
+4. Recently Modified Documents
+----------------------------------------
+
+The widget is also empty.
+
+Connect it to the repository data.
+
+Show:
+
+- Document
+- Modified Date
+- Modified By
+- Template
+
+----------------------------------------
+5. Documents by User Activity
+----------------------------------------
+
+The widget always shows:
+
+"No user activity data."
+
+Implement it using available Laserfiche metadata or audit information.
+
+If the Laserfiche REST API cannot provide this information directly:
+
+- Explain the limitation.
+- Use Audit Trail if available.
+- Or disable the widget with a message explaining why.
+
+Do NOT fabricate data.
+
+----------------------------------------
+6. General Requirement
+----------------------------------------
+
+Do NOT redesign the dashboard.
+
+Do NOT remove any existing widgets.
+
+Do NOT modify existing charts.
+
+Only fix these issues.
+
+After finishing, explain:
+
+- Which files were modified.
+- Why Arabic export was broken.
+- How it was fixed.
+- Why the three widgets were empty.
+- How they are now connected to Laserfiche.

@@ -9,10 +9,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   RefreshCw, FileText, FolderOpen, Layers, CheckCircle2, AlertCircle,
   Database, TrendingUp, Search, Info,
   Clock, User, Timer, Globe, ShieldCheck, ShieldAlert, AlertTriangle,
   Wifi, WifiOff, Activity, FileSpreadsheet, FileCode, Printer,
+  ChevronDown, Download,
 } from "lucide-react";
 
 type DocEntry = {
@@ -460,6 +467,12 @@ export default function DashboardPage() {
     staleTime: 2 * 60 * 1000,
   });
 
+  const { data: auditLogs } = useQuery<Array<{ username?: string | null; query: string; searchedAt?: string | Date | null }>>({
+    queryKey: ["/api/audit-logs", 500],
+    queryFn: () => fetch("/api/audit-logs?limit=500").then((r) => r.json()),
+    staleTime: 2 * 60 * 1000,
+  });
+
   if (isLoading) {
     return (
       <div className="h-full overflow-auto px-6 py-5 space-y-4">
@@ -542,6 +555,7 @@ export default function DashboardPage() {
                 <RefreshCw className={`w-4 h-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
                 {isFetching ? "Loading..." : "Refresh"}
               </Button>
+              <ExportDropdown stats={stats} />
             </div>
           </div>
 
@@ -772,35 +786,23 @@ export default function DashboardPage() {
           )}
 
           {/* Row 6: Documents by User Activity */}
-          {stats.isLive && (
-            <ChartCard
-              title="Documents by User Activity"
-              sub="Created and modified documents per user"
-              badge={
-                <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full">
-                  <User className="w-3 h-3" />
-                  {computeUserActivity(stats.recentDocs ?? [], stats.modifiedDocs ?? []).length} users
-                </span>
-              }
-            >
-              <UserActivityWidget
-                data={computeUserActivity(stats.recentDocs ?? [], stats.modifiedDocs ?? [])}
-              />
-            </ChartCard>
-          )}
-
-          {/* Row 7: Export Feature */}
-          <ChartCard
-            title="Export Dashboard Reports"
-            sub="Download analytics in PDF, Excel, or CSV format"
-            badge={
-              <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full">
-                <FileSpreadsheet className="w-3 h-3" />3 formats
-              </span>
-            }
-          >
-            <ExportPanel stats={stats} />
-          </ChartCard>
+          {(() => {
+            const ua = computeUserActivity(stats.recentDocs ?? [], stats.modifiedDocs ?? [], auditLogs ?? []);
+            return (
+              <ChartCard
+                title="Documents by User Activity"
+                sub="Created and modified documents per user"
+                badge={
+                  <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full">
+                    <User className="w-3 h-3" />
+                    {`${ua.rows.length} ${ua.source === "govsearch" ? "(GovSearch)" : ua.source === "laserfiche" ? "(LF)" : ""}`}
+                  </span>
+                }
+              >
+                <UserActivityWidget data={ua.rows} source={ua.source} note={ua.note} />
+              </ChartCard>
+            );
+          })()}
 
         </div>
       </div>
@@ -888,6 +890,41 @@ const AUDIT_ROWS: AuditRow[] = [
     origin: "govsearch",
     liveOnly: false,
     notes: "Based on searches performed inside GovSearch · top 5 by frequency · NOT from LF server",
+  },
+  {
+    widget: "Document Type Distribution",
+    dataSource: "LF REST API — templateName field on folder children",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Same template data as Template Distribution; shown as horizontal bar list",
+  },
+  {
+    widget: "Recently Created Documents",
+    dataSource: "LF REST API — creationTime + creator on folder children",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Top documents sorted by creationTime descending; only when LF is connected",
+  },
+  {
+    widget: "Recently Modified Documents",
+    dataSource: "LF REST API — lastModifiedTime on folder children",
+    origin: "laserfiche",
+    liveOnly: true,
+    notes: "Top documents sorted by lastModifiedTime descending; LF API does not expose modifiedBy field",
+  },
+  {
+    widget: "Documents by User Activity",
+    dataSource: "LF REST API — creator field aggregated + GovSearch audit log fallback",
+    origin: "both",
+    liveOnly: false,
+    notes: "When LF is connected: counts creators. When disconnected: counts GovSearch usernames from audit logs.",
+  },
+  {
+    widget: "System Health",
+    dataSource: "LF REST API — connection status, scan timing, token timing",
+    origin: "laserfiche",
+    liveOnly: false,
+    notes: "Shows connection state even when disconnected; last refresh + scan duration when connected",
   },
 ];
 
@@ -990,6 +1027,15 @@ function DocTypeChart({ data }: { data: Array<{ name: string; count: number }> }
 }
 
 /* ── Prompt 7: Recently Created Documents ── */
+function folderFromPath(fullPath?: string): string {
+  if (!fullPath) return "-";
+  const parts = fullPath.split("\\");
+  if (parts.length > 1) return parts.slice(0, -1).join("\\");
+  const parts2 = fullPath.split("/");
+  if (parts2.length > 1) return parts2.slice(0, -1).join("/");
+  return "-";
+}
+
 function RecentCreatedWidget({ docs }: { docs: DocEntry[] }) {
   const [query, setQuery] = useState("");
   const filtered = docs.filter((d) =>
@@ -1009,23 +1055,25 @@ function RecentCreatedWidget({ docs }: { docs: DocEntry[] }) {
         <table className="w-full text-xs">
           <thead>
             <tr className="bg-muted/50">
-              <th className="text-left px-3 py-2.5 font-semibold">Name</th>
+              <th className="text-left px-3 py-2.5 font-semibold">Document Name</th>
               <th className="text-left px-3 py-2.5 font-semibold">Template</th>
-              <th className="text-left px-3 py-2.5 font-semibold">Created</th>
-              <th className="text-left px-3 py-2.5 font-semibold">By</th>
+              <th className="text-left px-3 py-2.5 font-semibold">Folder</th>
+              <th className="text-left px-3 py-2.5 font-semibold">Created Date</th>
+              <th className="text-left px-3 py-2.5 font-semibold">Created By</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((d) => (
               <tr key={d.id} className="border-t border-border hover:bg-muted/30 transition-colors">
-                <td className="px-3 py-2.5 font-medium text-foreground truncate max-w-[200px]">{d.name}</td>
+                <td className="px-3 py-2.5 font-medium text-foreground truncate max-w-[180px]" title={d.name}>{d.name}</td>
                 <td className="px-3 py-2.5 text-muted-foreground">{d.templateName || "-"}</td>
+                <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[120px]" title={folderFromPath(d.fullPath)}>{folderFromPath(d.fullPath)}</td>
                 <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{formatDate(d.creationTime)}</td>
                 <td className="px-3 py-2.5 text-muted-foreground">{d.creator || "-"}</td>
               </tr>
             ))}
             {!filtered.length && (
-              <tr><td colSpan={4} className="px-3 py-4 text-center text-muted-foreground text-sm">No matches.</td></tr>
+              <tr><td colSpan={5} className="px-3 py-4 text-center text-muted-foreground text-sm">No matches.</td></tr>
             )}
           </tbody>
         </table>
@@ -1045,6 +1093,12 @@ function RecentModifiedWidget({ docs }: { docs: DocEntry[] }) {
   if (!docs.length) return <EmptyState message="No recently modified documents found." />;
   return (
     <div className="space-y-3">
+      <div className="flex items-start gap-2 bg-amber-500/8 border border-amber-500/20 rounded-lg px-3 py-2">
+        <Info className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+        <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+          Laserfiche REST API does not expose a "modifiedBy" field per document. The "By" column shows the original creator.
+        </p>
+      </div>
       <Input
         placeholder="Search documents..."
         value={query}
@@ -1055,19 +1109,19 @@ function RecentModifiedWidget({ docs }: { docs: DocEntry[] }) {
         <table className="w-full text-xs">
           <thead>
             <tr className="bg-muted/50">
-              <th className="text-left px-3 py-2.5 font-semibold">Name</th>
+              <th className="text-left px-3 py-2.5 font-semibold">Document</th>
               <th className="text-left px-3 py-2.5 font-semibold">Template</th>
-              <th className="text-left px-3 py-2.5 font-semibold">Modified</th>
+              <th className="text-left px-3 py-2.5 font-semibold">Modified Date</th>
               <th className="text-left px-3 py-2.5 font-semibold">By</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((d) => (
               <tr key={d.id} className="border-t border-border hover:bg-muted/30 transition-colors">
-                <td className="px-3 py-2.5 font-medium text-foreground truncate max-w-[200px]">{d.name}</td>
+                <td className="px-3 py-2.5 font-medium text-foreground truncate max-w-[180px]" title={d.name}>{d.name}</td>
                 <td className="px-3 py-2.5 text-muted-foreground">{d.templateName || "-"}</td>
                 <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{formatDate(d.lastModifiedTime)}</td>
-                <td className="px-3 py-2.5 text-muted-foreground">{d.creator || "-"}</td>
+                <td className="px-3 py-2.5 text-muted-foreground" title="Laserfiche API does not expose modifiedBy">{d.creator || "-"}</td>
               </tr>
             ))}
             {!filtered.length && (
@@ -1084,7 +1138,11 @@ function RecentModifiedWidget({ docs }: { docs: DocEntry[] }) {
 /* ── Prompt 9: Documents by User Activity ── */
 type UserRow = { name: string; created: number; modified: number; total: number; lastActivity: string };
 
-function computeUserActivity(recent: DocEntry[], modified: DocEntry[]): UserRow[] {
+function computeUserActivity(
+  recent: DocEntry[],
+  modified: DocEntry[],
+  auditLogs?: Array<{ username?: string | null; query: string; searchedAt?: string | Date | null }>
+): { rows: UserRow[]; source: "laserfiche" | "govsearch" | "none"; note: string } {
   const map = new Map<string, { created: number; modified: number; lastActivity: string }>();
   for (const d of recent) {
     const u = d.creator || "Unknown";
@@ -1102,37 +1160,83 @@ function computeUserActivity(recent: DocEntry[], modified: DocEntry[]): UserRow[
     if (t > cur.lastActivity) cur.lastActivity = t;
     map.set(u, cur);
   }
-  return Array.from(map.entries())
-    .map(([name, v]) => ({ name, created: v.created, modified: v.modified, total: v.created + v.modified, lastActivity: formatDate(v.lastActivity) }))
-    .sort((a, b) => b.total - a.total);
+
+  if (map.size > 0) {
+    const rows = Array.from(map.entries())
+      .map(([name, v]) => ({ name, created: v.created, modified: v.modified, total: v.created + v.modified, lastActivity: formatDate(v.lastActivity) }))
+      .sort((a, b) => b.total - a.total);
+    return { rows, source: "laserfiche", note: "Data from Laserfiche REST API (creator field on documents)." };
+  }
+
+  // Fallback: GovSearch audit log usernames
+  if (auditLogs && auditLogs.length > 0) {
+    const amap = new Map<string, { created: number; modified: number; lastActivity: string }>();
+    for (const log of auditLogs) {
+      const u = log.username || "Anonymous";
+      const cur = amap.get(u) || { created: 0, modified: 0, lastActivity: "" };
+      cur.created += 1;
+      const t = log.searchedAt ? new Date(log.searchedAt).toISOString() : "";
+      if (t > cur.lastActivity) cur.lastActivity = t;
+      amap.set(u, cur);
+    }
+    const rows = Array.from(amap.entries())
+      .map(([name, v]) => ({ name, created: v.created, modified: v.modified, total: v.created + v.modified, lastActivity: formatDate(v.lastActivity) }))
+      .sort((a, b) => b.total - a.total);
+    return { rows, source: "govsearch", note: "Laserfiche not connected. Showing GovSearch audit log usernames instead." };
+  }
+
+  return { rows: [], source: "none", note: "No user activity data available. Connect to Laserfiche or perform searches in GovSearch to populate this widget." };
 }
 
-function UserActivityWidget({ data }: { data: UserRow[] }) {
-  if (!data.length) return <EmptyState message="No user activity data available." />;
+type UserActivityProps = {
+  data: UserRow[];
+  source: "laserfiche" | "govsearch" | "none";
+  note: string;
+};
+
+function UserActivityWidget({ data, source, note }: UserActivityProps) {
+  if (!data.length) {
+    return (
+      <div className="space-y-3">
+        <EmptyState message={note} />
+      </div>
+    );
+  }
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-muted/50">
-            <th className="text-left px-3 py-2.5 font-semibold">User</th>
-            <th className="text-left px-3 py-2.5 font-semibold">Created</th>
-            <th className="text-left px-3 py-2.5 font-semibold">Modified</th>
-            <th className="text-left px-3 py-2.5 font-semibold">Total</th>
-            <th className="text-left px-3 py-2.5 font-semibold">Last Activity</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((u) => (
-            <tr key={u.name} className="border-t border-border hover:bg-muted/30 transition-colors">
-              <td className="px-3 py-2.5 font-medium text-foreground">{u.name}</td>
-              <td className="px-3 py-2.5 text-muted-foreground">{u.created}</td>
-              <td className="px-3 py-2.5 text-muted-foreground">{u.modified}</td>
-              <td className="px-3 py-2.5 font-semibold text-foreground">{u.total}</td>
-              <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{u.lastActivity}</td>
+    <div className="space-y-3">
+      <div className="flex items-start gap-2 bg-blue-500/8 border border-blue-500/20 rounded-lg px-3 py-2">
+        <Info className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+        <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+          {source === "laserfiche"
+            ? "Data from Laserfiche REST API (creator field). "
+            : "Laserfiche not connected. Using GovSearch audit log usernames as fallback. "}
+          {note}
+        </p>
+      </div>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-muted/50">
+              <th className="text-left px-3 py-2.5 font-semibold">User</th>
+              <th className="text-left px-3 py-2.5 font-semibold">Created</th>
+              <th className="text-left px-3 py-2.5 font-semibold">Modified</th>
+              <th className="text-left px-3 py-2.5 font-semibold">Total</th>
+              <th className="text-left px-3 py-2.5 font-semibold">Last Activity</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {data.map((u) => (
+              <tr key={u.name} className="border-t border-border hover:bg-muted/30 transition-colors">
+                <td className="px-3 py-2.5 font-medium text-foreground">{u.name}</td>
+                <td className="px-3 py-2.5 text-muted-foreground">{u.created}</td>
+                <td className="px-3 py-2.5 text-muted-foreground">{u.modified}</td>
+                <td className="px-3 py-2.5 font-semibold text-foreground">{u.total}</td>
+                <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{u.lastActivity}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1172,13 +1276,15 @@ function SystemHealthGrid({ health }: { health: HealthInfo }) {
 /* ── Prompt 10: Export Dashboard Reports ── */
 type ExportFormat = "pdf" | "excel" | "csv";
 
-function ExportPanel({ stats }: { stats: DashboardStats | undefined }) {
+function ExportDropdown({ stats }: { stats: DashboardStats | undefined }) {
   const { toast } = useToast();
   const exportReport = async (format: ExportFormat) => {
     if (!stats) { toast({ title: "Export Failed", description: "No data available.", variant: "destructive" }); return; }
     try {
       const dateLabel = new Date().toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric" });
       if (format === "csv") {
+        // UTF-8 BOM ensures Excel opens Arabic correctly
+        const BOM = "\uFEFF";
         const csv = (rows: string[][]) => rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, "\"\"")}"`).join(",")).join("\n");
         const summary = [
           ["Metric", "Value"],
@@ -1193,39 +1299,73 @@ function ExportPanel({ stats }: { stats: DashboardStats | undefined }) {
         const folders = [["Folder", "Documents", "Sub-folders"], ...stats.rootFolders.map((f) => [f.name, String(f.documents), String(f.folders)])];
         const searches = [["Date", "Count"], ...stats.searchesByDay.map((s) => [s.date, String(s.count)])];
         const top = [["Query", "Count"], ...stats.topSearches.map((s) => [s.query, String(s.count)])];
-        const blob = new Blob([csv(summary) + "\n\n" + csv(templates) + "\n\n" + csv(folders) + "\n\n" + csv(searches) + "\n\n" + csv(top)], { type: "text/csv" });
+        const blob = new Blob([BOM + csv(summary) + "\n\n" + csv(templates) + "\n\n" + csv(folders) + "\n\n" + csv(searches) + "\n\n" + csv(top)], { type: "text/csv;charset=utf-8" });
         const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `govsearch-dashboard-${dateLabel}.csv`; a.click(); URL.revokeObjectURL(a.href);
         toast({ title: "CSV Exported", description: "Dashboard report downloaded." });
       } else if (format === "excel") {
         const XLSX = await import("xlsx");
         const wb = XLSX.utils.book_new();
-        const add = (name: string, rows: string[][]) => { const ws = XLSX.utils.aoa_to_sheet(rows); XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31)); };
+        const add = (name: string, rows: (string | number)[][]) => {
+          const ws = XLSX.utils.aoa_to_sheet(rows);
+          // Auto-size columns based on content
+          const colWidths = rows[0].map((_, ci) => {
+            let max = 8;
+            for (const row of rows) {
+              const cell = row[ci];
+              const len = cell ? String(cell).length : 0;
+              if (len > max) max = len;
+            }
+            return { wch: Math.min(max + 2, 60) };
+          });
+          ws["!cols"] = colWidths;
+          XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+        };
         add("Summary", [["Metric", "Value"], ["Repository", stats.repositoryId || "N/A"], ["Status", stats.isLive ? "Connected" : "Disconnected"], ["Total Folders", String(stats.totalFolders)], ["Total Documents", String(stats.totalDocuments)], ["Total Templates", String(stats.totalTemplates)], ["Total Searches", String(stats.totalSearches)]]);
-        add("Templates", [["Template", "Count"], ...stats.templateStats.map((t) => [t.name, String(t.count)])]);
-        add("Folders", [["Folder", "Documents", "Sub-folders"], ...stats.rootFolders.map((f) => [f.name, String(f.documents), String(f.folders)])]);
-        add("Searches", [["Date", "Count"], ...stats.searchesByDay.map((s) => [s.date, String(s.count)])]);
-        add("Top Queries", [["Query", "Count"], ...stats.topSearches.map((s) => [s.query, String(s.count)])]);
+        add("Templates", [["Template", "Count"], ...stats.templateStats.map((t) => [t.name, t.count])]);
+        add("Folders", [["Folder", "Documents", "Sub-folders"], ...stats.rootFolders.map((f) => [f.name, f.documents, f.folders])]);
+        add("Searches", [["Date", "Count"], ...stats.searchesByDay.map((s) => [s.date, s.count])]);
+        add("Top Queries", [["Query", "Count"], ...stats.topSearches.map((s) => [s.query, s.count])]);
+        if (stats.recentDocs && stats.recentDocs.length > 0) {
+          add("Recent Docs", [["Document", "Template", "Folder", "Created", "By"], ...stats.recentDocs.map((d) => [d.name, d.templateName || "-", folderFromPath(d.fullPath), formatDate(d.creationTime), d.creator || "-"])]);
+        }
+        if (stats.modifiedDocs && stats.modifiedDocs.length > 0) {
+          add("Modified Docs", [["Document", "Template", "Modified", "By"], ...stats.modifiedDocs.map((d) => [d.name, d.templateName || "-", formatDate(d.lastModifiedTime), d.creator || "-"])]);
+        }
         XLSX.writeFile(wb, `govsearch-dashboard-${dateLabel}.xlsx`);
         toast({ title: "Excel Exported", description: "Dashboard report downloaded." });
       } else {
+        // PDF with Arabic support via html2canvas + jsPDF image embedding
+        const html2canvas = (await import("html2canvas")).default;
         const { jsPDF } = await import("jspdf");
-        const autoTable = (await import("jspdf-autotable")).default;
-        const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-        doc.setFontSize(18); doc.text("GovSearch AI - Dashboard Report", 14, 20);
-        doc.setFontSize(10); doc.text(`Generated: ${dateLabel}`, 14, 28);
-        let y = 36;
-        const addSection = (title: string, rows: string[][]) => {
-          if (y > 260) { doc.addPage(); y = 20; }
-          doc.setFontSize(12); doc.text(title, 14, y); y += 6;
-          autoTable(doc, { startY: y, head: [rows[0]], body: rows.slice(1), theme: "striped", styles: { fontSize: 9 }, headStyles: { fillColor: [59, 130, 246] } });
-          y = (doc as any).lastAutoTable?.finalY + 8 || y + 20;
-        };
-        addSection("Summary", [["Metric", "Value"], ["Repository", stats.repositoryId || "N/A"], ["Status", stats.isLive ? "Connected" : "Disconnected"], ["Total Folders", String(stats.totalFolders)], ["Total Documents", String(stats.totalDocuments)], ["Total Templates", String(stats.totalTemplates)], ["Total Searches", String(stats.totalSearches)]]);
-        addSection("Templates", [["Template", "Count"], ...stats.templateStats.map((t) => [t.name, String(t.count)])]);
-        addSection("Folders", [["Folder", "Documents", "Sub-folders"], ...stats.rootFolders.map((f) => [f.name, String(f.documents), String(f.folders)])]);
-        addSection("Searches", [["Date", "Count"], ...stats.searchesByDay.map((s) => [s.date, String(s.count)])]);
-        addSection("Top Queries", [["Query", "Count"], ...stats.topSearches.map((s) => [s.query, String(s.count)])]);
-        doc.save(`govsearch-dashboard-${dateLabel}.pdf`);
+        const dashboardEl = document.querySelector(".max-w-7xl") as HTMLElement | null;
+        if (!dashboardEl) { toast({ title: "PDF Failed", description: "Dashboard element not found.", variant: "destructive" }); return; }
+        toast({ title: "Capturing dashboard...", description: "This may take a few seconds." });
+        const canvas = await html2canvas(dashboardEl, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+        const imgData = canvas.toDataURL("image/png");
+        const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const imgWidth = canvas.width;
+        const imgHeight = canvas.height;
+        const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+        let imgY = 10;
+        const scaledHeight = imgHeight * ratio;
+        // Multi-page for tall dashboards
+        if (scaledHeight > pdfHeight - 20) {
+          let position = 0;
+          const pageHeightInPx = (pdfHeight - 20) / ratio;
+          pdf.addImage(imgData, "PNG", 0, imgY, imgWidth * ratio, imgHeight * ratio);
+          let heightLeft = scaledHeight;
+          while (heightLeft > pdfHeight - 20) {
+            position = heightLeft - scaledHeight + 10;
+            pdf.addPage();
+            pdf.addImage(imgData, "PNG", 0, position, imgWidth * ratio, imgHeight * ratio);
+            heightLeft -= (pdfHeight - 20);
+          }
+        } else {
+          pdf.addImage(imgData, "PNG", 0, imgY, imgWidth * ratio, imgHeight * ratio);
+        }
+        pdf.save(`govsearch-dashboard-${dateLabel}.pdf`);
         toast({ title: "PDF Exported", description: "Dashboard report downloaded." });
       }
     } catch (e) {
@@ -1234,18 +1374,24 @@ function ExportPanel({ stats }: { stats: DashboardStats | undefined }) {
     }
   };
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <Button variant="outline" size="sm" onClick={() => exportReport("pdf")} data-testid="button-export-pdf">
-        <Printer className="w-4 h-4 mr-1.5" /> PDF
-      </Button>
-      <Button variant="outline" size="sm" onClick={() => exportReport("excel")} data-testid="button-export-excel">
-        <FileSpreadsheet className="w-4 h-4 mr-1.5" /> Excel
-      </Button>
-      <Button variant="outline" size="sm" onClick={() => exportReport("csv")} data-testid="button-export-csv">
-        <FileCode className="w-4 h-4 mr-1.5" /> CSV
-      </Button>
-      <span className="text-xs text-muted-foreground ml-auto">Export full dashboard data</span>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" data-testid="button-export">
+          <Download className="w-4 h-4 mr-1.5" /> Export <ChevronDown className="w-3 h-3 ml-1" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => exportReport("pdf")} data-testid="button-export-pdf">
+          <Printer className="w-4 h-4 mr-2" /> PDF
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => exportReport("excel")} data-testid="button-export-excel">
+          <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => exportReport("csv")} data-testid="button-export-csv">
+          <FileCode className="w-4 h-4 mr-2" /> CSV
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
