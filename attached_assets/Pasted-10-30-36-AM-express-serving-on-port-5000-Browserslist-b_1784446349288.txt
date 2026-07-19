@@ -1,0 +1,26 @@
+10:30:36 AM [express] serving on port 5000
+Browserslist: browsers data (caniuse-lite) is 9 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+10:30:43 AM [vite] Internal server error: Failed to resolve import "jspdf" from "client/src/pages/dashboard.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/AmjadAlhawaseh/ChatBotProject/Asset-Manager-1zip/client/src/pages/dashboard.tsx:18:22
+  58 |    Printer
+  59 |  } from "lucide-react";
+  60 |  import { jsPDF } from "jspdf";
+     |                         ^
+  61 |  import autoTable from "jspdf-autotable";
+  62 |  import * as XLSX from "xlsx";
+      at TransformPluginContext._formatLog (C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\node_modules\vite\dist\node\chunks\config.js:29079:43)
+      at TransformPluginContext.error (C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\node_modules\vite\dist\node\chunks\config.js:29076:14)
+      at normalizeUrl (C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\node_modules\vite\dist\node\chunks\config.js:27199:18)
+      at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+      at async <anonymous> (C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\node_modules\vite\dist\node\chunks\config.js:27257:32)
+      at async Promise.all (index 11)
+      at async TransformPluginContext.transform (C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\node_modules\vite\dist\node\chunks\config.js:27225:4)
+      at async EnvironmentPluginContainer.transform (C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\node_modules\vite\dist\node\chunks\config.js:28877:14)
+      at async loadAndTransform (C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\node_modules\vite\dist\node\chunks\config.js:22746:26)
+
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip>

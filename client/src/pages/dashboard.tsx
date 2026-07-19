@@ -15,9 +15,8 @@ import {
   ShieldCheck, ShieldAlert, AlertTriangle,
   FileSpreadsheet, FileCode, Printer,
 } from "lucide-react";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import * as XLSX from "xlsx";
+// Export libraries are loaded dynamically when export buttons are clicked
+// to avoid startup failures if packages are missing from local node_modules
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -512,13 +511,15 @@ function useDashboardExport(stats: DashboardStats | undefined) {
     };
   }, [stats]);
 
-  const exportReport = (format: ExportFormat) => {
+  const exportReport = async (format: ExportFormat) => {
     if (!buildExportData) { toast({ title: "Export Failed", description: "No data available to export.", variant: "destructive" }); return; }
     const { summary, templateStats, rootFolders, searchesByDay, topSearches, recentDocs, modifiedDocs, userActivity, generatedAt } = buildExportData;
     const dateLabel = new Date(generatedAt).toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric" });
 
     try {
       if (format === "pdf") {
+        const { jsPDF } = await import("jspdf");
+        const autoTable = (await import("jspdf-autotable")).default;
         const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
         doc.setFontSize(18); doc.text("GovSearch AI - Dashboard Report", 14, 20);
         doc.setFontSize(10); doc.text(`Generated: ${dateLabel}`, 14, 28);
@@ -540,6 +541,7 @@ function useDashboardExport(stats: DashboardStats | undefined) {
         doc.save(`govsearch-dashboard-${dateLabel}.pdf`);
         toast({ title: "PDF Exported", description: "Dashboard report downloaded." });
       } else if (format === "excel") {
+        const XLSX = await import("xlsx");
         const wb = XLSX.utils.book_new();
         const addSheet = (name: string, rows: string[][]) => {
           const ws = XLSX.utils.aoa_to_sheet(rows);
