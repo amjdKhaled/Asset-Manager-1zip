@@ -781,11 +781,11 @@ export default function DashboardPage() {
 
           {/* Row 6: Documents by User Activity */}
           {(() => {
-            const ua = computeUserActivity(stats.recentDocs ?? [], stats.modifiedDocs ?? []);
+            const ua = computeUserActivity(stats.recentDocs ?? []);
             return (
               <ChartCard
                 title="Documents by User Activity"
-                sub="Created and modified documents per user"
+                sub="Documents created per user (Laserfiche API does not expose Modified By)"
                 badge={
                   <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full">
                     <User className="w-3 h-3" />
@@ -1090,7 +1090,7 @@ function RecentModifiedWidget({ docs }: { docs: DocEntry[] }) {
       <div className="flex items-start gap-2 bg-amber-500/8 border border-amber-500/20 rounded-lg px-3 py-2">
         <Info className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
         <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-          Laserfiche REST API does not expose a "modifiedBy" field per document. The "By" column shows the original creator.
+          Laserfiche REST API v2 does not expose a "modifiedBy" field. Only the modification timestamp is available.
         </p>
       </div>
       <Input
@@ -1106,7 +1106,6 @@ function RecentModifiedWidget({ docs }: { docs: DocEntry[] }) {
               <th className="text-left px-3 py-2.5 font-semibold">Document</th>
               <th className="text-left px-3 py-2.5 font-semibold">Template</th>
               <th className="text-left px-3 py-2.5 font-semibold">Modified Date</th>
-              <th className="text-left px-3 py-2.5 font-semibold">By</th>
             </tr>
           </thead>
           <tbody>
@@ -1115,11 +1114,10 @@ function RecentModifiedWidget({ docs }: { docs: DocEntry[] }) {
                 <td className="px-3 py-2.5 font-medium text-foreground truncate max-w-[180px]" title={d.name}>{d.name}</td>
                 <td className="px-3 py-2.5 text-muted-foreground">{d.templateName || "-"}</td>
                 <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{formatDate(d.lastModifiedTime)}</td>
-                <td className="px-3 py-2.5 text-muted-foreground" title="Laserfiche API does not expose modifiedBy">{d.creator || "-"}</td>
               </tr>
             ))}
             {!filtered.length && (
-              <tr><td colSpan={4} className="px-3 py-4 text-center text-muted-foreground text-sm">No matches.</td></tr>
+              <tr><td colSpan={3} className="px-3 py-4 text-center text-muted-foreground text-sm">No matches.</td></tr>
             )}
           </tbody>
         </table>
@@ -1130,37 +1128,28 @@ function RecentModifiedWidget({ docs }: { docs: DocEntry[] }) {
 }
 
 /* ── Prompt 9: Documents by User Activity ── */
-type UserRow = { name: string; created: number; modified: number; total: number; lastActivity: string };
+type UserRow = { name: string; created: number; lastActivity: string };
 
 function computeUserActivity(
-  recent: DocEntry[],
-  modified: DocEntry[]
+  recent: DocEntry[]
 ): { rows: UserRow[]; note: string } {
-  const map = new Map<string, { created: number; modified: number; lastActivity: string }>();
+  const map = new Map<string, { created: number; lastActivity: string }>();
   for (const d of recent) {
     const u = d.creator || "Unknown";
-    const cur = map.get(u) || { created: 0, modified: 0, lastActivity: "" };
+    const cur = map.get(u) || { created: 0, lastActivity: "" };
     cur.created += 1;
     const t = d.creationTime || "";
-    if (t > cur.lastActivity) cur.lastActivity = t;
-    map.set(u, cur);
-  }
-  for (const d of modified) {
-    const u = d.creator || "Unknown";
-    const cur = map.get(u) || { created: 0, modified: 0, lastActivity: "" };
-    cur.modified += 1;
-    const t = d.lastModifiedTime || d.creationTime || "";
     if (t > cur.lastActivity) cur.lastActivity = t;
     map.set(u, cur);
   }
 
   if (map.size > 0) {
     const rows = Array.from(map.entries())
-      .map(([name, v]) => ({ name, created: v.created, modified: v.modified, total: v.created + v.modified, lastActivity: formatDate(v.lastActivity) }))
-      .sort((a, b) => b.total - a.total);
+      .map(([name, v]) => ({ name, created: v.created, lastActivity: formatDate(v.lastActivity) }))
+      .sort((a, b) => b.created - a.created);
     return {
       rows,
-      note: "Data from Laserfiche REST API. 'Created' counts = documents where this user is the creator. 'Modified' counts = documents with recent modification activity attributed to the creator (Laserfiche Repository API v2 does not expose a modifiedBy field per entry; full per-user modification attribution requires the separate Laserfiche Audit Trail module).",
+      note: "Documents created per user, aggregated from the Laserfiche REST API 'creator' field. 'Modified By' is not exposed by the Repository API v2; per-user modification counts would require the separate Laserfiche Audit Trail module.",
     };
   }
 
@@ -1192,8 +1181,6 @@ function UserActivityWidget({ data, note }: UserActivityProps) {
             <tr className="bg-muted/50">
               <th className="text-left px-3 py-2.5 font-semibold">User</th>
               <th className="text-left px-3 py-2.5 font-semibold">Created</th>
-              <th className="text-left px-3 py-2.5 font-semibold">Modified</th>
-              <th className="text-left px-3 py-2.5 font-semibold">Total</th>
               <th className="text-left px-3 py-2.5 font-semibold">Last Activity</th>
             </tr>
           </thead>
@@ -1202,8 +1189,6 @@ function UserActivityWidget({ data, note }: UserActivityProps) {
               <tr key={u.name} className="border-t border-border hover:bg-muted/30 transition-colors">
                 <td className="px-3 py-2.5 font-medium text-foreground">{u.name}</td>
                 <td className="px-3 py-2.5 text-muted-foreground">{u.created}</td>
-                <td className="px-3 py-2.5 text-muted-foreground">{u.modified}</td>
-                <td className="px-3 py-2.5 font-semibold text-foreground">{u.total}</td>
                 <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{u.lastActivity}</td>
               </tr>
             ))}
@@ -1302,7 +1287,7 @@ function ExportDropdown({ stats }: { stats: DashboardStats | undefined }) {
           add("Recent Docs", [["Document", "Template", "Folder", "Created", "By"], ...stats.recentDocs.map((d) => [d.name, d.templateName || "-", folderFromPath(d.fullPath), formatDate(d.creationTime), d.creator || "-"])]);
         }
         if (stats.modifiedDocs && stats.modifiedDocs.length > 0) {
-          add("Modified Docs", [["Document", "Template", "Modified", "By"], ...stats.modifiedDocs.map((d) => [d.name, d.templateName || "-", formatDate(d.lastModifiedTime), d.creator || "-"])]);
+          add("Modified Docs", [["Document", "Template", "Modified"], ...stats.modifiedDocs.map((d) => [d.name, d.templateName || "-", formatDate(d.lastModifiedTime)])]);
         }
         XLSX.writeFile(wb, `govsearch-dashboard-${dateLabel}.xlsx`);
         toast({ title: "Excel Exported", description: "Dashboard report downloaded." });

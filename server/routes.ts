@@ -367,6 +367,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 folders: r.folders,
                 templateCounts: r.templateCounts,
                 allFolders: r.allFolders,
+                recentDocs: r.recentDocs,
+                modifiedDocs: r.modifiedDocs,
               }))
             )
           );
