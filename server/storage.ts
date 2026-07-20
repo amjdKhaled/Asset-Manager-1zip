@@ -369,8 +369,8 @@ export class MemStorage implements IStorage {
     return {
       totalDocuments: docs.length,
       totalSearches: logs.length,
-      totalDepartments: 7,
-      avgResponseMs: 142,
+      totalDepartments: Object.keys(docsByDepartment).length,
+      avgResponseMs: 0,
       docsByType,
       docsByDepartment,
       searchesByDay: Object.entries(searchesByDayMap).map(([date, count]) => ({ date, count })),

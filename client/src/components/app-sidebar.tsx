@@ -113,8 +113,8 @@ export function AppSidebar() {
             <span className="text-xs font-semibold text-primary">DU</span>
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-sidebar-foreground truncate">Demo User</p>
-            <p className="text-xs text-muted-foreground truncate">Ministry of Finance</p>
+            <p className="text-xs font-medium text-sidebar-foreground truncate">User</p>
+            <p className="text-xs text-muted-foreground truncate">GovSearch AI</p>
           </div>
           <Badge variant="outline" className="text-xs flex-shrink-0">Admin</Badge>
         </div>

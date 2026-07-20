@@ -77,7 +77,7 @@ const SUGGESTIONS_AR = [
 const SUGGESTIONS_EN = [
   "Summarize the budget-related documents",
   "What contracts are in the archive?",
-  "Find documents from the Ministry of Finance",
+  "Find documents about finance and budget",
 ];
 
 function TypingDots() {

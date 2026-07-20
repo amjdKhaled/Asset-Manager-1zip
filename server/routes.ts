@@ -107,8 +107,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.json(documents);
       }
 
-      const docs = await storage.getDocuments();
-      res.json(docs);
+      return res.status(503).json({ error: "Laserfiche not configured. No local document archive available." });
     } catch {
       res.status(500).json({ error: "Failed to fetch documents" });
     }
@@ -144,13 +143,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       await storage.createAuditLog({
         query: body.query,
         queryLanguage: /[\u0600-\u06FF]/.test(body.query) ? "ar" : "en",
-        userId: "demo-user",
-        username: "demo.user",
+        userId: req.ip || "anonymous",
+        username: "anonymous",
         resultsCount: result.total,
         searchType: "smart",
         filters: body.filters || null,
         ipAddress: req.ip || "127.0.0.1",
-        department: "Demo",
+        department: null,
       });
       res.json(result);
     } catch {
@@ -163,21 +162,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const parsed = searchRequestSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Invalid search request", details: parsed.error });
 
-      const results = await storage.searchDocuments(parsed.data);
+      const lfConfig = getLaserficheConfig();
+      if (!lfConfig) {
+        return res.status(503).json({ error: "Laserfiche not configured. Search unavailable." });
+      }
+
+      // Route all searches through the hybrid Laserfiche pipeline
+      const result = await executeSmartSearch(parsed.data.query, parsed.data.filters, parsed.data.page || 1, parsed.data.limit || 10);
 
       await storage.createAuditLog({
         query: parsed.data.query,
         queryLanguage: /[\u0600-\u06FF]/.test(parsed.data.query) ? "ar" : "en",
-        userId: "demo-user",
-        username: "demo.user",
-        resultsCount: results.total,
+        userId: req.ip || "anonymous",
+        username: "anonymous",
+        resultsCount: result.total,
         searchType: parsed.data.searchType,
         filters: parsed.data.filters || null,
         ipAddress: req.ip || "127.0.0.1",
-        department: "Demo",
+        department: null,
       });
 
-      res.json(results);
+      res.json(result);
     } catch {
       res.status(500).json({ error: "Search failed" });
     }
@@ -1200,17 +1205,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
     }
 
-    // ── Fall back: local document DB context ──
-    let contextDocs: any[] = [];
-    if (!selectedMetadataContext && !pipelineResult) {
-      try {
-        const searchResult = await storage.searchDocuments({ query: userQuery, searchType: "hybrid", page: 1, limit: 5 });
-        contextDocs = searchResult.results.map((r) => r.document);
-      } catch {}
-    }
-
     const systemPrompt = buildSystemPrompt(lang);
-    const localContext = buildContextBlock(contextDocs, lang);
+    // Local document DB fallback removed — only Laserfiche-sourced context is used
 
     // Confidence gating: if pipeline ran but confidence is low, prepend a warning
     let confidenceNote = "";
@@ -1254,7 +1250,7 @@ IMPORTANT:
 - If data is missing, say it is not available in the document.
 - If the user asks for a summary (e.g., "لخص الوثيقة"), provide a medium-length summary (about 5-7 sentences) with key metadata highlights and useful details.
 - Respond in the same language as user input.`
-      : `${systemPrompt}${confidenceNote}${strategyNote}\n\n${lfContextBlock || localContext}`;
+      : `${systemPrompt}${confidenceNote}${strategyNote}\n\n${lfContextBlock || (lang === "ar" ? "لم يتم العثور على أي وثائق مطابقة." : "No matching documents found.")}`;
 
     const effectiveUserPrompt = selectedMetadataContext
       ? `User request:\n${userQuery}\n\nThis request is about Entry ID ${contextEntryId}.`
@@ -1271,7 +1267,7 @@ IMPORTANT:
           ...(effectiveUserPrompt ? [{ role: "user" as const, content: effectiveUserPrompt }] : []),
         ];
 
-    const sourceDocs = contextDocs.map((d) => ({ id: d.id, title: d.title, titleAr: d.titleAr, department: d.department, year: d.year }));
+    const sourceDocs = (pipelineResult?.docs || []).map((d) => ({ id: d.id, title: d.name, titleAr: d.name, department: d.creator, year: d.creationTime ? new Date(d.creationTime).getFullYear() : null }));
     res.write(`data: ${JSON.stringify({ type: "sources", sources: sourceDocs })}\n\n`);
 
     try {
@@ -1290,13 +1286,13 @@ IMPORTANT:
     await storage.createAuditLog({
       query: userQuery,
       queryLanguage: lang,
-      userId: "demo-user",
-      username: "demo.user",
-      resultsCount: contextDocs.length,
+      userId: req.ip || "anonymous",
+      username: "anonymous",
+      resultsCount: (pipelineResult?.docs?.length) ?? 0,
       searchType: "chat",
       filters: null,
       ipAddress: req.ip || "127.0.0.1",
-      department: "Chat",
+      department: null,
     });
   });
 

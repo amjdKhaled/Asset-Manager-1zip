@@ -8,7 +8,6 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { Button } from "@/components/ui/button";
 import NotFound from "@/pages/not-found";
 import SearchPage from "@/pages/search";
-import DocumentPage from "@/pages/document";
 import LFDocumentPage from "@/pages/lf-document";
 import DashboardPage from "@/pages/dashboard";
 import ArchivePage from "@/pages/archive";
@@ -128,7 +127,7 @@ function Router() {
       <Route path="/dashboard" component={DashboardPage} />
       <Route path="/dashbord" component={DashboardPage} />
       <Route path="/archive" component={ArchivePage} />
-      <Route path="/document/:id" component={DocumentPage} />
+      <Route path="/document/:id" component={LFDocumentPage} />
       <Route path="/lf-document/:entryId" component={LFDocumentPage} />
       <Route path="/laserfiche/settings" component={LaserficheSettingsPage} />
       <Route path="/chat" component={ChatPage} />

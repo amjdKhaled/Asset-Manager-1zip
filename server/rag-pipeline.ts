@@ -495,9 +495,14 @@ export async function hybridRetrieve(
   const strategiesUsed: string[] = [];
   const token = await getLaserficheToken(config);
 
-  // Strategy 1: BM25 on all cached docs (always runs)
-  const bm25Result = retrieveDocs(query, allDocs, { topK: topK * 2 });
-  strategiesUsed.push("bm25-local");
+  // Strategy 1: BM25 on cached docs (only when documents are cached locally)
+  let bm25Result: ReturnType<typeof retrieveDocs> = {
+    docs: [], confidence: 0, confidenceLabel: "low", topScore: 0, scoreGap: 0, queryCoverage: 0, queryTokens: [],
+  };
+  if (allDocs.length > 0) {
+    bm25Result = retrieveDocs(query, allDocs, { topK: topK * 2 });
+    strategiesUsed.push("bm25-local");
+  }
 
   // Field Discovery & Field-Value Extraction
   let fieldPairs: import("./field-discovery").FieldValuePair[] = [];

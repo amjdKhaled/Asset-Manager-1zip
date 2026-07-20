@@ -17,21 +17,10 @@ import {
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 
-const DEPARTMENTS = [
-  "Ministry of Finance",
-  "Ministry of Public Works",
-  "Ministry of Communications",
-  "Ministry of Human Resources",
-  "Ministry of Digital Economy",
-  "Ministry of Environment and Water",
-  "National Cybersecurity Authority",
-  "General Authority for Government Procurement",
-  "Riyadh Municipality",
-];
-
-const CLASSIFICATIONS = ["Official", "Confidential", "Top Secret"];
-const SECURITY_LEVELS = ["Public", "Internal", "Restricted", "Classified"];
-const DOC_TYPES = ["Contract", "Report", "Memo", "Policy", "Tender", "Plan", "Program"];
+const DEPARTMENTS: string[] = [];
+const CLASSIFICATIONS: string[] = [];
+const SECURITY_LEVELS: string[] = [];
+const DOC_TYPES: string[] = [];
 
 const EXAMPLE_QUERIES = [
   { text: "معاملات تجديد عقود الصيانة لعام 2023", lang: "ar" },
@@ -39,7 +28,7 @@ const EXAMPLE_QUERIES = [
   { text: "جميع العقود لعام 2023", lang: "ar" },
   { text: "budget report infrastructure", lang: "en" },
   { text: "سياسة الموارد البشرية العمل عن بعد", lang: "ar" },
-  { text: "all contracts with Ahmed", lang: "en" },
+  { text: "all contract renewals from 2023", lang: "en" },
   { text: "تقرير الميزانية السنوية للبنية التحتية", lang: "ar" },
   { text: "digital transformation implementation plan", lang: "en" },
 ];

@@ -58,7 +58,7 @@ const EXAMPLE_NL_QUERIES = [
   { text: "عطني جميع المعاملات اللتي تحتوي على اسم سلمان", lang: "ar" },
   { text: "جميع العقود لعام 2023", lang: "ar" },
   { text: "المعاملات المتعلقة بالصيانة", lang: "ar" },
-  { text: "all contracts with Ahmed", lang: "en" },
+  { text: "all contract renewals from 2023", lang: "en" },
   { text: "documents from 2022 about budget", lang: "en" },
 ];
 
