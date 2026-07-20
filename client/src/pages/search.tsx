@@ -149,74 +149,6 @@ function MatchReasonBadge({ reason, detail }: { reason: string; detail?: string 
   );
 }
 
-function LocalResultCard({ result }: { result: UnifiedResult }) {
-  const Icon = docTypeIcon(result.docType);
-  const isArabicTitle = result.titleAr ? /[\u0600-\u06FF]/.test(result.titleAr) : false;
-
-  return (
-    <div className="bg-card border border-card-border rounded-md p-5 hover-elevate transition-all" data-testid={`result-card-${result.id}`}>
-      <div className="flex items-start gap-4">
-        <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-          <Icon className="w-5 h-5 text-primary" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-3 mb-2">
-            <div className="flex-1 min-w-0">
-              <Link href={`/document/${result.id}`}>
-                <h3 className="font-semibold text-foreground leading-tight hover:text-primary transition-colors cursor-pointer line-clamp-1 mb-0.5" data-testid={`result-title-${result.id}`}>
-                  {result.title}
-                </h3>
-              </Link>
-              {result.titleAr && (
-                <p className="text-sm text-muted-foreground leading-tight line-clamp-1" dir="rtl">{result.titleAr}</p>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <div className="flex items-center gap-1 bg-primary/10 text-primary text-xs font-mono px-2 py-0.5 rounded-md">
-                <TrendingUp className="w-3 h-3" />
-                {Math.round(result.score * 100)}%
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            <Badge variant="outline" className={cn("text-xs border", classificationColor(result.classification))}>
-              {result.classification}
-            </Badge>
-            <Badge variant="outline" className="text-xs"><Shield className="w-3 h-3 mr-1" />{result.securityLevel}</Badge>
-            <Badge variant="outline" className="text-xs"><Building2 className="w-3 h-3 mr-1" />{result.department.split(" ").slice(-1)[0]}</Badge>
-            <Badge variant="outline" className="text-xs"><Clock className="w-3 h-3 mr-1" />{result.year || "N/A"}</Badge>
-            <Badge variant="secondary" className="text-xs">{result.docType}</Badge>
-          </div>
-
-          <p className="text-sm text-muted-foreground leading-relaxed mb-3 line-clamp-2">{result.snippet}</p>
-
-          {result.matchReasons.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-3">
-              {result.matchReasons.map((m, i) => (
-                <MatchReasonBadge key={i} reason={m.reason} detail={m.detail} />
-              ))}
-            </div>
-          )}
-
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {result.laserficheId && <span>{result.laserficheId}</span>}
-              {result.pageCount && <span>{result.pageCount} pages</span>}
-              {result.fileSizeKb && <span>{(result.fileSizeKb / 1024).toFixed(1)} MB</span>}
-            </div>
-            <Link href={`/document/${result.id}`}>
-              <Button size="sm" variant="outline" className="h-7 text-xs" data-testid={`view-doc-${result.id}`}>
-                View <ChevronRight className="w-3 h-3 ml-1" />
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function LFResultCard({ result }: { result: UnifiedResult }) {
   const viewerRoute = getLaserficheViewerRoute(result);
 
@@ -290,10 +222,7 @@ function LFResultCard({ result }: { result: UnifiedResult }) {
 }
 
 function ResultCard({ result }: { result: UnifiedResult }) {
-  if (result.type === "laserfiche") {
-    return <LFResultCard result={result} />;
-  }
-  return <LocalResultCard result={result} />;
+  return <LFResultCard result={result} />;
 }
 
 function FilterPanel({ filters, setFilters, onClose }: { filters: any; setFilters: (f: any) => void; onClose: () => void }) {

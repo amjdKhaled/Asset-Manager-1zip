@@ -115,15 +115,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.get("/api/documents/:id", async (req, res) => {
-    try {
-      const doc = await storage.getDocument(req.params.id);
-      if (!doc) return res.status(404).json({ error: "Document not found" });
-      res.json(doc);
-    } catch {
-      res.status(500).json({ error: "Failed to fetch document" });
-    }
-  });
-
+      try {
+        const id = req.params.id;
+        const lfConfig = getLaserficheConfig();
+        if (!lfConfig) {
+          return res.status(503).json({ error: "Laserfiche not configured" });
+        }
+        const token = await getLaserficheToken(lfConfig);
+        const entryId = Number(id);
+        if (isNaN(entryId)) {
+          return res.status(400).json({ error: "Invalid entry ID" });
+        }
+        const entry = await laserficheGetEntry(lfConfig, token, entryId);
+        res.json(entry);
+      } catch (err: any) {
+        console.error("GET /api/documents/:id error:", err);
+        res.status(500).json({ error: err.message || "Failed to fetch document" });
+      }
+    });
+  
   app.post("/api/smart-search", async (req, res) => {
     try {
       const body = req.body;

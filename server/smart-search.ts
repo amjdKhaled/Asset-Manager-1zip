@@ -293,29 +293,9 @@ export async function executeSmartSearch(
   let laserficheCommand: string | undefined;
   let laserficheTerms: string[] | undefined;
 
-  // Run local engines in parallel
-  const localEngines = engines.filter(e => e !== "laserfiche");
-  const localPromises = localEngines.map(async (engine) => {
-    try {
-      const searchType = engine === "metadata" ? "hybrid" : engine;
-      const response = await storage.searchDocuments({
-        query,
-        searchType: searchType as any,
-        filters,
-        page: 1,
-        limit: 50,
-      });
-      const maxScore = response.results.length > 0 ? Math.max(...response.results.map(r => r.score)) : 1;
-      return response.results.map(r => {
-        const unified = localSearchResultToUnified(r);
-        unified.score = normalizeScore(r.score, engine, maxScore);
-        return unified;
-      });
-    } catch (err) {
-      console.error(`Smart search local engine ${engine} failed:`, err);
-      return [];
-    }
-  });
+  // Local in-memory engines are disabled — Laserfiche is the sole document source.
+  // The storage layer is kept for audit-log writes only (no documents are seeded).
+  const localPromises: Promise<UnifiedResult[]>[] = [];
 
   // Run Laserfiche in parallel if connected
   const lfPromise = (async () => {
