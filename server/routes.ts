@@ -243,7 +243,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             try {
               children = await laserficheGetFolderChildren(lfConfig, token, folderId);
             } catch {
-              return { documents: 0, folders: 0, templateCounts: {}, allFolders: [], recentDocs: [], modifiedDocs: [] };
+              return { documents: 0, folders: 0, templateCounts: {}, allFolders: [], recentDocs: [], modifiedDocs: [], allDocs: [] };
             }
 
             const docEntries = children.filter(
@@ -1137,14 +1137,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const lfSearchKeywords = /وثيقة|معاملة|ملف|أرشيف|document|archive|file|report|contract|سجل|تقرير|عقد|ابحث|search|find/iu;
     let lfContextBlock = "";
 
-    // ── Enterprise RAG Pipeline: retrieve from Laserfiche repository ────
+    // ── Hybrid RAG Pipeline: SimpleSearch + Field Search + BM25 ─────────
     let pipelineResult: import("./rag-pipeline").RetrievalResult | null = null;
+    let strategiesUsed: string[] = [];
     if (lfConfig && lfSearchKeywords.test(userQuery) && !selectedMetadataContext) {
       try {
-        const { retrieveDocs, buildStructuredContext } = await import("./rag-pipeline");
+        const { hybridRetrieve, buildStructuredContext } = await import("./rag-pipeline");
 
-        // Load all documents from the repository (already cached by /api/lf/documents scan)
-        // We fetch them fresh here to ensure we have the latest full set
+        // Load all documents from the repository for BM25 fallback
         const token = await getLaserficheToken(lfConfig);
         const visited = new Set<number>();
         const collectDocs = async (folderId: number): Promise<any[]> => {
@@ -1171,7 +1171,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           isElectronicDocument: e.isElectronicDocument !== false,
         }));
 
-        pipelineResult = retrieveDocs(userQuery, searchableDocs, { topK: 15 });
+        const hybridResult = await hybridRetrieve(userQuery, searchableDocs, lfConfig, { topK: 15, lang });
+        pipelineResult = hybridResult;
+        strategiesUsed = hybridResult.strategiesUsed;
 
         if (pipelineResult.docs.length > 0) {
           lfContextBlock = buildStructuredContext(pipelineResult, lang);
@@ -1181,7 +1183,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             : "No matching documents were found in the Laserfiche repository.";
         }
       } catch (err: any) {
-        console.error("[Chat RAG] Pipeline error:", err?.message || err);
+        console.error("[Chat RAG] Hybrid pipeline error:", err?.message || err);
         lfContextBlock = lang === "ar"
           ? "\u200f" + "تعذر، لم يمكن اجراء البحث في مخزن Laserfiche."
           : "Sorry, could not search the Laserfiche repository.";
@@ -1208,6 +1210,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         : "\n\nWarning: search confidence is low. Be cautious and rely only on the retrieved documents. If the answer is not clear, say: 'I couldn't find enough evidence.'";
     }
 
+    // Strategy note: tell the LLM which retrieval strategies were used (helps it calibrate trust)
+    let strategyNote = "";
+    if (strategiesUsed.length > 0) {
+      const strategyLabels: Record<string, string> = {
+        "bm25-local": lang === "ar" ? "فهرس BM25 المحلي" : "local BM25 index",
+        "laserfiche-simple-search": lang === "ar" ? "بحث نصي كامل Laserfiche" : "Laserfiche full-text search",
+        "laserfiche-field-search": lang === "ar" ? "بحث ميداني Laserfiche (تطابق وصفي دقيق)" : "Laserfiche field search (exact metadata match)",
+        "laserfiche-keyword-search": lang === "ar" ? "بحث كلمات مفتاحية Laserfiche" : "Laserfiche keyword search",
+      };
+      const usedLabels = strategiesUsed.map((s) => strategyLabels[s] || s).join(" + ");
+      strategyNote = lang === "ar"
+        ? `\n\n\u200fأساليب البحث المستخدمة: ${usedLabels}.`
+        : `\n\nSearch strategies used: ${usedLabels}.`;
+    }
+
     const fullSystemPrompt = selectedMetadataContext
       ? `${systemPrompt}
 
@@ -1227,7 +1244,7 @@ IMPORTANT:
 - If data is missing, say it is not available in the document.
 - If the user asks for a summary (e.g., "لخص الوثيقة"), provide a medium-length summary (about 5-7 sentences) with key metadata highlights and useful details.
 - Respond in the same language as user input.`
-      : `${systemPrompt}${confidenceNote}\n\n${lfContextBlock || localContext}`;
+      : `${systemPrompt}${confidenceNote}${strategyNote}\n\n${lfContextBlock || localContext}`;
 
     const effectiveUserPrompt = selectedMetadataContext
       ? `User request:\n${userQuery}\n\nThis request is about Entry ID ${contextEntryId}.`

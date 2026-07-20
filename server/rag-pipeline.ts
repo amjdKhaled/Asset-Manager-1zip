@@ -1,21 +1,22 @@
 /**
  * Enterprise-Grade RAG Pipeline for GovSearch AI
  *
- * This module implements a complete search-and-retrieval pipeline:
- *   1. Query expansion (Arabic normalization + synonyms + related terms)
- *   2. BM25 keyword scoring with field weights (metadata-first)
- *   3. Two-stage retrieval (quick scan → detailed metadata for top candidates)
- *   4. Re-ranking (weighted signal combination)
- *   5. Confidence scoring (based on score gap + query coverage)
- *   6. Structured context building (citations with doc name, ID, template, folder)
+ * Implements a hybrid retrieval pipeline combining:
+ *   1. Laserfiche SimpleSearch (native full-text)
+ *   2. Laserfiche Repository Search with metadata field targeting
+ *   3. BM25 local scoring with field weights
+ *   4. Arabic query expansion with synonym mapping
+ *   5. Merge, re-rank, and confidence scoring
+ *   6. Structured context with citations, match reasons, and context hits
  */
 
 import {
-  getLaserficheConfig,
   getLaserficheToken,
   laserficheGetEntry,
   laserficheGetEntryFieldsRaw,
   laserficheGetEntryTags,
+  laserficheSimpleSearch,
+  laserficheRepositorySearch,
   type LaserficheConfig,
 } from "./laserfiche";
 
@@ -45,7 +46,7 @@ function normalizeArabic(text: string): string {
     .replace(/[إأآ]/g, "ا") // alef variants
     .replace(/ة/g, "ه") // ta marbuta
     .replace(/ى/g, "ي") // alif maqsura
-    .replace(/[\u0621\u0624\u0626]/g, "") // hamza variants
+    .replace(/[ءؤئ]/g, "") // hamza variants
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -72,6 +73,12 @@ const ARABIC_SYNONYMS: Record<string, string[]> = {
   "سياسة": ["إرشاد", "لائحة", "تعميم", "قرار", "عمل"],
   "تدريب": ["دورة", "أساسية", "مؤهل", "دراسة"],
   "بنية": ["تحتية", "المعلومات", "بنية تحتية"],
+  // Country-related synonyms
+  "البلد": ["الدولة", "المستضيف", "الموقع", "المحل"],
+  "الدولة": ["البلد", "المستضيف", "الموقع", "country"],
+  "المستضيف": ["البلد المستضيف", "الدولة المستضيفة", "host", "hosting"],
+  "قطر": ["qatar", "الدوحة", "doha"],
+  "qatar": ["قطر", "الدوحة", "doha"],
 };
 
 function tokenize(text: string): string[] {
@@ -89,7 +96,6 @@ function expandQueryTokens(query: string): { tokens: string[]; expanded: string[
   const expanded: string[] = [...rawTokens];
 
   for (const t of rawTokens) {
-    // Strip Arabic affixes
     const prefixes = ["ال", "وال", "بال", "كال", "فال", "لل", "وب", "فب", "كب", "وك", "فك"];
     const suffixes = ["ها", "هم", "هن", "هما", "كم", "كن", "كما", "ية", "ات", "ون", "ين", "ان"];
     for (const p of prefixes) {
@@ -99,12 +105,10 @@ function expandQueryTokens(query: string): { tokens: string[]; expanded: string[
       if (t.endsWith(s) && t.length > s.length + 2) expanded.push(t.slice(0, t.length - s.length));
     }
 
-    // Add synonyms
     for (const [root, syns] of Object.entries(ARABIC_SYNONYMS)) {
       if (root === t || expanded.includes(root)) {
         expanded.push(...syns);
       }
-      // Check if query token matches any synonym
       for (const syn of syns) {
         if (syn === t || normalizeArabic(syn) === t) {
           expanded.push(root, ...syns);
@@ -131,7 +135,6 @@ function computeBM25(
   const K1 = 1.5;
   const B = 0.75;
 
-  // Field weights: metadata first, then body
   const FIELD_WEIGHTS: Record<string, number> = {
     name: 4.0,
     templateName: 3.0,
@@ -144,7 +147,6 @@ function computeBM25(
 
   let totalScore = 0;
 
-  // Pre-compute token frequencies across corpus (IDF)
   const docCountWithToken: Record<string, number> = {};
   for (const token of queryTokens) {
     let count = 0;
@@ -177,7 +179,7 @@ function computeBM25(
   return totalScore;
 }
 
-/* ── Document Type ─────────────────────────────────────────────────────── */
+/* ── Document Types ──────────────────────────────────────────────────────────────────────────────────── */
 
 type SearchableDoc = {
   id: number;
@@ -192,10 +194,24 @@ type SearchableDoc = {
   isElectronicDocument?: boolean;
 };
 
+export type MatchReason =
+  | "exact-metadata-match"
+  | "native-search-match"
+  | "native-search-context-hit"
+  | "title-match"
+  | "template-match"
+  | "field-match"
+  | "bm25-metadata"
+  | "bm25-name"
+  | "bm25-body"
+  | "simple-search-match";
+
 type ScoredDoc = SearchableDoc & {
   score: number;
-  matchReasons: string[];
+  matchReasons: MatchReason[];
   matchedTokens: string[];
+  contextHits?: string[];
+  source: "simple-search" | "repository-search" | "field-search" | "bm25" | "merged";
 };
 
 export type RetrievalResult = {
@@ -207,8 +223,6 @@ export type RetrievalResult = {
   queryCoverage: number;
   queryTokens: string[];
 };
-
-/* ── Metadata Flattening ─────────────────────────────────────────────── */
 
 function flattenMetadata(metadata?: Record<string, string[]>): string {
   if (!metadata) return "";
@@ -229,15 +243,12 @@ function buildDocTexts(doc: SearchableDoc): Record<string, string> {
   };
 }
 
-/* ── Main Retrieval Function ─────────────────────────────────────────── */
+/* ── BM25 Retrieval (local fallback) ───────────────────────────────────────────────────── */
 
 export function retrieveDocs(
   query: string,
   docs: SearchableDoc[],
-  options?: {
-    topK?: number;
-    minScore?: number;
-  }
+  options?: { topK?: number; minScore?: number }
 ): RetrievalResult {
   const { tokens, expanded } = expandQueryTokens(query);
   const topK = options?.topK ?? 20;
@@ -254,7 +265,6 @@ export function retrieveDocs(
     };
   }
 
-  // Compute corpus stats for BM25
   const allTexts = docs.map((d) => buildDocTexts(d));
   const avgLengths: Record<string, number> = {
     name: avgFieldLength(allTexts, "name"),
@@ -267,37 +277,32 @@ export function retrieveDocs(
   };
   const corpusStats = { totalDocs: docs.length, avgLengths };
 
-  // Score each document
   const scored: ScoredDoc[] = docs.map((doc) => {
     const docTexts = buildDocTexts(doc);
     const score = computeBM25(docTexts, expanded, corpusStats);
 
-    // Track which tokens actually matched
     const matchedTokens: string[] = [];
     for (const token of expanded) {
       const allText = Object.values(docTexts).join(" ");
       if (allText.includes(token)) matchedTokens.push(token);
     }
 
-    // Match reasons
-    const matchReasons: string[] = [];
-    if (score > 0) matchReasons.push(`BM25 ${Math.round(score * 10) / 10}`);
-    if (docTexts.name.includes(expanded[0] || "")) matchReasons.push("name-match");
+    const matchReasons: MatchReason[] = [];
+    if (docTexts.name.includes(expanded[0] || "")) matchReasons.push("title-match");
     if (docTexts.templateName && expanded.some((t) => docTexts.templateName.includes(t))) {
       matchReasons.push("template-match");
     }
     if (docTexts.metadata && expanded.some((t) => docTexts.metadata.includes(t))) {
-      matchReasons.push("metadata-match");
+      matchReasons.push("bm25-metadata");
     }
+    if (score > 0 && matchReasons.length === 0) matchReasons.push("bm25-body");
 
-    return { ...doc, score, matchReasons, matchedTokens };
+    return { ...doc, score, matchReasons, matchedTokens, source: "bm25" };
   });
 
-  // Sort and take top K
   scored.sort((a, b) => b.score - a.score);
   const topDocs = scored.slice(0, topK);
 
-  // Confidence scoring
   const topScore = topDocs[0]?.score ?? 0;
   const secondScore = topDocs[1]?.score ?? 0;
   const scoreGap = topScore > 0 ? (topScore - secondScore) / topScore : 0;
@@ -305,8 +310,6 @@ export function retrieveDocs(
     ? topDocs[0]?.matchedTokens.filter((t) => tokens.includes(t)).length / tokens.length
     : 0;
 
-  // Normalize confidence: combine top score magnitude, gap between 1st/2nd, and query coverage
-  // Weighted: 40% score magnitude (scaled against expected max ~10), 40% gap, 20% coverage
   const scoreMagnitude = Math.min(topScore / 10, 1);
   const confidence = scoreMagnitude * 0.4 + scoreGap * 0.4 + queryCoverage * 0.2;
 
@@ -325,28 +328,186 @@ export function retrieveDocs(
   };
 }
 
-/* ── Two-Stage Laserfiche Retrieval ──────────────────────────────────── */
+/* ── Hybrid Retrieval Engine ─────────────────────────────────────────────────────────────────────────────────────────── */
 
-export async function retrieveLaserficheDocs(
+type LFEntry = {
+  id: number;
+  name: string;
+  entryType: string;
+  fullPath: string;
+  creator: string;
+  creationTime?: string;
+  lastModifiedTime?: string;
+  templateName?: string;
+  fields?: Record<string, string | number | boolean | null>;
+  tags?: string[];
+  contextHits?: string[];
+};
+
+function lfEntryToSearchableDoc(entry: LFEntry): SearchableDoc {
+  const meta: Record<string, string[]> = {};
+  if (entry.fields) {
+    for (const [k, v] of Object.entries(entry.fields)) {
+      if (v != null) meta[k] = [String(v)];
+    }
+  }
+  if (entry.tags) meta["Tags"] = entry.tags;
+  return {
+    id: entry.id,
+    name: entry.name || `Entry ${entry.id}`,
+    path: entry.fullPath || "",
+    folderName: entry.fullPath?.split("/").slice(0, -1).join("/") || "",
+    templateName: entry.templateName || "",
+    creator: entry.creator || "",
+    creationTime: entry.creationTime || "",
+    lastModifiedTime: entry.lastModifiedTime || "",
+    metadata: meta,
+    isElectronicDocument: true,
+  };
+}
+
+function mergeSearchResults(
+  simpleResults: LFEntry[],
+  fieldResults: LFEntry[],
+  bm25Results: ScoredDoc[],
+  topK: number
+): ScoredDoc[] {
+  const merged = new Map<number, ScoredDoc>();
+
+  // Priority 1: SimpleSearch (native full-text) → base 6.0
+  for (const entry of simpleResults) {
+    const doc = lfEntryToSearchableDoc(entry);
+    merged.set(entry.id, {
+      ...doc,
+      score: 6.0,
+      matchReasons: ["simple-search-match"],
+      matchedTokens: [],
+      source: "simple-search",
+      contextHits: entry.contextHits,
+    });
+  }
+
+  // Priority 2: Field-targeted search (exact metadata match) → base 10.0
+  for (const entry of fieldResults) {
+    const existing = merged.get(entry.id);
+    if (existing) {
+      existing.score = Math.max(existing.score, 10.0);
+      if (!existing.matchReasons.includes("exact-metadata-match")) {
+        existing.matchReasons.push("exact-metadata-match", "field-match");
+      }
+      existing.source = "merged";
+      if (entry.contextHits) existing.contextHits = entry.contextHits;
+    } else {
+      const doc = lfEntryToSearchableDoc(entry);
+      merged.set(entry.id, {
+        ...doc,
+        score: 10.0,
+        matchReasons: ["exact-metadata-match", "field-match"],
+        matchedTokens: [],
+        source: "field-search",
+        contextHits: entry.contextHits,
+      });
+    }
+  }
+
+  // Priority 3: BM25 fallback → scaled down
+  for (const doc of bm25Results) {
+    const existing = merged.get(doc.id);
+    if (existing) {
+      existing.score += doc.score * 0.3;
+      for (const r of doc.matchReasons) {
+        if (!existing.matchReasons.includes(r)) existing.matchReasons.push(r);
+      }
+      existing.matchedTokens.push(...doc.matchedTokens);
+      existing.source = "merged";
+    } else {
+      merged.set(doc.id, { ...doc, score: Math.max(doc.score * 0.5, 1.0) });
+    }
+  }
+
+  const all = [...merged.values()];
+  all.sort((a, b) => b.score - a.score);
+  return all.slice(0, topK);
+}
+
+export interface HybridRetrievalResult extends RetrievalResult {
+  strategiesUsed: string[];
+}
+
+export async function hybridRetrieve(
   query: string,
   allDocs: SearchableDoc[],
   config: LaserficheConfig,
-  options?: { topK?: number; fetchMetadata?: boolean }
-): Promise<RetrievalResult> {
+  options?: { topK?: number; lang?: "ar" | "en" }
+): Promise<HybridRetrievalResult> {
   const topK = options?.topK ?? 15;
-  const fetchMetadata = options?.fetchMetadata ?? true;
+  const strategiesUsed: string[] = [];
+  const token = await getLaserficheToken(config);
 
-  // Stage 1: BM25 score all docs (quick, no API calls)
-  const stage1 = retrieveDocs(query, allDocs, { topK });
+  // Strategy 1: BM25 on all cached docs (always runs)
+  const bm25Result = retrieveDocs(query, allDocs, { topK: topK * 2 });
+  strategiesUsed.push("bm25-local");
 
-  if (!fetchMetadata || stage1.docs.length === 0) {
-    return stage1;
+  // Field Discovery & Field-Value Extraction
+  let fieldPairs: import("./field-discovery").FieldValuePair[] = [];
+  let discoveredFields: import("./field-discovery").DiscoveredField[] = [];
+  try {
+    const { discoverFields, extractFieldValuePairs } = await import("./field-discovery");
+    discoveredFields = await discoverFields(config);
+    fieldPairs = extractFieldValuePairs(query, discoveredFields);
+  } catch {
+    // Field discovery is optional
   }
 
-  // Stage 2: Fetch full metadata for top candidates only
-  const token = await getLaserficheToken(config);
+  // Strategy 2: Laserfiche SimpleSearch (native full-text)
+  let simpleResults: LFEntry[] = [];
+  try {
+    const rawSimple = await laserficheSimpleSearch(config, token, query, 50);
+    simpleResults = rawSimple.map((e: any) => ({ ...e, contextHits: e.contextHits }));
+    if (simpleResults.length > 0) strategiesUsed.push("laserfiche-simple-search");
+  } catch {
+    // SimpleSearch may fail
+  }
+
+  // Strategy 3: Laserfiche Repository Search with metadata clauses
+  let fieldResults: LFEntry[] = [];
+  if (fieldPairs.length > 0) {
+    try {
+      const { expandValue } = await import("./field-discovery");
+      const commands: string[] = [];
+      for (const pair of fieldPairs) {
+        const expandedValues = expandValue(pair.value);
+        for (const val of expandedValues) {
+          commands.push(`{LF:LOOKIN="FIELD:${pair.field.fieldName}"}="${val.replace(/"/g, '\\"')}"`);
+        }
+      }
+      for (const cmd of commands.slice(0, 3)) {
+        try {
+          const res = await laserficheRepositorySearch(config, token, cmd, 25);
+          fieldResults.push(...res.map((e: any) => ({ ...e, contextHits: e.contextHits })));
+        } catch {}
+      }
+      if (fieldResults.length > 0) strategiesUsed.push("laserfiche-field-search");
+    } catch {}
+  }
+
+  // Strategy 4: Repository Search with keyword fallback
+  let repoKeywordResults: LFEntry[] = [];
+  if (simpleResults.length === 0 && fieldResults.length === 0) {
+    try {
+      const { expanded } = expandQueryTokens(query);
+      const keywordCmd = `{LF:Basic~="${expanded.slice(0, 5).join(" ")}"}`;
+      repoKeywordResults = await laserficheRepositorySearch(config, token, keywordCmd, 25);
+      if (repoKeywordResults.length > 0) strategiesUsed.push("laserfiche-keyword-search");
+    } catch {}
+  }
+
+  // Merge all results
+  const merged = mergeSearchResults(simpleResults, [...fieldResults, ...repoKeywordResults], bm25Result.docs, topK);
+
+  // Enrich merged results with full metadata
   const enrichedDocs = await Promise.all(
-    stage1.docs.map(async (doc) => {
+    merged.map(async (doc) => {
       try {
         const [entry, rawFields, tags] = await Promise.all([
           laserficheGetEntry(config, token, doc.id).catch(() => null),
@@ -355,7 +516,7 @@ export async function retrieveLaserficheDocs(
         ]);
 
         const metadata: Record<string, string[]> = {};
-        for (const field of rawFields) {
+        for (const field of rawFields as any[]) {
           const fieldName = String(field?.fieldName || "").trim();
           if (!fieldName) continue;
           metadata[fieldName] = Array.isArray(field?.values)
@@ -366,22 +527,22 @@ export async function retrieveLaserficheDocs(
 
         const enriched: SearchableDoc = {
           ...doc,
-          name: entry?.name || doc.name,
-          path: entry?.fullPath || doc.path,
-          creator: entry?.creator || doc.creator,
-          creationTime: entry?.creationTime || doc.creationTime,
-          lastModifiedTime: entry?.lastModifiedTime || doc.lastModifiedTime,
-          templateName: entry?.templateName || doc.templateName,
+          name: (entry as any)?.name || doc.name,
+          path: (entry as any)?.fullPath || doc.path,
+          creator: (entry as any)?.creator || doc.creator,
+          creationTime: (entry as any)?.creationTime || doc.creationTime,
+          lastModifiedTime: (entry as any)?.lastModifiedTime || doc.lastModifiedTime,
+          templateName: (entry as any)?.templateName || doc.templateName,
           metadata,
         };
 
-        // Re-score with enriched metadata
         const docTexts = buildDocTexts(enriched);
         const avgLengths = Object.fromEntries(
           Object.keys(docTexts).map((k) => [k, avgFieldLength(allDocs.map((d) => buildDocTexts(d)), k)])
         );
         const { expanded } = expandQueryTokens(query);
-        const newScore = computeBM25(docTexts, expanded, { totalDocs: allDocs.length, avgLengths });
+        const bm25Bonus = computeBM25(docTexts, expanded, { totalDocs: allDocs.length, avgLengths });
+        const finalScore = doc.score + Math.min(bm25Bonus * 0.5, 3.0);
 
         const matchedTokens: string[] = [];
         for (const token of expanded) {
@@ -389,7 +550,14 @@ export async function retrieveLaserficheDocs(
           if (allText.includes(token)) matchedTokens.push(token);
         }
 
-        return { ...enriched, score: newScore, matchReasons: doc.matchReasons, matchedTokens };
+        return {
+          ...enriched,
+          score: finalScore,
+          matchReasons: doc.matchReasons,
+          matchedTokens,
+          source: doc.source,
+          contextHits: doc.contextHits,
+        };
       } catch {
         return doc;
       }
@@ -401,12 +569,16 @@ export async function retrieveLaserficheDocs(
   const topScore = enrichedDocs[0]?.score ?? 0;
   const secondScore = enrichedDocs[1]?.score ?? 0;
   const scoreGap = topScore > 0 ? (topScore - secondScore) / topScore : 0;
-  const queryCoverage = stage1.queryTokens.length > 0
-    ? (enrichedDocs[0]?.matchedTokens.filter((t) => stage1.queryTokens.includes(t)).length ?? 0) / stage1.queryTokens.length
+  const queryCoverage = bm25Result.queryTokens.length > 0
+    ? (enrichedDocs[0]?.matchedTokens.filter((t) => bm25Result.queryTokens.includes(t)).length ?? 0) / bm25Result.queryTokens.length
     : 0;
 
-  const scoreMagnitude = Math.min(topScore / 10, 1);
-  const confidence = scoreMagnitude * 0.4 + scoreGap * 0.4 + queryCoverage * 0.2;
+  const hasNativeSearch = strategiesUsed.some((s) => s.startsWith("laserfiche"));
+  const hasFieldSearch = strategiesUsed.includes("laserfiche-field-search");
+  const sourceBoost = hasFieldSearch ? 0.2 : hasNativeSearch ? 0.1 : 0;
+  const scoreMagnitude = Math.min(topScore / 15, 1);
+  const confidence = Math.min(scoreMagnitude * 0.4 + scoreGap * 0.4 + queryCoverage * 0.2 + sourceBoost, 1.0);
+
   let confidenceLabel: "high" | "medium" | "low" = "low";
   if (confidence >= 0.7) confidenceLabel = "high";
   else if (confidence >= 0.4) confidenceLabel = "medium";
@@ -418,11 +590,32 @@ export async function retrieveLaserficheDocs(
     topScore,
     scoreGap,
     queryCoverage,
-    queryTokens: stage1.queryTokens,
+    queryTokens: bm25Result.queryTokens,
+    strategiesUsed,
   };
 }
 
-/* ── Structured Context Building ─────────────────────────────────────── */
+/* ── Backward-compatible alias ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+export async function retrieveLaserficheDocs(
+  query: string,
+  allDocs: SearchableDoc[],
+  config: LaserficheConfig,
+  options?: { topK?: number; fetchMetadata?: boolean }
+): Promise<RetrievalResult> {
+  const result = await hybridRetrieve(query, allDocs, config, { topK: options?.topK ?? 15 });
+  return {
+    docs: result.docs,
+    confidence: result.confidence,
+    confidenceLabel: result.confidenceLabel,
+    topScore: result.topScore,
+    scoreGap: result.scoreGap,
+    queryCoverage: result.queryCoverage,
+    queryTokens: result.queryTokens,
+  };
+}
+
+/* ── Structured Context Building (with match reasons & context hits) ── */
 
 export function buildStructuredContext(
   result: RetrievalResult,
@@ -461,6 +654,12 @@ export function buildStructuredContext(
           .join("\n");
         lines.push(`    البيانات الوصفية:\n${metaLines}`);
       }
+      if (d.matchReasons && d.matchReasons.length > 0) {
+        lines.push(`    أسباب التطابق: ${d.matchReasons.join(", ")}`);
+      }
+      if (d.contextHits && d.contextHits.length > 0) {
+        lines.push(`    مقتطفات السياق: ${d.contextHits.slice(0, 2).join(" | ")}`);
+      }
       lines.push(`    درجة التطابق: ${Math.round(d.score * 10) / 10}`);
     } else {
       lines.push(`[${i + 1}] Document: ${d.name}`);
@@ -476,6 +675,12 @@ export function buildStructuredContext(
           .map(([k, v]) => `      • ${k}: ${v.slice(0, 3).join(", ")}`)
           .join("\n");
         lines.push(`    Metadata:\n${metaLines}`);
+      }
+      if (d.matchReasons && d.matchReasons.length > 0) {
+        lines.push(`    Match reasons: ${d.matchReasons.join(", ")}`);
+      }
+      if (d.contextHits && d.contextHits.length > 0) {
+        lines.push(`    Context hits: ${d.contextHits.slice(0, 2).join(" | ")}`);
       }
       lines.push(`    Relevance: ${Math.round(d.score * 10) / 10}`);
     }

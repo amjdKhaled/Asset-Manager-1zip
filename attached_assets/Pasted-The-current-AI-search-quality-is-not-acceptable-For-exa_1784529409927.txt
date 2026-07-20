@@ -1,0 +1,181 @@
+The current AI search quality is not acceptable.
+
+For example:
+
+I asked:
+
+"ما هي الوثائق التي البلد المستضيف فيها قطر"
+
+The repository contains documents where the metadata field "Host Country" (or equivalent) equals "قطر", but the AI returned no results.
+
+This indicates that the retrieval pipeline is missing relevant documents before the LLM generates the answer.
+
+I want to redesign the search architecture.
+
+========================================
+Search Architecture
+========================================
+
+Implement a hybrid retrieval pipeline.
+
+The AI should NOT depend only on vector search.
+
+The AI should combine:
+
+1. Laserfiche metadata search
+2. Laserfiche SimpleSearch
+3. Semantic vector search
+4. Keyword search
+5. Reranking
+
+========================================
+Use the Repository API
+========================================
+
+Use these Repository API endpoints where appropriate:
+
+- FieldDefinitions
+- Searches
+- Search Results
+- ContextHits
+- SimpleSearches
+
+The purpose is to leverage Laserfiche's native indexing together with semantic search.
+
+========================================
+Metadata First
+========================================
+
+The AI must search metadata before document body.
+
+Important metadata includes:
+
+- Template
+- Document Name
+- Entry ID
+- Folder
+- Host Country
+- Employee Name
+- Department
+- Status
+- All custom metadata fields
+
+If the user asks:
+
+"البلد المستضيف قطر"
+
+the AI should first search metadata fields that may contain country names.
+
+========================================
+Automatic Metadata Understanding
+========================================
+
+Use FieldDefinitions to automatically discover repository metadata.
+
+Do NOT hardcode field names.
+
+The AI should automatically learn available metadata fields.
+
+========================================
+Natural Language Mapping
+========================================
+
+The AI should understand:
+
+"الدولة"
+
+"البلد"
+
+"البلد المستضيف"
+
+"الدولة المستضيفة"
+
+may all refer to the same metadata field.
+
+========================================
+Arabic Query Expansion
+========================================
+
+Automatically expand Arabic searches.
+
+Example:
+
+قطر
+
+↓
+
+دولة قطر
+
+↓
+
+البلد قطر
+
+↓
+
+المستضيف قطر
+
+↓
+
+Host Country = Qatar
+
+========================================
+Search Every Source
+========================================
+
+When a question arrives:
+
+Search:
+
+- Metadata
+- OCR
+- Document content
+- Vector index
+- Laserfiche Search
+
+Merge all results.
+
+========================================
+Context Hits
+========================================
+
+Use ContextHits to identify exactly where the query matched.
+
+Highlight those snippets in the search results.
+
+========================================
+Ranking
+========================================
+
+Highest priority:
+
+1. Exact metadata match
+2. Exact document title
+3. Laserfiche search match
+4. Semantic similarity
+5. OCR text
+6. Document body
+
+========================================
+Answer Generation
+========================================
+
+Never answer until retrieval is complete.
+
+Every answer should include:
+
+- Document Name
+- Entry ID
+- Folder
+- Template
+- Why this document matched
+
+========================================
+Before implementing:
+
+Review the current search architecture.
+
+Identify why the AI failed to retrieve documents containing "قطر".
+
+Explain the weakness.
+
+Then improve the retrieval pipeline without breaking the existing application.
