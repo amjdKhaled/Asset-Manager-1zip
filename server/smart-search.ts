@@ -1,11 +1,6 @@
 import { storage } from "./storage";
 import {
   getLaserficheConfig,
-  getLaserficheToken,
-  naturalLanguageToLFSearchCommand,
-  laserficheRepositorySearch,
-  laserficheGetEntry,
-  laserficheGetEntryFieldsRaw,
   type LaserficheConfig,
 } from "./laserfiche";
 import { type Document, type SearchResult } from "@shared/schema";
@@ -286,88 +281,90 @@ export async function executeSmartSearch(
   const intent = classifyIntent(query);
   const lfConfig = getLaserficheConfig();
   const lfConnected = !!lfConfig;
-  const engines = selectEngines(intent, lfConnected);
 
-  let localResults: UnifiedResult[] = [];
-  let lfResults: UnifiedResult[] = [];
-  let laserficheCommand: string | undefined;
-  let laserficheTerms: string[] | undefined;
+  if (!lfConfig) {
+    return {
+      query,
+      queryLanguage: lang,
+      total: 0,
+      results: [],
+      enginesUsed: [],
+      intent,
+      processingTimeMs: Date.now() - startTime,
+      lfConnected: false,
+    };
+  }
 
-  // Local in-memory engines are disabled — Laserfiche is the sole document source.
-  // The storage layer is kept for audit-log writes only (no documents are seeded).
-  const localPromises: Promise<UnifiedResult[]>[] = [];
+  try {
+    const { hybridRetrieve, buildStructuredContext } = await import("./rag-pipeline");
+    const result = await hybridRetrieve(query, [], lfConfig, { topK: 50, lang });
 
-  // Run Laserfiche in parallel if connected
-  const lfPromise = (async () => {
-    if (!engines.includes("laserfiche") || !lfConfig) return [];
-    try {
-      const nlResult = naturalLanguageToLFSearchCommand(query);
-      laserficheCommand = nlResult.command;
-      laserficheTerms = nlResult.extractedTerms;
-
-      const token = await getLaserficheToken(lfConfig);
-      const allEntries = await laserficheRepositorySearch(lfConfig, token, nlResult.command, 50);
-      const maxScore = allEntries.length > 0 ? allEntries.length : 1;
-
-      const entries = await Promise.all(
-        allEntries.map(async (entry: any) => {
-          const [details, rawFields] = await Promise.all([
-            laserficheGetEntry(lfConfig, token, Number(entry.id)).catch(() => entry),
-            laserficheGetEntryFieldsRaw(lfConfig, token, Number(entry.id)).catch(() => []),
-          ]);
-          const metadata: Record<string, string[]> = {};
-          for (const field of rawFields as any[]) {
-            const name = String(field?.fieldName || "").trim();
-            if (!name) continue;
-            metadata[name] = Array.isArray(field?.values) ? field.values.map((v: any) => String(v?.value ?? "")).filter(Boolean) : [];
-          }
-          return {
-            ...details,
-            id: Number(details.id || entry.id),
-            metadata,
-            previewUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=inline`,
-            openUrl: `/lf-document/${Number(entry.id)}`,
-            sourceUrl: `/api/laserfiche/entries/${Number(entry.id)}/open`,
-            downloadUrl: `/api/laserfiche/entries/${Number(entry.id)}/content?disposition=attachment`,
-          };
-        })
-      );
-
-      return entries.map((entry, idx) => {
-        const rawScore = 1 - (idx / maxScore);
-        return lfEntryToUnified(entry, nlResult.command, normalizeScore(rawScore, "laserfiche", 1));
-      });
-    } catch (err) {
-      console.error("Smart search Laserfiche engine failed:", err);
-      return [];
+    console.log("[smart-search] hybridRetrieve returned", result.docs.length, "docs, strategies:", result.strategiesUsed);
+    if (result.docs.length > 0) {
+      console.log("[smart-search] top doc:", result.docs[0].name, "score:", result.docs[0].score, "reasons:", result.docs[0].matchReasons);
     }
-  })();
 
-  const [localBatches, lfBatch] = await Promise.all([
-    Promise.all(localPromises),
-    lfPromise,
-  ]);
+    const unifiedResults: UnifiedResult[] = result.docs.map((doc) => {
+      const meta = doc.metadata || {};
+      const department = meta["Department"]?.[0] || meta["Directorate"]?.[0] || "";
+      const template = doc.templateName || meta["Template"]?.[0] || "";
 
-  localResults = localBatches.flat();
-  lfResults = lfBatch;
+      return {
+        id: String(doc.id),
+        type: "laserfiche",
+        title: doc.name || `Entry ${doc.id}`,
+        titleAr: doc.name || null,
+        department: department || "Unknown",
+        departmentAr: department || null,
+        docType: template || "Document",
+        docTypeAr: template || null,
+        classification: meta["Classification"]?.[0] || "Standard",
+        securityLevel: meta["Security Level"]?.[0] || "Unclassified",
+        author: doc.creator || null,
+        year: doc.creationTime ? new Date(doc.creationTime).getFullYear() : null,
+        createdAt: doc.creationTime ? new Date(doc.creationTime) : null,
+        snippet: meta["Description"]?.[0] || doc.name || "",
+        snippetAr: meta["Description"]?.[0] || doc.name || null,
+        score: Math.min(Math.round(doc.score * 100) / 100, 99.9),
+        matchReasons: doc.matchReasons.map((r: string) => ({ reason: r as MatchReason, detail: r })),
+        previewUrl: `/api/laserfiche/entries/${doc.id}/content?disposition=inline`,
+        openUrl: `/lf-document/${doc.id}`,
+        sourceUrl: `/api/laserfiche/entries/${doc.id}/open`,
+        downloadUrl: `/api/laserfiche/entries/${doc.id}/content?disposition=attachment`,
+        laserficheId: String(doc.id),
+        metadata: meta,
+        pageCount: meta["Page Count"]?.[0] ? Number(meta["Page Count"][0]) : null,
+        fileSizeKb: meta["Electronic Document Size"]?.[0] ? Number(meta["Electronic Document Size"][0]) : null,
+      };
+    });
 
-  const allResults = deduplicateAndRank([...localResults, ...lfResults]);
-  const total = allResults.length;
-  const start = (Math.max(page, 1) - 1) * limit;
-  const paged = allResults.slice(start, start + limit);
+    const total = unifiedResults.length;
+    const start = (Math.max(page, 1) - 1) * limit;
+    const paged = unifiedResults.slice(start, start + limit);
 
-  const processingTimeMs = Date.now() - startTime;
+    const processingTimeMs = Date.now() - startTime;
 
-  return {
-    query,
-    queryLanguage: lang,
-    total,
-    results: paged,
-    enginesUsed: engines,
-    intent,
-    processingTimeMs,
-    lfConnected,
-    laserficheCommand,
-    laserficheTerms,
-  };
+    return {
+      query,
+      queryLanguage: lang,
+      total,
+      results: paged,
+      enginesUsed: result.strategiesUsed,
+      intent,
+      processingTimeMs,
+      lfConnected,
+    };
+  } catch (err) {
+    console.error("Smart search hybrid pipeline failed:", err);
+    return {
+      query,
+      queryLanguage: lang,
+      total: 0,
+      results: [],
+      enginesUsed: [],
+      intent,
+      processingTimeMs: Date.now() - startTime,
+      lfConnected,
+    };
+  }
 }

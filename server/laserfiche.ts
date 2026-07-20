@@ -773,4 +773,36 @@ export async function laserficheCountByTemplate(
   }
 }
 
+/**
+ * Search for a specific value across ALL Laserfiche fields.
+ * Runs parallel field-targeted searches on every discovered field.
+ */
+export async function laserficheFieldValueSearch(
+  config: LaserficheConfig,
+  token: string,
+  value: string,
+  fieldNames: string[],
+  maxPerField = 10,
+): Promise<LFEntry[]> {
+  const results: LFEntry[] = [];
+  const seen = new Set<number>();
+  const safeValue = value.replace(/"/g, '\\"');
+
+  for (const fieldName of fieldNames.slice(0, 15)) {
+    try {
+      const cmd = `{LF:LOOKIN="FIELD:${fieldName}"}="${safeValue}"`;
+      const entries = await laserficheRepositorySearch(config, token, cmd, maxPerField);
+      for (const e of entries) {
+        if (!seen.has(e.id)) {
+          seen.add(e.id);
+          results.push(e);
+        }
+      }
+    } catch {
+      // Field may not exist or search syntax invalid - skip
+    }
+  }
+  return results;
+}
+
 export type { LaserficheConfig as LFConfig };

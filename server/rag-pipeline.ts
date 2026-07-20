@@ -17,6 +17,7 @@ import {
   laserficheGetEntryTags,
   laserficheSimpleSearch,
   laserficheRepositorySearch,
+  laserficheFieldValueSearch,
   type LaserficheConfig,
 } from "./laserfiche";
 
@@ -37,6 +38,56 @@ const ENGLISH_STOPWORDS = new Set([
   "should", "may", "might", "all", "any", "this", "that", "these", "those", "its", "it", "as", "up",
   "out", "if", "so", "no", "not", "search", "find", "document", "documents", "file", "files",
 ]);
+
+/**
+ * Extract bare-value tokens from queries that don't specify field names.
+ * E.g., "documents about Qatar" → ["Qatar"]; "all about Doha" → ["Doha"]
+ * "The host country is Qatar" → ["Qatar"]
+ */
+function extractBareValueTokens(query: string): string[] {
+  const norm = normalizeArabic(query);
+  // Generic Arabic/English prefixes that introduce bare values
+  const prefixes = [
+    "ب", "حول", "عن", "فيها", "في", "تحتوي", "تحتوي على", "يساوي",
+    "باسم", "عليها", "ل", "لها", "خصوص", "بخصوص", "بشأن",
+    "about", "containing", "contains", "with", "where", "for",
+    "is", "equals", "in", "has", "have",
+  ];
+  const tokens = tokenize(norm);
+  const bare: string[] = [];
+
+  // If query has a pattern "prefix ... value", extract value after prefix
+  for (const prefix of prefixes) {
+    if (norm.includes(prefix)) {
+      const after = norm.slice(norm.indexOf(prefix) + prefix.length).trim();
+      const afterTokens = after.split(/\s+/).filter((t) => t.length >= 2);
+      for (const at of afterTokens.slice(0, 3)) {
+        if (!ARABIC_STOPWORDS.has(at) && !ENGLISH_STOPWORDS.has(at)) {
+          bare.push(at);
+        }
+      }
+    }
+  }
+
+  // Also, the last meaningful token in short queries is often the bare value
+  if (tokens.length <= 4 && tokens.length > 0) {
+    const last = tokens[tokens.length - 1];
+    if (!ARABIC_STOPWORDS.has(last) && !ENGLISH_STOPWORDS.has(last)) {
+      bare.push(last);
+    }
+  }
+
+  // Country / city / number patterns
+  const countryPattern = /(قطر|الدوحة|السعودية|الإمارات|الكويت|عمان|مصر|الأردن|البحرين|qatar|doha|saudi|uae|kuwait|oman|egypt|jordan|bahrain)/i;
+  const countryMatch = norm.match(countryPattern);
+  if (countryMatch) bare.push(countryMatch[1]);
+
+  // Number pattern (transaction IDs, etc.)
+  const numberMatch = norm.match(/(\d{3,})/);
+  if (numberMatch) bare.push(numberMatch[1]);
+
+  return [...new Set(bare)];
+}
 
 function normalizeArabic(text: string): string {
   return (text || "")
@@ -438,7 +489,7 @@ export async function hybridRetrieve(
   query: string,
   allDocs: SearchableDoc[],
   config: LaserficheConfig,
-  options?: { topK?: number; lang?: "ar" | "en" }
+  options?: { topK?: number; lang?: "ar" | "en" | "mixed" }
 ): Promise<HybridRetrievalResult> {
   const topK = options?.topK ?? 15;
   const strategiesUsed: string[] = [];
@@ -502,8 +553,29 @@ export async function hybridRetrieve(
     } catch {}
   }
 
+  // Strategy 5: Bare-value cross-field search (no field name in query)
+  let bareValueResults: LFEntry[] = [];
+  if (fieldPairs.length === 0 && discoveredFields.length > 0) {
+    try {
+      const { expandValue } = await import("./field-discovery");
+      // Extract likely bare values: tokens after generic words
+      const bareTokens = extractBareValueTokens(query);
+      for (const bt of bareTokens) {
+        const expandedVals = expandValue(bt);
+        for (const val of expandedVals) {
+          const crossField = await laserficheFieldValueSearch(config, token, val, discoveredFields.map((f) => f.name), 8);
+          bareValueResults.push(...crossField);
+        }
+      }
+      if (bareValueResults.length > 0) strategiesUsed.push("laserfiche-bare-value-search");
+    } catch (e) {
+      console.log("[hybridRetrieve] Bare-value search error:", e);
+    }
+  }
+
   // Merge all results
-  const merged = mergeSearchResults(simpleResults, [...fieldResults, ...repoKeywordResults], bm25Result.docs, topK);
+  const allFieldResults = [...fieldResults, ...repoKeywordResults, ...bareValueResults];
+  const merged = mergeSearchResults(simpleResults, allFieldResults, bm25Result.docs, topK);
 
   // Enrich merged results with full metadata
   const enrichedDocs = await Promise.all(

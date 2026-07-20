@@ -496,6 +496,14 @@ export default function SearchPage() {
                 <p className="text-sm text-muted-foreground font-arabic" dir="rtl">
                   اكتب أي شيء بالعربية أو الإنجليزية. يوجد البحث الذكي استفسارك تلقائياً للمحرك المناسب
                 </p>
+                <div className="mt-6 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg px-4 py-3 max-w-md">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-amber-700 dark:text-amber-400 text-left">
+                      No Laserfiche server is connected. Go to <Link href="/laserfiche/settings" className="underline font-medium">LF Settings</Link> to enter your server URL, repository, username, and password so the search can retrieve real documents.
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
           </div>

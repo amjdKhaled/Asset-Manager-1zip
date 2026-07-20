@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -11,7 +12,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { Search, LayoutDashboard, FileText, Database, ChevronRight, Bot, Settings, FileScan } from "lucide-react";
+import { Search, LayoutDashboard, FileText, Database, ChevronRight, Bot, Settings, FileScan, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const navItems = [
@@ -25,6 +26,10 @@ const navItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { data: lfStatus } = useQuery({
+    queryKey: ["/api/laserfiche/status"],
+    refetchInterval: 30000,
+  });
 
   return (
     <Sidebar>
@@ -76,7 +81,13 @@ export function AppSidebar() {
             <div className="mx-2 rounded-md bg-sidebar-accent/50 p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">Laserfiche ECM</span>
-                <Badge variant="secondary" className="text-xs py-0">Connected</Badge>
+                {(lfStatus as any)?.connected ? (
+                  <Badge variant="secondary" className="text-xs py-0">Connected</Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs py-0 text-orange-600 border-orange-200">
+                    <AlertCircle className="w-3 h-3 mr-0.5" />Not configured
+                  </Badge>
+                )}
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">Vector Index</span>
@@ -86,6 +97,11 @@ export function AppSidebar() {
                 <span className="text-xs text-muted-foreground">Arabic NLP</span>
                 <Badge variant="secondary" className="text-xs py-0">Running</Badge>
               </div>
+              {!(lfStatus as any)?.connected && (
+                <div className="text-[10px] text-orange-700 dark:text-orange-400 leading-tight">
+                  Go to <Link href="/laserfiche/settings" className="underline font-medium">LF Settings</Link> to connect.
+                </div>
+              )}
             </div>
           </SidebarGroupContent>
         </SidebarGroup>

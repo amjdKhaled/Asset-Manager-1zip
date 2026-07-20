@@ -19,7 +19,7 @@ import {
   Database, TrendingUp, Search,
   Clock, User, Timer, Globe, ShieldCheck, ShieldAlert, AlertTriangle,
   Wifi, WifiOff, Activity, FileSpreadsheet, FileCode, Printer,
-  ChevronDown, Download,
+  ChevronDown, Download, Info,
 } from "lucide-react";
 
 type DocEntry = {
@@ -503,7 +503,7 @@ export default function DashboardPage() {
               <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
               <p className="text-sm text-amber-700 dark:text-amber-300">
                 Dashboard is not connected to Laserfiche. Repository statistics are unavailable.
-                Configure the connection in <strong>LF Settings</strong> to see live data.
+                Configure the connection in <Link href="/laserfiche/settings" className="underline font-medium">LF Settings</Link> to see live data.
               </p>
             </div>
           )}
