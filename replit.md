@@ -1,77 +1,111 @@
-# GovSearch AI — منصة البحث الذكي
+# LFPortal — Laserfiche Enterprise Administration Portal
 
-AI-powered semantic search platform for government document archives integrated with Laserfiche ECM.
+## Project Overview
 
-## Architecture
+LFPortal is a professional enterprise web portal for administering and navigating a self-hosted Laserfiche Document Management System. It is a pure presentation layer over Laserfiche — all data is sourced directly from the live Laserfiche Repository API v2. There is no local database, no mock data, and no AI or search pipeline.
 
-- **Frontend**: React + TypeScript + Vite + Tailwind CSS + shadcn/ui
-- **Backend**: Express.js with in-memory storage (MemStorage)
-- **Routing**: wouter (frontend), Express (backend)
-- **State**: TanStack Query v5
-- **Charting**: Recharts
-- **Fonts**: IBM Plex Sans Arabic, Noto Sans Arabic (Arabic support)
+**Technology stack:**
+- **Runtime:** .NET 8 / ASP.NET Core MVC + Razor Views
+- **Architecture:** Clean 4-layer (Domain → Application → Infrastructure → Web)
+- **HTTP:** `IHttpClientFactory` with `BearerTokenHandler`, Polly-backed standard resilience
+- **Logging:** Serilog → rolling file sink (production), console sink (development)
+- **Credentials:** Windows DPAPI (production) / environment variables (development)
+- **Deployment target:** Windows Server + IIS (in-process ASP.NET Core Module v2)
 
-## Features
+## Solution Structure
 
-- **Semantic Search**: AI-powered document discovery with Arabic + English support
-- **Hybrid Search**: Combines semantic scoring + keyword matching + metadata filtering
-- **Document Archive**: Browse all government documents with filtering
-- **Document Detail**: Full document view with bilingual content
-- **Analytics Dashboard**: Charts for search activity, doc types, departments, top queries
-- **Audit Log**: All search queries logged for compliance (with IP, user, timestamp)
-- **Dark Mode**: Full light/dark theme toggle
-- **AI Chatbot**: Fully local RAG chatbot using Ollama + Qwen2.5; answers document questions in Arabic/English with streaming responses and source citations
-- **Laserfiche Integration**: NL→LF query translator, direct search, document sync
+```
+LFPortal.sln
+src/
+  LFPortal.Domain/          # Entities, value objects, exceptions — no dependencies
+  LFPortal.Application/     # Service interfaces, DTOs — depends on Domain only
+  LFPortal.Infrastructure/  # HTTP services, auth, credentials, health checks
+  LFPortal.Web/             # MVC controllers, Razor views, Program.cs
+docs/
+  README.md
+  CompatibilityReport.md
+  ADR/                      # Architecture Decision Records 001–007
+```
 
-## Data Model (shared/schema.ts)
+## Key Architectural Decisions (see docs/ADR/)
 
-- `documents` — government documents with bilingual metadata (title, content, department)
-- `auditLogs` — search query audit trail
-- `users` — basic user model
+| Decision | Record |
+|---|---|
+| MVC + Razor over Blazor Server | ADR-001 |
+| 4-layer Clean Architecture | ADR-002 |
+| Desktop Extension framework (PENDING on-site check) | ADR-003 |
+| `ILaserficheApiAdapter` for URL isolation | ADR-004 |
+| DPAPI credential storage | ADR-005 |
+| REST API v2 over legacy SDK | ADR-006 |
+| `IRepositoryContext` multi-repo abstraction | ADR-007 |
 
-## Pages
+## Development Setup
 
-- `/` — Semantic Search (main page)
-- `/dashboard` — Analytics & system health
-- `/archive` — Document Archive (browse + filter)
-- `/audit` — Audit Log (compliance)
-- `/document/:id` — Document Detail
-- `/chat` — AI Assistant chatbot (Ollama + Qwen2.5)
-- `/laserfiche` — Laserfiche ECM integration
-- `/laserfiche/settings` — Configure Laserfiche server URL, repo, username & password (saved server-side, password never returned to UI)
+### Prerequisites
+- .NET 8 SDK
+- Laserfiche API Server accessible at `ServerUrl` in `appsettings.json`
 
-## API Routes (server/routes.ts)
+### Environment variables (development)
+```
+LF_USERNAME=<laserfiche-username>
+LF_PASSWORD=<laserfiche-password>
+```
 
-- `GET /api/documents` — List all documents
-- `GET /api/documents/:id` — Get single document
-- `POST /api/search` — Semantic/keyword/hybrid search
-- `GET /api/audit-logs` — Audit trail
-- `GET /api/dashboard/stats` — Dashboard statistics
-- `GET /api/chat/status` — Check Ollama connection
-- `POST /api/chat` — SSE streaming chat with RAG (searches docs → builds context → Ollama)
-- `GET /api/laserfiche/status` — Check Laserfiche connection
-- `GET /api/laserfiche/config` — Read saved LF config (no password returned)
-- `POST /api/laserfiche/config` — Save & persist LF credentials (validated, then connection-tested)
-- `POST /api/laserfiche/test` — Test connection (uses provided values or saved values)
-- `DELETE /api/laserfiche/config` — Remove saved credentials
-- `POST /api/laserfiche/search` — NL → LF query search
-- `POST /api/laserfiche/translate` — Translate NL to LF command
-- `POST /api/laserfiche/sync` — Import Laserfiche documents
-- `POST /api/laserfiche/browse` — Browse repository folder
+### Run locally
+```bash
+cd src/LFPortal.Web
+dotnet run
+# Opens on http://localhost:5050
+```
 
-## Local AI Setup (Ollama)
+### Build (release)
+```bash
+dotnet build LFPortal.sln --configuration Release
+```
 
-- Install: https://ollama.com/download
-- Pull model: `ollama pull qwen2.5:7b`  (recommended for Arabic + English)
-- Start: `ollama serve`
-- Override host: `OLLAMA_HOST` env var (default: http://localhost:11434)
-- Override model: `OLLAMA_MODEL` env var (default: qwen2.5:7b)
+### Publish for IIS
+```bash
+dotnet publish src/LFPortal.Web/LFPortal.Web.csproj \
+  -c Release -r win-x64 --self-contained false \
+  -o C:\inetpub\wwwroot\LFPortal
+```
 
-## Key Design Decisions
+## Phase Status
 
-- In-memory storage simulates Laserfiche ECM integration
-- Search scoring: semantic (meaning-based) + keyword (token overlap) + metadata boost
-- Arabic language detection via Unicode range \u0600-\u06FF
-- Font-arabic utility class for Noto Sans Arabic / IBM Plex Sans Arabic
-- All search queries logged to audit trail automatically
-- Theme: Government blue (primary: 210 85% 32%), Open Sans font
+| Phase | Task | Status |
+|---|---|---|
+| Phase 0 | Compatibility verification & ADRs | ✅ Complete |
+| Phase 1 | Solution scaffold & LF infrastructure | ✅ Complete |
+| Phase 2 | Dashboard page (live LF data) | 🔲 Not started |
+| Phase 3 | Document Archive browser | 🔲 Not started |
+| Phase 4 | LF Settings page & final polish | 🔲 Not started |
+| Phase 5 | Desktop Client Extension | ⏸ Blocked (ADR-003 pending on-site SDK check) |
+| Phase 6 | MSI Installer & IIS deployment package | ⏸ Blocked on Phase 4 + 5 |
+
+## Quality Gates (apply to every phase)
+
+- `dotnet restore` succeeds
+- `dotnet build --configuration Release` → zero errors, zero warnings
+- No TODO / FIXME / placeholder / fake data in source
+- No hard-coded values (config via `appsettings.json` + `IOptions<T>`)
+- XML doc comments on all public types
+- Documentation updated for any new architectural decisions
+
+## API Endpoints (Phase 1)
+
+| Endpoint | Description |
+|---|---|
+| `GET /` | Portal status page (live connection check) |
+| `GET /health` | ASP.NET Core health check (JSON) |
+| `GET /api/laserfiche/status` | Live Laserfiche connection status (JSON) |
+| `GET /api/laserfiche/repository` | Active repository descriptor (JSON) |
+| `POST /api/laserfiche/test-connection` | Test connection with explicit credentials |
+
+## User Preferences
+
+- Always use C# record types for immutable value objects and DTOs.
+- Always use `sealed` on classes that are not designed for inheritance.
+- Credentials must never appear in configuration files, logs, or exception messages.
+- All data must come from the live Laserfiche API — never from local state, mock objects, or defaults.
+- Target `net8.0`; do not reference .NET Framework assemblies from the MVC/Infrastructure projects.
+- Phase 5 (Desktop Extension) is blocked until the on-site `ImageRuntimeVersion` check (ADR-003) is completed.

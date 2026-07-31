@@ -1,0 +1,21 @@
+@{
+    ViewData["Title"] = "Error";
+}
+
+<h1 style="font-size:1.5rem;font-weight:700;margin-bottom:24px;color:var(--lfp-text);">
+    Application Error
+</h1>
+
+<div class="card">
+    <div class="alert alert--error">
+        <span>&#9888;</span>
+        <div>
+            <strong>An unexpected error occurred.</strong>
+            An error was logged. If this problem persists, check the application log file
+            in the <code>logs\</code> directory next to the portal executable.
+        </div>
+    </div>
+    <p style="margin-top:16px;font-size:.875rem;color:var(--lfp-muted);">
+        Request ID: <code>@System.Diagnostics.Activity.Current?.Id ?? HttpContext.TraceIdentifier</code>
+    </p>
+</div>

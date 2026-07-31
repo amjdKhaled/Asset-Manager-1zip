@@ -1,0 +1,97 @@
+@model LFPortal.Web.Controllers.HomeViewModel
+@{
+    ViewData["Title"] = "Status";
+    var connected = Model.Status.IsConnected;
+}
+
+<h1 style="font-size:1.5rem;font-weight:700;margin-bottom:24px;color:var(--lfp-text);">
+    Portal Status
+</h1>
+
+<div class="card">
+    <div class="card__title" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>Laserfiche Connection</span>
+        @if (connected)
+        {
+            <span class="badge badge--green">Connected</span>
+        }
+        else
+        {
+            <span class="badge badge--red">Disconnected</span>
+        }
+    </div>
+
+    @if (!connected && !string.IsNullOrWhiteSpace(Model.Status.ErrorMessage))
+    {
+        <div class="alert alert--error" style="margin-bottom:16px;">
+            <span>&#9888;</span>
+            <div>
+                <strong>Connection failed:</strong>
+                @Model.Status.ErrorMessage
+            </div>
+        </div>
+    }
+
+    <div class="status-grid">
+        <div class="status-item">
+            <span class="status-item__label">Repository ID</span>
+            <span class="status-item__value">@(Model.Status.RepositoryId ?? "—")</span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">Repository Name</span>
+            <span class="status-item__value">@(Model.Status.RepositoryName ?? "—")</span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">Server Version</span>
+            <span class="status-item__value">@(Model.Status.ServerVersion ?? "—")</span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">API Version</span>
+            <span class="status-item__value">@(Model.Status.ApiVersion ?? "—")</span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">Last Checked</span>
+            <span class="status-item__value">@Model.Status.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+    <div class="card__title">Portal Information</div>
+    <div class="status-grid">
+        <div class="status-item">
+            <span class="status-item__label">Version</span>
+            <span class="status-item__value">@Model.Version</span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">Environment</span>
+            <span class="status-item__value">@System.Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")</span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">Host</span>
+            <span class="status-item__value">@System.Environment.MachineName</span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">Server UTC Time</span>
+            <span class="status-item__value">@Model.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
+        </div>
+    </div>
+</div>
+
+@if (connected)
+{
+    <div class="card" style="margin-top:16px;">
+        <div class="card__title">API Diagnostic Endpoints</div>
+        <div class="alert alert--info">
+            <span>&#8505;</span>
+            <div>
+                Use these endpoints for monitoring, IIS health probes, and integration verification.
+                <ul style="margin-top:8px;padding-left:16px;display:flex;flex-direction:column;gap:4px;">
+                    <li><code style="background:#dbeafe;padding:1px 6px;border-radius:3px;">/health</code> — ASP.NET Core health check (JSON)</li>
+                    <li><code style="background:#dbeafe;padding:1px 6px;border-radius:3px;">/api/laserfiche/status</code> — Live Laserfiche connection status (JSON)</li>
+                    <li><code style="background:#dbeafe;padding:1px 6px;border-radius:3px;">/api/laserfiche/repository</code> — Configured repository descriptor (JSON)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+}

@@ -1,12 +1,41 @@
-node_modules
-dist
-.DS_Store
-server/public
-vite.config.ts.*
-*.tar.gz
-.local-secrets/
+# .NET build outputs
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+*.DotSettings.user
 
-# Replit-specific files (not needed outside Replit)
-.replit
-replit.nix
-.cache/replit/
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+nuget.config.user
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# ASP.NET Core
+wwwroot/lib/
+**/Publish/
+PublishOutput/
+
+# Logs produced at runtime
+logs/
+*.log
+
+# Secrets — never commit
+appsettings.Production.json
+appsettings.Staging.json
+*.pfx
+*.p12
+*.dpapi
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Replit internal (never gitignore these)
+# .replit  ← must NOT be ignored
+# replit.nix ← must NOT be ignored

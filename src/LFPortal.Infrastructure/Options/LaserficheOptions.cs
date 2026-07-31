@@ -1,0 +1,92 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace LFPortal.Infrastructure.Options;
+
+/// <summary>
+/// Selects which credential provider implementation is used at runtime.
+/// Configured via <c>Laserfiche:CredentialProvider</c> in <c>appsettings.json</c>.
+/// </summary>
+public enum CredentialProviderType
+{
+    /// <summary>
+    /// Windows Data Protection API (DPAPI). Default for production on Windows Server.
+    /// Credentials are encrypted with the machine key; usable only on the same machine.
+    /// </summary>
+    DPAPI,
+
+    /// <summary>
+    /// Environment variables <c>LF_USERNAME</c> and <c>LF_PASSWORD</c>.
+    /// Supported on all platforms. Recommended for development and non-Windows environments.
+    /// </summary>
+    Environment
+}
+
+/// <summary>
+/// Configuration options for the Laserfiche Repository API connection.
+/// Bound from the <c>Laserfiche</c> section in <c>appsettings.json</c> at startup.
+/// </summary>
+/// <remarks>
+/// Credentials are intentionally absent from this class. They are sourced at runtime
+/// by the registered <see cref="ICredentialProvider"/> implementation, never stored
+/// in configuration files as plain text.
+/// </remarks>
+public sealed class LaserficheOptions
+{
+    /// <summary>Configuration section name used during DI binding.</summary>
+    public const string SectionName = "Laserfiche";
+
+    /// <summary>
+    /// Base URL of the Laserfiche API Server, e.g. <c>https://lf-server.corp.local</c>.
+    /// Do not include the <c>/LFRepositoryAPI</c> path here.
+    /// </summary>
+    [Required]
+    public string ServerUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Repository identifier used in every API request path, e.g. <c>Documents</c>.
+    /// Case-sensitive; must match exactly what is shown in the Laserfiche Server Admin Console.
+    /// </summary>
+    [Required]
+    public string RepositoryId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Human-readable label shown in the portal UI to identify this repository.
+    /// Defaults to the <see cref="RepositoryId"/> when not explicitly set.
+    /// </summary>
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// IIS virtual directory path where the Laserfiche API Server is installed.
+    /// Defaults to <c>/LFRepositoryAPI</c>; change only if installed at a non-standard path.
+    /// </summary>
+    public string ApiBasePath { get; set; } = "/LFRepositoryAPI";
+
+    /// <summary>
+    /// API version path segment, e.g. <c>v2</c>. Only change if Laserfiche publishes
+    /// a future version and the adapter is updated accordingly.
+    /// </summary>
+    public string ApiVersion { get; set; } = "v2";
+
+    /// <summary>
+    /// HTTP request timeout in seconds for all Laserfiche API calls.
+    /// Defaults to 30. Increase for slow networks or large document downloads.
+    /// </summary>
+    [Range(5, 300)]
+    public int TimeoutSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Credential storage back-end to use. Defaults to <see cref="CredentialProviderType.DPAPI"/>
+    /// on Windows and <see cref="CredentialProviderType.Environment"/> on non-Windows platforms.
+    /// Override explicitly in <c>appsettings.json</c> when needed.
+    /// </summary>
+    public CredentialProviderType CredentialProvider { get; set; } =
+        OperatingSystem.IsWindows()
+            ? CredentialProviderType.DPAPI
+            : CredentialProviderType.Environment;
+
+    /// <summary>
+    /// Returns <see cref="DisplayName"/> when set; otherwise falls back to <see cref="RepositoryId"/>.
+    /// </summary>
+    public string EffectiveDisplayName =>
+        string.IsNullOrWhiteSpace(DisplayName) ? RepositoryId : DisplayName;
+}
