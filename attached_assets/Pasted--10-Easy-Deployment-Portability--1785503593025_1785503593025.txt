@@ -1,0 +1,106 @@
+==========================================================
+10. Easy Deployment & Portability
+==========================================================
+
+One of the primary goals of this project is easy deployment.
+
+I must be able to install and run this application on another computer with minimal effort.
+
+Requirements:
+
+- The application must be portable and easy to deploy.
+- A new machine should not require Visual Studio.
+- A new machine should not require source code.
+- A new machine should not require rebuilding the project.
+
+The deployment process should be:
+
+1. Install the application using the provided installer.
+2. Configure the Laserfiche connection.
+3. Open the application.
+4. Everything works.
+
+No manual copying of DLLs.
+
+No manual editing of project files.
+
+No manual registration steps.
+
+No developer tools.
+
+==========================================================
+11. Deployment Package
+==========================================================
+
+The final deliverable must include everything required for deployment.
+
+For every release, produce:
+
+- Published ASP.NET Core application
+- IIS deployment package
+- Desktop Client Extension
+- MSI Installer
+- Configuration template
+- Installation Guide
+- Upgrade Guide
+- Release Notes
+
+==========================================================
+12. Configuration Separation
+==========================================================
+
+The application configuration must be separated from the application binaries.
+
+Configuration files must survive upgrades.
+
+Updating the application must NOT overwrite:
+
+- Laserfiche Server URL
+- Repository configuration
+- User settings
+- Portal configuration
+
+==========================================================
+13. Version Upgrades
+==========================================================
+
+Future upgrades should be simple.
+
+The administrator should be able to install a newer version over an existing installation.
+
+The installer should preserve:
+
+- Configuration
+- Settings
+- Desktop Client registration
+- IIS configuration
+
+No reconfiguration should be required after upgrading.
+
+==========================================================
+14. Enterprise Deployment
+==========================================================
+
+Design the project so it can be deployed to:
+
+- Development environment
+- Testing environment
+- Staging environment
+- Production environment
+
+using the exact same installer.
+
+Only the configuration should change between environments.
+
+==========================================================
+15. Build Outputs
+==========================================================
+
+Every release should automatically generate:
+
+- Published application
+- Installer (MSI)
+- Desktop Client Extension package
+- Deployment documentation
+
+The project should always be ready for deployment without requiring additional manual work.

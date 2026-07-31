@@ -1,0 +1,141 @@
+The revised plan is much better and I approve the overall architecture.
+
+However, I want to revise the Desktop Client integration and deployment requirements before implementation.
+
+==========================================================
+1. Desktop Client Integration
+==========================================================
+
+I do NOT want a simple button that only opens a URL in the browser.
+
+I want this to behave like a real Laserfiche Desktop Client extension.
+
+Requirements:
+
+- The extension must integrate naturally into the Laserfiche Desktop Client.
+- The toolbar/ribbon button must be installed and registered automatically.
+- The extension must be configurable.
+- The portal URL must never be hard-coded.
+- The extension must read its configuration from the application's configuration.
+
+If future versions allow deeper SDK integration, the architecture should support it without redesign.
+
+==========================================================
+2. Standalone Production Application
+==========================================================
+
+The application must behave like production software.
+
+After publishing and installing:
+
+- No Visual Studio is required.
+- No "dotnet run".
+- No developer commands.
+- No manual startup.
+
+The application should run exactly like any enterprise Windows application.
+
+==========================================================
+3. IIS Service
+==========================================================
+
+The installer should configure IIS automatically.
+
+After installation:
+
+The administrator should simply browse to:
+
+http://server/LFPortal
+
+or
+
+http://localhost/LFPortal
+
+without starting anything manually.
+
+==========================================================
+4. Windows Startup
+==========================================================
+
+If any background service is required in the future, it should be implemented as a proper Windows Service.
+
+Never require a developer to start the application manually.
+
+==========================================================
+5. Fully Offline
+==========================================================
+
+This application will run inside an isolated government network.
+
+Requirements:
+
+- Zero Internet dependency.
+- Zero CDN.
+- Zero online validation.
+- Zero online licensing.
+- Zero telemetry.
+- Zero cloud APIs.
+
+Everything must work with no Internet connection.
+
+==========================================================
+6. Laserfiche is the Core
+==========================================================
+
+Laserfiche is not an external system.
+
+Laserfiche IS the system.
+
+The portal is simply another enterprise interface over Laserfiche.
+
+Every page, feature, service, and future module should be designed with this principle.
+
+==========================================================
+7. Future Expansion
+==========================================================
+
+Design the architecture so future modules can be added without changing existing code.
+
+Examples:
+
+- Workflow
+- Forms
+- Audit Trail
+- Repository Administration
+- Reporting
+- Records Management
+- Administration Hub
+- User Management
+- Quick Fields
+
+The architecture should already be prepared for these future modules.
+
+==========================================================
+8. IMPORTANT
+==========================================================
+
+Before starting implementation, verify the compatibility between:
+
+- My installed Laserfiche Desktop Client version
+- The Desktop Client SDK
+- The required .NET target framework
+
+If the installed Laserfiche Desktop Client requires .NET Framework 4.x for extensions, then build the Desktop Extension using the correct framework while keeping the main portal on the latest ASP.NET Core.
+
+Do not assume the Desktop Extension can target .NET 8.
+
+Verify compatibility first, then choose the correct framework.
+
+==========================================================
+9. Final Goal
+==========================================================
+
+Build this as a production-grade enterprise Laserfiche product.
+
+Not as a demo.
+
+Not as a prototype.
+
+Not as a sample application.
+
+Everything should follow enterprise software engineering practices.
