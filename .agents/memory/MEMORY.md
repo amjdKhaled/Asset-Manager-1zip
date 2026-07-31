@@ -6,3 +6,4 @@
 - [LFPortal DI lifetime rules](lfportal-di-lifetimes.md) — Auth/credential/repo-context singletons; BearerTokenHandler transient; domain services scoped.
 - [LFPortal EntryResource naming](lfportal-entry-resource.md) — Inner response record must not share name with adapter enum; use qualified namespace or rename.
 - [LFPortal build gates](lfportal-build-gates.md) — ValidateDataAnnotations needs Microsoft.Extensions.Options.DataAnnotations; DPAPI needs [SupportedOSPlatform("windows")].
+- [LFPortal URL ownership](lfportal-url-ownership.md) — Repository descriptors carry only the server root; the adapter owns adding the API base path exactly once.

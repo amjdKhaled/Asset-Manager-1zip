@@ -32,7 +32,7 @@ internal sealed class ConfigurationRepositoryContext : IRepositoryContext
         var opt = _optionsMonitor.CurrentValue;
         var descriptor = new RepositoryDescriptor(
             Key: "default",
-            ServerUrl: $"{opt.ServerUrl.TrimEnd('/')}{opt.ApiBasePath}",
+            ServerUrl: opt.ServerUrl.TrimEnd('/'),
             RepositoryId: opt.RepositoryId,
             DisplayName: opt.EffectiveDisplayName);
         return Task.FromResult(descriptor);

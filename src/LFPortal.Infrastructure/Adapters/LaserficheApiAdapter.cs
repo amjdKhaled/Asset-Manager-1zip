@@ -25,11 +25,12 @@ internal sealed class LaserficheApiAdapter : ILaserficheApiAdapter
     /// <summary>
     /// Returns the base URL for all repository-scoped endpoints:
     /// <c>{ServerUrl}{ApiBasePath}/{ApiVersion}/Repositories/{repoId}</c>.
+    /// The configured base path is included exactly once, even when a caller
+    /// supplies a server URL that already ends with that path.
     /// </summary>
     private string RepoBase(string repositoryId)
     {
-        var o = _optionsMonitor.CurrentValue;
-        return $"{o.ServerUrl.TrimEnd('/')}{o.ApiBasePath}/{o.ApiVersion}/Repositories/{repositoryId}";
+        return $"{BuildApiBase(_optionsMonitor.CurrentValue.ServerUrl)}/Repositories/{repositoryId}";
     }
 
     /// <summary>
@@ -38,8 +39,7 @@ internal sealed class LaserficheApiAdapter : ILaserficheApiAdapter
     /// </summary>
     private string ApiBase()
     {
-        var o = _optionsMonitor.CurrentValue;
-        return $"{o.ServerUrl.TrimEnd('/')}{o.ApiBasePath}/{o.ApiVersion}";
+        return BuildApiBase(_optionsMonitor.CurrentValue.ServerUrl);
     }
 
     /// <inheritdoc />
@@ -91,14 +91,32 @@ internal sealed class LaserficheApiAdapter : ILaserficheApiAdapter
     /// <inheritdoc />
     public string BuildTokenUrlFor(string serverUrl, string repositoryId)
     {
-        var o = _optionsMonitor.CurrentValue;
-        return $"{serverUrl.TrimEnd('/')}{o.ApiBasePath}/{o.ApiVersion}/Repositories/{repositoryId}/Token";
+        return $"{BuildApiBase(serverUrl)}/Repositories/{repositoryId}/Token";
     }
 
     /// <inheritdoc />
     public string BuildRepositoryInfoUrlFor(string serverUrl, string repositoryId)
     {
-        var o = _optionsMonitor.CurrentValue;
-        return $"{serverUrl.TrimEnd('/')}{o.ApiBasePath}/{o.ApiVersion}/Repositories/{repositoryId}";
+        return $"{BuildApiBase(serverUrl)}/Repositories/{repositoryId}";
+    }
+
+    /// <summary>
+    /// Combines a server URL with the configured API base path and version.
+    /// ServerUrl is normally scheme plus host, but older saved settings and
+    /// connection-test form values may already contain ApiBasePath. Remove that
+    /// exact trailing path before adding it so the final URL contains one copy.
+    /// </summary>
+    private string BuildApiBase(string serverUrl)
+    {
+        var options = _optionsMonitor.CurrentValue;
+        var root = serverUrl.TrimEnd('/');
+        var basePath = "/" + options.ApiBasePath.Trim('/');
+
+        if (root.EndsWith(basePath, StringComparison.OrdinalIgnoreCase))
+        {
+            root = root[..^basePath.Length].TrimEnd('/');
+        }
+
+        return $"{root}{basePath}/{options.ApiVersion.Trim('/')}";
     }
 }

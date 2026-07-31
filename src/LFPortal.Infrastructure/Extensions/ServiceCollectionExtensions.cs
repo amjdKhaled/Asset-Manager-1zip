@@ -115,6 +115,7 @@ public static class ServiceCollectionExtensions
     private static void RegisterHttpClients(IServiceCollection services)
     {
         services.AddTransient<BearerTokenHandler>();
+        services.AddTransient<LaserficheRequestLoggingHandler>();
 
         services.AddHttpClient("LaserficheRaw", (sp, client) =>
         {
@@ -127,6 +128,7 @@ public static class ServiceCollectionExtensions
         {
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
         })
+        .AddHttpMessageHandler<LaserficheRequestLoggingHandler>()
         .AddStandardResilienceHandler();
 
         services.AddHttpClient("LaserficheAuthenticated", (sp, client) =>
@@ -141,6 +143,7 @@ public static class ServiceCollectionExtensions
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
         })
         .AddHttpMessageHandler<BearerTokenHandler>()
+        .AddHttpMessageHandler<LaserficheRequestLoggingHandler>()
         .AddStandardResilienceHandler();
     }
 }
