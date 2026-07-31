@@ -1,0 +1,107 @@
+I want you to act as a Senior Software Architect.
+
+Do NOT start coding.
+
+Do NOT rewrite anything yet.
+
+I want an honest architectural assessment.
+
+My current project is built using:
+- React
+- TypeScript
+- Express
+- Node.js
+
+The application has gradually become difficult to maintain because it started as an AI/search project and later evolved into a Laserfiche administration portal.
+
+I have already encountered many problems:
+- Remaining mock/demo data.
+- Mixed architectures.
+- Runtime paths that are difficult to trace.
+- Search pipeline complexity.
+- AI modules mixed with Laserfiche functionality.
+- Difficult debugging and maintenance.
+
+My new vision has changed completely.
+
+The application is NO LONGER an AI platform.
+
+It is now intended to become a professional enterprise Laserfiche administration portal.
+
+The core modules I care about are only:
+
+- Dashboard
+- Document Archive
+- LF Settings
+
+The AI modules are no longer important.
+
+==================================================
+I want your professional recommendation.
+==================================================
+
+Evaluate these two options.
+
+OPTION A
+Continue with the existing project and gradually migrate everything to ASP.NET Core.
+
+OPTION B
+Create a completely new ASP.NET Core (.NET 8 / C#) solution from scratch and rebuild only the functionality I still need.
+
+==================================================
+I want an unbiased comparison.
+==================================================
+
+Compare them in terms of:
+
+- Maintainability
+- Scalability
+- Long-term architecture
+- Development time
+- Risk
+- Technical debt
+- Performance
+- Laserfiche integration
+- Microsoft ecosystem compatibility
+- Future enterprise deployment
+- Code quality
+- Ease of debugging
+- Ease of adding new Laserfiche features
+
+==================================================
+IMPORTANT
+==================================================
+
+Do NOT tell me what I want to hear.
+
+Do NOT automatically recommend rebuilding everything.
+
+If continuing the current project is genuinely the better engineering decision, explain why.
+
+If starting from scratch is the better engineering decision, explain why.
+
+Base your recommendation on software architecture principles, not convenience.
+
+==================================================
+If you recommend starting over,
+==================================================
+
+Explain WHY.
+
+Estimate how much existing code is actually reusable.
+
+Tell me which parts should be preserved (design ideas, UI concepts, business logic, etc.) and which parts should be discarded completely.
+
+==================================================
+Finally
+==================================================
+
+Give me ONE clear recommendation:
+
+"Continue the current project"
+
+OR
+
+"Start a completely new ASP.NET Core solution"
+
+and explain why you believe that is the best long-term decision.

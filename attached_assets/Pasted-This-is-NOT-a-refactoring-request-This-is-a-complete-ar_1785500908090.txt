@@ -1,0 +1,287 @@
+This is NOT a refactoring request.
+
+This is a complete architectural rewrite.
+
+Read every requirement carefully.
+
+Do NOT skip any requirement.
+
+Do NOT assume anything.
+
+Do NOT replace requirements with your own ideas.
+
+Do NOT preserve the current technology stack.
+
+==========================================================
+PROJECT GOAL
+==========================================================
+
+I have decided to abandon the current TypeScript / React / Express implementation.
+
+The current architecture has become too difficult to maintain and many parts rely on mock/demo code.
+
+I want to rebuild the entire application from scratch using ONLY Microsoft technologies.
+
+==========================================================
+NEW TECHNOLOGY STACK
+==========================================================
+
+The entire project must be rewritten using:
+
+Backend:
+- ASP.NET Core (.NET 8)
+- C#
+- ASP.NET Core Web API
+
+Frontend:
+- ASP.NET Core MVC
+OR
+- ASP.NET Core Razor Pages
+
+I do NOT want:
+
+- React
+- TypeScript
+- Express
+- Node.js
+- npm
+- Vite
+- Next.js
+- JavaScript SPA architecture
+
+The final application should be a native ASP.NET Core application.
+
+==========================================================
+IMPORTANT
+==========================================================
+
+Do NOT try to convert the existing project.
+
+Do NOT migrate the existing React code.
+
+Do NOT wrap React inside .NET.
+
+Do NOT host React from ASP.NET.
+
+Do NOT embed the existing frontend.
+
+Instead:
+
+Create a completely new ASP.NET Core solution from scratch.
+
+==========================================================
+KEEP ONLY THESE MODULES
+==========================================================
+
+The only parts I want to preserve conceptually are:
+
+1. Dashboard
+2. Document Archive
+3. LF Settings
+
+Everything else should be discarded.
+
+==========================================================
+REMOVE COMPLETELY
+==========================================================
+
+Remove the following concepts completely:
+
+- AI Assistant
+- Semantic Search
+- RAG
+- Ollama
+- LLM
+- BM25
+- Embeddings
+- Vector Search
+- OCR AI
+- Prompt Engineering
+- Chat
+- AI pipeline
+- Local search engine
+- Mock search
+- Demo documents
+- Fake data
+- Fake APIs
+
+These should NOT exist in the new solution.
+
+==========================================================
+PRIMARY GOAL
+==========================================================
+
+The application is now a professional Laserfiche administration portal.
+
+Its responsibility is ONLY:
+
+- Connect to Laserfiche
+- Read repositories
+- Display repository information
+- Display documents
+- Display metadata
+- Display templates
+- Display folders
+- Display dashboard statistics
+- Display system status
+- Manage Laserfiche configuration
+
+Nothing AI-related.
+
+==========================================================
+DASHBOARD
+==========================================================
+
+The Dashboard is the most important page.
+
+Keep all real dashboard functionality.
+
+Improve it where appropriate.
+
+All widgets must use ONLY live Laserfiche Repository API data.
+
+No mock data.
+
+No placeholders.
+
+No fake charts.
+
+==========================================================
+DOCUMENT ARCHIVE
+==========================================================
+
+The Document Archive must become the main document browser.
+
+Features:
+
+- Folder tree
+- Folder navigation
+- Grid view
+- List view
+- Metadata preview
+- Template information
+- Repository path
+- Entry ID
+- Search by metadata
+- Search by title
+- Search by Entry ID
+- Search by template
+- Filter by folder
+- Sort
+- Pagination
+- Open document
+- Download document
+
+Everything must come directly from Laserfiche.
+
+==========================================================
+LF SETTINGS
+==========================================================
+
+This page should manage:
+
+- Repository configuration
+- API Server URL
+- Repository selection
+- Authentication
+- Connection testing
+- Repository health
+- API status
+
+==========================================================
+UI
+==========================================================
+
+Keep the same modern dark UI style.
+
+Professional.
+
+Clean.
+
+Enterprise.
+
+Responsive.
+
+==========================================================
+ARCHITECTURE
+==========================================================
+
+I want a clean architecture.
+
+Examples:
+
+Presentation
+
+Application
+
+Domain
+
+Infrastructure
+
+Laserfiche integration isolated in Infrastructure.
+
+Business logic isolated.
+
+Controllers thin.
+
+Services clean.
+
+Dependency Injection used correctly.
+
+Configuration centralized.
+
+No duplicated code.
+
+==========================================================
+CODE QUALITY
+==========================================================
+
+I expect production-quality code.
+
+Follow Microsoft best practices.
+
+Use async/await correctly.
+
+Use proper logging.
+
+Use proper exception handling.
+
+Use strongly typed models.
+
+Avoid magic strings.
+
+Avoid duplicated logic.
+
+==========================================================
+PLAN MODE ONLY
+==========================================================
+
+DO NOT WRITE CODE.
+
+DO NOT START BUILDING.
+
+DO NOT CREATE FILES.
+
+I only want a complete implementation plan.
+
+The plan must include:
+
+1. Solution structure
+2. Projects
+3. Folder structure
+4. Architecture
+5. Technologies
+6. Database (if needed)
+7. Authentication strategy
+8. Laserfiche integration strategy
+9. Dashboard implementation strategy
+10. Document Archive implementation strategy
+11. LF Settings implementation strategy
+12. API integration strategy
+13. Migration strategy
+14. Risks
+15. Estimated implementation phases
+
+After I approve the plan, THEN we will switch to Build Mode and rebuild the entire application from scratch.
+
+Do not begin implementation until I explicitly approve the plan.
