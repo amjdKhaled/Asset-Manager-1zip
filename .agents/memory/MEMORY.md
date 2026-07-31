@@ -9,3 +9,4 @@
 - [LFPortal URL ownership](lfportal-url-ownership.md) — Repository descriptors carry only the server root; the adapter owns adding the API base path exactly once.
 - [LFPortal Swagger evidence](lfportal-swagger-evidence.md) — Route screenshots establish available paths; repository response fields must be confirmed from the live response body.
 - [LFPortal v1 repository response](lfportal-v1-repository-response.md) — GET /Repositories returns a root JSON array with repoId, repoName, and webclientUrl.
+- [LFPortal search endpoints](lfportal-search-endpoints.md) — Advanced search is /Searches (v1), NOT /Entries/Search (v2-only, returns 405); SimpleSearches returns OData inline, no polling.

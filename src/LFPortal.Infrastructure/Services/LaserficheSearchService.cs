@@ -108,8 +108,16 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
     // ──────────────────────────── Core search orchestration ───────────────
 
     /// <summary>
-    /// Submits a search to the Laserfiche API, polls until complete, and retrieves
-    /// the paged results. Implements the full long-operation lifecycle.
+    /// Submits a search to the Laserfiche API and returns paged results.
+    /// <para>
+    /// <b>SimpleSearches</b> (v1 synchronous): the API returns an OData collection
+    /// directly in the submit response — no polling required.
+    /// </para>
+    /// <para>
+    /// <b>Searches</b> (v1 async long-operation): the API returns an operationToken;
+    /// the service polls <c>GET /Tasks/{token}</c> until status is Completed, then
+    /// fetches results from <c>GET /SearchResults/{token}</c>.
+    /// </para>
     /// </summary>
     private async Task<PagedResult<LFSearchResult>> ExecuteSearchAsync(
         string displayQuery,
@@ -129,21 +137,31 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         var searchUrl = _adapter.BuildSearchUrl(repo.RepositoryId, searchType);
         var requestBody = new { searchCommand = expression };
 
+        _logger.LogInformation(
+            "Search submit → POST {Url} | query: {Query}",
+            searchUrl,
+            displayQuery);
+
         using var submitResponse = await client
             .PostAsJsonAsync(searchUrl, requestBody, JsonOptions.Default, cancellationToken)
             .ConfigureAwait(false);
 
+        var submitBody = await submitResponse.Content
+            .ReadAsStringAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "Search submit response HTTP {Status} | RAW: {Body}",
+            (int)submitResponse.StatusCode,
+            submitBody);
+
         if (!submitResponse.IsSuccessStatusCode)
         {
-            var errBody = await submitResponse.Content
-                .ReadAsStringAsync(cancellationToken)
-                .ConfigureAwait(false);
-
             _logger.LogWarning(
                 "Search submission failed for query '{Query}': HTTP {StatusCode}. Body: {Body}",
                 displayQuery,
                 (int)submitResponse.StatusCode,
-                errBody);
+                submitBody);
 
             throw new LaserficheException(
                 $"Search failed with HTTP {(int)submitResponse.StatusCode}. " +
@@ -151,24 +169,41 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
                 (int)submitResponse.StatusCode);
         }
 
-        var submitBody = await submitResponse.Content
-            .ReadAsStringAsync(cancellationToken)
-            .ConfigureAwait(false);
+        // Step 2a: SimpleSearches (v1) — OData collection returned inline, no polling.
+        // Detect by the presence of a "value" array at the root.
+        using var submitDoc = JsonDocument.Parse(submitBody);
+        if (submitDoc.RootElement.TryGetProperty("value", out _))
+        {
+            _logger.LogInformation(
+                "Search returned inline OData collection for query '{Query}'.",
+                displayQuery);
 
+            return ParseInlineResults(submitBody, displayQuery, page, pageSize);
+        }
+
+        // Step 2b: Searches (v1 async) — operationToken in response body.
         var taskResult = JsonSerializer.Deserialize<LongOperationResponse>(submitBody, JsonOptions.Default);
 
-        // Step 2: If results are inline (synchronous completion), return them directly
-        if (taskResult?.Status?.Equals("Completed", StringComparison.OrdinalIgnoreCase) == true
-            || string.IsNullOrWhiteSpace(taskResult?.OperationToken))
+        if (taskResult?.Status?.Equals("Completed", StringComparison.OrdinalIgnoreCase) == true)
         {
+            // Completed synchronously — fetch results immediately.
             return await FetchSearchResultsAsync(
-                client, repo.RepositoryId, taskResult?.OperationToken ?? string.Empty,
+                client, repo.RepositoryId, taskResult.OperationToken ?? string.Empty,
                 displayQuery, page, pageSize, cancellationToken)
                 .ConfigureAwait(false);
         }
 
+        if (string.IsNullOrWhiteSpace(taskResult?.OperationToken))
+        {
+            _logger.LogWarning(
+                "Search for '{Query}' returned neither 'value' array nor operationToken. " +
+                "Raw body: {Body}", displayQuery, submitBody);
+
+            return PagedResult<LFSearchResult>.Empty;
+        }
+
         // Step 3: Poll for completion
-        var token = taskResult.OperationToken;
+        var token = taskResult.OperationToken!;
         var statusUrl = _adapter.BuildTaskStatusUrl(repo.RepositoryId, token);
         var deadline = DateTimeOffset.UtcNow.AddSeconds(MaxPollDurationSeconds);
 
@@ -212,6 +247,58 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         throw new TimeoutException(
             $"Laserfiche search timed out after {MaxPollDurationSeconds} seconds. " +
             "Try a more specific query.");
+    }
+
+    /// <summary>
+    /// Parses an inline OData collection returned synchronously by
+    /// <c>POST /SimpleSearches</c> (Laserfiche v1).
+    /// </summary>
+    private PagedResult<LFSearchResult> ParseInlineResults(
+        string body,
+        string displayQuery,
+        int page,
+        int pageSize)
+    {
+        _logger.LogInformation(
+            "Parsing inline search results for query '{Query}'.", displayQuery);
+
+        try
+        {
+            var resultList = JsonSerializer.Deserialize<ODataCountList<SearchResultResource>>(
+                body, JsonOptions.Default);
+
+            var allItems = resultList?.Value.Select(r => new LFSearchResult
+            {
+                EntryId          = r.Id,
+                Name             = r.Name,
+                FullPath         = r.FullPath,
+                EntryType        = ParseEntryType(r.EntryType),
+                TemplateName     = r.TemplateName,
+                Creator          = r.Creator,
+                CreationTime     = r.CreationTime,
+                LastModifiedTime = r.LastModifiedTime
+            }).ToList() ?? [];
+
+            // Apply client-side pagination since SimpleSearches returns all results at once.
+            var skip  = (page - 1) * pageSize;
+            var items = allItems.Skip(skip).Take(pageSize).ToList();
+
+            return new PagedResult<LFSearchResult>
+            {
+                Items      = items.AsReadOnly(),
+                TotalCount = resultList?.Count > 0 ? resultList.Count : allItems.Count,
+                PageNumber = page,
+                PageSize   = pageSize
+            };
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to parse inline search results for query '{Query}'. Body: {Body}",
+                displayQuery, body);
+
+            return PagedResult<LFSearchResult>.Empty;
+        }
     }
 
     /// <summary>

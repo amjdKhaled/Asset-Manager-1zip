@@ -48,9 +48,10 @@ internal interface ILaserficheApiAdapter
     string BuildPageImageUrl(string repositoryId, int entryId, int pageNumber);
 
     /// <summary>
-    /// Builds the URL for a search endpoint, e.g.
-    /// <c>POST /Repositories/{repoId}/SimpleSearches</c> or
-    /// <c>POST /Repositories/{repoId}/Entries/Search</c>.
+    /// Builds the URL for a search endpoint:
+    /// <c>POST /Repositories/{repoId}/SimpleSearches</c> (simple, synchronous) or
+    /// <c>POST /Repositories/{repoId}/Searches</c> (advanced, async long-operation).
+    /// Note: <c>Entries/Search</c> is a v2-only path and must not be used here.
     /// </summary>
     string BuildSearchUrl(string repositoryId, SearchType searchType);
 

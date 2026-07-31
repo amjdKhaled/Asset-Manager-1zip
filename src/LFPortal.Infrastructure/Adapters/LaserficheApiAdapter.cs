@@ -75,8 +75,11 @@ internal sealed class LaserficheApiAdapter : ILaserficheApiAdapter
     public string BuildSearchUrl(string repositoryId, SearchType searchType) =>
         searchType switch
         {
+            // v1 synchronous search — results returned inline, no polling required.
             SearchType.Simple   => $"{RepoBase(repositoryId)}/SimpleSearches",
-            SearchType.Advanced => $"{RepoBase(repositoryId)}/Entries/Search",
+            // v1 async search — submit, poll Tasks/{token}, fetch SearchResults/{token}.
+            // NOTE: Entries/Search is a v2-only path; v1 uses /Searches.
+            SearchType.Advanced => $"{RepoBase(repositoryId)}/Searches",
             _ => throw new ArgumentOutOfRangeException(nameof(searchType), searchType, "Unknown search type.")
         };
 
