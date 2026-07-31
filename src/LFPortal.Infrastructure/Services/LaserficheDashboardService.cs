@@ -15,20 +15,26 @@ namespace LFPortal.Infrastructure.Services;
 internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 {
     private readonly ILaserficheRepositoryService _repositoryService;
-    private readonly ILaserficheEntryService _entryService;
-    private readonly ILaserficheSearchService _searchService;
+    private readonly ILaserficheEntryService      _entryService;
+    private readonly ILaserficheSearchService     _searchService;
+    private readonly ICredentialProvider          _credentialProvider;
+    private readonly IRepositoryContext           _repositoryContext;
     private readonly ILogger<LaserficheDashboardService> _logger;
 
     public LaserficheDashboardService(
         ILaserficheRepositoryService repositoryService,
-        ILaserficheEntryService entryService,
-        ILaserficheSearchService searchService,
+        ILaserficheEntryService      entryService,
+        ILaserficheSearchService     searchService,
+        ICredentialProvider          credentialProvider,
+        IRepositoryContext           repositoryContext,
         ILogger<LaserficheDashboardService> logger)
     {
-        _repositoryService = repositoryService;
-        _entryService      = entryService;
-        _searchService     = searchService;
-        _logger            = logger;
+        _repositoryService  = repositoryService;
+        _entryService       = entryService;
+        _searchService      = searchService;
+        _credentialProvider = credentialProvider;
+        _repositoryContext  = repositoryContext;
+        _logger             = logger;
     }
 
     /// <inheritdoc />
@@ -37,7 +43,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
     {
         try
         {
-            // 1. Verify connectivity and obtain repository identity.
+            // ── 1. Connectivity ─────────────────────────────────────────────
             var status = await _repositoryService
                 .TestConnectionAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -52,24 +58,56 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 };
             }
 
-            // 2. Timed searches — record elapsed time for the "Avg Search Response Time" card.
+            // ── 2. Connected user (from credential store) ────────────────────
+            string? connectedUser = null;
+            try
+            {
+                var repoDesc = await _repositoryContext
+                    .GetActiveRepositoryAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                var creds = await _credentialProvider
+                    .GetCredentialsAsync(repoDesc.Key, cancellationToken)
+                    .ConfigureAwait(false);
+                connectedUser = creds.Username;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex,
+                    "Could not read username from credential store for dashboard. " +
+                    "ConnectedUser will be null.");
+            }
+
+            // ── 3. Timed searches ────────────────────────────────────────────
+            // Broad search: all entries ordered by most-recently modified.
+            // TotalCount from this gives the real total across the whole repository.
             var sw = Stopwatch.StartNew();
 
-            // Recent entries (up to 100) — source of several derived stats.
             var recentSearch = await _searchService
-                .AdvancedSearchAsync("{LF:Modify date}>=\"1900-01-01\"", 1, 100, cancellationToken)
+                .AdvancedSearchAsync(
+                    "{LF:Modify date}>=\"1900-01-01\"",
+                    page: 1, pageSize: 100,
+                    cancellationToken)
                 .ConfigureAwait(false);
             var t1 = sw.Elapsed;
 
+            // Type-specific count searches.
+            // {LF:Document type}="Document" / "Folder" are valid Laserfiche search
+            // expressions that return TotalCount for each class.
             sw.Restart();
             var docSearch = await _searchService
-                .AdvancedSearchAsync("{LF:Document type}=\"Document\"", 1, 1, cancellationToken)
+                .AdvancedSearchAsync(
+                    "{LF:Document type}=\"Document\"",
+                    page: 1, pageSize: 1,
+                    cancellationToken)
                 .ConfigureAwait(false);
             var t2 = sw.Elapsed;
 
             sw.Restart();
             var folderSearch = await _searchService
-                .AdvancedSearchAsync("{LF:Document type}=\"Folder\"", 1, 1, cancellationToken)
+                .AdvancedSearchAsync(
+                    "{LF:Document type}=\"Folder\"",
+                    page: 1, pageSize: 1,
+                    cancellationToken)
                 .ConfigureAwait(false);
             var t3 = sw.Elapsed;
             sw.Stop();
@@ -77,15 +115,44 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             var avgResponseTime = TimeSpan.FromMilliseconds(
                 (t1.TotalMilliseconds + t2.TotalMilliseconds + t3.TotalMilliseconds) / 3.0);
 
-            // 3. Root-level folder children → department list.
-            //    Entry ID 1 is the repository root in Laserfiche.
-            //    Wrapped in its own try-catch because some server configurations may
-            //    restrict access to the root entry.
+            // ── 4. Derive accurate type counts ───────────────────────────────
+            //
+            // The type-specific expressions rely on {LF:Document type} which is
+            // supported by Laserfiche v10+ search engines. On some installations the
+            // token may not match anything even when entries exist (e.g. custom
+            // entry-class configuration). We detect this by comparing type counts
+            // against the broad total and fall back to sample-based estimation when
+            // the expressions produce 0 despite the broad search finding entries.
+            var totalEntries  = recentSearch.TotalCount;
+            int totalDocs, totalFolders;
+
+            var typeExprWorked = docSearch.TotalCount > 0 || folderSearch.TotalCount > 0 || totalEntries == 0;
+
+            if (typeExprWorked)
+            {
+                // {LF:Document type} expressions returned meaningful counts.
+                totalDocs    = docSearch.TotalCount;
+                totalFolders = folderSearch.TotalCount;
+            }
+            else
+            {
+                // Broad search found entries but type expressions returned 0.
+                // Estimate using the entryType field from the sample items.
+                _logger.LogWarning(
+                    "Document-type search expressions returned 0 while broad search found " +
+                    "{Total} entries. Falling back to sample-based type estimation.",
+                    totalEntries);
+                var sample   = recentSearch.Items;
+                totalDocs    = sample.Count(r => r.EntryType == LFEntryType.Document);
+                totalFolders = sample.Count(r => r.EntryType == LFEntryType.Folder);
+            }
+
+            // ── 5. Root-folder children → department list ────────────────────
             var deptList = new List<DepartmentStatDto>();
             try
             {
                 var rootChildren = await _entryService
-                    .GetEntryChildrenAsync(1, 1, 50, cancellationToken)
+                    .GetEntryChildrenAsync(1, page: 1, pageSize: 50, cancellationToken)
                     .ConfigureAwait(false);
 
                 deptList = rootChildren.Items
@@ -100,7 +167,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                     "Department stats will be derived from search-result path sampling.");
             }
 
-            // 4. Convert recent search hits to LFEntry for the various entry lists.
+            // ── 6. Convert recent search hits to LFEntry ─────────────────────
             var allRecent = recentSearch.Items.Select(r => new LFEntry
             {
                 Id               = r.EntryId,
@@ -114,8 +181,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 LastModifiedTime = r.LastModifiedTime
             }).ToList();
 
-            // 5. Approximate department distribution by bucketing each entry's
-            //    first path segment (e.g. "\HR\2024\Report.pdf" → "HR").
+            // ── 7. Department distribution by path sampling ──────────────────
             var pathGroups = allRecent
                 .Where(e => !string.IsNullOrWhiteSpace(e.FullPath))
                 .GroupBy(e => ExtractTopFolder(e.FullPath))
@@ -124,7 +190,6 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             List<DepartmentStatDto> deptStats;
             if (deptList.Count > 0)
             {
-                // Annotate API-fetched departments with sample-based counts.
                 deptStats = deptList
                     .Select(d => d with { DocumentCount = pathGroups.GetValueOrDefault(d.Name, 0) })
                     .OrderByDescending(d => d.DocumentCount)
@@ -132,7 +197,6 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             }
             else
             {
-                // Fall back to path-derived department names.
                 deptStats = pathGroups
                     .Select(kv => new DepartmentStatDto { Name = kv.Key, DocumentCount = kv.Value })
                     .OrderByDescending(d => d.DocumentCount)
@@ -140,15 +204,12 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                     .ToList();
             }
 
-            var totalDocs    = docSearch.TotalCount;
-            var totalFolders = folderSearch.TotalCount;
-
+            // ── 8. Entry sub-lists ───────────────────────────────────────────
             var recentDocs = allRecent
                 .Where(e => e.EntryType == LFEntryType.Document)
                 .Take(10)
                 .ToList();
 
-            // "Recently indexed" ≈ most recently created documents.
             var recentlyIndexed = allRecent
                 .Where(e => e.EntryType == LFEntryType.Document)
                 .OrderByDescending(e => e.CreationTime ?? DateTimeOffset.MinValue)
@@ -167,7 +228,8 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 RepositoryId             = status.RepositoryId,
                 RepositoryName           = status.RepositoryName,
                 ServerVersion            = status.ServerVersion,
-                TotalEntries             = totalDocs + totalFolders,
+                ConnectedUser            = connectedUser,
+                TotalEntries             = typeExprWorked ? totalDocs + totalFolders : totalEntries,
                 TotalDocuments           = totalDocs,
                 TotalFolders             = totalFolders,
                 DepartmentCount          = deptList.Count > 0 ? deptList.Count : pathGroups.Count,
@@ -195,10 +257,6 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 
     // ── Path helpers ───────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Returns the folder path portion of a full entry path, e.g.
-    /// <c>\HR\2024\Report.pdf</c> → <c>\HR\2024</c>.
-    /// </summary>
     private static string ExtractFolderPath(string fullPath)
     {
         if (string.IsNullOrWhiteSpace(fullPath)) return string.Empty;
@@ -206,10 +264,6 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         return lastSep > 0 ? fullPath[..lastSep] : string.Empty;
     }
 
-    /// <summary>
-    /// Returns the first path segment (top-level folder / department name) of a full
-    /// entry path, e.g. <c>\HR\2024\Report.pdf</c> → <c>HR</c>.
-    /// </summary>
     private static string ExtractTopFolder(string fullPath)
     {
         if (string.IsNullOrWhiteSpace(fullPath)) return "Root";

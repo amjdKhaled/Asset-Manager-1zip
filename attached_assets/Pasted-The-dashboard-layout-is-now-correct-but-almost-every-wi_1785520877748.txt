@@ -1,0 +1,121 @@
+The dashboard layout is now correct, but almost every widget is still using placeholder values or fallback logic.
+
+This is NOT what I asked for.
+
+I do NOT want demo values.
+
+I do NOT want placeholders.
+
+I do NOT want "Unknown", "N/A", "0", or static data unless the Laserfiche API truly returns no data.
+
+You already implemented all of this in the previous GovSearch AI project in this SAME Replit conversation.
+
+Do NOT recreate the logic.
+
+Reuse the existing Laserfiche integration that was already implemented previously.
+
+Search this Replit conversation and reuse the exact API calls, services, repository queries, search endpoints, metadata retrieval, and statistics logic from the previous working dashboard.
+
+This is a migration to ASP.NET Core, not a rewrite.
+
+=========================================================
+Restore the original data sources
+=========================================================
+
+Every widget must retrieve REAL data from Laserfiche.
+
+Specifically:
+
+1. Total Documents
+- Count all document entries from the repository.
+
+2. Indexed Documents
+- Use the same logic used in the previous dashboard.
+
+3. Departments
+- Read department metadata from Laserfiche.
+- Count documents by department.
+
+4. Document Types
+- Read document type metadata.
+- Generate the donut chart dynamically.
+
+5. Recent Documents
+- Retrieve the latest modified documents.
+- Display:
+    • Name
+    • Entry ID
+    • Last Modified
+    • Department
+    • Document Type
+    • Open button
+
+6. Recently Indexed Documents
+- Use the same query used in the previous project.
+
+7. Search Activity (7 days)
+- Reuse the previous implementation.
+- If search history was implemented using another source, reuse it exactly.
+
+8. Top Searched Queries
+- Restore the exact implementation from the previous project.
+- Do not replace it with "Not available".
+
+9. AI Statistics
+Restore the previous calculations:
+- OCR Processed
+- AI Summarized
+- Indexed
+- Embeddings
+- Image Documents
+- PDF Documents
+
+10. Live Repository Status
+Retrieve:
+- Repository Name
+- Repository ID
+- Connected User
+- Repository Version
+- Connection Status
+- Last Refresh
+- Total Entries
+- Documents
+- Folders
+
+11. Server Version
+Retrieve the real Laserfiche server version instead of showing "Unknown".
+
+12. Connection Information
+Retrieve the authenticated account information from Laserfiche instead of displaying generic text.
+
+=========================================================
+IMPORTANT
+=========================================================
+
+DO NOT hardcode values.
+
+DO NOT create fake statistics.
+
+DO NOT use placeholder widgets.
+
+DO NOT replace missing APIs with static values.
+
+If a specific API is unavailable in LF Repository API v1, use the exact alternative implementation that existed in the previous GovSearch AI project.
+
+The previous project already solved these problems.
+
+Search this conversation and reuse those implementations.
+
+I want the ASP.NET Core dashboard to be functionally identical to the previous React dashboard.
+
+Every chart must be populated from real Laserfiche data.
+
+Every statistic must come from Laserfiche.
+
+Every table must come from Laserfiche.
+
+Every card must come from Laserfiche.
+
+Before writing new code, compare the previous React implementation with the current ASP.NET Core implementation line by line and migrate the missing logic instead of inventing new logic.
+
+Do not stop until every dashboard widget is backed by real Laserfiche data exactly as it was in the previous GovSearch AI project.

@@ -42,6 +42,13 @@ public sealed record DashboardStatsDto
     /// <summary>Number of top-level folders identified as organisational departments.</summary>
     public int DepartmentCount { get; init; }
 
+    /// <summary>
+    /// Laserfiche username of the currently authenticated service account.
+    /// Sourced from the credential store at dashboard load time.
+    /// Null when credentials cannot be retrieved (e.g. during a cold-start before Settings are saved).
+    /// </summary>
+    public string? ConnectedUser { get; init; }
+
     // ── Performance ────────────────────────────────────────────────────────
 
     /// <summary>

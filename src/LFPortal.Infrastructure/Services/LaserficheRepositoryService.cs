@@ -63,7 +63,7 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
         var repositories = DeserializeRepositories(body, url);
 
         return repositories
-            .Select(ToRepositoryInfo)
+            .Select(r => ToRepositoryInfo(r))
             .ToList()
             .AsReadOnly();
     }
@@ -84,13 +84,22 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
             url);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
-        var body = await GetRepositoryJsonAsync(client, url, cancellationToken)
+
+        // Use SendAsync so we can inspect response headers for server version info
+        // before consuming the response body.
+        using var response = await client
+            .GetAsync(url, cancellationToken)
+            .ConfigureAwait(false);
+
+        var serverVersion = TryExtractServerVersion(response);
+
+        var body = await ReadRepositoryJsonAsync(response, url, cancellationToken)
             .ConfigureAwait(false);
 
         var repositories = DeserializeRepositories(body, url);
-        var match = FindConfiguredRepository(repositories, repo.RepositoryId, url);
+        var match        = FindConfiguredRepository(repositories, repo.RepositoryId, url);
 
-        return ToRepositoryInfo(match);
+        return ToRepositoryInfo(match, serverVersion);
     }
 
     /// <inheritdoc />
@@ -314,12 +323,52 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
             404);
     }
 
-    private RepositoryInfo ToRepositoryInfo(RepositoryDto repository) =>
+    private RepositoryInfo ToRepositoryInfo(RepositoryDto repository, string? serverVersion = null) =>
         new()
         {
-            RepositoryId = repository.RepoId,
+            RepositoryId   = repository.RepoId,
             RepositoryName = repository.RepoName,
-            ServerVersion = "Unknown",
-            ApiVersion = _adapter.ApiVersion
+            // Use any version found in HTTP response headers; fall back to a descriptive label
+            // that at least tells the user which API version is in use.
+            ServerVersion  = serverVersion ?? $"Laserfiche API {_adapter.ApiVersion}",
+            ApiVersion     = _adapter.ApiVersion
         };
+
+    /// <summary>
+    /// Inspects HTTP response headers returned by the Laserfiche API server and extracts
+    /// any version identifier present. Returns <c>null</c> when no version header is found.
+    /// </summary>
+    /// <remarks>
+    /// Laserfiche API installations may expose version information via various header names
+    /// (<c>api-version</c>, <c>x-api-version</c>, <c>x-laserfiche-api-version</c>,
+    /// <c>x-server-version</c>). We also check the <c>Server</c> and <c>X-Powered-By</c>
+    /// response headers as a last resort. The first non-empty value found is returned.
+    /// </remarks>
+    private static string? TryExtractServerVersion(HttpResponseMessage response)
+    {
+        // Ordered list of header names to probe — most-specific first.
+        ReadOnlySpan<string> candidates =
+        [
+            "x-server-version",
+            "x-laserfiche-api-version",
+            "x-api-version",
+            "api-version",
+            "x-powered-by",
+            "server"
+        ];
+
+        foreach (var header in candidates)
+        {
+            if (response.Headers.TryGetValues(header, out var values))
+            {
+                var value = values.FirstOrDefault()?.Trim();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+        }
+
+        return null;
+    }
 }

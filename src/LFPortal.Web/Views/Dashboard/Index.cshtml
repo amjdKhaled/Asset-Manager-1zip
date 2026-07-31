@@ -695,7 +695,16 @@
         </div>
         <div>
             <div class="d-repo-item__label">Connected User</div>
-            <div class="d-repo-item__value" style="color:var(--d-muted);">Configured service account</div>
+            <div class="d-repo-item__value">
+                @if (!string.IsNullOrWhiteSpace(s.ConnectedUser))
+                {
+                    @s.ConnectedUser
+                }
+                else
+                {
+                    <span style="color:var(--d-muted);">Service account</span>
+                }
+            </div>
         </div>
         <div>
             <div class="d-repo-item__label">Repository Version</div>
