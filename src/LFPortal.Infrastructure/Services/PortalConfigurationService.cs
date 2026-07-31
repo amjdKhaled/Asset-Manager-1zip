@@ -2,10 +2,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using LFPortal.Application.Interfaces;
-using LFPortal.Infrastructure.Options;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace LFPortal.Infrastructure.Services;
 
@@ -15,8 +13,8 @@ namespace LFPortal.Infrastructure.Services;
 /// </summary>
 internal sealed class PortalConfigurationService : IPortalConfigurationService
 {
-    private const string DefaultRepositoryKey      = "default";
-    private const string DpapiFileExtension        = ".dpapi";
+    private const string DefaultRepositoryKey        = "default";
+    private const string DpapiFileExtension          = ".dpapi";
     private const string DataProtectionFileExtension = ".dprot";
 
     private readonly string _configFilePath;
@@ -42,6 +40,8 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
         string serverUrl,
         string repositoryId,
         string displayName,
+        string apiBasePath,
+        string apiVersion,
         CancellationToken cancellationToken = default)
     {
         var directory = Path.GetDirectoryName(_configFilePath)!;
@@ -53,7 +53,9 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
             {
                 ServerUrl    = serverUrl.TrimEnd('/'),
                 RepositoryId = repositoryId,
-                DisplayName  = displayName
+                DisplayName  = displayName,
+                ApiBasePath  = apiBasePath,
+                ApiVersion   = apiVersion
             }
         };
 
@@ -62,8 +64,9 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
             .ConfigureAwait(false);
 
         _logger.LogInformation(
-            "Connection settings saved: ServerUrl={ServerUrl}, RepositoryId={RepositoryId}.",
-            serverUrl, repositoryId);
+            "Connection settings saved: ServerUrl={ServerUrl}, RepositoryId={RepositoryId}, " +
+            "ApiBasePath={ApiBasePath}, ApiVersion={ApiVersion}.",
+            serverUrl, repositoryId, apiBasePath, apiVersion);
     }
 
     /// <inheritdoc />

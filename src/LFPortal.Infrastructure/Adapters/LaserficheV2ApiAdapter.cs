@@ -92,4 +92,18 @@ internal sealed class LaserficheV2ApiAdapter : ILaserficheApiAdapter
     /// <inheritdoc />
     public string BuildRepositoryInfoUrl(string repositoryId) =>
         $"{ApiBase()}/Repositories/{repositoryId}";
+
+    /// <inheritdoc />
+    public string BuildTokenUrlFor(string serverUrl, string repositoryId)
+    {
+        var o = _optionsMonitor.CurrentValue;
+        return $"{serverUrl.TrimEnd('/')}{o.ApiBasePath}/{o.ApiVersion}/Repositories/{repositoryId}/Token";
+    }
+
+    /// <inheritdoc />
+    public string BuildRepositoryInfoUrlFor(string serverUrl, string repositoryId)
+    {
+        var o = _optionsMonitor.CurrentValue;
+        return $"{serverUrl.TrimEnd('/')}{o.ApiBasePath}/{o.ApiVersion}/Repositories/{repositoryId}";
+    }
 }

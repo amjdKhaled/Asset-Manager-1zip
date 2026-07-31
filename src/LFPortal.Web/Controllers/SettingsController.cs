@@ -59,8 +59,13 @@ public sealed class SettingsController : Controller
         [FromForm] SaveSettingsRequest request,
         CancellationToken cancellationToken)
     {
-        // Basic validation
-        if (string.IsNullOrWhiteSpace(request.ServerUrl))
+        // Normalise and validate
+        var (serverUrl, apiBasePath, apiVersion) = NormaliseServerUrl(
+            request.ServerUrl?.Trim() ?? string.Empty,
+            request.ApiBasePath?.Trim() ?? "/LFRepositoryAPI",
+            request.ApiVersion?.Trim() ?? "v2");
+
+        if (string.IsNullOrWhiteSpace(serverUrl))
             ModelState.AddModelError(nameof(request.ServerUrl), "Server URL is required.");
         if (string.IsNullOrWhiteSpace(request.RepositoryId))
             ModelState.AddModelError(nameof(request.RepositoryId), "Repository ID is required.");
@@ -77,11 +82,13 @@ public sealed class SettingsController : Controller
 
         try
         {
-            // 1. Persist connection settings (ServerUrl, RepositoryId, DisplayName)
+            // 1. Persist connection settings
             await _portalConfig.SaveConnectionSettingsAsync(
-                request.ServerUrl.Trim(),
+                serverUrl,
                 request.RepositoryId.Trim(),
                 request.DisplayName?.Trim() ?? string.Empty,
+                apiBasePath,
+                apiVersion,
                 cancellationToken);
 
             // 2. Persist credentials only when both fields are supplied
@@ -99,7 +106,10 @@ public sealed class SettingsController : Controller
             var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
             await _authService.InvalidateTokenAsync(repo);
 
-            _logger.LogInformation("Settings saved successfully via Settings page.");
+            _logger.LogInformation(
+                "Settings saved: ServerUrl={ServerUrl}, ApiBasePath={ApiBasePath}, ApiVersion={ApiVersion}.",
+                serverUrl, apiBasePath, apiVersion);
+
             return RedirectToAction(nameof(Index), new { saved = true });
         }
         catch (Exception ex)
@@ -130,8 +140,30 @@ public sealed class SettingsController : Controller
             return PartialView("_TestResult", failure);
         }
 
-        var status = await _repositoryService.TestConnectionWithCredentialsAsync(
+        // Normalise the URL the user typed — extract ApiBasePath/ApiVersion if they
+        // accidentally included them in the Server URL field.
+        var (serverUrl, _, _) = NormaliseServerUrl(
             request.ServerUrl.Trim(),
+            request.ApiBasePath?.Trim() ?? "/LFRepositoryAPI",
+            request.ApiVersion?.Trim() ?? "v2");
+
+        // Save ApiBasePath / ApiVersion into options so the adapter picks them up when
+        // building the test URLs (they are read from IOptionsMonitor inside the adapter).
+        // We do NOT write credentials; this is a read-only test.
+        await _portalConfig.SaveConnectionSettingsAsync(
+            serverUrl,
+            request.RepositoryId.Trim(),
+            _optionsMonitor.CurrentValue.DisplayName,
+            request.ApiBasePath?.Trim() ?? _optionsMonitor.CurrentValue.ApiBasePath,
+            request.ApiVersion?.Trim() ?? _optionsMonitor.CurrentValue.ApiVersion,
+            cancellationToken);
+
+        // Invalidate cached token so the test uses a fresh one against the new URL
+        var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+        await _authService.InvalidateTokenAsync(repo);
+
+        var status = await _repositoryService.TestConnectionWithCredentialsAsync(
+            serverUrl,
             request.RepositoryId.Trim(),
             request.Username.Trim(),
             request.Password,
@@ -147,14 +179,70 @@ public sealed class SettingsController : Controller
         var opts = _optionsMonitor.CurrentValue;
         return new SettingsViewModel
         {
-            ServerUrl                      = opts.ServerUrl,
-            RepositoryId                   = opts.RepositoryId,
-            DisplayName                    = opts.DisplayName,
-            HasSavedCredentials            = _portalConfig.HasSavedCredentials(),
+            ServerUrl                         = opts.ServerUrl,
+            RepositoryId                      = opts.RepositoryId,
+            DisplayName                       = opts.DisplayName,
+            ApiBasePath                       = opts.ApiBasePath,
+            ApiVersion                        = opts.ApiVersion,
+            HasSavedCredentials               = _portalConfig.HasSavedCredentials(),
             HasEnvironmentVariableCredentials = _portalConfig.HasEnvironmentVariableCredentials(),
-            SaveSuccess                    = saved,
-            ErrorMessage                   = error
+            SaveSuccess                       = saved,
+            ErrorMessage                      = error
         };
+    }
+
+    /// <summary>
+    /// Normalises a user-supplied Server URL. If the user pasted a full path such as
+    /// <c>https://host/LFRepositoryAPI/v1/Repositories</c>, the method extracts
+    /// <c>ApiBasePath</c> and <c>ApiVersion</c> and returns just the scheme+host.
+    /// The explicit <paramref name="apiBasePath"/> and <paramref name="apiVersion"/>
+    /// overrides from the form take precedence when the URL contains no path clues.
+    /// </summary>
+    private static (string serverUrl, string apiBasePath, string apiVersion) NormaliseServerUrl(
+        string rawUrl, string apiBasePath, string apiVersion)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl))
+            return (rawUrl, apiBasePath, apiVersion);
+
+        if (!Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri))
+            return (rawUrl, apiBasePath, apiVersion);
+
+        var segments = uri.AbsolutePath
+            .Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        // Look for a version segment like "v1" or "v2"
+        int vIdx = Array.FindIndex(
+            segments,
+            s => s.StartsWith('v') && s.Length >= 2 && s[1..].All(char.IsDigit));
+
+        if (vIdx >= 0)
+        {
+            var detectedVersion  = segments[vIdx];
+            var detectedBasePath = "/" + string.Join("/", segments[..vIdx]);
+            var cleanHost = $"{uri.Scheme}://{uri.Host}"
+                + (uri.IsDefaultPort ? "" : $":{uri.Port}");
+
+            return (cleanHost, detectedBasePath, detectedVersion);
+        }
+
+        // No version segment — strip any trailing /Repositories path
+        int rIdx = Array.FindLastIndex(
+            segments,
+            s => s.Equals("Repositories", StringComparison.OrdinalIgnoreCase));
+
+        if (rIdx >= 0)
+        {
+            var cleanHost = $"{uri.Scheme}://{uri.Host}"
+                + (uri.IsDefaultPort ? "" : $":{uri.Port}");
+            var remaining = segments[..rIdx];
+            var detectedBasePath = remaining.Length > 0
+                ? "/" + string.Join("/", remaining)
+                : apiBasePath;
+            return (cleanHost, detectedBasePath, apiVersion);
+        }
+
+        // URL looks clean already — return as-is with the form's explicit values
+        return (rawUrl.TrimEnd('/'), apiBasePath, apiVersion);
     }
 }
 
@@ -163,59 +251,36 @@ public sealed class SettingsController : Controller
 /// <summary>View model for the Settings page.</summary>
 public sealed class SettingsViewModel
 {
-    /// <summary>Current Laserfiche API Server URL.</summary>
-    public string ServerUrl { get; init; } = string.Empty;
-
-    /// <summary>Current repository identifier.</summary>
+    public string ServerUrl    { get; init; } = string.Empty;
     public string RepositoryId { get; init; } = string.Empty;
-
-    /// <summary>Human-readable display name for the repository.</summary>
-    public string DisplayName { get; init; } = string.Empty;
-
-    /// <summary>True when a secure credential file exists for the default repository.</summary>
-    public bool HasSavedCredentials { get; init; }
-
-    /// <summary>True when both <c>LF_USERNAME</c> and <c>LF_PASSWORD</c> env vars are set.</summary>
+    public string DisplayName  { get; init; } = string.Empty;
+    public string ApiBasePath  { get; init; } = "/LFRepositoryAPI";
+    public string ApiVersion   { get; init; } = "v2";
+    public bool HasSavedCredentials               { get; init; }
     public bool HasEnvironmentVariableCredentials { get; init; }
-
-    /// <summary>True when this page was rendered after a successful save.</summary>
-    public bool SaveSuccess { get; init; }
-
-    /// <summary>Error message to display. Null on success.</summary>
+    public bool SaveSuccess    { get; init; }
     public string? ErrorMessage { get; init; }
 }
 
 /// <summary>Form model for the Save action.</summary>
 public sealed class SaveSettingsRequest
 {
-    /// <summary>Laserfiche API Server base URL.</summary>
-    public string ServerUrl { get; set; } = string.Empty;
-
-    /// <summary>Repository identifier.</summary>
-    public string RepositoryId { get; set; } = string.Empty;
-
-    /// <summary>Optional display name. Defaults to RepositoryId if blank.</summary>
-    public string? DisplayName { get; set; }
-
-    /// <summary>Laserfiche username. Leave blank to keep existing stored credentials.</summary>
-    public string? Username { get; set; }
-
-    /// <summary>Laserfiche password. Required only when Username is provided.</summary>
-    public string? Password { get; set; }
+    public string  ServerUrl    { get; set; } = string.Empty;
+    public string  RepositoryId { get; set; } = string.Empty;
+    public string? DisplayName  { get; set; }
+    public string? ApiBasePath  { get; set; }
+    public string? ApiVersion   { get; set; }
+    public string? Username     { get; set; }
+    public string? Password     { get; set; }
 }
 
 /// <summary>Form model for the TestConnection action.</summary>
 public sealed class TestConnectionRequest
 {
-    /// <summary>Laserfiche API Server base URL to test against.</summary>
-    public string ServerUrl { get; set; } = string.Empty;
-
-    /// <summary>Repository ID to test.</summary>
-    public string RepositoryId { get; set; } = string.Empty;
-
-    /// <summary>Laserfiche username for the test.</summary>
-    public string Username { get; set; } = string.Empty;
-
-    /// <summary>Laserfiche password for the test.</summary>
-    public string Password { get; set; } = string.Empty;
+    public string  ServerUrl    { get; set; } = string.Empty;
+    public string  RepositoryId { get; set; } = string.Empty;
+    public string? ApiBasePath  { get; set; }
+    public string? ApiVersion   { get; set; }
+    public string  Username     { get; set; } = string.Empty;
+    public string  Password     { get; set; } = string.Empty;
 }

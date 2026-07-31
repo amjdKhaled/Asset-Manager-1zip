@@ -97,6 +97,8 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
 
         var url = _adapter.BuildRepositoryInfoUrl(repo.RepositoryId);
 
+        _logger.LogInformation("→ GET {Url}", url);
+
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
         using var response = await client
             .GetAsync(url, cancellationToken)
@@ -148,12 +150,16 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
     {
         try
         {
-            var url = _adapter.BuildRepositoryInfoUrl(repositoryId);
+            // Use the serverUrl supplied by the caller — NOT the stored config —
+            // so the test hits exactly what the user typed into the Settings form.
+            var tokenUrl = _adapter.BuildTokenUrlFor(serverUrl, repositoryId);
+            var repoUrl  = _adapter.BuildRepositoryInfoUrlFor(serverUrl, repositoryId);
+
+            _logger.LogInformation(
+                "Test connection → POST {TokenUrl}", tokenUrl);
 
             using var client = _httpClientFactory.CreateClient("LaserficheRaw");
 
-            // Get a token with the provided credentials
-            var tokenUrl = _adapter.BuildTokenUrl(repositoryId);
             var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"] = "password",
@@ -167,9 +173,15 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
 
             if (!tokenResponse.IsSuccessStatusCode)
             {
+                var tokenBody404 = await tokenResponse.Content
+                    .ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                _logger.LogWarning(
+                    "Token request failed: HTTP {Status} from {Url}. Body: {Body}",
+                    (int)tokenResponse.StatusCode, tokenUrl, tokenBody404);
+
                 return ConnectionStatus.Failure(
                     $"Authentication failed: HTTP {(int)tokenResponse.StatusCode}. " +
-                    "Check the username and password.");
+                    $"URL attempted: {tokenUrl}. Check the Server URL, API version, and credentials.");
             }
 
             var tokenBody = await tokenResponse.Content
@@ -184,7 +196,10 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
 
             var token = tokenEl.GetString() ?? string.Empty;
 
-            using var repoRequest = new HttpRequestMessage(HttpMethod.Get, url);
+            _logger.LogInformation(
+                "Test connection → GET {RepoUrl}", repoUrl);
+
+            using var repoRequest = new HttpRequestMessage(HttpMethod.Get, repoUrl);
             repoRequest.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -194,9 +209,16 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
 
             if (!repoResponse.IsSuccessStatusCode)
             {
+                var body404 = await repoResponse.Content
+                    .ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                _logger.LogWarning(
+                    "Repository info failed: HTTP {Status} from {Url}. Body: {Body}",
+                    (int)repoResponse.StatusCode, repoUrl, body404);
+
                 return ConnectionStatus.Failure(
-                    $"Connected to API Server but repository '{repositoryId}' returned " +
-                    $"HTTP {(int)repoResponse.StatusCode}. Verify the Repository ID.");
+                    $"Authentication succeeded but repository '{repositoryId}' returned " +
+                    $"HTTP {(int)repoResponse.StatusCode}. " +
+                    $"URL attempted: {repoUrl} — check the Repository ID and API version.");
             }
 
             var repoBody = await repoResponse.Content

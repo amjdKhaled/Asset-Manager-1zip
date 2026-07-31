@@ -78,6 +78,9 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             .ConfigureAwait(false);
 
         var tokenUrl = _adapter.BuildTokenUrl(repository.RepositoryId);
+
+        _logger.LogInformation("→ POST {TokenUrl} (acquiring token)", tokenUrl);
+
         var tokenResponse = await RequestTokenAsync(tokenUrl, credentials.Username, credentials.Password, cancellationToken)
             .ConfigureAwait(false);
 
