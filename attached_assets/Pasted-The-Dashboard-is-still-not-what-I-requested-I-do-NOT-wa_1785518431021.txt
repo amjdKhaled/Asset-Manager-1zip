@@ -1,0 +1,161 @@
+The Dashboard is still not what I requested.
+
+I do NOT want a new simplified LFPortal dashboard.
+
+I want you to restore the ORIGINAL GovSearch AI Dashboard that we already built together earlier in this same Replit conversation.
+
+This is NOT a redesign.
+
+This is a migration from the previous implementation to ASP.NET Core.
+
+You already have all the previous code, layout, components, charts, API logic, styling, and conversation history available in this Replit chat.
+
+Use that implementation.
+
+DO NOT build a new dashboard.
+
+DO NOT simplify it.
+
+DO NOT remove any section.
+
+DO NOT replace widgets with placeholders.
+
+The final Dashboard should look almost identical to the original GovSearch AI Analytics Dashboard.
+
+====================================================
+Required Dashboard Sections
+====================================================
+
+Restore ALL of these sections exactly as before:
+
+1. Analytics Dashboard header.
+
+2. Statistics Cards:
+   - Total Documents
+   - Total Searches
+   - Indexed Documents
+   - Departments
+   - Average Search Response Time
+   - Last Synchronization Time
+   - Connected Repository
+   - Server Version
+
+3. Search Activity chart
+   - Last 7 Days
+   - Daily search statistics
+   - Live data
+
+4. Document Type donut chart
+   showing document distribution by type.
+
+5. Documents by Department chart
+   showing document count for every department.
+
+6. Top Searched Queries
+   showing:
+   - Search text
+   - Number of searches
+
+7. Recent Documents
+   showing:
+   - Document Name
+   - Department
+   - Document Type
+   - Last Modified
+   - Open Document button
+
+8. Recently Indexed Documents.
+
+9. AI Statistics:
+   - OCR processed
+   - AI summarized
+   - Indexed
+   - Embeddings
+   - Image documents
+   - PDF documents
+
+10. System Health panel
+   including:
+   - Laserfiche API
+   - Repository
+   - OCR
+   - AI Model
+   - Search Service
+   - Vector Database
+
+11. Security & Compliance cards:
+   - RBAC
+   - Audit Logging
+   - Data Encryption
+   - Permission Filter
+   - Air-Gapped AI
+   - On-Premise status
+
+12. Live Repository Status:
+   - Repository Name
+   - Connected user
+   - Repository Version
+   - Connection Status
+   - Last Refresh Time
+
+====================================================
+Data Source
+====================================================
+
+The dashboard must NOT use demo data.
+
+The dashboard must retrieve REAL information from Laserfiche.
+
+Use the same Laserfiche APIs that were already implemented in the previous working project.
+
+Reuse the previous API logic instead of creating new endpoints.
+
+====================================================
+Data to retrieve from Laserfiche
+====================================================
+
+Retrieve real data such as:
+
+- Total documents
+- Total folders
+- Recent documents
+- Recently modified documents
+- Document types
+- Departments
+- Metadata fields
+- Search statistics
+- Repository information
+- Repository status
+- Current connected user
+- Server information
+- Repository version
+- Last synchronization
+- Any other statistics that existed in the previous dashboard
+
+====================================================
+Important
+====================================================
+
+This is a migration, not a redesign.
+
+Compare the previous GovSearch AI Dashboard with the current ASP.NET Core version section-by-section.
+
+Restore every missing widget.
+
+Restore every missing chart.
+
+Restore every missing panel.
+
+Restore every missing statistic.
+
+Keep the same dark theme.
+
+Keep the same layout.
+
+Keep the same visual style.
+
+Keep the same UX.
+
+Only replace the frontend/backend implementation with ASP.NET Core while preserving the original dashboard experience.
+
+Do NOT stop until the Dashboard visually and functionally matches the original GovSearch AI Dashboard.

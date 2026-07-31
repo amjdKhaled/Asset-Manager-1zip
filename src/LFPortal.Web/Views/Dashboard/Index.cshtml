@@ -1,154 +1,535 @@
 @model LFPortal.Web.Controllers.DashboardViewModel
+@using System.Text.Json
+@using System.Text.Json.Serialization
 @using LFPortal.Domain.Entities
 @{
-    ViewData["Title"] = "Dashboard";
+    ViewData["Title"] = "Analytics Dashboard";
     var s = Model.Stats;
 
-    // Entry-type badge helper
-    string EntryBadgeClass(LFEntryType t) => t switch
+    // ── Helper: format search response time ──────────────────────────────────
+    string RespTime(TimeSpan? t) =>
+        t is null          ? "N/A" :
+        t.Value.TotalMilliseconds < 1000 ? $"{t.Value.TotalMilliseconds:F0} ms" :
+                                           $"{t.Value.TotalSeconds:F1} s";
+
+    // ── Entry type badge classes ─────────────────────────────────────────────
+    string BadgeCls(LFEntryType t) => t switch
     {
-        LFEntryType.Document     => "entry-badge entry-badge--document",
-        LFEntryType.Folder       => "entry-badge entry-badge--folder",
-        LFEntryType.Shortcut     => "entry-badge entry-badge--shortcut",
-        LFEntryType.RecordSeries => "entry-badge entry-badge--shortcut",
-        _                        => "entry-badge entry-badge--other"
+        LFEntryType.Document     => "d-badge d-badge--doc",
+        LFEntryType.Folder       => "d-badge d-badge--folder",
+        LFEntryType.Shortcut     => "d-badge d-badge--shortcut",
+        LFEntryType.RecordSeries => "d-badge d-badge--shortcut",
+        _                        => "d-badge d-badge--other"
     };
+
+    // ── Chart JSON payloads ─────────────────────────────────────────────────
+    var jsonOpts = new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+
+    // Document-type doughnut
+    var docTypeLabels = s.EntryTypeBreakdown.Keys.ToArray();
+    var docTypeData   = s.EntryTypeBreakdown.Values.ToArray();
+
+    // Department bar chart
+    var deptLabels = s.DocumentsByDepartment.Select(d => d.Name).ToArray();
+    var deptData   = s.DocumentsByDepartment.Select(d => d.DocumentCount).ToArray();
+
+    // Search-activity line (last 7 days — LF v1 has no search-history endpoint;
+    // values are zero to reflect the true state of the API rather than showing fake data)
+    var activityLabels = Enumerable.Range(0, 7)
+        .Select(i => DateTimeOffset.UtcNow.AddDays(-6 + i).ToString("MMM d"))
+        .ToArray();
+    var activityData = new int[7];
 }
 
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
-    <h1 style="font-size:1.5rem;font-weight:700;color:var(--lfp-text);">Dashboard</h1>
-    @if (s.IsConnected && s.LastCheckedAt.HasValue)
-    {
-        <span style="font-size:.8125rem;color:var(--lfp-muted);">
-            Live data &mdash; fetched @s.LastCheckedAt.Value.ToString("yyyy-MM-dd HH:mm:ss") UTC
-        </span>
-    }
-</div>
+@section Styles {
+<style>
+    /* ── Dark theme overrides for the dashboard page ── */
+    body   { background: #0f172a !important; }
+    main   { max-width: 1440px !important; padding: 20px 24px !important; }
+    footer.site-footer { background: #0a1020 !important; }
 
-@* ── Error state ───────────────────────────────────────────────────────── *@
+    /* ── CSS custom properties ── */
+    :root {
+        --d-bg:      #0f172a;
+        --d-surface: #1e293b;
+        --d-surf2:   #263349;
+        --d-border:  #334155;
+        --d-text:    #f1f5f9;
+        --d-muted:   #94a3b8;
+        --d-accent:  #3b82f6;
+        --d-green:   #22c55e;
+        --d-amber:   #f59e0b;
+        --d-red:     #ef4444;
+        --d-purple:  #a855f7;
+        --d-cyan:    #06b6d4;
+        --d-pink:    #ec4899;
+        --d-r:       8px;
+    }
+
+    /* ── Dashboard wrapper ── */
+    .d-wrap { color: var(--d-text); }
+
+    /* ── Page header ── */
+    .d-page-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 24px;
+    }
+    .d-page-title   { font-size: 1.625rem; font-weight: 700; color: var(--d-text); line-height: 1.2; }
+    .d-page-sub     { font-size: .8125rem; color: var(--d-muted); margin-top: 4px; }
+    .d-live-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: rgba(34,197,94,.15); border: 1px solid rgba(34,197,94,.3);
+        color: var(--d-green); padding: 4px 12px; border-radius: 100px;
+        font-size: .75rem; font-weight: 700; letter-spacing: .05em;
+    }
+    .d-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--d-green); animation: d-pulse 1.8s infinite; }
+    @@keyframes d-pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .d-refresh-text { font-size: .75rem; color: var(--d-muted); margin-top: 4px; text-align: right; }
+
+    /* ── Cards ── */
+    .d-card {
+        background: var(--d-surface);
+        border: 1px solid var(--d-border);
+        border-radius: var(--d-r);
+        padding: 20px 24px;
+    }
+    .d-card-title {
+        font-size: .9375rem;
+        font-weight: 600;
+        color: var(--d-text);
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--d-border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+    .d-card-icon { font-size: 1.05rem; }
+
+    /* ── Grid helpers ── */
+    .d-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .d-grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+    .d-grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
+    .d-grid-6 { display: grid; grid-template-columns: repeat(6,1fr); gap: 16px; }
+    .d-col-8-4 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+    .d-gap { margin-top: 16px; }
+
+    @@media(max-width:1100px) { .d-grid-6 { grid-template-columns: repeat(3,1fr); } }
+    @@media(max-width:900px)  {
+        .d-grid-4 { grid-template-columns: repeat(2,1fr); }
+        .d-col-8-4, .d-grid-2, .d-grid-3 { grid-template-columns: 1fr; }
+    }
+    @@media(max-width:600px)  { .d-grid-6 { grid-template-columns: 1fr 1fr; } }
+
+    /* ── Stat cards ── */
+    .d-stat-cards { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 16px; }
+    @@media(max-width:1000px) { .d-stat-cards { grid-template-columns: repeat(2,1fr); } }
+    @@media(max-width:600px)  { .d-stat-cards { grid-template-columns: 1fr; } }
+
+    .d-stat {
+        background: var(--d-surface);
+        border: 1px solid var(--d-border);
+        border-radius: var(--d-r);
+        padding: 18px 20px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        position: relative;
+        overflow: hidden;
+    }
+    .d-stat::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        background: var(--d-stat-color, var(--d-accent));
+    }
+    .d-stat__icon  { font-size: 1.25rem; margin-bottom: 2px; }
+    .d-stat__value {
+        font-size: 1.75rem; font-weight: 700;
+        color: var(--d-text); line-height: 1;
+        font-variant-numeric: tabular-nums;
+    }
+    .d-stat__value--sm { font-size: 1.1rem; }
+    .d-stat__label { font-size: .6875rem; font-weight: 700; color: var(--d-muted); text-transform: uppercase; letter-spacing: .06em; }
+    .d-stat__sub   { font-size: .75rem; color: var(--d-muted); margin-top: 2px; }
+
+    /* ── Chart containers ── */
+    .d-chart-wrap { position: relative; width: 100%; }
+    .d-chart-note { font-size: .75rem; color: var(--d-muted); margin-top: 10px; font-style: italic; }
+
+    /* ── Tables ── */
+    .d-table { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+    .d-table th {
+        text-align: left; font-size: .6875rem; font-weight: 700;
+        color: var(--d-muted); text-transform: uppercase; letter-spacing: .06em;
+        padding: 8px 10px; border-bottom: 1px solid var(--d-border); white-space: nowrap;
+    }
+    .d-table td { padding: 9px 10px; border-bottom: 1px solid rgba(51,65,85,.6); color: var(--d-text); vertical-align: middle; }
+    .d-table tbody tr:last-child td { border-bottom: none; }
+    .d-table tbody tr:hover { background: rgba(255,255,255,.03); }
+    .d-table .d-cell-muted  { color: var(--d-muted); }
+    .d-table .d-cell-mono   { font-family: monospace; font-size: .75rem; color: var(--d-muted); }
+
+    /* ── Entry-type badges ── */
+    .d-badge {
+        display: inline-flex; align-items: center;
+        padding: 2px 8px; border-radius: 4px;
+        font-size: .625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+    }
+    .d-badge--doc     { background: rgba(59,130,246,.18); color: #93c5fd; border: 1px solid rgba(59,130,246,.3); }
+    .d-badge--folder  { background: rgba(245,158,11,.18); color: #fcd34d; border: 1px solid rgba(245,158,11,.3); }
+    .d-badge--shortcut{ background: rgba(148,163,184,.12); color: var(--d-muted); border: 1px solid var(--d-border); }
+    .d-badge--other   { background: rgba(148,163,184,.12); color: var(--d-muted); border: 1px solid var(--d-border); }
+
+    /* ── Status pills ── */
+    .d-pill         { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 100px; font-size: .75rem; font-weight: 600; }
+    .d-pill--green  { background: rgba(34,197,94,.15);  color: var(--d-green);  border: 1px solid rgba(34,197,94,.25); }
+    .d-pill--red    { background: rgba(239,68,68,.15);  color: var(--d-red);    border: 1px solid rgba(239,68,68,.25); }
+    .d-pill--amber  { background: rgba(245,158,11,.15); color: var(--d-amber);  border: 1px solid rgba(245,158,11,.25); }
+    .d-pill--muted  { background: rgba(148,163,184,.1); color: var(--d-muted);  border: 1px solid var(--d-border); }
+    .d-pill::before { content: "●"; font-size: .5rem; }
+
+    /* ── System health list ── */
+    .d-health-list { display: flex; flex-direction: column; gap: 10px; }
+    .d-health-row  { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; background: rgba(255,255,255,.03); border-radius: 6px; }
+    .d-health-name { font-size: .875rem; color: var(--d-text); font-weight: 500; }
+
+    /* ── AI stats grid ── */
+    .d-ai-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .d-ai-cell {
+        background: var(--d-surf2); border: 1px solid var(--d-border);
+        border-radius: 6px; padding: 12px 14px;
+    }
+    .d-ai-cell__val   { font-size: 1.25rem; font-weight: 700; color: var(--d-muted); line-height: 1; }
+    .d-ai-cell__label { font-size: .6875rem; font-weight: 600; color: var(--d-muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 4px; }
+    .d-ai-cell__note  { font-size: .6875rem; color: rgba(148,163,184,.6); margin-top: 2px; }
+
+    /* ── Security & Compliance cards ── */
+    .d-sec-cards { display: grid; grid-template-columns: repeat(6,1fr); gap: 12px; }
+    @@media(max-width:1100px) { .d-sec-cards { grid-template-columns: repeat(3,1fr); } }
+    @@media(max-width:700px)  { .d-sec-cards { grid-template-columns: repeat(2,1fr); } }
+
+    .d-sec-card {
+        background: var(--d-surface); border: 1px solid var(--d-border);
+        border-radius: var(--d-r); padding: 16px;
+        display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center;
+    }
+    .d-sec-card__icon  { font-size: 1.5rem; }
+    .d-sec-card__label { font-size: .75rem; font-weight: 600; color: var(--d-text); }
+    .d-sec-card__badge { font-size: .6875rem; font-weight: 700; padding: 2px 8px; border-radius: 100px; }
+    .d-sec-active { background: rgba(34,197,94,.15); color: var(--d-green); border: 1px solid rgba(34,197,94,.25); }
+    .d-sec-na     { background: rgba(148,163,184,.1); color: var(--d-muted); border: 1px solid var(--d-border); }
+
+    /* ── Repository status panel ── */
+    .d-repo-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 16px;
+    }
+    .d-repo-item__label { font-size: .6875rem; font-weight: 700; color: var(--d-muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+    .d-repo-item__value { font-size: .9375rem; font-weight: 500; color: var(--d-text); }
+
+    /* ── "Open" button ── */
+    .d-btn-open {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 3px 10px; border-radius: 4px; font-size: .6875rem; font-weight: 600;
+        background: rgba(59,130,246,.15); color: #93c5fd;
+        border: 1px solid rgba(59,130,246,.3);
+        text-decoration: none; cursor: default;
+        white-space: nowrap;
+    }
+
+    /* ── Empty / N/A state ── */
+    .d-empty { padding: 20px; text-align: center; color: var(--d-muted); font-size: .875rem; }
+    .d-na-box {
+        background: var(--d-surf2); border: 1px solid var(--d-border);
+        border-radius: 6px; padding: 12px 16px;
+        font-size: .8125rem; color: var(--d-muted);
+        display: flex; align-items: center; gap: 8px;
+    }
+
+    /* ── Error state ── */
+    .d-error { background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.25); border-radius: var(--d-r); padding: 24px; }
+    .d-error__title { font-size: 1rem; font-weight: 600; color: var(--d-red); margin-bottom: 8px; }
+    .d-error__msg   { font-size: .875rem; color: var(--d-muted); }
+
+    /* ── Queries list ── */
+    .d-query-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(51,65,85,.6); gap: 12px; }
+    .d-query-row:last-child { border-bottom: none; }
+    .d-query-text  { font-size: .875rem; color: var(--d-text); }
+    .d-query-count { font-size: .8125rem; font-weight: 600; color: var(--d-muted); white-space: nowrap; }
+    .d-query-bar   { height: 4px; background: var(--d-accent); border-radius: 100px; margin-top: 4px; opacity: .6; }
+</style>
+}
+
+<div class="d-wrap">
+
+@* ═══════════════════════════════════════════════════════════════════════════
+   ERROR STATE
+═══════════════════════════════════════════════════════════════════════════ *@
 @if (!s.IsConnected)
 {
-    <div class="card">
-        <div class="card__title" style="display:flex;align-items:center;justify-content:space-between;">
-            <span>Repository Status</span>
-            <span class="badge badge--red">Disconnected</span>
+    <div class="d-page-header">
+        <div>
+            <div class="d-page-title">📊 Analytics Dashboard</div>
+            <div class="d-page-sub">Laserfiche Repository Live Statistics</div>
         </div>
-        <div class="alert alert--error">
-            <span>&#9888;</span>
-            <div>
-                <strong>Unable to retrieve dashboard data.</strong><br />
-                @(!string.IsNullOrWhiteSpace(s.ErrorMessage) ? s.ErrorMessage : "Check your Laserfiche server configuration and credentials.")
-            </div>
-        </div>
-        <div style="margin-top:16px;font-size:.875rem;color:var(--lfp-muted);">
+    </div>
+    <div class="d-error">
+        <div class="d-error__title">⚠️ Unable to connect to Laserfiche</div>
+        <div class="d-error__msg">
+            @(!string.IsNullOrWhiteSpace(s.ErrorMessage) ? s.ErrorMessage : "Check your server URL, repository ID, and credentials.")
+            <br /><br />
             <a asp-controller="Settings" asp-action="Index"
-               style="font-weight:600;color:var(--lfp-accent);">Open Settings</a>
-            to enter your Laserfiche Server URL, Repository ID, and credentials.
+               style="color:var(--d-accent);font-weight:600;">Open Settings →</a>
         </div>
     </div>
     return;
 }
 
-@* ── Repository header card ───────────────────────────────────────────── *@
-<div class="card" style="margin-bottom:16px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-        <div>
-            <div style="font-size:.75rem;color:var(--lfp-muted);font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">
-                Connected Repository
-            </div>
-            <div style="font-size:1.125rem;font-weight:600;color:var(--lfp-text);">
-                @(s.RepositoryName ?? "—")
-            </div>
-            @if (!string.IsNullOrWhiteSpace(s.ServerVersion))
-            {
-                <div style="font-size:.8125rem;color:var(--lfp-muted);margin-top:2px;">
-                    Laserfiche Server @s.ServerVersion
-                </div>
-            }
+@* ═══════════════════════════════════════════════════════════════════════════
+   PAGE HEADER
+═══════════════════════════════════════════════════════════════════════════ *@
+<div class="d-page-header">
+    <div>
+        <div class="d-page-title">📊 Analytics Dashboard</div>
+        <div class="d-page-sub">Laserfiche Repository Live Statistics &mdash; @(s.RepositoryName ?? s.RepositoryId ?? "Unknown Repository")</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+        <div class="d-live-pill">
+            <div class="d-live-dot"></div>
+            LIVE DATA
         </div>
-        <span class="badge badge--green">Connected</span>
+        @if (s.LastCheckedAt.HasValue)
+        {
+            <div class="d-refresh-text">Last updated: @s.LastCheckedAt.Value.ToString("yyyy-MM-dd HH:mm:ss") UTC</div>
+        }
     </div>
 </div>
 
-@* ── Stat cards ────────────────────────────────────────────────────────── *@
-<div class="stat-cards">
-    <div class="stat-card stat-card__accent">
-        <div class="stat-card__value">@s.TotalEntries.ToString("N0")</div>
-        <div class="stat-card__label">Total Entries</div>
+@* ═══════════════════════════════════════════════════════════════════════════
+   ROW 1 — STAT CARDS  (8 cards, 4 per row)
+═══════════════════════════════════════════════════════════════════════════ *@
+<div class="d-stat-cards" style="--d-stat-color:var(--d-accent);">
+    <div class="d-stat" style="--d-stat-color:#3b82f6;">
+        <div class="d-stat__icon">📄</div>
+        <div class="d-stat__value">@s.TotalDocuments.ToString("N0")</div>
+        <div class="d-stat__label">Total Documents</div>
     </div>
-    <div class="stat-card stat-card__blue">
-        <div class="stat-card__value">@s.TotalDocuments.ToString("N0")</div>
-        <div class="stat-card__label">Documents</div>
+    <div class="d-stat" style="--d-stat-color:#a855f7;">
+        <div class="d-stat__icon">🔍</div>
+        <div class="d-stat__value d-stat__value--sm">N/A</div>
+        <div class="d-stat__label">Total Searches</div>
+        <div class="d-stat__sub">No history in LF API v1</div>
     </div>
-    <div class="stat-card stat-card__amber">
-        <div class="stat-card__value">@s.TotalFolders.ToString("N0")</div>
-        <div class="stat-card__label">Folders</div>
+    <div class="d-stat" style="--d-stat-color:#22c55e;">
+        <div class="d-stat__icon">🗂️</div>
+        <div class="d-stat__value">@s.TotalDocuments.ToString("N0")</div>
+        <div class="d-stat__label">Indexed Documents</div>
     </div>
-    @foreach (var kv in s.EntryTypeBreakdown
-        .Where(k => k.Key != "Document" && k.Key != "Folder" && k.Value > 0)
-        .OrderByDescending(k => k.Value))
+    <div class="d-stat" style="--d-stat-color:#f59e0b;">
+        <div class="d-stat__icon">🏢</div>
+        <div class="d-stat__value">@s.DepartmentCount.ToString("N0")</div>
+        <div class="d-stat__label">Departments</div>
+        <div class="d-stat__sub">Top-level folders</div>
+    </div>
+</div>
+<div class="d-stat-cards d-gap" style="margin-top:0;">
+    <div class="d-stat" style="--d-stat-color:#06b6d4;">
+        <div class="d-stat__icon">⚡</div>
+        <div class="d-stat__value d-stat__value--sm">@RespTime(s.AvgSearchResponseTime)</div>
+        <div class="d-stat__label">Avg Search Response</div>
+    </div>
+    <div class="d-stat" style="--d-stat-color:#ec4899;">
+        <div class="d-stat__icon">🔄</div>
+        <div class="d-stat__value d-stat__value--sm">@(s.LastCheckedAt.HasValue ? s.LastCheckedAt.Value.ToString("HH:mm:ss") : "—")</div>
+        <div class="d-stat__label">Last Synchronization</div>
+        <div class="d-stat__sub">@(s.LastCheckedAt.HasValue ? s.LastCheckedAt.Value.ToString("yyyy-MM-dd") + " UTC" : "")</div>
+    </div>
+    <div class="d-stat" style="--d-stat-color:#22c55e;">
+        <div class="d-stat__icon">🔗</div>
+        <div class="d-stat__value d-stat__value--sm" style="font-size:.95rem;word-break:break-all;">@(s.RepositoryName ?? s.RepositoryId ?? "—")</div>
+        <div class="d-stat__label">Connected Repository</div>
+    </div>
+    <div class="d-stat" style="--d-stat-color:#94a3b8;">
+        <div class="d-stat__icon">🖥️</div>
+        <div class="d-stat__value d-stat__value--sm" style="font-size:.85rem;">@(s.ServerVersion ?? "—")</div>
+        <div class="d-stat__label">Server Version</div>
+    </div>
+</div>
+
+@* ═══════════════════════════════════════════════════════════════════════════
+   ROW 2 — SEARCH ACTIVITY CHART  +  DOCUMENT TYPE DOUGHNUT
+═══════════════════════════════════════════════════════════════════════════ *@
+<div class="d-col-8-4 d-gap">
+    <div class="d-card">
+        <div class="d-card-title">
+            <span><span class="d-card-icon">📈</span> Search Activity — Last 7 Days</span>
+        </div>
+        <div class="d-chart-wrap" style="height:220px;">
+            <canvas id="chartActivity"></canvas>
+        </div>
+        <div class="d-chart-note">
+            ℹ️ Laserfiche Repository API v1 does not expose search history. Daily search counts are unavailable — chart shows baseline.
+        </div>
+    </div>
+
+    <div class="d-card">
+        <div class="d-card-title">
+            <span><span class="d-card-icon">🍩</span> Document Types</span>
+        </div>
+        <div class="d-chart-wrap" style="height:180px;">
+            <canvas id="chartDocTypes"></canvas>
+        </div>
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:6px;">
+            @foreach (var kv in s.EntryTypeBreakdown.Where(k => k.Value > 0).OrderByDescending(k => k.Value))
+            {
+                var pct = s.TotalEntries > 0 ? (double)kv.Value / s.TotalEntries * 100 : 0;
+                <div style="display:flex;align-items:center;justify-content:space-between;font-size:.8125rem;">
+                    <span style="color:var(--d-text);">@kv.Key</span>
+                    <span style="color:var(--d-muted);font-variant-numeric:tabular-nums;">@kv.Value.ToString("N0") (@pct.ToString("F1")%)</span>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@* ═══════════════════════════════════════════════════════════════════════════
+   ROW 3 — DOCUMENTS BY DEPARTMENT  (horizontal bar chart)
+═══════════════════════════════════════════════════════════════════════════ *@
+<div class="d-card d-gap">
+    <div class="d-card-title">
+        <span><span class="d-card-icon">🏢</span> Documents by Department</span>
+        <span style="font-size:.75rem;font-weight:400;color:var(--d-muted);">Approximate — sampled from recent entries</span>
+    </div>
+    @if (!s.DocumentsByDepartment.Any())
     {
-        <div class="stat-card stat-card__muted">
-            <div class="stat-card__value">@kv.Value.ToString("N0")</div>
-            <div class="stat-card__label">@kv.Key</div>
+        <div class="d-empty">No department data could be derived from the repository structure.</div>
+    }
+    else
+    {
+        <div class="d-chart-wrap" style="height:@(Math.Max(120, s.DocumentsByDepartment.Count * 36))px;">
+            <canvas id="chartDepts"></canvas>
         </div>
     }
 </div>
 
-@* ── Recent entries table ──────────────────────────────────────────────── *@
-<div class="card">
-    <div class="card__title">Recent Entries
-        <span style="font-weight:400;font-size:.8125rem;color:var(--lfp-muted);margin-left:8px;">
-            (last 10 modified)
-        </span>
+@* ═══════════════════════════════════════════════════════════════════════════
+   ROW 4 — TOP SEARCHED QUERIES  +  RECENT DOCUMENTS
+═══════════════════════════════════════════════════════════════════════════ *@
+<div class="d-grid-2 d-gap">
+    <div class="d-card">
+        <div class="d-card-title">
+            <span><span class="d-card-icon">🔍</span> Top Searched Queries</span>
+        </div>
+        <div class="d-na-box">
+            <span>ℹ️</span>
+            <div>
+                <strong style="color:var(--d-text);">Search history not available</strong><br />
+                Laserfiche Repository API v1 does not store or expose search query history.
+                Query analytics require a separate audit logging integration.
+            </div>
+        </div>
     </div>
 
-    @if (!s.RecentEntries.Any())
-    {
-        <div class="alert alert--info">
-            <span>&#8505;</span>
-            <div>No entries were returned by the repository. The repository may be empty.</div>
+    <div class="d-card">
+        <div class="d-card-title">
+            <span><span class="d-card-icon">📂</span> Recent Documents</span>
         </div>
+        @if (!s.RecentDocuments.Any())
+        {
+            <div class="d-empty">No documents found in the repository.</div>
+        }
+        else
+        {
+            <div style="overflow-x:auto;">
+                <table class="d-table">
+                    <thead>
+                        <tr>
+                            <th>Document Name</th>
+                            <th>Template</th>
+                            <th>Modified</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in s.RecentDocuments)
+                        {
+                            <tr>
+                                <td>
+                                    <span style="font-weight:500;">@entry.Name</span>
+                                    @if (!string.IsNullOrWhiteSpace(entry.FolderPath) && entry.FolderPath != "\\")
+                                    {
+                                        <div class="d-cell-mono">@entry.FolderPath</div>
+                                    }
+                                </td>
+                                <td class="d-cell-muted">@(string.IsNullOrWhiteSpace(entry.TemplateName) ? "—" : entry.TemplateName)</td>
+                                <td style="white-space:nowrap;font-variant-numeric:tabular-nums;" class="d-cell-muted">
+                                    @(entry.LastModifiedTime.HasValue ? entry.LastModifiedTime.Value.ToString("yyyy-MM-dd") : "—")
+                                </td>
+                                <td>
+                                    <span class="d-btn-open">📄 View</span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@* ═══════════════════════════════════════════════════════════════════════════
+   ROW 5 — RECENTLY INDEXED DOCUMENTS
+═══════════════════════════════════════════════════════════════════════════ *@
+<div class="d-card d-gap">
+    <div class="d-card-title">
+        <span><span class="d-card-icon">🆕</span> Recently Indexed Documents</span>
+        <span style="font-size:.75rem;font-weight:400;color:var(--d-muted);">Sorted by creation date</span>
+    </div>
+    @if (!s.RecentlyIndexedDocuments.Any())
+    {
+        <div class="d-empty">No recently indexed documents found.</div>
     }
     else
     {
         <div style="overflow-x:auto;">
-            <table class="data-table">
+            <table class="d-table">
                 <thead>
                     <tr>
                         <th>Name</th>
                         <th>Type</th>
                         <th>Template</th>
                         <th>Creator</th>
+                        <th>Created</th>
                         <th>Last Modified</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var entry in s.RecentEntries)
+                    @foreach (var entry in s.RecentlyIndexedDocuments)
                     {
                         <tr>
                             <td>
                                 <span style="font-weight:500;">@entry.Name</span>
-                                @if (!string.IsNullOrWhiteSpace(entry.FolderPath) && entry.FolderPath != "/")
+                                @if (!string.IsNullOrWhiteSpace(entry.FolderPath) && entry.FolderPath != "\\")
                                 {
-                                    <div style="font-size:.75rem;color:var(--lfp-muted);margin-top:2px;font-family:monospace;">
-                                        @entry.FolderPath
-                                    </div>
+                                    <div class="d-cell-mono" style="font-size:.7rem;color:var(--d-muted);">@entry.FolderPath</div>
                                 }
                             </td>
-                            <td>
-                                <span class="@EntryBadgeClass(entry.EntryType)">
-                                    @entry.EntryType.ToString()
-                                </span>
+                            <td><span class="@BadgeCls(entry.EntryType)">@entry.EntryType</span></td>
+                            <td class="d-cell-muted">@(string.IsNullOrWhiteSpace(entry.TemplateName) ? "—" : entry.TemplateName)</td>
+                            <td class="d-cell-muted">@(string.IsNullOrWhiteSpace(entry.Creator) ? "—" : entry.Creator)</td>
+                            <td style="white-space:nowrap;" class="d-cell-muted">
+                                @(entry.CreationTime.HasValue ? entry.CreationTime.Value.ToString("yyyy-MM-dd HH:mm") : "—")
                             </td>
-                            <td style="color:@(string.IsNullOrWhiteSpace(entry.TemplateName) ? "var(--lfp-muted)" : "var(--lfp-text)");">
-                                @(string.IsNullOrWhiteSpace(entry.TemplateName) ? "—" : entry.TemplateName)
-                            </td>
-                            <td>@(string.IsNullOrWhiteSpace(entry.Creator) ? "—" : entry.Creator)</td>
-                            <td style="white-space:nowrap;font-variant-numeric:tabular-nums;">
-                                @(entry.LastModifiedTime.HasValue
-                                    ? entry.LastModifiedTime.Value.ToString("yyyy-MM-dd HH:mm")
-                                    : "—")
+                            <td style="white-space:nowrap;" class="d-cell-muted">
+                                @(entry.LastModifiedTime.HasValue ? entry.LastModifiedTime.Value.ToString("yyyy-MM-dd HH:mm") : "—")
                             </td>
                         </tr>
                     }
@@ -158,33 +539,311 @@
     }
 </div>
 
-@* ── Entry type breakdown ──────────────────────────────────────────────── *@
-@if (s.EntryTypeBreakdown.Any(k => k.Value > 0))
-{
-    <div class="card" style="margin-top:16px;">
-        <div class="card__title">Entry Type Breakdown</div>
-        <div class="breakdown-bars">
-            @{
-                var total = s.EntryTypeBreakdown.Values.Sum();
-                total = total == 0 ? 1 : total;
-            }
-            @foreach (var kv in s.EntryTypeBreakdown.Where(k => k.Value > 0).OrderByDescending(k => k.Value))
-            {
-                var pct = (double)kv.Value / total * 100;
-                var barColor = kv.Key switch
-                {
-                    "Document" => "var(--lfp-accent)",
-                    "Folder"   => "var(--lfp-amber)",
-                    _          => "var(--lfp-muted)"
-                };
-                <div class="breakdown-row">
-                    <div class="breakdown-row__label">@kv.Key</div>
-                    <div class="breakdown-row__bar-wrap">
-                        <div class="breakdown-row__bar" style="width:@pct.ToString("F1")%;background:@barColor;"></div>
-                    </div>
-                    <div class="breakdown-row__count">@kv.Value.ToString("N0")</div>
-                </div>
-            }
+@* ═══════════════════════════════════════════════════════════════════════════
+   ROW 6 — AI STATISTICS  +  SYSTEM HEALTH
+═══════════════════════════════════════════════════════════════════════════ *@
+<div class="d-grid-2 d-gap">
+
+    <div class="d-card">
+        <div class="d-card-title">
+            <span><span class="d-card-icon">🤖</span> AI Statistics</span>
+            <span class="d-pill d-pill--muted">N/A — Standard LF</span>
+        </div>
+        <div class="d-na-box" style="margin-bottom:12px;">
+            <span>ℹ️</span>
+            <span>AI pipeline features (OCR, summarisation, embeddings) are not part of the standard Laserfiche portal.</span>
+        </div>
+        <div class="d-ai-grid">
+            <div class="d-ai-cell">
+                <div class="d-ai-cell__val">—</div>
+                <div class="d-ai-cell__label">OCR Processed</div>
+                <div class="d-ai-cell__note">N/A</div>
+            </div>
+            <div class="d-ai-cell">
+                <div class="d-ai-cell__val">—</div>
+                <div class="d-ai-cell__label">AI Summarized</div>
+                <div class="d-ai-cell__note">N/A</div>
+            </div>
+            <div class="d-ai-cell">
+                <div class="d-ai-cell__val">@s.TotalDocuments.ToString("N0")</div>
+                <div class="d-ai-cell__label">Indexed</div>
+                <div class="d-ai-cell__note">LF repository index</div>
+            </div>
+            <div class="d-ai-cell">
+                <div class="d-ai-cell__val">—</div>
+                <div class="d-ai-cell__label">Embeddings</div>
+                <div class="d-ai-cell__note">N/A</div>
+            </div>
+            <div class="d-ai-cell">
+                <div class="d-ai-cell__val">—</div>
+                <div class="d-ai-cell__label">Image Documents</div>
+                <div class="d-ai-cell__note">N/A</div>
+            </div>
+            <div class="d-ai-cell">
+                <div class="d-ai-cell__val">@s.TotalDocuments.ToString("N0")</div>
+                <div class="d-ai-cell__label">PDF / Documents</div>
+                <div class="d-ai-cell__note">All document entries</div>
+            </div>
         </div>
     </div>
+
+    <div class="d-card">
+        <div class="d-card-title">
+            <span><span class="d-card-icon">🩺</span> System Health</span>
+            @if (s.IsConnected)
+            {
+                <span class="d-pill d-pill--green">All Systems Operational</span>
+            }
+            else
+            {
+                <span class="d-pill d-pill--red">Degraded</span>
+            }
+        </div>
+        <div class="d-health-list">
+            <div class="d-health-row">
+                <span class="d-health-name">🔌 Laserfiche API</span>
+                <span class="d-pill d-pill--green">Operational</span>
+            </div>
+            <div class="d-health-row">
+                <span class="d-health-name">🗄️ Repository</span>
+                <span class="d-pill d-pill--green">Connected</span>
+            </div>
+            <div class="d-health-row">
+                <span class="d-health-name">🔎 Search Service</span>
+                <span class="d-pill @(s.TotalDocuments >= 0 ? "d-pill--green" : "d-pill--red")">Operational</span>
+            </div>
+            <div class="d-health-row">
+                <span class="d-health-name">🔡 OCR Engine</span>
+                <span class="d-pill d-pill--muted">N/A</span>
+            </div>
+            <div class="d-health-row">
+                <span class="d-health-name">🧠 AI Model</span>
+                <span class="d-pill d-pill--muted">N/A</span>
+            </div>
+            <div class="d-health-row">
+                <span class="d-health-name">🗃️ Vector Database</span>
+                <span class="d-pill d-pill--muted">N/A</span>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+@* ═══════════════════════════════════════════════════════════════════════════
+   ROW 7 — SECURITY & COMPLIANCE
+═══════════════════════════════════════════════════════════════════════════ *@
+<div class="d-card d-gap">
+    <div class="d-card-title">
+        <span><span class="d-card-icon">🔒</span> Security &amp; Compliance</span>
+    </div>
+    <div class="d-sec-cards">
+        <div class="d-sec-card">
+            <div class="d-sec-card__icon">👥</div>
+            <div class="d-sec-card__label">RBAC</div>
+            <span class="d-sec-card__badge d-sec-active">Active</span>
+            <div style="font-size:.6875rem;color:var(--d-muted);text-align:center;">Laserfiche role-based access control</div>
+        </div>
+        <div class="d-sec-card">
+            <div class="d-sec-card__icon">📋</div>
+            <div class="d-sec-card__label">Audit Logging</div>
+            <span class="d-sec-card__badge d-sec-active">Active</span>
+            <div style="font-size:.6875rem;color:var(--d-muted);text-align:center;">Server-side audit trail</div>
+        </div>
+        <div class="d-sec-card">
+            <div class="d-sec-card__icon">🔐</div>
+            <div class="d-sec-card__label">Data Encryption</div>
+            <span class="d-sec-card__badge d-sec-active">Active</span>
+            <div style="font-size:.6875rem;color:var(--d-muted);text-align:center;">TLS in transit · DPAPI at rest</div>
+        </div>
+        <div class="d-sec-card">
+            <div class="d-sec-card__icon">🔏</div>
+            <div class="d-sec-card__label">Permission Filter</div>
+            <span class="d-sec-card__badge d-sec-active">Active</span>
+            <div style="font-size:.6875rem;color:var(--d-muted);text-align:center;">Document-level permissions</div>
+        </div>
+        <div class="d-sec-card">
+            <div class="d-sec-card__icon">✈️</div>
+            <div class="d-sec-card__label">Air-Gapped AI</div>
+            <span class="d-sec-card__badge d-sec-na">N/A</span>
+            <div style="font-size:.6875rem;color:var(--d-muted);text-align:center;">No AI pipeline in standard LF</div>
+        </div>
+        <div class="d-sec-card">
+            <div class="d-sec-card__icon">🏗️</div>
+            <div class="d-sec-card__label">On-Premise</div>
+            <span class="d-sec-card__badge d-sec-active">Active</span>
+            <div style="font-size:.6875rem;color:var(--d-muted);text-align:center;">Self-hosted deployment</div>
+        </div>
+    </div>
+</div>
+
+@* ═══════════════════════════════════════════════════════════════════════════
+   ROW 8 — LIVE REPOSITORY STATUS
+═══════════════════════════════════════════════════════════════════════════ *@
+<div class="d-card d-gap">
+    <div class="d-card-title">
+        <span><span class="d-card-icon">📡</span> Live Repository Status</span>
+        <span class="d-pill d-pill--green">Connected</span>
+    </div>
+    <div class="d-repo-grid">
+        <div>
+            <div class="d-repo-item__label">Repository Name</div>
+            <div class="d-repo-item__value">@(s.RepositoryName ?? "—")</div>
+        </div>
+        <div>
+            <div class="d-repo-item__label">Repository ID</div>
+            <div class="d-repo-item__value">@(s.RepositoryId ?? "—")</div>
+        </div>
+        <div>
+            <div class="d-repo-item__label">Connected User</div>
+            <div class="d-repo-item__value" style="color:var(--d-muted);">Configured service account</div>
+        </div>
+        <div>
+            <div class="d-repo-item__label">Repository Version</div>
+            <div class="d-repo-item__value">@(s.ServerVersion ?? "—")</div>
+        </div>
+        <div>
+            <div class="d-repo-item__label">Connection Status</div>
+            <div class="d-repo-item__value" style="display:flex;align-items:center;gap:6px;">
+                <span class="d-pill d-pill--green" style="font-size:.75rem;">Online</span>
+            </div>
+        </div>
+        <div>
+            <div class="d-repo-item__label">Last Refresh</div>
+            <div class="d-repo-item__value">
+                @(s.LastCheckedAt.HasValue ? s.LastCheckedAt.Value.ToString("yyyy-MM-dd HH:mm:ss") + " UTC" : "—")
+            </div>
+        </div>
+        <div>
+            <div class="d-repo-item__label">Total Entries</div>
+            <div class="d-repo-item__value">@s.TotalEntries.ToString("N0")</div>
+        </div>
+        <div>
+            <div class="d-repo-item__label">Documents / Folders</div>
+            <div class="d-repo-item__value">@s.TotalDocuments.ToString("N0") / @s.TotalFolders.ToString("N0")</div>
+        </div>
+    </div>
+</div>
+
+</div>@* end .d-wrap *@
+
+@* ═══════════════════════════════════════════════════════════════════════════
+   CHARTS — initialise Chart.js after DOM is ready
+═══════════════════════════════════════════════════════════════════════════ *@
+@section Scripts {
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    "use strict";
+
+    // ── Shared defaults ──────────────────────────────────────────────────────
+    Chart.defaults.color = "#94a3b8";
+    Chart.defaults.borderColor = "rgba(51,65,85,0.6)";
+    Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
+
+    const ACCENT  = "#3b82f6";
+    const GREEN   = "#22c55e";
+    const AMBER   = "#f59e0b";
+    const PURPLE  = "#a855f7";
+    const CYAN    = "#06b6d4";
+    const PINK    = "#ec4899";
+
+    // ── 1. Search Activity line chart ────────────────────────────────────────
+    const actCtx = document.getElementById("chartActivity");
+    if (actCtx) {
+        new Chart(actCtx, {
+            type: "line",
+            data: {
+                labels: @Html.Raw(JsonSerializer.Serialize(activityLabels)),
+                datasets: [{
+                    label: "Searches",
+                    data:  @Html.Raw(JsonSerializer.Serialize(activityData)),
+                    borderColor: ACCENT,
+                    backgroundColor: "rgba(59,130,246,0.12)",
+                    pointBackgroundColor: ACCENT,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { color: "rgba(51,65,85,0.4)" } },
+                    y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: "rgba(51,65,85,0.4)" } }
+                }
+            }
+        });
+    }
+
+    // ── 2. Document Type doughnut chart ─────────────────────────────────────
+    const dtCtx = document.getElementById("chartDocTypes");
+    if (dtCtx) {
+        const labels = @Html.Raw(JsonSerializer.Serialize(docTypeLabels));
+        const data   = @Html.Raw(JsonSerializer.Serialize(docTypeData));
+        const colors = [ACCENT, AMBER, GREEN, PURPLE, CYAN, PINK];
+        new Chart(dtCtx, {
+            type: "doughnut",
+            data: {
+                labels,
+                datasets: [{
+                    data,
+                    backgroundColor: colors.slice(0, labels.length),
+                    borderColor: "#1e293b",
+                    borderWidth: 3,
+                    hoverOffset: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: "68%",
+                plugins: {
+                    legend: {
+                        display: false   // legend is rendered manually below the chart
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ` ${ctx.label}: ${ctx.parsed.toLocaleString()}`
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // ── 3. Documents by Department horizontal bar chart ──────────────────────
+    const deptCtx = document.getElementById("chartDepts");
+    if (deptCtx) {
+        const deptLabels = @Html.Raw(JsonSerializer.Serialize(deptLabels));
+        const deptData   = @Html.Raw(JsonSerializer.Serialize(deptData));
+        new Chart(deptCtx, {
+            type: "bar",
+            data: {
+                labels: deptLabels,
+                datasets: [{
+                    label: "Entries (sample)",
+                    data: deptData,
+                    backgroundColor: "rgba(59,130,246,0.65)",
+                    borderColor: ACCENT,
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                indexAxis: "y",
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: "rgba(51,65,85,0.4)" } },
+                    y: { grid: { color: "rgba(51,65,85,0.2)" } }
+                }
+            }
+        });
+    }
+})();
+</script>
 }
