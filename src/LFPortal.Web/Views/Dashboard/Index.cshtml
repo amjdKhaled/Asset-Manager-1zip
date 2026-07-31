@@ -1,0 +1,190 @@
+@model LFPortal.Web.Controllers.DashboardViewModel
+@using LFPortal.Domain.Entities
+@{
+    ViewData["Title"] = "Dashboard";
+    var s = Model.Stats;
+
+    // Entry-type badge helper
+    string EntryBadgeClass(LFEntryType t) => t switch
+    {
+        LFEntryType.Document     => "entry-badge entry-badge--document",
+        LFEntryType.Folder       => "entry-badge entry-badge--folder",
+        LFEntryType.Shortcut     => "entry-badge entry-badge--shortcut",
+        LFEntryType.RecordSeries => "entry-badge entry-badge--shortcut",
+        _                        => "entry-badge entry-badge--other"
+    };
+}
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
+    <h1 style="font-size:1.5rem;font-weight:700;color:var(--lfp-text);">Dashboard</h1>
+    @if (s.IsConnected && s.LastCheckedAt.HasValue)
+    {
+        <span style="font-size:.8125rem;color:var(--lfp-muted);">
+            Live data &mdash; fetched @s.LastCheckedAt.Value.ToString("yyyy-MM-dd HH:mm:ss") UTC
+        </span>
+    }
+</div>
+
+@* ── Error state ───────────────────────────────────────────────────────── *@
+@if (!s.IsConnected)
+{
+    <div class="card">
+        <div class="card__title" style="display:flex;align-items:center;justify-content:space-between;">
+            <span>Repository Status</span>
+            <span class="badge badge--red">Disconnected</span>
+        </div>
+        <div class="alert alert--error">
+            <span>&#9888;</span>
+            <div>
+                <strong>Unable to retrieve dashboard data.</strong><br />
+                @(!string.IsNullOrWhiteSpace(s.ErrorMessage) ? s.ErrorMessage : "Check your Laserfiche server configuration and credentials.")
+            </div>
+        </div>
+        <div style="margin-top:16px;font-size:.875rem;color:var(--lfp-muted);">
+            Configure your connection details in <code style="background:#f1f5f9;padding:1px 6px;border-radius:3px;">appsettings.json</code>
+            and ensure <code style="background:#f1f5f9;padding:1px 6px;border-radius:3px;">LF_USERNAME</code> /
+            <code style="background:#f1f5f9;padding:1px 6px;border-radius:3px;">LF_PASSWORD</code> are set, then restart the portal.
+        </div>
+    </div>
+    return;
+}
+
+@* ── Repository header card ───────────────────────────────────────────── *@
+<div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+            <div style="font-size:.75rem;color:var(--lfp-muted);font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">
+                Connected Repository
+            </div>
+            <div style="font-size:1.125rem;font-weight:600;color:var(--lfp-text);">
+                @(s.RepositoryName ?? "—")
+            </div>
+            @if (!string.IsNullOrWhiteSpace(s.ServerVersion))
+            {
+                <div style="font-size:.8125rem;color:var(--lfp-muted);margin-top:2px;">
+                    Laserfiche Server @s.ServerVersion
+                </div>
+            }
+        </div>
+        <span class="badge badge--green">Connected</span>
+    </div>
+</div>
+
+@* ── Stat cards ────────────────────────────────────────────────────────── *@
+<div class="stat-cards">
+    <div class="stat-card stat-card__accent">
+        <div class="stat-card__value">@s.TotalEntries.ToString("N0")</div>
+        <div class="stat-card__label">Total Entries</div>
+    </div>
+    <div class="stat-card stat-card__blue">
+        <div class="stat-card__value">@s.TotalDocuments.ToString("N0")</div>
+        <div class="stat-card__label">Documents</div>
+    </div>
+    <div class="stat-card stat-card__amber">
+        <div class="stat-card__value">@s.TotalFolders.ToString("N0")</div>
+        <div class="stat-card__label">Folders</div>
+    </div>
+    @foreach (var kv in s.EntryTypeBreakdown
+        .Where(k => k.Key != "Document" && k.Key != "Folder" && k.Value > 0)
+        .OrderByDescending(k => k.Value))
+    {
+        <div class="stat-card stat-card__muted">
+            <div class="stat-card__value">@kv.Value.ToString("N0")</div>
+            <div class="stat-card__label">@kv.Key</div>
+        </div>
+    }
+</div>
+
+@* ── Recent entries table ──────────────────────────────────────────────── *@
+<div class="card">
+    <div class="card__title">Recent Entries
+        <span style="font-weight:400;font-size:.8125rem;color:var(--lfp-muted);margin-left:8px;">
+            (last 10 modified)
+        </span>
+    </div>
+
+    @if (!s.RecentEntries.Any())
+    {
+        <div class="alert alert--info">
+            <span>&#8505;</span>
+            <div>No entries were returned by the repository. The repository may be empty.</div>
+        </div>
+    }
+    else
+    {
+        <div style="overflow-x:auto;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Template</th>
+                        <th>Creator</th>
+                        <th>Last Modified</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in s.RecentEntries)
+                    {
+                        <tr>
+                            <td>
+                                <span style="font-weight:500;">@entry.Name</span>
+                                @if (!string.IsNullOrWhiteSpace(entry.FolderPath) && entry.FolderPath != "/")
+                                {
+                                    <div style="font-size:.75rem;color:var(--lfp-muted);margin-top:2px;font-family:monospace;">
+                                        @entry.FolderPath
+                                    </div>
+                                }
+                            </td>
+                            <td>
+                                <span class="@EntryBadgeClass(entry.EntryType)">
+                                    @entry.EntryType.ToString()
+                                </span>
+                            </td>
+                            <td style="color:@(string.IsNullOrWhiteSpace(entry.TemplateName) ? "var(--lfp-muted)" : "var(--lfp-text)");">
+                                @(string.IsNullOrWhiteSpace(entry.TemplateName) ? "—" : entry.TemplateName)
+                            </td>
+                            <td>@(string.IsNullOrWhiteSpace(entry.Creator) ? "—" : entry.Creator)</td>
+                            <td style="white-space:nowrap;font-variant-numeric:tabular-nums;">
+                                @(entry.LastModifiedTime.HasValue
+                                    ? entry.LastModifiedTime.Value.ToString("yyyy-MM-dd HH:mm")
+                                    : "—")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@* ── Entry type breakdown ──────────────────────────────────────────────── *@
+@if (s.EntryTypeBreakdown.Any(k => k.Value > 0))
+{
+    <div class="card" style="margin-top:16px;">
+        <div class="card__title">Entry Type Breakdown</div>
+        <div class="breakdown-bars">
+            @{
+                var total = s.EntryTypeBreakdown.Values.Sum();
+                total = total == 0 ? 1 : total;
+            }
+            @foreach (var kv in s.EntryTypeBreakdown.Where(k => k.Value > 0).OrderByDescending(k => k.Value))
+            {
+                var pct = (double)kv.Value / total * 100;
+                var barColor = kv.Key switch
+                {
+                    "Document" => "var(--lfp-accent)",
+                    "Folder"   => "var(--lfp-amber)",
+                    _          => "var(--lfp-muted)"
+                };
+                <div class="breakdown-row">
+                    <div class="breakdown-row__label">@kv.Key</div>
+                    <div class="breakdown-row__bar-wrap">
+                        <div class="breakdown-row__bar" style="width:@pct.ToString("F1")%;background:@barColor;"></div>
+                    </div>
+                    <div class="breakdown-row__count">@kv.Value.ToString("N0")</div>
+                </div>
+            }
+        </div>
+    </div>
+}

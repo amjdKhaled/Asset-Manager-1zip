@@ -76,7 +76,7 @@ dotnet publish src/LFPortal.Web/LFPortal.Web.csproj \
 |---|---|---|
 | Phase 0 | Compatibility verification & ADRs | ✅ Complete |
 | Phase 1 | Solution scaffold & LF infrastructure | ✅ Complete |
-| Phase 2 | Dashboard page (live LF data) | 🔲 Not started |
+| Phase 2 | Dashboard page (live LF data) | ✅ Complete |
 | Phase 3 | Document Archive browser | 🔲 Not started |
 | Phase 4 | LF Settings page & final polish | 🔲 Not started |
 | Phase 5 | Desktop Client Extension | ⏸ Blocked (ADR-003 pending on-site SDK check) |

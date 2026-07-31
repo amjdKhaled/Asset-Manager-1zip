@@ -137,6 +137,93 @@
         }
         .alert--error { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; }
         .alert--info  { background: #eff6ff; color: #1e3a8a; border: 1px solid #bfdbfe; }
+
+        /* ── Stat cards (Dashboard) ── */
+        .stat-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .stat-card {
+            background: var(--lfp-card);
+            border: 1px solid var(--lfp-border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 20px 24px 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            border-top: 3px solid var(--lfp-border);
+        }
+        .stat-card__accent { border-top-color: var(--lfp-accent); }
+        .stat-card__blue   { border-top-color: #2563eb; }
+        .stat-card__amber  { border-top-color: var(--lfp-amber); }
+        .stat-card__muted  { border-top-color: var(--lfp-muted); }
+        .stat-card__value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--lfp-text);
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+        .stat-card__label {
+            font-size: .75rem;
+            font-weight: 600;
+            color: var(--lfp-muted);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+        }
+
+        /* ── Data table (Dashboard recent entries) ── */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .875rem;
+        }
+        .data-table th {
+            text-align: left;
+            font-size: .6875rem;
+            font-weight: 700;
+            color: var(--lfp-muted);
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            padding: 10px 12px;
+            border-bottom: 2px solid var(--lfp-border);
+            white-space: nowrap;
+        }
+        .data-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--lfp-border);
+            color: var(--lfp-text);
+            vertical-align: middle;
+        }
+        .data-table tbody tr:last-child td { border-bottom: none; }
+        .data-table tbody tr:hover         { background: #f8fafc; }
+
+        /* ── Entry type badges ── */
+        .entry-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: .6875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+        .entry-badge--document { background: #dbeafe; color: #1e40af; }
+        .entry-badge--folder   { background: #fef3c7; color: #92400e; }
+        .entry-badge--shortcut { background: #f3f4f6; color: #374151; }
+        .entry-badge--other    { background: #f3f4f6; color: #6b7280; }
+
+        /* ── Breakdown bars (Dashboard entry type chart) ── */
+        .breakdown-bars { display: flex; flex-direction: column; gap: 12px; }
+        .breakdown-row  { display: grid; grid-template-columns: 100px 1fr 80px; align-items: center; gap: 12px; }
+        .breakdown-row__label { font-size: .875rem; color: var(--lfp-text); font-weight: 500; }
+        .breakdown-row__bar-wrap { background: #f1f5f9; border-radius: 100px; height: 8px; overflow: hidden; }
+        .breakdown-row__bar { height: 100%; border-radius: 100px; transition: width .4s ease; min-width: 2px; }
+        .breakdown-row__count { font-size: .875rem; color: var(--lfp-muted); font-variant-numeric: tabular-nums; text-align: right; }
     </style>
 </head>
 <body>
@@ -144,8 +231,12 @@
         <a class="site-header__logo" asp-controller="Home" asp-action="Index">
             <span>LF</span>Portal
         </a>
+        @{
+            var _ctrl = ViewContext.RouteData.Values["controller"]?.ToString() ?? "";
+        }
         <nav class="site-header__nav" aria-label="Primary navigation">
-            <a asp-controller="Home" asp-action="Index">Status</a>
+            <a asp-controller="Home"      asp-action="Index" class="@(_ctrl == "Home"      ? "active" : "")">Status</a>
+            <a asp-controller="Dashboard" asp-action="Index" class="@(_ctrl == "Dashboard" ? "active" : "")">Dashboard</a>
         </nav>
     </header>
 
