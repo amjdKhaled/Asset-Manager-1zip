@@ -1,0 +1,254 @@
+I want to change the implementation plan before any code is written.
+
+DO NOT start building anything yet.
+
+First, completely revise the project architecture and execution plan according to the following requirements, then present the updated plan for approval.
+
+====================================================
+PROJECT GOAL
+====================================================
+
+This is NOT an AI project anymore.
+
+This is a professional enterprise Laserfiche Portal.
+
+The entire application exists to work with Laserfiche Repository API.
+
+Laserfiche is NOT an external integration.
+
+Laserfiche IS the core of the entire system.
+
+Every page, service, model, and feature must be designed around Laserfiche from day one.
+
+====================================================
+TECHNOLOGY STACK
+====================================================
+
+I want the ENTIRE application rewritten using ONLY Microsoft's ecosystem.
+
+Latest .NET version available (.NET 8 or newer if stable).
+
+Backend:
+- ASP.NET Core
+- C#
+- MVC Architecture (preferred)
+- Controllers
+- Dependency Injection
+- HttpClientFactory
+- Options Pattern
+- ILogger
+- ProblemDetails
+- Async/Await everywhere
+- CancellationToken support
+- Strongly Typed Models
+- Clean Architecture
+
+Frontend:
+
+I DO NOT want React.
+
+I DO NOT want Node.js.
+
+I DO NOT want Express.
+
+I DO NOT want TypeScript.
+
+I DO NOT want Vite.
+
+I DO NOT want npm dependencies unless absolutely required.
+
+The frontend should also be ASP.NET Core based.
+
+Use:
+
+- Razor Views (MVC)
+OR
+- Razor Components / Blazor Server
+
+Choose whichever is more suitable for an enterprise internal portal.
+
+The frontend must still be written in C#/.NET architecture, not React.
+
+====================================================
+MOST IMPORTANT REQUIREMENT
+====================================================
+
+DO NOT build Dashboard.
+
+DO NOT build Archive.
+
+DO NOT build Settings.
+
+DO NOT build ANY UI.
+
+UNTIL...
+
+Laserfiche Integration Layer is completely finished.
+
+The FIRST phase of the project MUST be dedicated ONLY to Laserfiche.
+
+====================================================
+PHASE 1
+Laserfiche Infrastructure
+====================================================
+
+This phase must include ALL communication with Laserfiche.
+
+It must become the foundation for the entire application.
+
+Build and fully test:
+
+• Authentication
+• Token management
+• Token refresh
+• Repository discovery
+• Repository selection
+• Repository validation
+• Repository connection testing
+• Folder browsing
+• Recursive folder traversal
+• Document browsing
+• Metadata retrieval
+• Template retrieval
+• Field definitions
+• Field values
+• Entry details
+• Entry hierarchy
+• Entry paths
+• Entry IDs
+• Search APIs
+• Simple Search
+• Search expression support
+• Download electronic documents
+• Image retrieval
+• PDF retrieval
+• Document streams
+• HTTP retry policy
+• Timeout handling
+• Error handling
+• Structured logging
+• Configuration validation
+• Dependency Injection
+• Service abstraction
+• Interfaces
+• DTOs
+• Mapping
+
+Everything must be reusable.
+
+No duplicated code.
+
+No business logic inside controllers.
+
+====================================================
+NO UI BEFORE THIS IS COMPLETE
+====================================================
+
+I do NOT want a Dashboard until ALL Laserfiche services are finished.
+
+Every Laserfiche endpoint must be implemented first.
+
+Every service must be testable.
+
+Every service must be reusable.
+
+====================================================
+PHASE 2
+Dashboard
+====================================================
+
+ONLY after Phase 1 is complete.
+
+The Dashboard must consume ONLY the services built in Phase 1.
+
+It must NEVER call Laserfiche directly.
+
+All data must come through the service layer.
+
+====================================================
+PHASE 3
+Document Archive
+====================================================
+
+Again,
+
+No duplicated Laserfiche code.
+
+No HTTP requests inside UI.
+
+Everything must reuse the infrastructure from Phase 1.
+
+====================================================
+PHASE 4
+LF Settings
+====================================================
+
+This page should ONLY configure the connection.
+
+It must NOT contain connection logic.
+
+It must only use the services already built.
+
+====================================================
+LIVE DATA ONLY
+====================================================
+
+The application must NEVER contain:
+
+- mock data
+- fake repositories
+- seed documents
+- sample documents
+- local JSON documents
+- placeholder statistics
+- demo content
+- simulated results
+
+Everything must come from the live Laserfiche Repository API.
+
+If Laserfiche is unavailable,
+
+display a proper enterprise error state.
+
+Never replace missing data with fake information.
+
+====================================================
+ENTERPRISE QUALITY
+====================================================
+
+Design the project as if it will eventually grow into a full enterprise portal.
+
+Future modules may include:
+
+- Authentication
+- Active Directory
+- SSO
+- Workflow Integration
+- Forms Integration
+- Audit Trail
+- Reporting
+- Notifications
+
+DO NOT implement these now.
+
+Simply design the architecture so adding them later is clean.
+
+====================================================
+VERY IMPORTANT
+====================================================
+
+Before writing any code,
+
+rewrite the entire execution plan according to these requirements.
+
+Do NOT start building until I explicitly approve the new plan.
+
+If you believe another architecture would be better than the current proposal, explain why and propose it before implementation.
+
+Do not skip any requirement.
+
+Do not simplify any requirement.
+
+Do not invent features that I did not request.
+
+Wait for my approval after presenting the revised plan.
