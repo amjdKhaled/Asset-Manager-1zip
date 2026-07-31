@@ -63,7 +63,7 @@ public sealed class SettingsController : Controller
         var (serverUrl, apiBasePath, apiVersion) = NormaliseServerUrl(
             request.ServerUrl?.Trim() ?? string.Empty,
             request.ApiBasePath?.Trim() ?? "/LFRepositoryAPI",
-            request.ApiVersion?.Trim() ?? "v2");
+            request.ApiVersion?.Trim() ?? "v1");
 
         if (string.IsNullOrWhiteSpace(serverUrl))
             ModelState.AddModelError(nameof(request.ServerUrl), "Server URL is required.");
@@ -145,9 +145,9 @@ public sealed class SettingsController : Controller
         var (serverUrl, _, _) = NormaliseServerUrl(
             request.ServerUrl.Trim(),
             request.ApiBasePath?.Trim() ?? "/LFRepositoryAPI",
-            request.ApiVersion?.Trim() ?? "v2");
+            "v1");
 
-        // Save ApiBasePath / ApiVersion into options so the adapter picks them up when
+        // Save ApiBasePath into options so the adapter picks it up when
         // building the test URLs (they are read from IOptionsMonitor inside the adapter).
         // We do NOT write credentials; this is a read-only test.
         await _portalConfig.SaveConnectionSettingsAsync(
@@ -155,7 +155,7 @@ public sealed class SettingsController : Controller
             request.RepositoryId.Trim(),
             _optionsMonitor.CurrentValue.DisplayName,
             request.ApiBasePath?.Trim() ?? _optionsMonitor.CurrentValue.ApiBasePath,
-            request.ApiVersion?.Trim() ?? _optionsMonitor.CurrentValue.ApiVersion,
+            "v1",
             cancellationToken);
 
         // Invalidate cached token so the test uses a fresh one against the new URL
@@ -255,7 +255,7 @@ public sealed class SettingsViewModel
     public string RepositoryId { get; init; } = string.Empty;
     public string DisplayName  { get; init; } = string.Empty;
     public string ApiBasePath  { get; init; } = "/LFRepositoryAPI";
-    public string ApiVersion   { get; init; } = "v2";
+    public string ApiVersion   { get; init; } = "v1";
     public bool HasSavedCredentials               { get; init; }
     public bool HasEnvironmentVariableCredentials { get; init; }
     public bool SaveSuccess    { get; init; }

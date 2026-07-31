@@ -101,12 +101,15 @@ else
             </div>
         </div>
 
+        @* Always submit v1 — server exposes v1 only *@
+        <input type="hidden" name="ApiVersion" value="v1" />
+
         @* ── Advanced ────────────────────────────────────────────────── *@
         <div class="form-section" style="margin-top:24px;">
             <details>
                 <summary class="form-section__title" style="cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:6px;">
                     <span id="adv-chevron" style="font-size:.75rem;transition:transform .2s;">&#9654;</span>
-                    Advanced — API path &amp; version
+                    Advanced — API path
                 </summary>
                 <div class="settings-grid" style="margin-top:16px;">
                     <div class="field-group">
@@ -118,18 +121,6 @@ else
                         <span class="field-hint">
                             Virtual directory where the Laserfiche API Server is installed.
                             Default: <code>/LFRepositoryAPI</code>.
-                        </span>
-                    </div>
-                    <div class="field-group">
-                        <label class="field-label" for="ApiVersion">API Version</label>
-                        <select class="field-input" id="ApiVersion" name="ApiVersion">
-                            @{ var isV2 = Model.ApiVersion != "v1"; }
-                            <option value="v2" selected="@(isV2 ? "selected" : null)">v2 (recommended)</option>
-                            <option value="v1" selected="@(!isV2 ? "selected" : null)">v1 (older installations)</option>
-                        </select>
-                        <span class="field-hint">
-                            Use <code>v2</code> for Laserfiche 11+ (2023+).
-                            Use <code>v1</code> if you get HTTP 404 on all repository requests.
                         </span>
                     </div>
                 </div>

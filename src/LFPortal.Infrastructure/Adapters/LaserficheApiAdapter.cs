@@ -4,22 +4,17 @@ using Microsoft.Extensions.Options;
 namespace LFPortal.Infrastructure.Adapters;
 
 /// <summary>
-/// Builds Laserfiche Repository API v2 endpoint URLs from the live
+/// Builds Laserfiche Repository API v1 endpoint URLs from the live
 /// <see cref="LaserficheOptions"/>. Registered as a singleton; uses
 /// <see cref="IOptionsMonitor{T}"/> so URL changes made via the Settings page
 /// take effect immediately without an application restart.
 /// </summary>
-/// <remarks>
-/// To add support for a future API version: implement <see cref="ILaserficheApiAdapter"/>
-/// in a new class (e.g. <c>LaserficheV3ApiAdapter</c>) and change the DI registration
-/// in <c>ServiceCollectionExtensions</c>. No service code changes required.
-/// </remarks>
-internal sealed class LaserficheV2ApiAdapter : ILaserficheApiAdapter
+internal sealed class LaserficheApiAdapter : ILaserficheApiAdapter
 {
     private readonly IOptionsMonitor<LaserficheOptions> _optionsMonitor;
 
     /// <summary>Initialises the adapter with a live options monitor.</summary>
-    public LaserficheV2ApiAdapter(IOptionsMonitor<LaserficheOptions> optionsMonitor)
+    public LaserficheApiAdapter(IOptionsMonitor<LaserficheOptions> optionsMonitor)
     {
         _optionsMonitor = optionsMonitor;
     }

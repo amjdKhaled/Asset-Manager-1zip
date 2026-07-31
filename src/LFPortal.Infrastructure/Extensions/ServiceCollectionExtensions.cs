@@ -43,7 +43,7 @@ public static class ServiceCollectionExtensions
         services.AddMemoryCache();
 
         // ── API adapter — singleton; reads live options via IOptionsMonitor ───
-        services.AddSingleton<ILaserficheApiAdapter, LaserficheV2ApiAdapter>();
+        services.AddSingleton<ILaserficheApiAdapter, LaserficheApiAdapter>();
 
         // ── Repository context — singleton; reads live options per call ────────
         services.AddSingleton<IRepositoryContext, ConfigurationRepositoryContext>();

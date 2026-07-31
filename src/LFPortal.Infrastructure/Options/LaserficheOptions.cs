@@ -62,10 +62,10 @@ public sealed class LaserficheOptions
     public string ApiBasePath { get; set; } = "/LFRepositoryAPI";
 
     /// <summary>
-    /// API version path segment, e.g. <c>v2</c>. Only change if Laserfiche publishes
-    /// a future version and the adapter is updated accordingly.
+    /// API version path segment. Defaults to <c>v1</c> — the version supported by
+    /// Laserfiche API Server on-premises installations.
     /// </summary>
-    public string ApiVersion { get; set; } = "v2";
+    public string ApiVersion { get; set; } = "v1";
 
     /// <summary>
     /// HTTP request timeout in seconds for all Laserfiche API calls.
