@@ -46,6 +46,11 @@ Move `@{ var x = ... }` computations to the top-level `@{ }` block at the top of
 
 Both are tried by `GetAllFolderChildrenAsync` in the entry service.
 
+**THE ONLY WORKING URL**: `/Entries/{id}/Folder/Children?$top=N` (capital F, capital C).
+- Wrong: `/Entries/{id}/Laserfiche.Repository.Folder/children` — v2-only, 404 on v1
+- Wrong: `/Entries/{id}/children` — returns 404 on this server
+- RIGHT: `/Entries/{id}/Folder/Children?$top=1000` — confirmed from original GovSearch AI `laserficheListEntries`
+
 **Why:** The original `laserficheGetFolderChildren` used the OData-typed path. Using search expressions (`{LF:Document type}="Document"`) is unreliable — some LF server configurations don't support that token, causing false 0-count results.
 
 ## entryType field parsing

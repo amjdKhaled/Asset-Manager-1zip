@@ -61,7 +61,8 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
             EntryResource.Details  => $"{RepoBase(repositoryId)}/Entries/{entryId}",
             EntryResource.Fields   => $"{RepoBase(repositoryId)}/Entries/{entryId}/fields",
             EntryResource.Tags     => $"{RepoBase(repositoryId)}/Entries/{entryId}/tags",
-            EntryResource.Children => $"{RepoBase(repositoryId)}/Entries/{entryId}/children",
+            EntryResource.Children       => $"{RepoBase(repositoryId)}/Entries/{entryId}/children",
+            EntryResource.FolderChildren => $"{RepoBase(repositoryId)}/Entries/{entryId}/Folder/Children",
             EntryResource.Edoc     => $"{RepoBase(repositoryId)}/Entries/{entryId}/edoc",
             EntryResource.Pages    => $"{RepoBase(repositoryId)}/Entries/{entryId}/pages",
             _ => throw new ArgumentOutOfRangeException(nameof(resource), resource, "Unknown entry resource.")
@@ -98,8 +99,19 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The v1 LF API path is <c>/Entries/{id}/Folder/Children</c> (capital F, capital C).
+    /// This matches the exact endpoint used in the original GovSearch AI Node.js backend
+    /// (<c>laserficheListEntries</c>). The OData-typed variant
+    /// <c>/Entries/{id}/Laserfiche.Repository.Folder/children</c> is v2-only and returns
+    /// 404 on v1 servers.
+    /// </remarks>
     public string BuildFolderChildrenUrl(string repositoryId, int entryId, int top = 1000) =>
-        $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Folder/children?$top={top}";
+        // Exact path from original GovSearch AI laserficheListEntries():
+        //   /Entries/{id}/Folder/Children?$top=N
+        // No $select — let the server return all available fields to avoid 400 errors
+        // from field names that may not exist on a particular installation.
+        $"{RepoBase(repositoryId)}/Entries/{entryId}/Folder/Children?$top={top}";
 
     /// <inheritdoc />
     public string BuildTemplateDefinitionsUrl(string repositoryId) =>

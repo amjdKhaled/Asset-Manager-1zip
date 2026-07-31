@@ -155,12 +155,13 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
             .ConfigureAwait(false);
 
         // URL candidates — tried in order; first 2xx response wins.
-        // Primary  : v1 OData-typed folder path (original GovSearch AI approach).
-        // Fallback1: plain /children (works on all v1 servers).
-        // Fallback2: /children without $top (some servers reject unknown OData params).
+        // Primary  : /Folder/Children — exact path from original GovSearch AI backend.
+        //            Original: /Entries/{id}/Folder/Children?$top=N&$select=...
+        // Fallback1: /Folder/Children without $select (some servers restrict $select).
+        // Fallback2: /children (generic path, lowercase, some v1 variants).
         string primaryUrl   = _adapter.BuildFolderChildrenUrl(repo.RepositoryId, entryId);
-        string fallback1Url = $"{_adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Children)}?$top=1000";
-        string fallback2Url = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Children);
+        string fallback1Url = $"{_adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.FolderChildren)}?$top=1000";
+        string fallback2Url = $"{_adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Children)}?$top=1000";
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
 

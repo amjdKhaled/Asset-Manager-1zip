@@ -19,6 +19,12 @@ public enum EntryResource
     /// <summary>Direct children of a folder entry: <c>GET /Entries/{id}/children</c></summary>
     Children,
 
+    /// <summary>
+    /// v1 folder-children path that matches the original GovSearch AI backend:
+    /// <c>GET /Entries/{id}/Folder/Children</c> (capital F, capital C).
+    /// </summary>
+    FolderChildren,
+
     /// <summary>Electronic document download: <c>GET /Entries/{id}/edoc</c></summary>
     Edoc,
 

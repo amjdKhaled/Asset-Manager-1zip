@@ -86,12 +86,14 @@ public sealed class DashboardController : Controller
 
         var urls = new (string Label, string Url)[]
         {
-            ("GET /Repositories",                        adapter.BuildRepositoriesUrl()),
-            ("GET /Entries/1 (root entry details)",      adapter.BuildEntryUrl(repoId, 1, EntryResource.Details)),
-            ("GET /Entries/1/Laserfiche.Repository.Folder/children?$top=20 (OData-typed)", folderTypedUrl.Replace("$top=1000","$top=20")),
-            ("GET /Entries/1/children?$top=20&$count=true (plain)", childrenFull),
-            ("GET /Entries/1/children (no params)",      childrenSimple),
-            ("GET /TemplateDefinitions",                 adapter.BuildTemplateDefinitionsUrl(repoId)),
+            ("GET /Repositories",                                  adapter.BuildRepositoriesUrl()),
+            ("GET /Entries/1 (root entry details)",                adapter.BuildEntryUrl(repoId, 1, EntryResource.Details)),
+            // Primary dashboard URL — /Folder/Children (capital F, capital C) matching v1 spec
+            ("GET /Entries/1/Folder/Children?$top=20 [DASHBOARD PRIMARY]", folderTypedUrl.Replace("$top=1000", "$top=20")),
+            // Fallback — lowercase /children with OData params
+            ("GET /Entries/1/children?$top=20&$count=true [fallback]",     childrenFull),
+            ("GET /Entries/1/children [fallback bare]",                    childrenSimple),
+            ("GET /TemplateDefinitions",                                    adapter.BuildTemplateDefinitionsUrl(repoId)),
         };
 
         foreach (var (label, url) in urls)
