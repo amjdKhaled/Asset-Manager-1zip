@@ -176,9 +176,9 @@ else
             </span>
         </div>
         <div class="status-item">
-            <span class="status-item__label">Repository Info URL (current)</span>
+                            <span class="status-item__label">Repository List URL (current)</span>
             <span class="status-item__value" style="font-family:monospace;font-size:.75rem;word-break:break-all;">
-                @($"{Model.ServerUrl.TrimEnd('/')}{Model.ApiBasePath}/{Model.ApiVersion}/Repositories/{(string.IsNullOrWhiteSpace(Model.RepositoryId) ? "{RepositoryId}" : Model.RepositoryId)}")
+                @($"{Model.ServerUrl.TrimEnd('/')}{Model.ApiBasePath}/{Model.ApiVersion}/Repositories")
             </span>
         </div>
         <div class="status-item">

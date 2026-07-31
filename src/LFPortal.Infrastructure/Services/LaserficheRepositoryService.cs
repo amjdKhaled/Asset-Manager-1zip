@@ -58,12 +58,14 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
 
         using var response = await client.SendAsync(request, cancellationToken)
             .ConfigureAwait(false);
-        _ = await ReadRepositoryJsonAsync(response, url, cancellationToken)
+        var body = await ReadRepositoryJsonAsync(response, url, cancellationToken)
             .ConfigureAwait(false);
+        var repositories = DeserializeRepositories(body, url);
 
-        throw new NotSupportedException(
-            "The raw Laserfiche repository JSON was logged. " +
-            "Repository DTO mapping is paused until the actual response schema is inspected.");
+        return repositories
+            .Select(ToRepositoryInfo)
+            .ToList()
+            .AsReadOnly();
     }
 
     /// <inheritdoc />
@@ -82,13 +84,13 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
             url);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
-        var rawJson = await GetRepositoryJsonAsync(client, url, cancellationToken)
+        var body = await GetRepositoryJsonAsync(client, url, cancellationToken)
             .ConfigureAwait(false);
 
-        throw new LaserficheException(
-            $"RAW Repository JSON:\n{rawJson}\n\n" +
-            "Repository DTO mapping is paused until this actual response schema is inspected.",
-            200);
+        var repositories = DeserializeRepositories(body, url);
+        var match = FindConfiguredRepository(repositories, repo.RepositoryId, url);
+
+        return ToRepositoryInfo(match);
     }
 
     /// <inheritdoc />
@@ -175,13 +177,16 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
                 .SendAsync(repoRequest, cancellationToken)
                 .ConfigureAwait(false);
 
-            var rawJson = await ReadRepositoryJsonAsync(
+            var body = await ReadRepositoryJsonAsync(
                 repoResponse, repositoriesUrl, cancellationToken).ConfigureAwait(false);
+            var repositories = DeserializeRepositories(body, repositoriesUrl);
+            var match = FindConfiguredRepository(repositories, repositoryId, repositoriesUrl);
 
-            return ConnectionStatus.Failure(
-                $"RAW Repository JSON:\n{rawJson}\n\n" +
-                $"Authenticated successfully. Repository DTO mapping is paused until " +
-                $"this actual response schema is inspected. Configured RepositoryId: '{repositoryId}'.");
+            _logger.LogInformation(
+                "Authentication successful and repository {RepositoryId} found.",
+                match.RepoId);
+
+            return ConnectionStatus.Success(ToRepositoryInfo(match));
         }
         catch (Exception ex)
         {
@@ -273,4 +278,48 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
 
         return body;
     }
+
+    private static List<RepositoryDto> DeserializeRepositories(string body, string url)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<List<RepositoryDto>>(body, JsonOptions.Default)
+                ?? throw new LaserficheException(
+                    $"Laserfiche returned a null repository list for {url}.",
+                    200);
+        }
+        catch (JsonException ex)
+        {
+            throw new LaserficheException(
+                $"Laserfiche repository response was not a JSON array matching " +
+                $"RepositoryDto. URL: {url}. Details: {ex.Message}",
+                200);
+        }
+    }
+
+    private static RepositoryDto FindConfiguredRepository(
+        IReadOnlyList<RepositoryDto> repositories,
+        string configuredRepositoryId,
+        string url)
+    {
+        var match = repositories.FirstOrDefault(r =>
+            string.Equals(
+                r.RepoId,
+                configuredRepositoryId,
+                StringComparison.OrdinalIgnoreCase));
+
+        return match ?? throw new LaserficheException(
+            $"Authenticated successfully, but repository '{configuredRepositoryId}' " +
+            $"was not found in the repository list returned by {url}.",
+            404);
+    }
+
+    private RepositoryInfo ToRepositoryInfo(RepositoryDto repository) =>
+        new()
+        {
+            RepositoryId = repository.RepoId,
+            RepositoryName = repository.RepoName,
+            ServerVersion = "Unknown",
+            ApiVersion = _adapter.ApiVersion
+        };
 }

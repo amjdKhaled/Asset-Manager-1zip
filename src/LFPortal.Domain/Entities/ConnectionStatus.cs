@@ -8,6 +8,12 @@ public sealed record ConnectionStatus
     /// <summary><c>true</c> if the connection check completed without error.</summary>
     public bool IsConnected { get; init; }
 
+    /// <summary><c>true</c> when token authentication completed successfully.</summary>
+    public bool AuthenticationSucceeded { get; init; }
+
+    /// <summary><c>true</c> when the configured repository was found in GET /Repositories.</summary>
+    public bool RepositoryFound { get; init; }
+
     /// <summary>Repository ID that was tested. Null when connection failed before reaching the repository.</summary>
     public string? RepositoryId { get; init; }
 
@@ -30,6 +36,8 @@ public sealed record ConnectionStatus
     public static ConnectionStatus Success(RepositoryInfo info) => new()
     {
         IsConnected = true,
+        AuthenticationSucceeded = true,
+        RepositoryFound = true,
         RepositoryId = info.RepositoryId,
         RepositoryName = info.RepositoryName,
         ServerVersion = info.ServerVersion,
