@@ -47,6 +47,10 @@ internal sealed class LaserficheApiAdapter : ILaserficheApiAdapter
         $"{ApiBase()}/Repositories";
 
     /// <inheritdoc />
+    public string BuildRepositoriesUrlFor(string serverUrl) =>
+        $"{BuildApiBase(serverUrl)}/Repositories";
+
+    /// <inheritdoc />
     public string BuildTokenUrl(string repositoryId) =>
         $"{RepoBase(repositoryId)}/Token";
 
@@ -85,19 +89,9 @@ internal sealed class LaserficheApiAdapter : ILaserficheApiAdapter
         $"{RepoBase(repositoryId)}/SearchResults/{operationToken}";
 
     /// <inheritdoc />
-    public string BuildRepositoryInfoUrl(string repositoryId) =>
-        $"{ApiBase()}/Repositories/{repositoryId}";
-
-    /// <inheritdoc />
     public string BuildTokenUrlFor(string serverUrl, string repositoryId)
     {
         return $"{BuildApiBase(serverUrl)}/Repositories/{repositoryId}/Token";
-    }
-
-    /// <inheritdoc />
-    public string BuildRepositoryInfoUrlFor(string serverUrl, string repositoryId)
-    {
-        return $"{BuildApiBase(serverUrl)}/Repositories/{repositoryId}";
     }
 
     /// <summary>

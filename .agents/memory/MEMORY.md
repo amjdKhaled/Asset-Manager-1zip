@@ -7,3 +7,4 @@
 - [LFPortal EntryResource naming](lfportal-entry-resource.md) — Inner response record must not share name with adapter enum; use qualified namespace or rename.
 - [LFPortal build gates](lfportal-build-gates.md) — ValidateDataAnnotations needs Microsoft.Extensions.Options.DataAnnotations; DPAPI needs [SupportedOSPlatform("windows")].
 - [LFPortal URL ownership](lfportal-url-ownership.md) — Repository descriptors carry only the server root; the adapter owns adding the API base path exactly once.
+- [LFPortal Swagger evidence](lfportal-swagger-evidence.md) — Route screenshots establish available paths; repository response fields must be confirmed from the live response body.

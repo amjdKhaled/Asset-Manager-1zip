@@ -23,6 +23,12 @@ internal interface ILaserficheApiAdapter
     string BuildRepositoriesUrl();
 
     /// <summary>
+    /// Builds the URL for <c>GET /Repositories</c> using an explicitly supplied
+    /// server URL. Used by the Settings connection test before configuration is saved.
+    /// </summary>
+    string BuildRepositoriesUrlFor(string serverUrl);
+
+    /// <summary>
     /// Builds the URL for <c>POST /Repositories/{repoId}/Token</c> — the password-grant
     /// token issuance endpoint.
     /// </summary>
@@ -61,22 +67,10 @@ internal interface ILaserficheApiAdapter
     string BuildSearchResultsUrl(string repositoryId, string operationToken);
 
     /// <summary>
-    /// Builds the URL for repository information:
-    /// <c>GET /Repositories/{repoId}</c>.
-    /// </summary>
-    string BuildRepositoryInfoUrl(string repositoryId);
-
-    /// <summary>
     /// Builds a token URL using an explicitly-supplied server URL instead of the stored
     /// configuration. Used when testing a connection with credentials that have not yet been
     /// saved, so the test hits exactly what was typed into the form.
     /// </summary>
     string BuildTokenUrlFor(string serverUrl, string repositoryId);
 
-    /// <summary>
-    /// Builds a repository-info URL using an explicitly-supplied server URL instead of the
-    /// stored configuration. Used when testing a connection with credentials that have not
-    /// yet been saved, so the test hits exactly what was typed into the form.
-    /// </summary>
-    string BuildRepositoryInfoUrlFor(string serverUrl, string repositoryId);
 }

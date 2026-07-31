@@ -9,8 +9,8 @@ using Microsoft.Extensions.Logging;
 namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
-/// Implements repository-level operations by calling the Laserfiche Repository API v2
-/// <c>/Repositories</c> endpoint. All data returned by this service is sourced directly
+/// Implements repository-level operations by calling the Laserfiche Repository API v1
+/// <c>GET /Repositories</c> endpoint. All data returned by this service is sourced directly
 /// from the live API with no local caching.
 /// </summary>
 internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
@@ -36,55 +36,32 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
     /// <inheritdoc />
     public async Task<IReadOnlyList<RepositoryInfo>> DiscoverRepositoriesAsync(
         string serverUrl,
+        string repositoryId,
         string username,
         string password,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Discovering repositories on server {ServerUrl}.", serverUrl);
 
-        var url = _adapter.BuildRepositoriesUrl();
-
         using var client = _httpClientFactory.CreateClient("LaserficheRaw");
+        var token = await RequestTokenWithCredentialsAsync(
+            client,
+            _adapter.BuildTokenUrlFor(serverUrl, repositoryId),
+            username,
+            password,
+            cancellationToken).ConfigureAwait(false);
 
-        using var response = await client
-            .GetAsync(url, cancellationToken)
+        var url = _adapter.BuildRepositoriesUrlFor(serverUrl);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        using var response = await client.SendAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+        var repositories = await ReadRepositoriesAsync(response, url, cancellationToken)
             .ConfigureAwait(false);
 
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogWarning(
-                "Repository discovery returned HTTP {StatusCode}. " +
-                "Ensure EnableGetRepositoryListApi is true in the API Server appsettings.json.",
-                (int)response.StatusCode);
-
-            throw new LaserficheException(
-                $"Repository discovery failed with HTTP {(int)response.StatusCode}. " +
-                "The GET /Repositories endpoint must be enabled in the API Server configuration " +
-                "(EnableGetRepositoryListApi: true).",
-                (int)response.StatusCode);
-        }
-
-        var body = await response.Content
-            .ReadAsStringAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        var result = JsonSerializer.Deserialize<ODataList<RepositoryResource>>(body, JsonOptions.Default);
-
-        if (result?.Value is null)
-        {
-            return [];
-        }
-
-        return result.Value
-            .Select(r => new RepositoryInfo
-            {
-                RepositoryId   = r.RepositoryId,
-                RepositoryName = r.RepositoryName,
-                ServerVersion  = r.ServerVersion,
-                ApiVersion     = _adapter.ApiVersion
-            })
-            .ToList()
-            .AsReadOnly();
+        return repositories.Select(ToRepositoryInfo).ToList().AsReadOnly();
     }
 
     /// <inheritdoc />
@@ -95,33 +72,18 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
             .GetActiveRepositoryAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var url = _adapter.BuildRepositoryInfoUrl(repo.RepositoryId);
+        var url = _adapter.BuildRepositoriesUrl();
 
-        _logger.LogInformation("→ GET {Url}", url);
+        _logger.LogInformation(
+            "Checking configured repository {RepositoryId} using documented GET /Repositories: {Url}.",
+            repo.RepositoryId,
+            url);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
-        using var response = await client
-            .GetAsync(url, cancellationToken)
+        var repositories = await GetRepositoriesAsync(client, url, cancellationToken)
             .ConfigureAwait(false);
 
-        await EnsureSuccessAsync(response, url, cancellationToken).ConfigureAwait(false);
-
-        var body = await response.Content
-            .ReadAsStringAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        var resource = JsonSerializer.Deserialize<RepositoryResource>(body, JsonOptions.Default)
-            ?? throw new LaserficheException(
-                "Repository info response was empty or could not be deserialised.",
-                (int)response.StatusCode);
-
-        return new RepositoryInfo
-        {
-            RepositoryId   = resource.RepositoryId,
-            RepositoryName = resource.RepositoryName,
-            ServerVersion  = resource.ServerVersion,
-            ApiVersion     = _adapter.ApiVersion
-        };
+        return FindConfiguredRepository(repositories, repo.RepositoryId, url);
     }
 
     /// <inheritdoc />
@@ -153,7 +115,7 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
             // Use the serverUrl supplied by the caller — NOT the stored config —
             // so the test hits exactly what the user typed into the Settings form.
             var tokenUrl = _adapter.BuildTokenUrlFor(serverUrl, repositoryId);
-            var repoUrl  = _adapter.BuildRepositoryInfoUrlFor(serverUrl, repositoryId);
+            var repositoriesUrl = _adapter.BuildRepositoriesUrlFor(serverUrl);
 
             _logger.LogInformation(
                 "Test connection → POST {TokenUrl}", tokenUrl);
@@ -197,9 +159,10 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
             var token = tokenEl.GetString() ?? string.Empty;
 
             _logger.LogInformation(
-                "Test connection → GET {RepoUrl}", repoUrl);
+                "Authentication succeeded. Test connection → GET documented repository list {RepositoriesUrl}.",
+                repositoriesUrl);
 
-            using var repoRequest = new HttpRequestMessage(HttpMethod.Get, repoUrl);
+            using var repoRequest = new HttpRequestMessage(HttpMethod.Get, repositoriesUrl);
             repoRequest.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
@@ -207,33 +170,11 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
                 .SendAsync(repoRequest, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (!repoResponse.IsSuccessStatusCode)
-            {
-                var body404 = await repoResponse.Content
-                    .ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                _logger.LogWarning(
-                    "Repository info failed: HTTP {Status} from {Url}. Body: {Body}",
-                    (int)repoResponse.StatusCode, repoUrl, body404);
+            var repositories = await ReadRepositoriesAsync(
+                repoResponse, repositoriesUrl, cancellationToken).ConfigureAwait(false);
+            var matched = FindConfiguredRepository(repositories, repositoryId, repositoriesUrl);
 
-                return ConnectionStatus.Failure(
-                    $"Authentication succeeded but repository '{repositoryId}' returned " +
-                    $"HTTP {(int)repoResponse.StatusCode}. " +
-                    $"URL attempted: {repoUrl} — check the Repository ID and API version.");
-            }
-
-            var repoBody = await repoResponse.Content
-                .ReadAsStringAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            var resource = JsonSerializer.Deserialize<RepositoryResource>(repoBody, JsonOptions.Default);
-
-            return ConnectionStatus.Success(new RepositoryInfo
-            {
-                RepositoryId   = resource?.RepositoryId ?? repositoryId,
-                RepositoryName = resource?.RepositoryName ?? repositoryId,
-                ServerVersion  = resource?.ServerVersion ?? "Unknown",
-                ApiVersion     = _adapter.ApiVersion
-            });
+            return ConnectionStatus.Success(matched);
         }
         catch (Exception ex)
         {
@@ -246,28 +187,138 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
     /// Throws a <see cref="LaserficheException"/> if the HTTP response indicates an error,
     /// including the response body in the exception message for diagnostics.
     /// </summary>
-    private static async Task EnsureSuccessAsync(
-        HttpResponseMessage response,
+    private async Task<IReadOnlyList<RepositoryResource>> GetRepositoriesAsync(
+        HttpClient client,
         string url,
         CancellationToken cancellationToken)
     {
-        if (response.IsSuccessStatusCode) return;
+        using var response = await client
+            .GetAsync(url, cancellationToken)
+            .ConfigureAwait(false);
+
+        return await ReadRepositoriesAsync(response, url, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<string> RequestTokenWithCredentialsAsync(
+        HttpClient client,
+        string tokenUrl,
+        string username,
+        string password,
+        CancellationToken cancellationToken)
+    {
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = username,
+            ["password"] = password
+        });
+
+        using var response = await client
+            .PostAsync(tokenUrl, form, cancellationToken)
+            .ConfigureAwait(false);
 
         var body = await response.Content
             .ReadAsStringAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        throw new LaserficheException(
-            $"Laserfiche API returned HTTP {(int)response.StatusCode} for {url}. Body: {body}",
-            (int)response.StatusCode);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new LaserficheException(
+                $"Authentication failed with HTTP {(int)response.StatusCode}. " +
+                $"URL attempted: {tokenUrl}. Response body: {body}",
+                (int)response.StatusCode);
+        }
+
+        using var document = JsonDocument.Parse(body);
+        if (!document.RootElement.TryGetProperty("access_token", out var tokenElement) ||
+            string.IsNullOrWhiteSpace(tokenElement.GetString()))
+        {
+            throw new LaserficheException(
+                $"Authentication succeeded but no access_token was returned by {tokenUrl}. " +
+                $"Response body: {body}",
+                (int)response.StatusCode);
+        }
+
+        return tokenElement.GetString()!;
     }
+
+    private async Task<IReadOnlyList<RepositoryResource>> ReadRepositoriesAsync(
+        HttpResponseMessage response,
+        string url,
+        CancellationToken cancellationToken)
+    {
+        var body = await response.Content
+            .ReadAsStringAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new LaserficheException(
+                $"Laserfiche API returned HTTP {(int)response.StatusCode} for documented " +
+                $"GET /Repositories at {url}. Body: {body}",
+                (int)response.StatusCode);
+        }
+
+        var result = JsonSerializer.Deserialize<RepositoryListResponse>(body, JsonOptions.Default)
+            ?? throw new LaserficheException(
+                $"The documented GET /Repositories response was empty or could not be " +
+                $"deserialised. URL: {url}. Body: {body}",
+                (int)response.StatusCode);
+
+        return result.Repositories.AsReadOnly();
+    }
+
+    private RepositoryInfo FindConfiguredRepository(
+        IReadOnlyList<RepositoryResource> repositories,
+        string repositoryId,
+        string url)
+    {
+        var match = repositories.FirstOrDefault(r =>
+            string.Equals(r.RepositoryId, repositoryId, StringComparison.OrdinalIgnoreCase));
+
+        if (match is null)
+        {
+            var available = string.Join(
+                ", ",
+                repositories
+                    .Where(r => !string.IsNullOrWhiteSpace(r.RepositoryId))
+                    .Select(r => r.RepositoryId));
+
+            throw new LaserficheException(
+                $"Authentication succeeded, but configured repository '{repositoryId}' " +
+                $"was not returned by documented GET /Repositories at {url}. " +
+                $"Repositories returned: [{available}]",
+                404);
+        }
+
+        return ToRepositoryInfo(match);
+    }
+
+    private RepositoryInfo ToRepositoryInfo(RepositoryResource resource) =>
+        new()
+        {
+            RepositoryId = resource.RepositoryId,
+            RepositoryName = string.IsNullOrWhiteSpace(resource.RepositoryName)
+                ? resource.RepositoryId
+                : resource.RepositoryName,
+            ServerVersion = resource.ServerVersion,
+            ApiVersion = _adapter.ApiVersion
+        };
 
     // ──────────────────────────── Response models ────────────────────────────
 
-    private sealed record ODataList<T>
+    private sealed record RepositoryListResponse
     {
         [JsonPropertyName("value")]
-        public List<T> Value { get; init; } = [];
+        public List<RepositoryResource> Value { get; init; } = [];
+
+        [JsonPropertyName("repositories")]
+        public List<RepositoryResource> RepositoriesProperty { get; init; } = [];
+
+        [JsonIgnore]
+        public List<RepositoryResource> Repositories =>
+            Value.Count > 0 ? Value : RepositoriesProperty;
     }
 
     private sealed record RepositoryResource

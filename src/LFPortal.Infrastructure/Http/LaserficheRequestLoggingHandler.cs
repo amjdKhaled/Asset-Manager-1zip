@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using LFPortal.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -21,7 +23,7 @@ internal sealed class LaserficheRequestLoggingHandler : DelegatingHandler
         _logger = logger;
     }
 
-    protected override Task<HttpResponseMessage> SendAsync(
+    protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
@@ -34,6 +36,69 @@ internal sealed class LaserficheRequestLoggingHandler : DelegatingHandler
             options.ApiBasePath,
             request.RequestUri);
 
-        return base.SendAsync(request, cancellationToken);
+        var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var responseBody = await response.Content
+            .ReadAsStringAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "Laserfiche response: HTTP {StatusCode} {ReasonPhrase} for {Method} {RequestUrl}. " +
+            "Response body: {ResponseBody}",
+            (int)response.StatusCode,
+            response.ReasonPhrase,
+            request.Method,
+            request.RequestUri,
+            RedactSensitiveJson(responseBody));
+
+        // Reading the content above consumes it. Replace it so the service layer
+        // receives the exact same response body after it has been logged.
+        var mediaType = response.Content.Headers.ContentType?.MediaType ?? "application/json";
+        response.Content = new StringContent(
+            responseBody,
+            Encoding.UTF8,
+            mediaType);
+
+        return response;
+    }
+
+    private static string RedactSensitiveJson(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return body;
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return body;
+            }
+
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+                foreach (var property in document.RootElement.EnumerateObject())
+                {
+                    if (property.Name.Equals("access_token", StringComparison.OrdinalIgnoreCase) ||
+                        property.Name.Equals("refresh_token", StringComparison.OrdinalIgnoreCase) ||
+                        property.Name.Equals("password", StringComparison.OrdinalIgnoreCase))
+                    {
+                        writer.WriteString(property.Name, "[REDACTED]");
+                    }
+                    else
+                    {
+                        property.WriteTo(writer);
+                    }
+                }
+
+                writer.WriteEndObject();
+            }
+
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+        catch (JsonException)
+        {
+            return body;
+        }
     }
 }

@@ -20,12 +20,14 @@ public interface ILaserficheRepositoryService
     /// <returns>List of available repositories. Empty if none are accessible.</returns>
     Task<IReadOnlyList<RepositoryInfo>> DiscoverRepositoriesAsync(
         string serverUrl,
+        string repositoryId,
         string username,
         string password,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retrieves metadata for the currently configured active repository.
+    /// Retrieves the configured repository's metadata by reading the documented
+    /// <c>GET /Repositories</c> list and validating the configured identifier.
     /// </summary>
     Task<RepositoryInfo> GetRepositoryInfoAsync(CancellationToken cancellationToken = default);
 
