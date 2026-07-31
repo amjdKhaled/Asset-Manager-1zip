@@ -1,0 +1,120 @@
+==========================================================
+16. Portable Product & Easy Distribution
+==========================================================
+
+One of the primary goals of this project is to distribute it easily to other computers and servers.
+
+This project must be designed as a commercial software product.
+
+Requirements:
+
+- I should be able to install it on another machine using only the installer.
+- The target machine must not require the source code.
+- The target machine must not require Visual Studio.
+- The target machine must not require any developer tools.
+- The target machine must not require rebuilding the project.
+
+The installation process should be simple:
+
+1. Run the installer.
+2. Configure Laserfiche.
+3. Open the portal.
+4. Everything works.
+
+==========================================================
+17. Release Package
+==========================================================
+
+Every release must generate a complete deployment package.
+
+The release package should contain:
+
+- MSI Installer
+- Published Web Application
+- Desktop Client Extension
+- Configuration Templates
+- Documentation
+- Version Information
+- Release Notes
+
+Everything required to deploy the application should already be included.
+
+==========================================================
+18. Portable Source Code
+==========================================================
+
+The source code must also be portable.
+
+Another developer should be able to:
+
+- Clone the repository.
+- Open the solution.
+- Restore packages.
+- Build successfully.
+
+without manually fixing references or changing paths.
+
+Avoid absolute paths.
+
+Avoid machine-specific configuration.
+
+Avoid hard-coded directories.
+
+==========================================================
+19. External Configuration
+==========================================================
+
+Every environment-specific value must be external.
+
+Examples:
+
+- Server URL
+- Repository ID
+- Credentials
+- Installation path
+- IIS Site Name
+- Application Pool Name
+- Portal URL
+- Desktop Extension settings
+
+Nothing should be hard-coded inside the application.
+
+==========================================================
+20. Long-Term Maintainability
+==========================================================
+
+This project is expected to evolve for many years.
+
+The architecture should support future versions without major redesign.
+
+Future developers should be able to understand, extend, and maintain the project easily.
+
+Follow SOLID principles.
+
+Keep layers independent.
+
+Avoid tight coupling.
+
+Prefer interfaces over concrete implementations.
+
+==========================================================
+21. Final Objective
+==========================================================
+
+The final deliverable should feel like a professional enterprise software product.
+
+It should install easily.
+
+Upgrade easily.
+
+Uninstall cleanly.
+
+Move easily to another machine.
+
+Require minimal administrator effort.
+
+Operate completely offline.
+
+Integrate naturally with Laserfiche.
+
+Be ready for production use.
