@@ -126,23 +126,34 @@ public sealed class DashboardController : Controller
             }
         }
 
+        // If root discovery failed, stop here — do NOT construct /Entries/0/... URLs.
         if (discoveredRootId <= 0)
         {
             rootDiscoveryNote = "Root not resolved — ByPath probe failed. Check credentials and server URL.";
+            return View("Probe", new ProbeViewModel
+            {
+                ServerUrl         = repo.ServerUrl,
+                RepositoryId      = repoId,
+                Username          = username,
+                CredError         = credError,
+                Probes            = probes,
+                RootEntryId       = 0,
+                RootDiscoveryNote = rootDiscoveryNote
+            });
         }
 
-        // Build the remaining probes using the discovered root ID (skip entry-level probes if root unknown)
-        var folderChildrenUrl = discoveredRootId > 0
-            ? adapter.BuildFolderChildrenUrl(repoId, discoveredRootId).Replace("$top=1000", "$top=20")
-            : "(root unknown — skipped)";
-
+        // Root is known — build remaining probes using full absolute URLs from the adapter.
         var urls = new (string Label, string Url)[]
         {
-            ("GET /Repositories",                                     adapter.BuildRepositoriesUrl()),
-            ($"GET /Entries/ByPath?fullPath=\\ → /Entries/{discoveredRootId} (details)", discoveredRootId > 0 ? adapter.BuildEntryUrl(repoId, discoveredRootId, EntryResource.Details) : ""),
-            ($"GET /Entries/{discoveredRootId}/Laserfiche.Repository.Folder/children?$top=20", folderChildrenUrl),
-            ("GET /TemplateDefinitions",                               adapter.BuildTemplateDefinitionsUrl(repoId)),
-        }.Where(t => !string.IsNullOrEmpty(t.Url)).ToArray();
+            ("GET /Repositories",
+                adapter.BuildRepositoriesUrl()),
+            ($"GET /Entries/{discoveredRootId} (root entry details)",
+                adapter.BuildEntryUrl(repoId, discoveredRootId, EntryResource.Details)),
+            ($"GET /Entries/{discoveredRootId}/Laserfiche.Repository.Folder/children?$top=20",
+                adapter.BuildFolderChildrenUrl(repoId, discoveredRootId).Replace("$top=1000", "$top=20")),
+            ("GET /TemplateDefinitions",
+                adapter.BuildTemplateDefinitionsUrl(repoId)),
+        };
 
         foreach (var (label, url) in urls)
         {

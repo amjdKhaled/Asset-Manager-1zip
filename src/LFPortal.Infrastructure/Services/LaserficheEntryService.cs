@@ -173,22 +173,27 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
 
         using var response = await client.GetAsync(byPathUrl, cancellationToken).ConfigureAwait(false);
 
+        // Always read and log the complete raw body BEFORE any deserialization attempt.
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation(
+            "===== RAW BYPATH RESPONSE (HTTP {Status}) =====\n{Body}\n===============================================",
+            (int)response.StatusCode, body);
+
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new LaserficheException(
                 $"Root entry discovery failed. GET {byPathUrl} returned HTTP {(int)response.StatusCode}. " +
-                $"Verify server URL, repository ID, and credentials. Body: {errorBody}",
+                $"Verify server URL, repository ID, and credentials. Body: {body}",
                 (int)response.StatusCode);
         }
 
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var entry = JsonSerializer.Deserialize<EntryApiResource>(body, JsonOptions.Default);
 
         if (entry is not { Id: > 0 })
         {
             throw new LaserficheException(
-                $"Root entry discovery: GET {byPathUrl} returned HTTP 200 but no entry ID was found in the response body.",
+                $"Root entry discovery: GET {byPathUrl} returned HTTP 200 but 'id' was not found or was zero in the response body. " +
+                $"Raw body: {body}",
                 (int)response.StatusCode);
         }
 
