@@ -128,7 +128,8 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
     {
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken).ConfigureAwait(false);
         var skip = (page - 1) * pageSize;
-        var baseUrl = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Children);
+        // Use the Swagger-documented OData-typed folder-children path.
+        var baseUrl = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.FolderChildren);
         var url = $"{baseUrl}?$top={pageSize}&$skip={skip}&$count=true&orderby=name asc";
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
@@ -165,74 +166,38 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
 
-        // ── Method 1: path-based lookup  GET /Entries?entryPath=\
-        // The backslash is the LF root path. URL-encoded: %5C.
-        var pathUrl = $"{_adapter.BuildEntriesUrl(repo.RepositoryId)}?entryPath=%5C&fallbackToClosestAncestor=false";
-        try
+        // Resolve the repository root via the Swagger-documented ByPath endpoint.
+        // Backslash (\) is the Laserfiche root path.
+        var byPathUrl = _adapter.BuildEntryByPathUrl(repo.RepositoryId, @"\");
+        _logger.LogInformation("Discovering repository root via ByPath: {Url}", byPathUrl);
+
+        using var response = await client.GetAsync(byPathUrl, cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
         {
-            using var r1 = await client.GetAsync(pathUrl, cancellationToken).ConfigureAwait(false);
-            if (r1.IsSuccessStatusCode)
-            {
-                var body1 = await r1.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                // The path-lookup endpoint returns a single Entry object (not an OData list).
-                var entry1 = JsonSerializer.Deserialize<EntryApiResource>(body1, JsonOptions.Default);
-                if (entry1 is { Id: > 0 })
-                {
-                    _logger.LogInformation(
-                        "Root entry discovered via path lookup (entryPath=\\): ID={Id}, name='{Name}'.",
-                        entry1.Id, entry1.Name);
-                    s_rootIdCache[repo.RepositoryId] = entry1.Id;
-                    return entry1.Id;
-                }
-            }
-            else
-            {
-                _logger.LogDebug("Path-based root lookup returned HTTP {Status}. Trying next method.", (int)r1.StatusCode);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Path-based root lookup threw. Trying next method.");
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new LaserficheException(
+                $"Root entry discovery failed. GET {byPathUrl} returned HTTP {(int)response.StatusCode}. " +
+                $"Verify server URL, repository ID, and credentials. Body: {errorBody}",
+                (int)response.StatusCode);
         }
 
-        // ── Method 2: check entry 1 — if parentId == 0 then it IS the root
-        var entry1Url = _adapter.BuildEntryUrl(repo.RepositoryId, 1, Adapters.EntryResource.Details);
-        try
-        {
-            using var r2 = await client.GetAsync(entry1Url, cancellationToken).ConfigureAwait(false);
-            if (r2.IsSuccessStatusCode)
-            {
-                var body2 = await r2.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var entry = JsonSerializer.Deserialize<EntryApiResource>(body2, JsonOptions.Default);
-                if (entry is { ParentId: 0, Id: > 0 })
-                {
-                    _logger.LogInformation("Root entry is ID=1 (parentId=0 confirmed).");
-                    s_rootIdCache[repo.RepositoryId] = 1;
-                    return 1;
-                }
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var entry = JsonSerializer.Deserialize<EntryApiResource>(body, JsonOptions.Default);
 
-                _logger.LogDebug(
-                    "Entry 1 exists but parentId={ParentId} — it is NOT the root. Falling back.",
-                    entry?.ParentId);
-            }
-            else
-            {
-                _logger.LogDebug("GET /Entries/1 returned HTTP {Status}.", (int)r2.StatusCode);
-            }
-        }
-        catch (Exception ex)
+        if (entry is not { Id: > 0 })
         {
-            _logger.LogDebug(ex, "Entry-1 check threw. Falling back to ID=1.");
+            throw new LaserficheException(
+                $"Root entry discovery: GET {byPathUrl} returned HTTP 200 but no entry ID was found in the response body.",
+                (int)response.StatusCode);
         }
 
-        // ── Fallback: warn and use 1
-        _logger.LogWarning(
-            "Could not discover repository root for '{RepoId}' via path lookup or entry-1 check. " +
-            "Defaulting to entry ID=1. If the dashboard shows zero data, verify the root entry ID " +
-            "in the Laserfiche Repository and set LF_ROOT_ENTRY_ID if needed.",
-            repo.RepositoryId);
-        s_rootIdCache[repo.RepositoryId] = 1;
-        return 1;
+        _logger.LogInformation(
+            "Repository root discovered via ByPath: ID={Id}, name='{Name}'.",
+            entry.Id, entry.Name);
+
+        s_rootIdCache[repo.RepositoryId] = entry.Id;
+        return entry.Id;
     }
 
     /// <inheritdoc />
@@ -244,74 +209,56 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
             .GetActiveRepositoryAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        // URL candidates — tried in order; first 2xx response wins.
-        // Primary  : OData-typed path confirmed in Swagger:
-        //            /Entries/{id}/Laserfiche.Repository.Folder/children
-        // Fallback1: /Folder/Children (original GovSearch AI Node.js backend path)
-        // Fallback2: /children (generic lowercase, older v1 variants)
-        string primaryUrl   = _adapter.BuildFolderChildrenUrl(repo.RepositoryId, entryId);
-        string fallback1Url = $"{_adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.FolderChildren)}?$top=1000";
-        string fallback2Url = $"{_adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Children)}?$top=1000";
+        // Swagger-documented endpoint only:
+        // GET /Repositories/{repoId}/Entries/{id}/Laserfiche.Repository.Folder/children
+        var url = _adapter.BuildFolderChildrenUrl(repo.RepositoryId, entryId);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
 
-        foreach (var url in (string[])[primaryUrl, fallback1Url, fallback2Url])
+        string body;
+        try
         {
-            string body;
-            try
+            using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
+
+            body = await response.Content
+                .ReadAsStringAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
             {
-                using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
-
-                body = await response.Content
-                    .ReadAsStringAsync(cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning(
-                        "GET {Url} → HTTP {Status}. Body: {Body}",
-                        url, (int)response.StatusCode,
-                        body.Length > 400 ? body[..400] + "…" : body);
-                    continue;
-                }
-
-                _logger.LogInformation("GET {Url} → HTTP {Status}. Body preview: {Body}",
-                    url, (int)response.StatusCode,
+                _logger.LogWarning(
+                    "GetAllFolderChildrenAsync(entryId={EntryId}): GET {Url} → HTTP {Status}. Body: {Body}",
+                    entryId, url, (int)response.StatusCode,
                     body.Length > 400 ? body[..400] + "…" : body);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "GET {Url} threw an exception. Trying next URL.", url);
-                continue;
-            }
-
-            try
-            {
-                var entries = ParseEntryList(body);
-
-                _logger.LogInformation(
-                    "GetAllFolderChildrenAsync(entryId={EntryId}): parsed {Count} entries from {Url}. " +
-                    "Sample entryTypes: {Types}",
-                    entryId, entries.Count, url,
-                    string.Join(", ", entries.Take(5).Select(e => e.EntryType.ToString())));
-
-                return entries.AsReadOnly();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to parse JSON from {Url}. Body: {Body}",
-                    url, body.Length > 400 ? body[..400] + "…" : body);
-                // Don't try next URL — this one returned 2xx but bad JSON; log and return empty.
                 return [];
             }
+
+            _logger.LogInformation(
+                "GetAllFolderChildrenAsync(entryId={EntryId}): GET {Url} → HTTP {Status}.",
+                entryId, url, (int)response.StatusCode);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "GetAllFolderChildrenAsync(entryId={EntryId}): GET {Url} threw.", entryId, url);
+            return [];
         }
 
-        _logger.LogError(
-            "GetAllFolderChildrenAsync(entryId={EntryId}): all {Count} URL candidates failed. " +
-            "No folder children could be retrieved.",
-            entryId, 3);
-        return [];
+        try
+        {
+            var entries = ParseEntryList(body);
+            _logger.LogInformation(
+                "GetAllFolderChildrenAsync(entryId={EntryId}): parsed {Count} entries. Sample types: {Types}",
+                entryId, entries.Count,
+                string.Join(", ", entries.Take(5).Select(e => e.EntryType.ToString())));
+            return entries.AsReadOnly();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "GetAllFolderChildrenAsync(entryId={EntryId}): JSON parse failed. Body: {Body}",
+                entryId, body.Length > 400 ? body[..400] + "…" : body);
+            return [];
+        }
     }
 
     /// <inheritdoc />

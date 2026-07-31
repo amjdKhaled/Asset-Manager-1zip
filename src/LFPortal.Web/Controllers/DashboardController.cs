@@ -79,21 +79,21 @@ public sealed class DashboardController : Controller
         var probes = new List<ProbeResult>();
 
         // ── Step 0: Discover the actual repository root entry ID ──────────────
-        // Do NOT assume root = 1. Use path-based lookup (entryPath=\) first.
-        int discoveredRootId = 1;
+        // Use the Swagger-documented ByPath endpoint. Backslash (\) is the LF root path.
+        int discoveredRootId = 0;
         string rootDiscoveryNote = "";
-        var rootPathUrl = $"{adapter.BuildEntriesUrl(repoId)}?entryPath=%5C&fallbackToClosestAncestor=false";
+        var byPathUrl = adapter.BuildEntryByPathUrl(repoId, @"\");
         {
             var sw0 = Stopwatch.StartNew();
             try
             {
-                using var r = await client.GetAsync(rootPathUrl, cancellationToken);
+                using var r = await client.GetAsync(byPathUrl, cancellationToken);
                 sw0.Stop();
                 var body = await r.Content.ReadAsStringAsync(cancellationToken);
                 probes.Add(new ProbeResult
                 {
-                    Label      = "GET /Entries?entryPath=%5C (root discovery)",
-                    Url        = rootPathUrl,
+                    Label      = "GET /Entries/ByPath?fullPath=\\ (root discovery)",
+                    Url        = byPathUrl,
                     StatusCode = (int)r.StatusCode,
                     Status     = r.ReasonPhrase ?? r.StatusCode.ToString(),
                     IsSuccess  = r.IsSuccessStatusCode,
@@ -102,12 +102,11 @@ public sealed class DashboardController : Controller
                 });
                 if (r.IsSuccessStatusCode)
                 {
-                    // Try to extract the id field from the single-entry JSON response
                     using var doc = System.Text.Json.JsonDocument.Parse(body);
                     if (doc.RootElement.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out int rid) && rid > 0)
                     {
                         discoveredRootId = rid;
-                        rootDiscoveryNote = $"Root discovered via path lookup: ID={rid}";
+                        rootDiscoveryNote = $"Discovered via ByPath (\\): ID={rid}";
                     }
                 }
             }
@@ -116,63 +115,34 @@ public sealed class DashboardController : Controller
                 sw0.Stop();
                 probes.Add(new ProbeResult
                 {
-                    Label = "GET /Entries?entryPath=%5C (root discovery)",
-                    Url = rootPathUrl, StatusCode = 0, Status = "Exception",
-                    IsSuccess = false, Body = ex.ToString(), ElapsedMs = sw0.ElapsedMilliseconds
+                    Label      = "GET /Entries/ByPath?fullPath=\\ (root discovery)",
+                    Url        = byPathUrl,
+                    StatusCode = 0,
+                    Status     = "Exception",
+                    IsSuccess  = false,
+                    Body       = ex.ToString(),
+                    ElapsedMs  = sw0.ElapsedMilliseconds
                 });
             }
         }
 
-        // If path lookup didn't find a root, check entry 1
-        if (discoveredRootId == 1 && string.IsNullOrEmpty(rootDiscoveryNote))
+        if (discoveredRootId <= 0)
         {
-            var sw1 = Stopwatch.StartNew();
-            var entry1Url = adapter.BuildEntryUrl(repoId, 1, EntryResource.Details);
-            try
-            {
-                using var r = await client.GetAsync(entry1Url, cancellationToken);
-                sw1.Stop();
-                var body = await r.Content.ReadAsStringAsync(cancellationToken);
-                probes.Add(new ProbeResult
-                {
-                    Label      = "GET /Entries/1 (is it the root? parentId should be 0)",
-                    Url        = entry1Url,
-                    StatusCode = (int)r.StatusCode,
-                    Status     = r.ReasonPhrase ?? r.StatusCode.ToString(),
-                    IsSuccess  = r.IsSuccessStatusCode,
-                    Body       = body.Length > 3000 ? body[..3000] + "\n…[truncated]" : body,
-                    ElapsedMs  = sw1.ElapsedMilliseconds
-                });
-                if (r.IsSuccessStatusCode)
-                {
-                    using var doc = System.Text.Json.JsonDocument.Parse(body);
-                    if (doc.RootElement.TryGetProperty("parentId", out var pidEl) && pidEl.TryGetInt32(out int pid))
-                        rootDiscoveryNote = pid == 0 ? "Entry 1 is the root (parentId=0)" : $"Entry 1 is NOT root (parentId={pid})";
-                }
-            }
-            catch (Exception ex)
-            {
-                sw1.Stop();
-                probes.Add(new ProbeResult
-                {
-                    Label = "GET /Entries/1 (root check)", Url = adapter.BuildEntryUrl(repoId, 1, EntryResource.Details),
-                    StatusCode = 0, Status = "Exception", IsSuccess = false, Body = ex.ToString(), ElapsedMs = sw1.ElapsedMilliseconds
-                });
-            }
+            rootDiscoveryNote = "Root not resolved — ByPath probe failed. Check credentials and server URL.";
         }
 
-        // Build the remaining probes using the discovered root ID
-        var folderChildrenUrl = adapter.BuildFolderChildrenUrl(repoId, discoveredRootId).Replace("$top=1000", "$top=20");
-        var childrenBase      = adapter.BuildEntryUrl(repoId, discoveredRootId, EntryResource.Children);
+        // Build the remaining probes using the discovered root ID (skip entry-level probes if root unknown)
+        var folderChildrenUrl = discoveredRootId > 0
+            ? adapter.BuildFolderChildrenUrl(repoId, discoveredRootId).Replace("$top=1000", "$top=20")
+            : "(root unknown — skipped)";
 
         var urls = new (string Label, string Url)[]
         {
-            ("GET /Repositories",                                    adapter.BuildRepositoriesUrl()),
-            ($"GET /Entries/{discoveredRootId} (root entry details)", adapter.BuildEntryUrl(repoId, discoveredRootId, EntryResource.Details)),
-            ($"GET /Entries/{discoveredRootId}/Laserfiche.Repository.Folder/children?$top=20 [DASHBOARD PRIMARY]", folderChildrenUrl),
-            ($"GET /Entries/{discoveredRootId}/children?$top=20 [fallback]", $"{childrenBase}?$top=20"),
-            ("GET /TemplateDefinitions",                              adapter.BuildTemplateDefinitionsUrl(repoId)),
-        };
+            ("GET /Repositories",                                     adapter.BuildRepositoriesUrl()),
+            ($"GET /Entries/ByPath?fullPath=\\ → /Entries/{discoveredRootId} (details)", discoveredRootId > 0 ? adapter.BuildEntryUrl(repoId, discoveredRootId, EntryResource.Details) : ""),
+            ($"GET /Entries/{discoveredRootId}/Laserfiche.Repository.Folder/children?$top=20", folderChildrenUrl),
+            ("GET /TemplateDefinitions",                               adapter.BuildTemplateDefinitionsUrl(repoId)),
+        }.Where(t => !string.IsNullOrEmpty(t.Url)).ToArray();
 
         foreach (var (label, url) in urls)
         {

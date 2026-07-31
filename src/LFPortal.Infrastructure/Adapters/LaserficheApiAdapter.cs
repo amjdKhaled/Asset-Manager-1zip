@@ -114,8 +114,8 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
         $"{RepoBase(repositoryId)}/TemplateDefinitions";
 
     /// <inheritdoc />
-    public string BuildEntriesUrl(string repositoryId) =>
-        $"{RepoBase(repositoryId)}/Entries";
+    public string BuildEntryByPathUrl(string repositoryId, string fullPath) =>
+        $"{RepoBase(repositoryId)}/Entries/ByPath?fullPath={Uri.EscapeDataString(fullPath)}";
 
     /// <summary>
     /// Combines a server URL with the configured API base path and version.
