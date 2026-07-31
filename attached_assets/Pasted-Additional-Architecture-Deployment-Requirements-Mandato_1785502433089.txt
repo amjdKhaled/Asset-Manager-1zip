@@ -1,0 +1,139 @@
+Additional Architecture & Deployment Requirements (Mandatory)
+
+This project is not just a web application. It must behave like a complete enterprise Laserfiche add-on for an on-premises environment.
+
+1. Standalone Application (No Visual Studio Required)
+
+The final system must not require Visual Studio or running the project manually.
+
+Requirements:
+
+Build a production-ready application.
+The application must be publishable using:
+dotnet publish
+or an MSI installer.
+After installation, the application must run normally by itself.
+The application must be installable on Windows Server and Windows 10/11.
+It must start exactly like any normal Windows application or IIS website.
+Visual Studio is only for development, never required in production.
+2. IIS Hosting
+
+The application must be designed to run in IIS.
+
+Requirements:
+
+Publish profile for IIS.
+ASP.NET Core Hosting Bundle support.
+Application Pool configuration.
+web.config generated automatically.
+No manual code modifications after publish.
+Easy deployment to production.
+3. Full On-Premises Deployment
+
+The entire system must work completely offline inside the organization.
+
+Requirements:
+
+No cloud services.
+No Azure.
+No AWS.
+No external APIs.
+No internet dependency.
+No telemetry.
+No analytics.
+No third-party hosted services.
+
+Everything must communicate only with:
+
+Laserfiche Repository API
+Local IIS
+Local Windows Server
+Internal network
+
+The system must continue functioning even if the internet connection is completely disconnected.
+
+4. Laserfiche Desktop Client Integration
+
+The application must integrate directly with the Laserfiche Desktop Client.
+
+Requirements:
+
+Build a proper Laserfiche Desktop Client Extension.
+The installer must automatically register the extension.
+After installation, a new toolbar/ribbon button appears inside Laserfiche Desktop Client.
+Clicking the button opens the portal immediately.
+Users must not manually copy DLLs or edit configuration files.
+Registration should happen automatically during installation.
+5. Installer
+
+The final deliverable must include a professional installer.
+
+The installer should:
+
+Install the ASP.NET Core application.
+Configure IIS if required.
+Register the Laserfiche Desktop Extension.
+Copy required files.
+Configure application settings.
+Create Start Menu shortcuts.
+Create Desktop shortcut (optional).
+Support uninstall.
+Support upgrade without losing configuration.
+6. Production Ready
+
+The project must be designed as production software.
+
+Requirements:
+
+Clean logging.
+Configuration files.
+Exception handling.
+Health checks.
+Dependency Injection.
+Versioning.
+Maintainable architecture.
+Extensible modules.
+7. Future Laserfiche Modules
+
+The architecture must allow adding future modules without redesigning the application.
+
+Examples:
+
+Workflow
+Forms
+Audit Trail
+Quick Fields
+Repository Administration
+Records Management
+Reporting
+Active Directory Integration
+
+Adding future modules should require only adding new services, controllers, and views without modifying the existing architecture.
+
+8. Single Source of Truth
+
+Laserfiche is always the source of truth.
+
+The application must never maintain its own copy of repository data.
+
+It must never synchronize documents into another database.
+
+It must never create fake data or cached copies of repository objects.
+
+Every document, folder, metadata field, template, and repository object must always come directly from Laserfiche.
+
+9. Enterprise Quality
+
+Build this as enterprise software, not as a prototype or demo.
+
+Do not generate placeholder implementations.
+
+Do not invent APIs.
+
+Do not create mock repositories.
+
+Do not create sample documents.
+
+Do not hard-code values.
+
+If a capability is unavailable in the installed Laserfiche version, detect it gracefully and report it instead of fabricating functionality.
