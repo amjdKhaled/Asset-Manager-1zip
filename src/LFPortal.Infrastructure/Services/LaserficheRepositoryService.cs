@@ -58,10 +58,12 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
 
         using var response = await client.SendAsync(request, cancellationToken)
             .ConfigureAwait(false);
-        var repositories = await ReadRepositoriesAsync(response, url, cancellationToken)
+        _ = await ReadRepositoryJsonAsync(response, url, cancellationToken)
             .ConfigureAwait(false);
 
-        return repositories.Select(ToRepositoryInfo).ToList().AsReadOnly();
+        throw new NotSupportedException(
+            "The raw Laserfiche repository JSON was logged. " +
+            "Repository DTO mapping is paused until the actual response schema is inspected.");
     }
 
     /// <inheritdoc />
@@ -80,10 +82,13 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
             url);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
-        var repositories = await GetRepositoriesAsync(client, url, cancellationToken)
+        var rawJson = await GetRepositoryJsonAsync(client, url, cancellationToken)
             .ConfigureAwait(false);
 
-        return FindConfiguredRepository(repositories, repo.RepositoryId, url);
+        throw new LaserficheException(
+            $"RAW Repository JSON:\n{rawJson}\n\n" +
+            "Repository DTO mapping is paused until this actual response schema is inspected.",
+            200);
     }
 
     /// <inheritdoc />
@@ -170,11 +175,13 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
                 .SendAsync(repoRequest, cancellationToken)
                 .ConfigureAwait(false);
 
-            var repositories = await ReadRepositoriesAsync(
+            var rawJson = await ReadRepositoryJsonAsync(
                 repoResponse, repositoriesUrl, cancellationToken).ConfigureAwait(false);
-            var matched = FindConfiguredRepository(repositories, repositoryId, repositoriesUrl);
 
-            return ConnectionStatus.Success(matched);
+            return ConnectionStatus.Failure(
+                $"RAW Repository JSON:\n{rawJson}\n\n" +
+                $"Authenticated successfully. Repository DTO mapping is paused until " +
+                $"this actual response schema is inspected. Configured RepositoryId: '{repositoryId}'.");
         }
         catch (Exception ex)
         {
@@ -187,7 +194,7 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
     /// Throws a <see cref="LaserficheException"/> if the HTTP response indicates an error,
     /// including the response body in the exception message for diagnostics.
     /// </summary>
-    private async Task<IReadOnlyList<RepositoryResource>> GetRepositoriesAsync(
+    private async Task<string> GetRepositoryJsonAsync(
         HttpClient client,
         string url,
         CancellationToken cancellationToken)
@@ -196,7 +203,7 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
             .GetAsync(url, cancellationToken)
             .ConfigureAwait(false);
 
-        return await ReadRepositoriesAsync(response, url, cancellationToken)
+        return await ReadRepositoryJsonAsync(response, url, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -243,7 +250,7 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
         return tokenElement.GetString()!;
     }
 
-    private async Task<IReadOnlyList<RepositoryResource>> ReadRepositoriesAsync(
+    private async Task<string> ReadRepositoryJsonAsync(
         HttpResponseMessage response,
         string url,
         CancellationToken cancellationToken)
@@ -251,6 +258,10 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
         var body = await response.Content
             .ReadAsStringAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "RAW Repository JSON:\n{json}",
+            body);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -260,76 +271,6 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
                 (int)response.StatusCode);
         }
 
-        var result = JsonSerializer.Deserialize<RepositoryListResponse>(body, JsonOptions.Default)
-            ?? throw new LaserficheException(
-                $"The documented GET /Repositories response was empty or could not be " +
-                $"deserialised. URL: {url}. Body: {body}",
-                (int)response.StatusCode);
-
-        return result.Repositories.AsReadOnly();
-    }
-
-    private RepositoryInfo FindConfiguredRepository(
-        IReadOnlyList<RepositoryResource> repositories,
-        string repositoryId,
-        string url)
-    {
-        var match = repositories.FirstOrDefault(r =>
-            string.Equals(r.RepositoryId, repositoryId, StringComparison.OrdinalIgnoreCase));
-
-        if (match is null)
-        {
-            var available = string.Join(
-                ", ",
-                repositories
-                    .Where(r => !string.IsNullOrWhiteSpace(r.RepositoryId))
-                    .Select(r => r.RepositoryId));
-
-            throw new LaserficheException(
-                $"Authentication succeeded, but configured repository '{repositoryId}' " +
-                $"was not returned by documented GET /Repositories at {url}. " +
-                $"Repositories returned: [{available}]",
-                404);
-        }
-
-        return ToRepositoryInfo(match);
-    }
-
-    private RepositoryInfo ToRepositoryInfo(RepositoryResource resource) =>
-        new()
-        {
-            RepositoryId = resource.RepositoryId,
-            RepositoryName = string.IsNullOrWhiteSpace(resource.RepositoryName)
-                ? resource.RepositoryId
-                : resource.RepositoryName,
-            ServerVersion = resource.ServerVersion,
-            ApiVersion = _adapter.ApiVersion
-        };
-
-    // ──────────────────────────── Response models ────────────────────────────
-
-    private sealed record RepositoryListResponse
-    {
-        [JsonPropertyName("value")]
-        public List<RepositoryResource> Value { get; init; } = [];
-
-        [JsonPropertyName("repositories")]
-        public List<RepositoryResource> RepositoriesProperty { get; init; } = [];
-
-        [JsonIgnore]
-        public List<RepositoryResource> Repositories =>
-            Value.Count > 0 ? Value : RepositoriesProperty;
-    }
-
-    private sealed record RepositoryResource
-    {
-        [JsonPropertyName("repositoryId")]
-        public string RepositoryId { get; init; } = string.Empty;
-
-        [JsonPropertyName("repositoryName")]
-        public string RepositoryName { get; init; } = string.Empty;
-
-        [JsonPropertyName("serverVersion")]
-        public string ServerVersion { get; init; } = string.Empty;
+        return body;
     }
 }

@@ -41,8 +41,17 @@ else
         </div>
         <div class="alert alert--error">
             <span>&#9888;</span>
-            <div>@(Model.ErrorMessage ?? "An unknown error occurred.")</div>
+            <div style="white-space:pre-wrap;">@(Model.ErrorMessage ?? "An unknown error occurred.")</div>
         </div>
+        @if (Model.ErrorMessage?.StartsWith("RAW Repository JSON:", StringComparison.Ordinal) == true)
+        {
+            <details open style="margin-top:12px;">
+                <summary style="cursor:pointer;font-weight:600;color:var(--lfp-text);">
+                    Raw Laserfiche response
+                </summary>
+                <pre style="margin-top:8px;padding:12px;overflow:auto;max-height:420px;background:var(--lfp-surface-alt);border:1px solid var(--lfp-border);border-radius:6px;white-space:pre-wrap;">@Model.ErrorMessage</pre>
+            </details>
+        }
         <div style="margin-top:12px;font-size:.8125rem;color:var(--lfp-muted);">
             Verify the Server URL, Repository ID, and credentials, then try again.
         </div>
