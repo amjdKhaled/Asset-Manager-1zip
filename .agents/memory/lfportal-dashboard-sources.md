@@ -28,9 +28,13 @@ These paths were confirmed invalid on this server by Probe results:
 ## Root discovery
 
 Use `GET /Repositories/{repo}/Entries/ByPath?fullPath=%5C` (backslash = LF root).  
-Returns a single Entry object; read `id` field. Cache in `s_rootIdCache` per repo.  
-**Never hardcode entry ID 1.** The root is ID=250 on this server.  
-If ByPath fails, throw `LaserficheException` — do not silently default to 1.
+**Confirmed response schema — the entry is nested under an `"entry"` key:**
+```json
+{ "entry": { "id": 1, "entryType": "Folder", "fullPath": "\\", ... } }
+```
+Deserialize into `ByPathApiResponse { EntryApiResource? Entry }`. Read `Entry.Id`.  
+**Do NOT** deserialize as bare `EntryApiResource` or `ODataList<EntryApiResource>` — both fail.  
+Cache result in `s_rootIdCache` per repo. If ByPath fails, throw `LaserficheException`.
 
 ## Folder children (dashboard recursive scan)
 

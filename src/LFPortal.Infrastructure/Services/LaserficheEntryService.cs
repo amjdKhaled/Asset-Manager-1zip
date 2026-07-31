@@ -187,19 +187,21 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
                 (int)response.StatusCode);
         }
 
-        var entry = JsonSerializer.Deserialize<EntryApiResource>(body, JsonOptions.Default);
+        // The ByPath endpoint wraps the entry: { "entry": { "id": ..., "entryType": ..., ... } }
+        var byPathResponse = JsonSerializer.Deserialize<ByPathApiResponse>(body, JsonOptions.Default);
+        var entry = byPathResponse?.Entry;
 
         if (entry is not { Id: > 0 })
         {
             throw new LaserficheException(
-                $"Root entry discovery: GET {byPathUrl} returned HTTP 200 but 'id' was not found or was zero in the response body. " +
+                $"Root entry discovery: GET {byPathUrl} returned HTTP 200 but 'entry.id' was not found or was zero in the response body. " +
                 $"Raw body: {body}",
                 (int)response.StatusCode);
         }
 
         _logger.LogInformation(
-            "Repository root discovered via ByPath: ID={Id}, name='{Name}'.",
-            entry.Id, entry.Name);
+            "Repository root discovered via ByPath: ID={Id}, name='{Name}', path='{Path}'.",
+            entry.Id, entry.Name, entry.FullPath);
 
         s_rootIdCache[repo.RepositoryId] = entry.Id;
         return entry.Id;
@@ -396,6 +398,16 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
     }
 
     // ──────────────────────────── Response models ──────────────────────────
+
+    /// <summary>
+    /// Wrapper returned by <c>GET /Repositories/{repo}/Entries/ByPath</c>.
+    /// Schema: <c>{ "entry": { "id": N, "entryType": "...", ... } }</c>
+    /// </summary>
+    private sealed record ByPathApiResponse
+    {
+        [JsonPropertyName("entry")]
+        public EntryApiResource? Entry { get; init; }
+    }
 
     private sealed record ODataList<T>
     {
