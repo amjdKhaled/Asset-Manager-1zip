@@ -81,25 +81,19 @@ public static class ServiceCollectionExtensions
     // ──────────────────────────── Private helpers ─────────────────────────────
 
     /// <summary>
-    /// Registers a <see cref="CredentialChainProvider"/> that tries the secure primary
-    /// store first (DPAPI on Windows, ASP.NET Core Data Protection on non-Windows),
-    /// then falls back to environment variables.
-    /// When <c>CredentialProvider = Environment</c> is explicitly configured,
-    /// only environment variables are used (no chaining).
+    /// Registers a <see cref="CredentialChainProvider"/> that always tries the
+    /// secure writable store first (DPAPI on Windows, ASP.NET Core Data Protection
+    /// on non-Windows), then falls back to environment variables for reads.
+    /// Environment variables are never used as the write target — they are always
+    /// a read-only fallback so that dev machines can still override without a UI.
+    /// The <c>CredentialProvider</c> option has no effect on this behaviour; it is
+    /// retained for future extension (e.g. Azure Key Vault).
     /// </summary>
     private static void RegisterCredentialProvider(IServiceCollection services)
     {
         services.AddSingleton<ICredentialProvider>(sp =>
         {
-            var options = sp.GetRequiredService<IOptions<LaserficheOptions>>().Value;
-
-            // Explicit env-var mode: no chain, no secure store.
-            if (options.CredentialProvider == CredentialProviderType.Environment)
-            {
-                return ActivatorUtilities.CreateInstance<EnvironmentVariableCredentialProvider>(sp);
-            }
-
-            // DPAPI mode: chain secure primary with env-var fallback.
+            // Always build the chain: writable secure store + read-only env-var fallback.
             ICredentialProvider primary = OperatingSystem.IsWindows()
                 ? ActivatorUtilities.CreateInstance<DpapiCredentialProvider>(sp)
                 : ActivatorUtilities.CreateInstance<DataProtectionCredentialProvider>(sp);
