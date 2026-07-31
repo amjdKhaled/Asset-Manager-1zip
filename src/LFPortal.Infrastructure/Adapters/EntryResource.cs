@@ -5,7 +5,7 @@ namespace LFPortal.Infrastructure.Adapters;
 /// Passed to <see cref="ILaserficheApiAdapter.BuildEntryUrl"/> so URL construction is
 /// centralised in the adapter rather than scattered across services.
 /// </summary>
-internal enum EntryResource
+public enum EntryResource
 {
     /// <summary>Entry detail resource: <c>GET /Entries/{id}</c></summary>
     Details,

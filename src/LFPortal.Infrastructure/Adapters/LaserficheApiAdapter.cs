@@ -9,7 +9,7 @@ namespace LFPortal.Infrastructure.Adapters;
 /// <see cref="IOptionsMonitor{T}"/> so URL changes made via the Settings page
 /// take effect immediately without an application restart.
 /// </summary>
-internal sealed class LaserficheApiAdapter : ILaserficheApiAdapter
+public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
 {
     private readonly IOptionsMonitor<LaserficheOptions> _optionsMonitor;
 

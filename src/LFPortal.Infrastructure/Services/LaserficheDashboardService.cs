@@ -242,10 +242,23 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
     private async Task<(IReadOnlyList<LFEntry> rootChildren, IReadOnlyList<Domain.Entities.LFTemplateDefinition> templateDefs)>
         FetchRootAndTemplatesAsync(CancellationToken ct)
     {
+        _logger.LogInformation("Fetching root entry (ID=1) children and template definitions in parallel.");
         var rootTask     = SafeGetAllFolderChildrenAsync(1, ct);
         var templateTask = _templateService.GetTemplateDefinitionsAsync(ct);
         await Task.WhenAll(rootTask, templateTask).ConfigureAwait(false);
-        return (await rootTask, await templateTask);
+
+        var root  = await rootTask;
+        var tmpls = await templateTask;
+
+        _logger.LogInformation(
+            "Root children: {RootCount} entries (docs={Docs}, folders={Folders}, other={Other}). Templates defined: {TmplCount}.",
+            root.Count,
+            root.Count(e => e.EntryType == Domain.Entities.LFEntryType.Document),
+            root.Count(e => e.EntryType == Domain.Entities.LFEntryType.Folder),
+            root.Count(e => e.EntryType == Domain.Entities.LFEntryType.Unknown),
+            tmpls.Count);
+
+        return (root, tmpls);
     }
 
     private async Task<IReadOnlyList<LFEntry>> SafeGetAllFolderChildrenAsync(int entryId, CancellationToken ct)
@@ -256,7 +269,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not list children of entry {EntryId}.", entryId);
+            _logger.LogError(ex, "SafeGetAllFolderChildrenAsync: unhandled exception for entry {EntryId}.", entryId);
             return [];
         }
     }
@@ -267,14 +280,33 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         IEnumerable<LFEntry> rootFolders,
         CancellationToken    ct)
     {
-        var tasks = rootFolders.Select(folder =>
-            ScanFolderAsync(folder.Id, folder.Name, new ConcurrentDictionary<int, byte>(), ct)
-                .ContinueWith(t => t.IsCompletedSuccessfully
-                    ? t.Result with { Name = folder.Name }
-                    : new ScanResult(folder.Name, 0, 0, [], []),
-                TaskScheduler.Default));
+        var folderList = rootFolders.ToList();
+        _logger.LogInformation("Starting recursive scan of {Count} root-level folders.", folderList.Count);
 
-        return await Task.WhenAll(tasks).ConfigureAwait(false);
+        var tasks = folderList.Select(async folder =>
+        {
+            try
+            {
+                var result = await ScanFolderAsync(folder.Id, folder.Name, new ConcurrentDictionary<int, byte>(), ct)
+                    .ConfigureAwait(false);
+                return result with { Name = folder.Name };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Root folder scan failed for folder {FolderId} '{Name}'.", folder.Id, folder.Name);
+                return new ScanResult(folder.Name, 0, 0, [], []);
+            }
+        });
+
+        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "Root folder scan complete: {Docs} docs, {Folders} folders across {Count} root folders.",
+            results.Sum(r => r.Documents),
+            results.Sum(r => r.Folders),
+            results.Length);
+
+        return results;
     }
 
     // ── Private: recursive folder scanner ────────────────────────────────
@@ -286,7 +318,10 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         CancellationToken             ct)
     {
         if (!visited.TryAdd(folderId, 0))
+        {
+            _logger.LogDebug("Cycle detected — skipping already-visited folder {FolderId}.", folderId);
             return new ScanResult(folderName, 0, 0, [], []);
+        }
 
         IReadOnlyList<LFEntry> children;
         try
@@ -297,7 +332,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Cannot list children of folder {FolderId} '{Name}'.", folderId, folderName);
+            _logger.LogWarning(ex, "Cannot list children of folder {FolderId} '{Name}'.", folderId, folderName);
             return new ScanResult(folderName, 0, 0, [], []);
         }
 

@@ -10,7 +10,7 @@ namespace LFPortal.Infrastructure.Adapters;
 /// ADR-004 documents why this abstraction exists and how to add support for a future
 /// Laserfiche API version without disrupting existing service code.
 /// </remarks>
-internal interface ILaserficheApiAdapter
+public interface ILaserficheApiAdapter
 {
     /// <summary>The API version this adapter targets, e.g. <c>v2</c>.</summary>
     string ApiVersion { get; }

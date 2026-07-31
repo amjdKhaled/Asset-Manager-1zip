@@ -4,7 +4,7 @@ namespace LFPortal.Infrastructure.Adapters;
 /// Identifies which Laserfiche search API endpoint to invoke.
 /// Passed to <see cref="ILaserficheApiAdapter.BuildSearchUrl"/> to centralise URL construction.
 /// </summary>
-internal enum SearchType
+public enum SearchType
 {
     /// <summary>
     /// Keyword/phrase search via <c>POST /SimpleSearches</c>.

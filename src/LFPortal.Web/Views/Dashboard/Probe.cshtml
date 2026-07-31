@@ -1,0 +1,106 @@
+@model LFPortal.Web.Controllers.ProbeViewModel
+@{
+    ViewData["Title"] = "Dashboard Probe — API Diagnostics";
+}
+
+@section Styles {
+<style>
+body { background: #0f172a !important; }
+main { max-width: 1200px !important; padding: 24px !important; }
+
+.p-card     { background:#1e293b;border:1px solid #334155;border-radius:10px;padding:20px;margin-bottom:20px; }
+.p-ok       { border-left: 4px solid #22c55e; }
+.p-err      { border-left: 4px solid #ef4444; }
+.p-warn     { border-left: 4px solid #f97316; }
+.p-label    { font-size:.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px; }
+.p-url      { font-family:monospace;font-size:.83rem;color:#60a5fa;word-break:break-all;margin-bottom:8px; }
+.p-status   { display:inline-flex;align-items:center;gap:6px;font-size:.82rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-bottom:10px; }
+.p-ok-badge { background:rgba(34,197,94,.15);color:#4ade80; }
+.p-err-badge{ background:rgba(239,68,68,.15);color:#f87171; }
+.p-body     { background:#0f172a;border:1px solid #334155;border-radius:6px;padding:14px;font-family:monospace;font-size:.78rem;color:#e2e8f0;white-space:pre-wrap;word-break:break-word;max-height:400px;overflow-y:auto; }
+.p-title    { color:#f1f5f9;font-size:1rem;font-weight:600;margin-bottom:4px; }
+.p-elapsed  { color:#94a3b8;font-size:.72rem;float:right; }
+</style>
+}
+
+<div style="color:#f1f5f9">
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+    <div>
+        <h1 style="font-size:1.3rem;font-weight:700;margin-bottom:4px">🔬 API Diagnostic Probe</h1>
+        <p style="color:#94a3b8;font-size:.83rem">
+            Every URL the dashboard calls — raw request, HTTP status, and full response body.
+        </p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a href="/Dashboard/Probe" style="background:#334155;color:#f1f5f9;padding:6px 14px;border-radius:8px;text-decoration:none;font-size:.82rem">↺ Re-run probe</a>
+        <a href="/Dashboard" style="background:#3b82f6;color:#fff;padding:6px 14px;border-radius:8px;text-decoration:none;font-size:.82rem">← Dashboard</a>
+    </div>
+</div>
+
+<!-- Connection info -->
+<div class="p-card" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px">
+    <div>
+        <div class="p-label">Server URL</div>
+        <div style="font-family:monospace;font-size:.83rem;color:#60a5fa">@Model.ServerUrl</div>
+    </div>
+    <div>
+        <div class="p-label">Repository ID</div>
+        <div style="font-family:monospace;font-size:.9rem;color:#f1f5f9;font-weight:600">@Model.RepositoryId</div>
+    </div>
+    <div>
+        <div class="p-label">Authenticated Username</div>
+        @if (!string.IsNullOrWhiteSpace(Model.Username))
+        {
+            <div style="color:#4ade80;font-weight:600">@Model.Username</div>
+        }
+        else
+        {
+            <div style="color:#f87171">⚠ @(Model.CredError ?? "No credentials found")</div>
+        }
+    </div>
+</div>
+
+<!-- Summary bar -->
+@{
+    var ok      = Model.Probes.Count(p => p.IsSuccess);
+    var failed  = Model.Probes.Count - ok;
+}
+<div class="p-card" style="display:flex;align-items:center;gap:24px;margin-bottom:24px;padding:14px 20px">
+    <span style="font-size:.85rem;color:#94a3b8">@Model.Probes.Count probes fired</span>
+    <span style="color:#4ade80;font-weight:700">✓ @ok passed</span>
+    @if (failed > 0)
+    {
+        <span style="color:#f87171;font-weight:700">✗ @failed failed</span>
+    }
+    <span style="color:#94a3b8;font-size:.78rem">Tip: look at the JSON bodies below to confirm field names match what the code expects.</span>
+</div>
+
+<!-- Individual probe results -->
+@foreach (var p in Model.Probes)
+{
+    <div class="p-card @(p.IsSuccess ? "p-ok" : "p-err")">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between">
+            <div class="p-title">@p.Label</div>
+            <span class="p-elapsed">@p.ElapsedMs ms</span>
+        </div>
+        <div class="p-url">@p.Url</div>
+        <div>
+            <span class="p-status @(p.IsSuccess ? "p-ok-badge" : "p-err-badge")">
+                @if (p.IsSuccess)
+                {
+                    <span>✓</span>
+                }
+                else
+                {
+                    <span>✗</span>
+                }
+                @(p.StatusCode > 0 ? $"HTTP {p.StatusCode} {p.Status}" : p.Status)
+            </span>
+        </div>
+        <div class="p-label" style="margin-top:8px">Response Body</div>
+        <div class="p-body">@p.Body</div>
+    </div>
+}
+
+</div>

@@ -154,33 +154,72 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
             .GetActiveRepositoryAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        // Primary: v1 OData-typed path used by the original GovSearch AI implementation.
-        // Fallback: simpler /children path if the OData path is not available.
-        string primaryUrl  = _adapter.BuildFolderChildrenUrl(repo.RepositoryId, entryId);
-        string fallbackUrl = $"{_adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Children)}?$top=1000";
+        // URL candidates — tried in order; first 2xx response wins.
+        // Primary  : v1 OData-typed folder path (original GovSearch AI approach).
+        // Fallback1: plain /children (works on all v1 servers).
+        // Fallback2: /children without $top (some servers reject unknown OData params).
+        string primaryUrl   = _adapter.BuildFolderChildrenUrl(repo.RepositoryId, entryId);
+        string fallback1Url = $"{_adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Children)}?$top=1000";
+        string fallback2Url = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Children);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
 
-        foreach (var url in (string[])[primaryUrl, fallbackUrl])
+        foreach (var url in (string[])[primaryUrl, fallback1Url, fallback2Url])
         {
+            string body;
             try
             {
                 using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode) continue;
 
-                var body = await response.Content
+                body = await response.Content
                     .ReadAsStringAsync(cancellationToken)
                     .ConfigureAwait(false);
 
-                var result = JsonSerializer.Deserialize<ODataList<EntryApiResource>>(body, JsonOptions.Default);
-                return (result?.Value ?? []).Select(MapEntry).ToList().AsReadOnly();
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "GET {Url} → HTTP {Status}. Body: {Body}",
+                        url, (int)response.StatusCode,
+                        body.Length > 400 ? body[..400] + "…" : body);
+                    continue;
+                }
+
+                _logger.LogInformation("GET {Url} → HTTP {Status}. Body preview: {Body}",
+                    url, (int)response.StatusCode,
+                    body.Length > 400 ? body[..400] + "…" : body);
             }
-            catch (Exception)
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
             {
-                // Try fallback URL on any failure
+                _logger.LogWarning(ex, "GET {Url} threw an exception. Trying next URL.", url);
+                continue;
+            }
+
+            try
+            {
+                var entries = ParseEntryList(body);
+
+                _logger.LogInformation(
+                    "GetAllFolderChildrenAsync(entryId={EntryId}): parsed {Count} entries from {Url}. " +
+                    "Sample entryTypes: {Types}",
+                    entryId, entries.Count, url,
+                    string.Join(", ", entries.Take(5).Select(e => e.EntryType.ToString())));
+
+                return entries.AsReadOnly();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse JSON from {Url}. Body: {Body}",
+                    url, body.Length > 400 ? body[..400] + "…" : body);
+                // Don't try next URL — this one returned 2xx but bad JSON; log and return empty.
+                return [];
             }
         }
 
+        _logger.LogError(
+            "GetAllFolderChildrenAsync(entryId={EntryId}): all {Count} URL candidates failed. " +
+            "No folder children could be retrieved.",
+            entryId, 3);
         return [];
     }
 
@@ -240,7 +279,9 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
         Creator            = r.Creator,
         CreationTime       = r.CreationTime,
         LastModifiedTime   = r.LastModifiedTime,
-        EntryType          = ParseEntryType(r.EntryType),
+        // Prefer the explicit "entryType" field; fall back to the OData "@odata.type"
+        // discriminator (e.g. "#Laserfiche.Repository.Folder") when entryType is absent.
+        EntryType          = ParseEntryType(r.EntryType ?? r.ODataType),
         TemplateName       = r.TemplateName,
         TemplateId         = r.TemplateId,
         FileSizeBytes      = r.FileSizeBytes,
@@ -248,14 +289,54 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
         RowNumber          = r.RowNumber
     };
 
-    private static LFEntryType ParseEntryType(string? raw) => raw?.ToLowerInvariant() switch
+    /// <summary>
+    /// Parses a Laserfiche API response into a list of <see cref="EntryApiResource"/> items.
+    /// Handles both formats used by different v1 endpoints:
+    ///   • OData envelope: <c>{"value":[...]}</c>  — returned by /children, /Searches, etc.
+    ///   • Bare array:     <c>[...]</c>             — returned by /Repositories on some builds.
+    /// Falls back gracefully and logs if neither format matches.
+    /// </summary>
+    private List<LFEntry> ParseEntryList(string body)
     {
-        "document"     => LFEntryType.Document,
-        "folder"       => LFEntryType.Folder,
-        "shortcut"     => LFEntryType.Shortcut,
-        "recordseries" => LFEntryType.RecordSeries,
-        _              => LFEntryType.Unknown
-    };
+        body = body.Trim();
+
+        if (body.StartsWith('['))
+        {
+            // Bare JSON array
+            var resources = JsonSerializer.Deserialize<List<EntryApiResource>>(body, JsonOptions.Default) ?? [];
+            return resources.Select(MapEntry).ToList();
+        }
+
+        // OData envelope {"value":[...]}
+        var odata = JsonSerializer.Deserialize<ODataList<EntryApiResource>>(body, JsonOptions.Default);
+        return (odata?.Value ?? []).Select(MapEntry).ToList();
+    }
+
+    /// <summary>
+    /// Maps the raw API string to <see cref="LFEntryType"/>.
+    /// Handles the two forms returned by different Laserfiche API builds:
+    ///   • Simple names: "Document", "Folder", "Shortcut", "RecordSeries"
+    ///   • OData qualified names: "#Laserfiche.Repository.Document", etc.
+    /// </summary>
+    private static LFEntryType ParseEntryType(string? raw)
+    {
+        if (raw is null) return LFEntryType.Unknown;
+
+        // Strip leading '#' and extract the last segment after '.'
+        // e.g. "#Laserfiche.Repository.Document" → "document"
+        var token = raw.TrimStart('#');
+        var dot   = token.LastIndexOf('.');
+        if (dot >= 0) token = token[(dot + 1)..];
+
+        return token.ToLowerInvariant() switch
+        {
+            "document"     => LFEntryType.Document,
+            "folder"       => LFEntryType.Folder,
+            "shortcut"     => LFEntryType.Shortcut,
+            "recordseries" => LFEntryType.RecordSeries,
+            _              => LFEntryType.Unknown
+        };
+    }
 
     // ──────────────────────────── Helpers ─────────────────────────────────
 
@@ -316,6 +397,10 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
 
         [JsonPropertyName("entryType")]
         public string? EntryType { get; init; }
+
+        /// <summary>OData type discriminator, e.g. "#Laserfiche.Repository.Folder".</summary>
+        [JsonPropertyName("@odata.type")]
+        public string? ODataType { get; init; }
 
         [JsonPropertyName("templateName")]
         public string? TemplateName { get; init; }

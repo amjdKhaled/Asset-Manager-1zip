@@ -47,3 +47,21 @@ Move `@{ var x = ... }` computations to the top-level `@{ }` block at the top of
 Both are tried by `GetAllFolderChildrenAsync` in the entry service.
 
 **Why:** The original `laserficheGetFolderChildren` used the OData-typed path. Using search expressions (`{LF:Document type}="Document"`) is unreliable — some LF server configurations don't support that token, causing false 0-count results.
+
+## entryType field parsing
+
+`ParseEntryType` handles both:
+- Simple values: `"Document"`, `"Folder"`, `"Shortcut"`, `"RecordSeries"`
+- OData qualified: `"#Laserfiche.Repository.Document"` etc. (strip `#`, split on `.`, take last segment)
+
+`EntryApiResource` captures both `"entryType"` AND `"@odata.type"` fields. `MapEntry` prefers `entryType`, falls back to `@odata.type`.
+
+`ParseEntryList` handles both OData envelope `{"value":[...]}` and bare JSON array `[...]`.
+
+## All logging must be Warning/Error (not Debug) for production visibility
+
+When folder children calls fail silently, every error should be logged at Warning or Error. Debug logs don't appear in default IIS/Windows event log configurations.
+
+## /Dashboard/Probe endpoint
+
+`GET /Dashboard/Probe` fires 6 raw API calls and shows full request URL + HTTP status + raw response body for each. Use this to diagnose which endpoint fails and what the actual JSON field names are on the real LF server.
