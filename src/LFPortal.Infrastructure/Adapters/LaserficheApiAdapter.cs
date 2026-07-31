@@ -62,7 +62,8 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
             EntryResource.Fields   => $"{RepoBase(repositoryId)}/Entries/{entryId}/fields",
             EntryResource.Tags     => $"{RepoBase(repositoryId)}/Entries/{entryId}/tags",
             EntryResource.Children       => $"{RepoBase(repositoryId)}/Entries/{entryId}/children",
-            EntryResource.FolderChildren => $"{RepoBase(repositoryId)}/Entries/{entryId}/Folder/Children",
+            // OData-typed folder-children path confirmed in Swagger
+            EntryResource.FolderChildren => $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Folder/children",
             EntryResource.Edoc     => $"{RepoBase(repositoryId)}/Entries/{entryId}/edoc",
             EntryResource.Pages    => $"{RepoBase(repositoryId)}/Entries/{entryId}/pages",
             _ => throw new ArgumentOutOfRangeException(nameof(resource), resource, "Unknown entry resource.")
@@ -100,22 +101,21 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
 
     /// <inheritdoc />
     /// <remarks>
-    /// The v1 LF API path is <c>/Entries/{id}/Folder/Children</c> (capital F, capital C).
-    /// This matches the exact endpoint used in the original GovSearch AI Node.js backend
-    /// (<c>laserficheListEntries</c>). The OData-typed variant
-    /// <c>/Entries/{id}/Laserfiche.Repository.Folder/children</c> is v2-only and returns
-    /// 404 on v1 servers.
+    /// Uses the OData-typed path confirmed in Swagger:
+    /// <c>/Entries/{id}/Laserfiche.Repository.Folder/children</c>.
+    /// No <c>$select</c> — let the server return all available fields to avoid
+    /// HTTP 400 from field names that may not exist on a particular installation.
     /// </remarks>
     public string BuildFolderChildrenUrl(string repositoryId, int entryId, int top = 1000) =>
-        // Exact path from original GovSearch AI laserficheListEntries():
-        //   /Entries/{id}/Folder/Children?$top=N
-        // No $select — let the server return all available fields to avoid 400 errors
-        // from field names that may not exist on a particular installation.
-        $"{RepoBase(repositoryId)}/Entries/{entryId}/Folder/Children?$top={top}";
+        $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Folder/children?$top={top}";
 
     /// <inheritdoc />
     public string BuildTemplateDefinitionsUrl(string repositoryId) =>
         $"{RepoBase(repositoryId)}/TemplateDefinitions";
+
+    /// <inheritdoc />
+    public string BuildEntriesUrl(string repositoryId) =>
+        $"{RepoBase(repositoryId)}/Entries";
 
     /// <summary>
     /// Combines a server URL with the configured API base path and version.

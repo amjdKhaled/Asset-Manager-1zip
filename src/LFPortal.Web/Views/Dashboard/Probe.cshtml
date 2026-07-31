@@ -39,7 +39,7 @@ main { max-width: 1200px !important; padding: 24px !important; }
 </div>
 
 <!-- Connection info -->
-<div class="p-card" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px">
+<div class="p-card" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px;margin-bottom:24px">
     <div>
         <div class="p-label">Server URL</div>
         <div style="font-family:monospace;font-size:.83rem;color:#60a5fa">@Model.ServerUrl</div>
@@ -47,6 +47,11 @@ main { max-width: 1200px !important; padding: 24px !important; }
     <div>
         <div class="p-label">Repository ID</div>
         <div style="font-family:monospace;font-size:.9rem;color:#f1f5f9;font-weight:600">@Model.RepositoryId</div>
+    </div>
+    <div>
+        <div class="p-label">Root Entry ID</div>
+        <div style="font-family:monospace;font-size:.9rem;color:#fbbf24;font-weight:700">@Model.RootEntryId</div>
+        <div style="font-size:.72rem;color:#94a3b8;margin-top:2px">@Model.RootDiscoveryNote</div>
     </div>
     <div>
         <div class="p-label">Authenticated Username</div>

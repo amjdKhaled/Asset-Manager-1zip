@@ -87,4 +87,10 @@ public interface ILaserficheApiAdapter
     /// </summary>
     string BuildTemplateDefinitionsUrl(string repositoryId);
 
+    /// <summary>
+    /// Builds the base <c>/Entries</c> URL for a repository (no entry ID appended).
+    /// Used for path-based entry lookup:
+    /// <c>GET /Repositories/{repoId}/Entries?entryPath=%5C</c>.
+    /// </summary>
+    string BuildEntriesUrl(string repositoryId);
 }

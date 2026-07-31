@@ -51,12 +51,22 @@ public interface ILaserficheEntryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Discovers the repository root entry ID dynamically.
+    /// The root is NOT always entry 1 — it varies per server installation.
+    /// Discovery order:
+    ///   1. Path-based lookup — <c>GET /Entries?entryPath=%5C</c> (backslash = root in LF).
+    ///   2. Entry 1 parentId check — if <c>parentId == 0</c> then 1 is the root.
+    ///   3. Fallback to 1 with a warning.
+    /// The result is cached in-process after the first successful discovery.
+    /// </summary>
+    Task<int> GetRootEntryIdAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Retrieves ALL direct children of the specified folder in a single API call
     /// (up to 1 000 entries). Unlike <see cref="GetEntryChildrenAsync"/>, this method
     /// does not paginate — it is optimised for the recursive folder scan used by the
-    /// dashboard service. Uses the v1 OData-typed path
-    /// <c>/Entries/{id}/Laserfiche.Repository.Folder/children</c> with
-    /// a fallback to the simpler <c>/Entries/{id}/children</c> path.
+    /// dashboard service. Uses the v1 OData-typed path confirmed in Swagger:
+    /// <c>/Entries/{id}/Laserfiche.Repository.Folder/children</c>.
     /// </summary>
     /// <param name="entryId">Entry ID of the parent folder to enumerate.</param>
     /// <param name="cancellationToken">Propagated cancellation token.</param>

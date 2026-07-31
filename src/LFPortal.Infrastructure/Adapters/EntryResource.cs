@@ -20,8 +20,8 @@ public enum EntryResource
     Children,
 
     /// <summary>
-    /// v1 folder-children path that matches the original GovSearch AI backend:
-    /// <c>GET /Entries/{id}/Folder/Children</c> (capital F, capital C).
+    /// OData-typed folder-children path confirmed in Swagger:
+    /// <c>GET /Entries/{id}/Laserfiche.Repository.Folder/children</c>.
     /// </summary>
     FolderChildren,
 

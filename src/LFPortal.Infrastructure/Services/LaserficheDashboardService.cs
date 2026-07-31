@@ -242,8 +242,12 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
     private async Task<(IReadOnlyList<LFEntry> rootChildren, IReadOnlyList<Domain.Entities.LFTemplateDefinition> templateDefs)>
         FetchRootAndTemplatesAsync(CancellationToken ct)
     {
-        _logger.LogInformation("Fetching root entry (ID=1) children and template definitions in parallel.");
-        var rootTask     = SafeGetAllFolderChildrenAsync(1, ct);
+        // Discover the real root entry ID — do NOT assume it is 1.
+        // Root ID varies per server installation (e.g. 250 on some servers).
+        var rootId = await _entryService.GetRootEntryIdAsync(ct).ConfigureAwait(false);
+        _logger.LogInformation("Using root entry ID={RootId}. Fetching children and template definitions in parallel.", rootId);
+
+        var rootTask     = SafeGetAllFolderChildrenAsync(rootId, ct);
         var templateTask = _templateService.GetTemplateDefinitionsAsync(ct);
         await Task.WhenAll(rootTask, templateTask).ConfigureAwait(false);
 
@@ -251,8 +255,8 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         var tmpls = await templateTask;
 
         _logger.LogInformation(
-            "Root children: {RootCount} entries (docs={Docs}, folders={Folders}, other={Other}). Templates defined: {TmplCount}.",
-            root.Count,
+            "Root children (ID={RootId}): {RootCount} entries (docs={Docs}, folders={Folders}, other={Other}). Templates defined: {TmplCount}.",
+            rootId, root.Count,
             root.Count(e => e.EntryType == Domain.Entities.LFEntryType.Document),
             root.Count(e => e.EntryType == Domain.Entities.LFEntryType.Folder),
             root.Count(e => e.EntryType == Domain.Entities.LFEntryType.Unknown),

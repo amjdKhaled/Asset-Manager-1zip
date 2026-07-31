@@ -10,11 +10,16 @@ using Microsoft.Extensions.Logging;
 namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
-/// Provides entry-level operations by calling the Laserfiche Repository API v2
+/// Provides entry-level operations by calling the Laserfiche Repository API v1
 /// <c>/Entries</c> endpoints. All data is sourced directly from the live API.
 /// </summary>
 internal sealed class LaserficheEntryService : ILaserficheEntryService
 {
+    // Process-lifetime cache: repositoryId → root entry ID.
+    // The root never changes while the server is running, so a static cache is safe.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int>
+        s_rootIdCache = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IRepositoryContext _repositoryContext;
     private readonly ILaserficheApiAdapter _adapter;
@@ -146,6 +151,91 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
     }
 
     /// <inheritdoc />
+    public async Task<int> GetRootEntryIdAsync(CancellationToken cancellationToken = default)
+    {
+        var repo = await _repositoryContext
+            .GetActiveRepositoryAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (s_rootIdCache.TryGetValue(repo.RepositoryId, out int cached))
+        {
+            _logger.LogDebug("Root entry ID for {RepoId} served from cache: {Id}.", repo.RepositoryId, cached);
+            return cached;
+        }
+
+        using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
+
+        // ── Method 1: path-based lookup  GET /Entries?entryPath=\
+        // The backslash is the LF root path. URL-encoded: %5C.
+        var pathUrl = $"{_adapter.BuildEntriesUrl(repo.RepositoryId)}?entryPath=%5C&fallbackToClosestAncestor=false";
+        try
+        {
+            using var r1 = await client.GetAsync(pathUrl, cancellationToken).ConfigureAwait(false);
+            if (r1.IsSuccessStatusCode)
+            {
+                var body1 = await r1.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                // The path-lookup endpoint returns a single Entry object (not an OData list).
+                var entry1 = JsonSerializer.Deserialize<EntryApiResource>(body1, JsonOptions.Default);
+                if (entry1 is { Id: > 0 })
+                {
+                    _logger.LogInformation(
+                        "Root entry discovered via path lookup (entryPath=\\): ID={Id}, name='{Name}'.",
+                        entry1.Id, entry1.Name);
+                    s_rootIdCache[repo.RepositoryId] = entry1.Id;
+                    return entry1.Id;
+                }
+            }
+            else
+            {
+                _logger.LogDebug("Path-based root lookup returned HTTP {Status}. Trying next method.", (int)r1.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Path-based root lookup threw. Trying next method.");
+        }
+
+        // ── Method 2: check entry 1 — if parentId == 0 then it IS the root
+        var entry1Url = _adapter.BuildEntryUrl(repo.RepositoryId, 1, Adapters.EntryResource.Details);
+        try
+        {
+            using var r2 = await client.GetAsync(entry1Url, cancellationToken).ConfigureAwait(false);
+            if (r2.IsSuccessStatusCode)
+            {
+                var body2 = await r2.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var entry = JsonSerializer.Deserialize<EntryApiResource>(body2, JsonOptions.Default);
+                if (entry is { ParentId: 0, Id: > 0 })
+                {
+                    _logger.LogInformation("Root entry is ID=1 (parentId=0 confirmed).");
+                    s_rootIdCache[repo.RepositoryId] = 1;
+                    return 1;
+                }
+
+                _logger.LogDebug(
+                    "Entry 1 exists but parentId={ParentId} — it is NOT the root. Falling back.",
+                    entry?.ParentId);
+            }
+            else
+            {
+                _logger.LogDebug("GET /Entries/1 returned HTTP {Status}.", (int)r2.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Entry-1 check threw. Falling back to ID=1.");
+        }
+
+        // ── Fallback: warn and use 1
+        _logger.LogWarning(
+            "Could not discover repository root for '{RepoId}' via path lookup or entry-1 check. " +
+            "Defaulting to entry ID=1. If the dashboard shows zero data, verify the root entry ID " +
+            "in the Laserfiche Repository and set LF_ROOT_ENTRY_ID if needed.",
+            repo.RepositoryId);
+        s_rootIdCache[repo.RepositoryId] = 1;
+        return 1;
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<LFEntry>> GetAllFolderChildrenAsync(
         int entryId,
         CancellationToken cancellationToken = default)
@@ -155,10 +245,10 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
             .ConfigureAwait(false);
 
         // URL candidates — tried in order; first 2xx response wins.
-        // Primary  : /Folder/Children — exact path from original GovSearch AI backend.
-        //            Original: /Entries/{id}/Folder/Children?$top=N&$select=...
-        // Fallback1: /Folder/Children without $select (some servers restrict $select).
-        // Fallback2: /children (generic path, lowercase, some v1 variants).
+        // Primary  : OData-typed path confirmed in Swagger:
+        //            /Entries/{id}/Laserfiche.Repository.Folder/children
+        // Fallback1: /Folder/Children (original GovSearch AI Node.js backend path)
+        // Fallback2: /children (generic lowercase, older v1 variants)
         string primaryUrl   = _adapter.BuildFolderChildrenUrl(repo.RepositoryId, entryId);
         string fallback1Url = $"{_adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.FolderChildren)}?$top=1000";
         string fallback2Url = $"{_adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Children)}?$top=1000";

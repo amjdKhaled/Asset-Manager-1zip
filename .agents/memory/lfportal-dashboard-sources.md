@@ -46,10 +46,15 @@ Move `@{ var x = ... }` computations to the top-level `@{ }` block at the top of
 
 Both are tried by `GetAllFolderChildrenAsync` in the entry service.
 
-**THE ONLY WORKING URL**: `/Entries/{id}/Folder/Children?$top=N` (capital F, capital C).
-- Wrong: `/Entries/{id}/Laserfiche.Repository.Folder/children` — v2-only, 404 on v1
-- Wrong: `/Entries/{id}/children` — returns 404 on this server
-- RIGHT: `/Entries/{id}/Folder/Children?$top=1000` — confirmed from original GovSearch AI `laserficheListEntries`
+**CONFIRMED WORKING FOLDER CHILDREN URL**: `/Entries/{id}/Laserfiche.Repository.Folder/children?$top=N`
+- This OData-typed path IS the correct v1 endpoint (confirmed in Swagger by user).
+- The entry ID must be the real root — NOT assumed to be 1.
+
+**ROOT ENTRY IS NOT ALWAYS ID=1**: This server has root at ID=250. Hardcoding 1 causes all folder scans to return 0.
+- Root discovery: `GET /Entries?entryPath=%5C&fallbackToClosestAncestor=false` returns the root entry object.
+- Fallback: check entry 1's `parentId` — if `parentId == 0` then 1 is root.
+- Result is cached process-wide in `LaserficheEntryService.s_rootIdCache` (static `ConcurrentDictionary`).
+- Dashboard calls `_entryService.GetRootEntryIdAsync(ct)` before scanning — never hardcodes 1.
 
 **Why:** The original `laserficheGetFolderChildren` used the OData-typed path. Using search expressions (`{LF:Document type}="Document"`) is unreliable — some LF server configurations don't support that token, causing false 0-count results.
 
