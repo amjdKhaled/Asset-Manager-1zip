@@ -1,0 +1,98 @@
+No.
+
+This is NOT what I asked for.
+
+Stop explaining what Laserfiche API v1 can or cannot do.
+
+The previous GovSearch AI dashboard was already connected to the same Laserfiche Repository API that I am using now.
+
+It already displayed all of those charts and statistics.
+
+Therefore the logic already exists.
+
+I am NOT asking you to invent new implementations.
+
+I am asking you to migrate the existing implementation.
+
+You are still replacing widgets with placeholders and explanations instead of restoring the original functionality.
+
+==================================================
+YOUR TASK
+==================================================
+
+Go back to the previous GovSearch AI project in THIS SAME REPLIT CONVERSATION.
+
+Read every service, API client, dashboard component, repository service, statistics service, search service, chart service and controller used by the original React dashboard.
+
+Do NOT summarize them.
+
+Do NOT explain them.
+
+Do NOT rewrite them.
+
+Copy their logic into the ASP.NET Core project.
+
+==================================================
+VERY IMPORTANT
+==================================================
+
+Do NOT tell me:
+
+- API v1 doesn't support it.
+- It needs another database.
+- It needs Audit.
+- It needs OCR.
+- It needs AI.
+
+If the previous dashboard displayed those values, then that project already had a working implementation.
+
+Reuse it.
+
+==================================================
+I want the ASP.NET Core project to behave IDENTICALLY.
+
+Every chart.
+
+Every statistic.
+
+Every table.
+
+Every API call.
+
+Every repository query.
+
+Every aggregation.
+
+Every calculation.
+
+Every search.
+
+Every dashboard card.
+
+==================================================
+
+Do NOT create new logic.
+
+Do NOT simplify anything.
+
+Do NOT use placeholders.
+
+Do NOT use N/A.
+
+Do NOT use estimates.
+
+Do NOT use fake values.
+
+==================================================
+
+First, compare the previous React implementation against the current ASP.NET Core implementation line by line.
+
+Produce a list of everything that is missing.
+
+Then migrate the missing code exactly.
+
+Do not stop until every dashboard widget is powered by the same backend logic that existed in the original GovSearch AI project.
+
+If you believe some functionality came from another service, search the entire previous project until you find it and migrate that implementation as well.
+
+Do not replace missing code with assumptions.

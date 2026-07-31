@@ -61,11 +61,15 @@ public static class ServiceCollectionExtensions
         // ── HTTP clients ───────────────────────────────────────────────────────
         RegisterHttpClients(services);
 
+        // ── Search audit log — singleton; accumulates across the process lifetime ─
+        services.AddSingleton<ISearchAuditLog, InMemorySearchAuditLog>();
+
         // ── Domain services — scoped (HttpClient usage is per-request) ─────────
         services.AddScoped<ILaserficheRepositoryService, LaserficheRepositoryService>();
         services.AddScoped<ILaserficheEntryService,      LaserficheEntryService>();
         services.AddScoped<ILaserficheSearchService,     LaserficheSearchService>();
         services.AddScoped<ILaserficheDocumentService,   LaserficheDocumentService>();
+        services.AddScoped<ILaserficheTemplateService,   LaserficheTemplateService>();
         services.AddScoped<ILaserficheDashboardService,  LaserficheDashboardService>();
 
         // ── Health checks ──────────────────────────────────────────────────────

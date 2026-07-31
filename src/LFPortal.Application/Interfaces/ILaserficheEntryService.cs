@@ -51,6 +51,20 @@ public interface ILaserficheEntryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Retrieves ALL direct children of the specified folder in a single API call
+    /// (up to 1 000 entries). Unlike <see cref="GetEntryChildrenAsync"/>, this method
+    /// does not paginate — it is optimised for the recursive folder scan used by the
+    /// dashboard service. Uses the v1 OData-typed path
+    /// <c>/Entries/{id}/Laserfiche.Repository.Folder/children</c> with
+    /// a fallback to the simpler <c>/Entries/{id}/children</c> path.
+    /// </summary>
+    /// <param name="entryId">Entry ID of the parent folder to enumerate.</param>
+    /// <param name="cancellationToken">Propagated cancellation token.</param>
+    Task<IReadOnlyList<LFEntry>> GetAllFolderChildrenAsync(
+        int entryId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Retrieves a flat list of folder entries up to the specified depth below
     /// <paramref name="rootEntryId"/>. Used to build the folder tree in the Archive page.
     /// </summary>

@@ -10,3 +10,4 @@
 - [LFPortal Swagger evidence](lfportal-swagger-evidence.md) — Route screenshots establish available paths; repository response fields must be confirmed from the live response body.
 - [LFPortal v1 repository response](lfportal-v1-repository-response.md) — GET /Repositories returns a root JSON array with repoId, repoName, and webclientUrl.
 - [LFPortal search endpoints](lfportal-search-endpoints.md) — Advanced search is /Searches (v1), NOT /Entries/Search (v2-only, returns 405); SimpleSearches returns OData inline, no polling.
+- [LFPortal dashboard data sources](lfportal-dashboard-sources.md) — Dashboard uses recursive folder scan (not search expressions) + TemplateDefinitions + in-memory audit log; no external DB needed.

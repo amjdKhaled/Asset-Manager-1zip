@@ -146,6 +146,45 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<LFEntry>> GetAllFolderChildrenAsync(
+        int entryId,
+        CancellationToken cancellationToken = default)
+    {
+        var repo = await _repositoryContext
+            .GetActiveRepositoryAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // Primary: v1 OData-typed path used by the original GovSearch AI implementation.
+        // Fallback: simpler /children path if the OData path is not available.
+        string primaryUrl  = _adapter.BuildFolderChildrenUrl(repo.RepositoryId, entryId);
+        string fallbackUrl = $"{_adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Children)}?$top=1000";
+
+        using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
+
+        foreach (var url in (string[])[primaryUrl, fallbackUrl])
+        {
+            try
+            {
+                using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode) continue;
+
+                var body = await response.Content
+                    .ReadAsStringAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                var result = JsonSerializer.Deserialize<ODataList<EntryApiResource>>(body, JsonOptions.Default);
+                return (result?.Value ?? []).Select(MapEntry).ToList().AsReadOnly();
+            }
+            catch (Exception)
+            {
+                // Try fallback URL on any failure
+            }
+        }
+
+        return [];
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<LFEntry>> GetFolderTreeAsync(
         int rootEntryId,
         int depth,

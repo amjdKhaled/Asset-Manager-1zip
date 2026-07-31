@@ -97,6 +97,14 @@ internal sealed class LaserficheApiAdapter : ILaserficheApiAdapter
         return $"{BuildApiBase(serverUrl)}/Repositories/{repositoryId}/Token";
     }
 
+    /// <inheritdoc />
+    public string BuildFolderChildrenUrl(string repositoryId, int entryId, int top = 1000) =>
+        $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Folder/children?$top={top}";
+
+    /// <inheritdoc />
+    public string BuildTemplateDefinitionsUrl(string repositoryId) =>
+        $"{RepoBase(repositoryId)}/TemplateDefinitions";
+
     /// <summary>
     /// Combines a server URL with the configured API base path and version.
     /// ServerUrl is normally scheme plus host, but older saved settings and
