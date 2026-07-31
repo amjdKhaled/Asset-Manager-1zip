@@ -29,12 +29,6 @@ public static class ServiceCollectionExtensions
     /// Registers all Laserfiche Infrastructure services, HTTP clients, health checks,
     /// credential providers, and repository context into <paramref name="services"/>.
     /// </summary>
-    /// <param name="services">The DI service collection.</param>
-    /// <param name="configuration">
-    /// Application configuration used to bind <see cref="LaserficheOptions"/>
-    /// from the <c>Laserfiche</c> section.
-    /// </param>
-    /// <returns>The same <paramref name="services"/> instance for method chaining.</returns>
     public static IServiceCollection AddLaserficheInfrastructure(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -48,14 +42,17 @@ public static class ServiceCollectionExtensions
         // ── Memory cache (token cache) ────────────────────────────────────────
         services.AddMemoryCache();
 
-        // ── API adapter — singleton; URL patterns don't change at runtime ─────
+        // ── API adapter — singleton; reads live options via IOptionsMonitor ───
         services.AddSingleton<ILaserficheApiAdapter, LaserficheV2ApiAdapter>();
 
-        // ── Repository context — singleton; driven by immutable config ─────────
+        // ── Repository context — singleton; reads live options per call ────────
         services.AddSingleton<IRepositoryContext, ConfigurationRepositoryContext>();
 
-        // ── Credential provider — singleton; stateless reads from OS/env ───────
+        // ── Credential provider — singleton; chain(primary, env-var fallback) ─
         RegisterCredentialProvider(services);
+
+        // ── Portal configuration service — singleton ───────────────────────────
+        services.AddSingleton<IPortalConfigurationService, PortalConfigurationService>();
 
         // ── Auth service — singleton; safe because IMemoryCache & IHttpClientFactory
         //    are both singleton-safe ─────────────────────────────────────────────
@@ -84,9 +81,11 @@ public static class ServiceCollectionExtensions
     // ──────────────────────────── Private helpers ─────────────────────────────
 
     /// <summary>
-    /// Registers the credential provider appropriate for the current platform and
-    /// configured provider type. Both provider implementations are stateless,
-    /// making singleton lifetime safe.
+    /// Registers a <see cref="CredentialChainProvider"/> that tries the secure primary
+    /// store first (DPAPI on Windows, ASP.NET Core Data Protection on non-Windows),
+    /// then falls back to environment variables.
+    /// When <c>CredentialProvider = Environment</c> is explicitly configured,
+    /// only environment variables are used (no chaining).
     /// </summary>
     private static void RegisterCredentialProvider(IServiceCollection services)
     {
@@ -94,38 +93,35 @@ public static class ServiceCollectionExtensions
         {
             var options = sp.GetRequiredService<IOptions<LaserficheOptions>>().Value;
 
-            return options.CredentialProvider switch
+            // Explicit env-var mode: no chain, no secure store.
+            if (options.CredentialProvider == CredentialProviderType.Environment)
             {
-                CredentialProviderType.DPAPI when OperatingSystem.IsWindows() =>
-                    ActivatorUtilities.CreateInstance<DpapiCredentialProvider>(sp),
+                return ActivatorUtilities.CreateInstance<EnvironmentVariableCredentialProvider>(sp);
+            }
 
-                _ =>
-                    ActivatorUtilities.CreateInstance<EnvironmentVariableCredentialProvider>(sp)
-            };
+            // DPAPI mode: chain secure primary with env-var fallback.
+            ICredentialProvider primary = OperatingSystem.IsWindows()
+                ? ActivatorUtilities.CreateInstance<DpapiCredentialProvider>(sp)
+                : ActivatorUtilities.CreateInstance<DataProtectionCredentialProvider>(sp);
+
+            var fallback = ActivatorUtilities.CreateInstance<EnvironmentVariableCredentialProvider>(sp);
+            var logger   = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CredentialChainProvider>>();
+
+            return new CredentialChainProvider(primary, fallback, logger);
         });
     }
 
     /// <summary>
     /// Registers two named <see cref="System.Net.Http.HttpClient"/> instances.
     ///
-    /// <para><b>LaserficheRaw</b> — no authentication. Used for token requests and explicit
-    /// credential verification on the Settings page.</para>
-    ///
+    /// <para><b>LaserficheRaw</b> — no authentication. Used for token requests.</para>
     /// <para><b>LaserficheAuthenticated</b> — Bearer token attached automatically via
-    /// <see cref="BearerTokenHandler"/>, which also handles transparent token refresh on
-    /// HTTP 401 responses. Used by all other service calls.</para>
-    ///
-    /// Both clients apply gzip decompression and a configurable request timeout from
-    /// <see cref="LaserficheOptions.TimeoutSeconds"/>. Standard resilience policies
-    /// (retry with exponential back-off, circuit breaker) are applied via
-    /// <c>AddStandardResilienceHandler()</c>.
+    /// <see cref="BearerTokenHandler"/>. Used by all repository service calls.</para>
     /// </summary>
     private static void RegisterHttpClients(IServiceCollection services)
     {
-        // BearerTokenHandler — transient so HttpClientFactory can manage its lifetime
         services.AddTransient<BearerTokenHandler>();
 
-        // Raw client — no token handler
         services.AddHttpClient("LaserficheRaw", (sp, client) =>
         {
             var opts = sp.GetRequiredService<IOptions<LaserficheOptions>>().Value;
@@ -139,7 +135,6 @@ public static class ServiceCollectionExtensions
         })
         .AddStandardResilienceHandler();
 
-        // Authenticated client — BearerTokenHandler provides transparent auth
         services.AddHttpClient("LaserficheAuthenticated", (sp, client) =>
         {
             var opts = sp.GetRequiredService<IOptions<LaserficheOptions>>().Value;

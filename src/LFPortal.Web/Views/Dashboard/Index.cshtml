@@ -41,9 +41,9 @@
             </div>
         </div>
         <div style="margin-top:16px;font-size:.875rem;color:var(--lfp-muted);">
-            Configure your connection details in <code style="background:#f1f5f9;padding:1px 6px;border-radius:3px;">appsettings.json</code>
-            and ensure <code style="background:#f1f5f9;padding:1px 6px;border-radius:3px;">LF_USERNAME</code> /
-            <code style="background:#f1f5f9;padding:1px 6px;border-radius:3px;">LF_PASSWORD</code> are set, then restart the portal.
+            <a asp-controller="Settings" asp-action="Index"
+               style="font-weight:600;color:var(--lfp-accent);">Open Settings</a>
+            to enter your Laserfiche Server URL, Repository ID, and credentials.
         </div>
     </div>
     return;

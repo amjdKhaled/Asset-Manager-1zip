@@ -25,6 +25,9 @@ PublishOutput/
 logs/
 *.log
 
+# Runtime-written config (contains real server URLs; machine-specific)
+src/LFPortal.Web/config/laserfiche.json
+
 # Secrets — never commit
 appsettings.Production.json
 appsettings.Staging.json

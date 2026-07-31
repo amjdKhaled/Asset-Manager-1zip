@@ -78,7 +78,7 @@ dotnet publish src/LFPortal.Web/LFPortal.Web.csproj \
 | Phase 1 | Solution scaffold & LF infrastructure | ✅ Complete |
 | Phase 2 | Dashboard page (live LF data) | ✅ Complete |
 | Phase 3 | Document Archive browser | 🔲 Not started |
-| Phase 4 | LF Settings page & final polish | 🔲 Not started |
+| Phase 4 | Settings page — credential UI & runtime reconfiguration | ✅ Complete |
 | Phase 5 | Desktop Client Extension | ⏸ Blocked (ADR-003 pending on-site SDK check) |
 | Phase 6 | MSI Installer & IIS deployment package | ⏸ Blocked on Phase 4 + 5 |
 

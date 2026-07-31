@@ -1,0 +1,210 @@
+@model LFPortal.Web.Controllers.SettingsViewModel
+@{
+    ViewData["Title"] = "Settings";
+}
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
+    <h1 style="font-size:1.5rem;font-weight:700;color:var(--lfp-text);">Settings</h1>
+</div>
+
+@* ── Success / error banners ───────────────────────────────────────────── *@
+@if (Model.SaveSuccess)
+{
+    <div class="alert alert--success" style="margin-bottom:16px;">
+        <span>&#10003;</span>
+        <div>
+            <strong>Settings saved.</strong>
+            All Laserfiche services are now using the updated configuration.
+        </div>
+    </div>
+}
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+{
+    <div class="alert alert--error" style="margin-bottom:16px;">
+        <span>&#9888;</span>
+        <div><strong>Save failed:</strong> @Model.ErrorMessage</div>
+    </div>
+}
+
+@* ── Credential status banner ──────────────────────────────────────────── *@
+@if (Model.HasSavedCredentials)
+{
+    <div class="alert alert--info" style="margin-bottom:16px;">
+        <span>&#128274;</span>
+        <div>
+            <strong>Saved credentials found.</strong>
+            Credentials are stored securely. Leave Username and Password blank to keep them unchanged.
+        </div>
+    </div>
+}
+else if (Model.HasEnvironmentVariableCredentials)
+{
+    <div class="alert alert--amber" style="margin-bottom:16px;">
+        <span>&#8505;</span>
+        <div>
+            <strong>Using environment variable credentials</strong> (<code>LF_USERNAME</code> / <code>LF_PASSWORD</code>).
+            Save credentials here to switch to persistent secure storage.
+        </div>
+    </div>
+}
+else
+{
+    <div class="alert alert--error" style="margin-bottom:16px;">
+        <span>&#9888;</span>
+        <div>
+            <strong>No credentials configured.</strong>
+            Enter a username and password below and click Save Settings.
+        </div>
+    </div>
+}
+
+@* ── Settings form ─────────────────────────────────────────────────────── *@
+<div class="card">
+    <div class="card__title">Laserfiche Connection</div>
+
+    <form id="settings-form" method="post" asp-controller="Settings" asp-action="Save" novalidate>
+        @Html.AntiForgeryToken()
+
+        <div class="form-section">
+            <div class="form-section__title">Repository</div>
+            <div class="settings-grid">
+                <div class="field-group">
+                    <label class="field-label" for="ServerUrl">API Server URL</label>
+                    <input class="field-input" type="url" id="ServerUrl" name="ServerUrl"
+                           value="@Model.ServerUrl"
+                           placeholder="https://lf-server.corp.local"
+                           autocomplete="off" />
+                    <span class="field-hint">Base URL of your Laserfiche API Server. Do not include <code>/LFRepositoryAPI</code>.</span>
+                </div>
+                <div class="field-group">
+                    <label class="field-label" for="RepositoryId">Repository ID</label>
+                    <input class="field-input" type="text" id="RepositoryId" name="RepositoryId"
+                           value="@Model.RepositoryId"
+                           placeholder="Documents"
+                           autocomplete="off" />
+                    <span class="field-hint">Case-sensitive. Must match the repository name in the Laserfiche Admin Console.</span>
+                </div>
+                <div class="field-group">
+                    <label class="field-label" for="DisplayName">Display Name <span style="font-weight:400;color:var(--lfp-muted);">(optional)</span></label>
+                    <input class="field-input" type="text" id="DisplayName" name="DisplayName"
+                           value="@Model.DisplayName"
+                           placeholder="Documents Repository"
+                           autocomplete="off" />
+                    <span class="field-hint">Label shown in the portal UI. Defaults to Repository ID if blank.</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section" style="margin-top:24px;">
+            <div class="form-section__title">Credentials</div>
+            <div class="settings-grid">
+                <div class="field-group">
+                    <label class="field-label" for="Username">Username</label>
+                    <input class="field-input" type="text" id="Username" name="Username"
+                           placeholder="@(Model.HasSavedCredentials ? "Leave blank to keep saved credentials" : "laserfiche-admin")"
+                           autocomplete="username" />
+                </div>
+                <div class="field-group">
+                    <label class="field-label" for="Password">Password</label>
+                    <input class="field-input" type="password" id="Password" name="Password"
+                           placeholder="@(Model.HasSavedCredentials ? "Leave blank to keep saved credentials" : "Enter password")"
+                           autocomplete="current-password" />
+                    <span class="field-hint">
+                        Stored securely using
+                        @(OperatingSystem.IsWindows() ? "Windows DPAPI (machine-encrypted)" : "ASP.NET Core Data Protection").
+                        Never written to configuration files.
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-top:24px;flex-wrap:wrap;">
+            <button type="submit" class="btn btn--primary">
+                &#128190; Save Settings
+            </button>
+            <button type="button" id="test-btn" class="btn btn--secondary">
+                &#128268; Test Connection
+            </button>
+        </div>
+    </form>
+</div>
+
+@* ── Inline test result (injected by JS) ───────────────────────────────── *@
+<div id="test-result" style="margin-top:16px;"></div>
+
+@* ── Quick-reference card ──────────────────────────────────────────────── *@
+<div class="card" style="margin-top:16px;">
+    <div class="card__title">Configuration Reference</div>
+    <div class="status-grid">
+        <div class="status-item">
+            <span class="status-item__label">Credential Store</span>
+            <span class="status-item__value">
+                @if (OperatingSystem.IsWindows())
+                {
+                    <text>DPAPI (Windows, machine-scoped)</text>
+                }
+                else
+                {
+                    <text>ASP.NET Core Data Protection</text>
+                }
+            </span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">Settings File</span>
+            <span class="status-item__value" style="font-family:monospace;font-size:.8125rem;">config/laserfiche.json</span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">Env Var Fallback</span>
+            <span class="status-item__value">
+                @if (Model.HasEnvironmentVariableCredentials)
+                {
+                    <span class="badge badge--amber">Active</span>
+                }
+                else
+                {
+                    <span style="color:var(--lfp-muted);">Not set</span>
+                }
+            </span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">Reload on Save</span>
+            <span class="status-item__value">Immediate — no restart needed</span>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+(function () {
+    var testBtn  = document.getElementById('test-btn');
+    var resultEl = document.getElementById('test-result');
+    var form     = document.getElementById('settings-form');
+
+    testBtn.addEventListener('click', async function () {
+        testBtn.disabled = true;
+        testBtn.textContent = 'Testing\u2026';
+        resultEl.innerHTML  = '<div class="alert alert--info"><span>\u2139</span><div>Connecting to Laserfiche\u2026</div></div>';
+
+        try {
+            var data  = new FormData(form);
+            var token = form.querySelector('input[name="__RequestVerificationToken"]').value;
+
+            var resp = await fetch('/Settings/TestConnection', {
+                method:  'POST',
+                body:    data,
+                headers: { 'RequestVerificationToken': token }
+            });
+
+            resultEl.innerHTML = await resp.text();
+        } catch (err) {
+            resultEl.innerHTML =
+                '<div class="alert alert--error"><span>\u26a0</span>' +
+                '<div><strong>Request failed:</strong> ' + err.message + '</div></div>';
+        } finally {
+            testBtn.disabled    = false;
+            testBtn.textContent = '\uD83D\uDD0C Test Connection';
+        }
+    });
+}());
+</script>
+}

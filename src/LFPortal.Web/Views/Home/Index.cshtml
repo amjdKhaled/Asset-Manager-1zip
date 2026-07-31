@@ -28,6 +28,8 @@
             <div>
                 <strong>Connection failed:</strong>
                 @Model.Status.ErrorMessage
+                &mdash; <a asp-controller="Settings" asp-action="Index"
+                           style="color:inherit;text-decoration:underline;">open Settings to configure</a>.
             </div>
         </div>
     }

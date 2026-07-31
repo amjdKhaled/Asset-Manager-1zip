@@ -6,36 +6,40 @@ using Microsoft.Extensions.Options;
 namespace LFPortal.Infrastructure.Repository;
 
 /// <summary>
-/// Resolves the active repository from <see cref="LaserficheOptions"/> bound at startup.
-/// Supports single-repository deployments only. To support multiple repositories,
-/// implement <see cref="IRepositoryContext"/> with a session-backed store and register it
-/// in place of this class — no service or controller code changes required.
+/// Resolves the active repository from the live <see cref="LaserficheOptions"/>.
+/// Uses <see cref="IOptionsMonitor{T}"/> so changes saved via the Settings page
+/// are reflected immediately without restarting the application.
 /// </summary>
+/// <remarks>
+/// Supports single-repository deployments only. To support multiple repositories,
+/// implement <see cref="IRepositoryContext"/> with a session-backed store and register
+/// it in place of this class — no service or controller code changes required.
+/// </remarks>
 internal sealed class ConfigurationRepositoryContext : IRepositoryContext
 {
-    private readonly RepositoryDescriptor _descriptor;
+    private readonly IOptionsMonitor<LaserficheOptions> _optionsMonitor;
 
-    /// <summary>
-    /// Initialises the context by building a <see cref="RepositoryDescriptor"/> from
-    /// the bound <see cref="LaserficheOptions"/>.
-    /// </summary>
-    public ConfigurationRepositoryContext(IOptions<LaserficheOptions> options)
+    /// <summary>Initialises the context with a live options monitor.</summary>
+    public ConfigurationRepositoryContext(IOptionsMonitor<LaserficheOptions> optionsMonitor)
     {
-        var opt = options.Value;
-        _descriptor = new RepositoryDescriptor(
-            Key: "default",
-            ServerUrl: $"{opt.ServerUrl.TrimEnd('/')}{opt.ApiBasePath}",
-            RepositoryId: opt.RepositoryId,
-            DisplayName: opt.EffectiveDisplayName);
+        _optionsMonitor = optionsMonitor;
     }
 
     /// <inheritdoc />
     public Task<RepositoryDescriptor> GetActiveRepositoryAsync(
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(_descriptor);
+        CancellationToken cancellationToken = default)
+    {
+        var opt = _optionsMonitor.CurrentValue;
+        var descriptor = new RepositoryDescriptor(
+            Key: "default",
+            ServerUrl: $"{opt.ServerUrl.TrimEnd('/')}{opt.ApiBasePath}",
+            RepositoryId: opt.RepositoryId,
+            DisplayName: opt.EffectiveDisplayName);
+        return Task.FromResult(descriptor);
+    }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<RepositoryDescriptor>> GetAllRepositoriesAsync(
+    public async Task<IReadOnlyList<RepositoryDescriptor>> GetAllRepositoriesAsync(
         CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<RepositoryDescriptor>>([_descriptor]);
+        [await GetActiveRepositoryAsync(cancellationToken)];
 }

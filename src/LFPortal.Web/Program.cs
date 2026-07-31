@@ -14,6 +14,15 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
+    // ── Writable settings override (Settings page writes here; reloads without restart) ──
+    var writableConfigPath = Path.Combine(
+        builder.Environment.ContentRootPath, "config", "laserfiche.json");
+
+    builder.Configuration.AddJsonFile(
+        writableConfigPath,
+        optional: true,
+        reloadOnChange: true);
+
     // ── Serilog — replace the default ASP.NET Core logging pipeline ──────────
     builder.Host.UseSerilog((context, services, loggerConfig) =>
         loggerConfig
@@ -27,6 +36,9 @@ try
     {
         opts.AutomaticAuthentication = false;
     });
+
+    // ── ASP.NET Core Data Protection (cross-platform credential encryption) ───
+    builder.Services.AddDataProtection();
 
     // ── MVC ───────────────────────────────────────────────────────────────────
     builder.Services.AddControllersWithViews();
@@ -48,7 +60,6 @@ try
     else
     {
         app.UseExceptionHandler("/Home/Error");
-        // Enforce HTTPS in production (IIS handles TLS termination)
         app.UseHsts();
     }
 
@@ -110,8 +121,8 @@ static async Task WriteHealthResponseAsync(
 
     var payload = new
     {
-        version     = LFPortalVersion.Full,
-        status      = report.Status.ToString(),
+        version       = LFPortalVersion.Full,
+        status        = report.Status.ToString(),
         totalDuration = report.TotalDuration.TotalMilliseconds,
         entries
     };

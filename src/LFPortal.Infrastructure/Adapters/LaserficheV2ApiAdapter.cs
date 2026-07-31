@@ -4,9 +4,10 @@ using Microsoft.Extensions.Options;
 namespace LFPortal.Infrastructure.Adapters;
 
 /// <summary>
-/// Builds Laserfiche Repository API v2 endpoint URLs from the configured
-/// <see cref="LaserficheOptions"/>. Registered as a singleton — all state is
-/// derived from immutable options at startup.
+/// Builds Laserfiche Repository API v2 endpoint URLs from the live
+/// <see cref="LaserficheOptions"/>. Registered as a singleton; uses
+/// <see cref="IOptionsMonitor{T}"/> so URL changes made via the Settings page
+/// take effect immediately without an application restart.
 /// </summary>
 /// <remarks>
 /// To add support for a future API version: implement <see cref="ILaserficheApiAdapter"/>
@@ -15,32 +16,36 @@ namespace LFPortal.Infrastructure.Adapters;
 /// </remarks>
 internal sealed class LaserficheV2ApiAdapter : ILaserficheApiAdapter
 {
-    private readonly LaserficheOptions _options;
+    private readonly IOptionsMonitor<LaserficheOptions> _optionsMonitor;
 
-    /// <summary>
-    /// Initialises the adapter with bound options.
-    /// </summary>
-    public LaserficheV2ApiAdapter(IOptions<LaserficheOptions> options)
+    /// <summary>Initialises the adapter with a live options monitor.</summary>
+    public LaserficheV2ApiAdapter(IOptionsMonitor<LaserficheOptions> optionsMonitor)
     {
-        _options = options.Value;
+        _optionsMonitor = optionsMonitor;
     }
 
     /// <inheritdoc />
-    public string ApiVersion => _options.ApiVersion;
+    public string ApiVersion => _optionsMonitor.CurrentValue.ApiVersion;
 
     /// <summary>
     /// Returns the base URL for all repository-scoped endpoints:
     /// <c>{ServerUrl}{ApiBasePath}/{ApiVersion}/Repositories/{repoId}</c>.
     /// </summary>
-    private string RepoBase(string repositoryId) =>
-        $"{_options.ServerUrl.TrimEnd('/')}{_options.ApiBasePath}/{_options.ApiVersion}/Repositories/{repositoryId}";
+    private string RepoBase(string repositoryId)
+    {
+        var o = _optionsMonitor.CurrentValue;
+        return $"{o.ServerUrl.TrimEnd('/')}{o.ApiBasePath}/{o.ApiVersion}/Repositories/{repositoryId}";
+    }
 
     /// <summary>
     /// Returns the root API URL without a repository scope:
     /// <c>{ServerUrl}{ApiBasePath}/{ApiVersion}</c>.
     /// </summary>
-    private string ApiBase() =>
-        $"{_options.ServerUrl.TrimEnd('/')}{_options.ApiBasePath}/{_options.ApiVersion}";
+    private string ApiBase()
+    {
+        var o = _optionsMonitor.CurrentValue;
+        return $"{o.ServerUrl.TrimEnd('/')}{o.ApiBasePath}/{o.ApiVersion}";
+    }
 
     /// <inheritdoc />
     public string BuildRepositoriesUrl() =>
