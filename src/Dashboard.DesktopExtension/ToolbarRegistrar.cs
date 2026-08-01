@@ -19,8 +19,11 @@ namespace LFPortal.DesktopExtension
     /// <para>
     /// The registration API is documented in the Laserfiche SDK 10.4 sample project
     /// <em>CustomButtonManager</em>. The button <c>Command</c> field is set to:
-    /// <code>"path\to\Dashboard.DesktopExtension.exe" -buttonclick -connguid "%(ConnectionGUID)" -hwnd "%(hwnd)" -pid "%(PID)"</code>
+    /// <code>"path\to\Dashboard.DesktopExtension.exe" -buttonclick -connguid "%(ConnectionGUID)" -hwnd "%(hwnd)" -pid "%(PID)" -databasename "%(DatabaseName)"</code>
     /// Laserfiche replaces the <c>%(…)</c> tokens at runtime before invoking the process.
+    /// The <c>%(DatabaseName)</c> token provides the name of the repository that is
+    /// currently active in the Laserfiche Desktop Client window, allowing the portal
+    /// to pre-select that repository without any SDK calls at click time.
     /// </para>
     /// </remarks>
     internal static class ToolbarRegistrar
@@ -44,12 +47,29 @@ namespace LFPortal.DesktopExtension
                 RemoveInternal(silent: true);
 
                 var exePath = Application.ExecutablePath;
-                // Laserfiche token substitutions: %(ConnectionGUID), %(hwnd), %(PID)
+
+                // Laserfiche token substitutions (evaluated by the Desktop Client at click time):
+                //   %(ConnectionGUID) — GUID of the active repository connection
+                //   %(hwnd)           — HWND of the active Desktop Client window
+                //   %(PID)            — process ID of the Desktop Client process
+                //   %(DatabaseName)   — name of the currently open repository
                 var command =
                     $"\"{exePath}\" -buttonclick" +
                     " -connguid \"%(ConnectionGUID)\"" +
                     " -hwnd \"%(hwnd)\"" +
-                    " -pid \"%(PID)\"";
+                    " -pid \"%(PID)\"" +
+                    " -databasename \"%(DatabaseName)\"";
+
+                // Resolve the icon path: prefer the built-in Resources\Dashboard.ico
+                // that ships alongside the EXE; fall back to the config-specified path.
+                var builtInIconPath = Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    "Resources",
+                    "Dashboard.ico");
+
+                var resolvedIconPath = File.Exists(builtInIconPath)
+                    ? builtInIconPath
+                    : config.IconPath;
 
                 using (var clientManager = new ClientManager())
                 using (var toolbarMgr = clientManager.GetToolbarManager(ClientWindowType.Main))
@@ -61,14 +81,14 @@ namespace LFPortal.DesktopExtension
                     var buttonInfo = new CustomButtonInfo
                     {
                         Description = config.ButtonLabel,
-                        Command = command,
+                        Command     = command,
                     };
 
-                    // Only set the icon path when a valid file is specified.
-                    if (!string.IsNullOrWhiteSpace(config.IconPath)
-                        && File.Exists(config.IconPath))
+                    // Only set the icon path when a valid file is resolved.
+                    if (!string.IsNullOrWhiteSpace(resolvedIconPath)
+                        && File.Exists(resolvedIconPath))
                     {
-                        buttonInfo.IconPath = config.IconPath;
+                        buttonInfo.IconPath = resolvedIconPath;
                     }
 
                     int buttonId = toolbarMgr.AddCustomToolbarButton(buttonInfo);
@@ -76,7 +96,7 @@ namespace LFPortal.DesktopExtension
                     // Add the registered button to the toolbar.
                     var tbButton = new ToolbarButtonInfo
                     {
-                        Id = buttonId,
+                        Id          = buttonId,
                         IsSeparator = false,
                     };
                     toolbarMgr.AddButton(ToolbarName, tbButton, -1);
@@ -87,7 +107,9 @@ namespace LFPortal.DesktopExtension
                     MessageBox.Show(
                         $"Dashboard toolbar button \"{config.ButtonLabel}\" added " +
                         "to the Laserfiche Desktop Client.\n\n" +
-                        $"Portal URL: {config.PortalUrl}",
+                        $"Portal URL: {config.PortalUrl}\n\n" +
+                        "When the button is clicked, the active Laserfiche repository " +
+                        "will be passed automatically to the Dashboard.",
                         "Dashboard Extension — Setup Complete",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information);

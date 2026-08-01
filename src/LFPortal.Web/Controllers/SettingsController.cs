@@ -8,8 +8,9 @@ namespace LFPortal.Web.Controllers;
 
 /// <summary>
 /// Provides the Settings page for configuring the Laserfiche connection, storing
-/// credentials, and testing the connection before saving. All connection logic
-/// is delegated to Application-layer services — no HTTP calls in this controller.
+/// credentials, testing the connection, and viewing live connection status.
+/// All connection logic is delegated to Application-layer services — no HTTP calls
+/// in this controller beyond delegating to service methods.
 /// </summary>
 public sealed class SettingsController : Controller
 {
@@ -42,11 +43,32 @@ public sealed class SettingsController : Controller
         _logger             = logger;
     }
 
-    /// <summary>Displays the Settings page pre-populated with the current configuration.</summary>
+    /// <summary>
+    /// Displays the Settings page, pre-populated with the current configuration and
+    /// a live Laserfiche connection status check.
+    /// </summary>
     [HttpGet]
-    public IActionResult Index(bool saved = false)
+    public async Task<IActionResult> Index(
+        bool saved = false,
+        CancellationToken cancellationToken = default)
     {
-        return View(BuildViewModel(saved: saved));
+        // Run a live connection test so the Connection Status section is current.
+        ConnectionStatus? status = null;
+        try
+        {
+            status = await _repositoryService.TestConnectionAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Settings: connection test failed while loading page.");
+            status = ConnectionStatus.Failure($"Connection test could not complete: {ex.Message}");
+        }
+
+        var activeRepoId     = HttpContext.Session.GetString("ActiveRepositoryId");
+        var activeRepoSource = HttpContext.Session.GetString("ActiveRepositorySource");
+
+        return View(BuildViewModel(saved: saved, status: status,
+            activeRepoId: activeRepoId, activeRepoSource: activeRepoSource));
     }
 
     /// <summary>
@@ -68,7 +90,7 @@ public sealed class SettingsController : Controller
         if (string.IsNullOrWhiteSpace(serverUrl))
             ModelState.AddModelError(nameof(request.ServerUrl), "Server URL is required.");
         if (string.IsNullOrWhiteSpace(request.RepositoryId))
-            ModelState.AddModelError(nameof(request.RepositoryId), "Repository ID is required.");
+            ModelState.AddModelError(nameof(request.RepositoryId), "Default Repository is required.");
         if (!string.IsNullOrWhiteSpace(request.Username) && string.IsNullOrWhiteSpace(request.Password))
             ModelState.AddModelError(nameof(request.Password), "Password is required when a username is provided.");
 
@@ -137,7 +159,7 @@ public sealed class SettingsController : Controller
             string.IsNullOrWhiteSpace(request.Password))
         {
             var failure = ConnectionStatus.Failure(
-                "All four fields (Server URL, Repository ID, Username, Password) " +
+                "All four fields (Server URL, Default Repository, Username, Password) " +
                 "must be filled in to test the connection.");
             return PartialView("_TestResult", failure);
         }
@@ -178,7 +200,12 @@ public sealed class SettingsController : Controller
 
     // ─────────────────────── Helpers ──────────────────────────────────────────
 
-    private SettingsViewModel BuildViewModel(bool saved = false, string? error = null)
+    private SettingsViewModel BuildViewModel(
+        bool saved = false,
+        string? error = null,
+        ConnectionStatus? status = null,
+        string? activeRepoId = null,
+        string? activeRepoSource = null)
     {
         var opts = _optionsMonitor.CurrentValue;
         return new SettingsViewModel
@@ -193,7 +220,10 @@ public sealed class SettingsController : Controller
             HasSavedCredentials               = _portalConfig.HasSavedCredentials(),
             HasEnvironmentVariableCredentials = _portalConfig.HasEnvironmentVariableCredentials(),
             SaveSuccess                       = saved,
-            ErrorMessage                      = error
+            ErrorMessage                      = error,
+            ConnectionStatus                  = status,
+            ActiveRepositoryId                = activeRepoId,
+            ActiveRepositorySource            = activeRepoSource,
         };
     }
 
@@ -299,17 +329,39 @@ public sealed class SettingsController : Controller
 /// <summary>View model for the Settings page.</summary>
 public sealed class SettingsViewModel
 {
-    public string ServerUrl     { get; init; } = string.Empty;
-    public string RepositoryId  { get; init; } = string.Empty;
-    public string DisplayName   { get; init; } = string.Empty;
-    public string ApiBasePath   { get; init; } = "/LFRepositoryAPI";
-    public string ApiVersion    { get; init; } = "v1";
-    public int    RootEntryId   { get; init; } = 1;
-    public int    TimeoutSeconds { get; init; } = 30;
-    public bool   HasSavedCredentials               { get; init; }
-    public bool   HasEnvironmentVariableCredentials { get; init; }
-    public bool   SaveSuccess   { get; init; }
-    public string? ErrorMessage { get; init; }
+    public string  ServerUrl      { get; init; } = string.Empty;
+    public string  RepositoryId   { get; init; } = string.Empty;
+    public string  DisplayName    { get; init; } = string.Empty;
+    public string  ApiBasePath    { get; init; } = "/LFRepositoryAPI";
+    public string  ApiVersion     { get; init; } = "v1";
+    public int     RootEntryId    { get; init; } = 1;
+    public int     TimeoutSeconds { get; init; } = 30;
+    public bool    HasSavedCredentials               { get; init; }
+    public bool    HasEnvironmentVariableCredentials { get; init; }
+    public bool    SaveSuccess    { get; init; }
+    public string? ErrorMessage   { get; init; }
+
+    // ── Live connection status (null when not yet checked or on validation error) ──
+
+    /// <summary>Live connection status. Null on validation error paths.</summary>
+    public ConnectionStatus? ConnectionStatus { get; init; }
+
+    /// <summary>Repository ID provided by the Laserfiche Desktop Client session. Null when opening directly in a browser.</summary>
+    public string? ActiveRepositoryId { get; init; }
+
+    /// <summary>Source label for the active repository ("Laserfiche Desktop Client" or null).</summary>
+    public string? ActiveRepositorySource { get; init; }
+
+    /// <summary>
+    /// The effective active repository ID: the Desktop Client override if present,
+    /// otherwise the configured default.
+    /// </summary>
+    public string EffectiveRepositoryId => !string.IsNullOrWhiteSpace(ActiveRepositoryId)
+        ? ActiveRepositoryId
+        : RepositoryId;
+
+    /// <summary>Human-readable source for the active repository.</summary>
+    public string EffectiveRepositorySource => ActiveRepositorySource ?? "Default Configuration";
 }
 
 /// <summary>Form model for the Save action.</summary>

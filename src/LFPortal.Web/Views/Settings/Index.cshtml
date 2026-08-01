@@ -1,10 +1,12 @@
 @model LFPortal.Web.Controllers.SettingsViewModel
+@using LFPortal.Domain.Entities
 @{
     ViewData["Title"] = "Settings";
+    var connected = Model.ConnectionStatus?.IsConnected ?? false;
 }
 
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
-    <h1 style="font-size:1.5rem;font-weight:700;color:var(--lfp-text);">⚙️ Settings</h1>
+    <h1 style="font-size:1.5rem;font-weight:700;color:var(--lfp-text);">&#9881;&#65039; Settings</h1>
 </div>
 
 @* ── Success / error banners ───────────────────────────────────────────── *@
@@ -58,6 +60,71 @@ else
     </div>
 }
 
+@* ── Connection Status section ─────────────────────────────────────────── *@
+@if (Model.ConnectionStatus != null)
+{
+    <div class="card" style="margin-bottom:16px;">
+        <div class="card__title" style="display:flex;align-items:center;justify-content:space-between;">
+            <span>Connection Status</span>
+            @if (connected)
+            {
+                <span class="badge badge--green">Connected</span>
+            }
+            else
+            {
+                <span class="badge badge--red">Disconnected</span>
+            }
+        </div>
+
+        @if (!connected && !string.IsNullOrWhiteSpace(Model.ConnectionStatus.ErrorMessage))
+        {
+            <div class="alert alert--error" style="margin-bottom:16px;">
+                <span>&#9888;</span>
+                <div>
+                    <strong>Connection failed:</strong>
+                    @Model.ConnectionStatus.ErrorMessage
+                </div>
+            </div>
+        }
+
+        <div class="status-grid">
+            <div class="status-item">
+                <span class="status-item__label">Active Repository</span>
+                <span class="status-item__value">@(Model.ConnectionStatus.RepositoryId ?? Model.EffectiveRepositoryId)</span>
+            </div>
+            <div class="status-item">
+                <span class="status-item__label">Repository Name</span>
+                <span class="status-item__value">@(Model.ConnectionStatus.RepositoryName ?? "—")</span>
+            </div>
+            <div class="status-item">
+                <span class="status-item__label">Server Version</span>
+                <span class="status-item__value">@(Model.ConnectionStatus.ServerVersion ?? "—")</span>
+            </div>
+            <div class="status-item">
+                <span class="status-item__label">API Version</span>
+                <span class="status-item__value">@(Model.ConnectionStatus.ApiVersion ?? "—")</span>
+            </div>
+            <div class="status-item">
+                <span class="status-item__label">Last Checked</span>
+                <span class="status-item__value">@Model.ConnectionStatus.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
+            </div>
+            <div class="status-item">
+                <span class="status-item__label">Repository Source</span>
+                <span class="status-item__value">
+                    @if (Model.EffectiveRepositorySource == "Laserfiche Desktop Client")
+                    {
+                        <span class="badge badge--blue" style="font-size:.75rem;">&#128187; Desktop Client</span>
+                    }
+                    else
+                    {
+                        <span class="badge badge--gray" style="font-size:.75rem;">&#9881; Default Configuration</span>
+                    }
+                </span>
+            </div>
+        </div>
+    </div>
+}
+
 @* ── Settings form ─────────────────────────────────────────────────────── *@
 <div class="card">
     <div class="card__title">Laserfiche Connection</div>
@@ -87,10 +154,10 @@ else
                 </div>
                 <div class="field-group">
                     <label class="field-label" for="RepositoryId">
-                        Repository ID
+                        Default Repository (Fallback)
                         <button type="button" id="discover-btn" class="btn btn--secondary"
                                 style="margin-left:8px;padding:3px 10px;font-size:.75rem;">
-                            🔍 Discover
+                            &#128269; Discover
                         </button>
                     </label>
                     <input class="field-input" type="text" id="RepositoryId" name="RepositoryId"
@@ -98,7 +165,12 @@ else
                            placeholder="Documents"
                            autocomplete="off" />
                     <span id="discover-status" class="field-hint"></span>
-                    <span class="field-hint">Case-sensitive. Must match the repository name in the Laserfiche Admin Console.</span>
+                    <span class="field-hint">
+                        Used when Dashboard is opened directly from a browser.
+                        When opened via the <strong>Laserfiche Desktop Client</strong>, the client's active
+                        repository overrides this setting automatically.
+                        Case-sensitive; must match the repository name in the Laserfiche Admin Console.
+                    </span>
                 </div>
                 <div class="field-group">
                     <label class="field-label" for="DisplayName">
@@ -188,10 +260,10 @@ else
 
         <div style="display:flex;gap:12px;margin-top:24px;flex-wrap:wrap;">
             <button type="submit" class="btn btn--primary">
-                💾 Save Settings
+                &#128190; Save Settings
             </button>
             <button type="button" id="test-btn" class="btn btn--secondary">
-                🔌 Test Connection
+                &#128268; Test Connection
             </button>
         </div>
     </form>
@@ -245,6 +317,25 @@ else
         </div>
     </div>
 </div>
+
+@* ── API diagnostic endpoints (shown when connected) ────────────────────── *@
+@if (Model.ConnectionStatus?.IsConnected == true)
+{
+    <div class="card" style="margin-top:16px;">
+        <div class="card__title">API Diagnostic Endpoints</div>
+        <div class="alert alert--info">
+            <span>&#8505;</span>
+            <div>
+                Use these endpoints for monitoring, IIS health probes, and integration verification.
+                <ul style="margin-top:8px;padding-left:16px;display:flex;flex-direction:column;gap:4px;">
+                    <li><code style="background:#dbeafe;padding:1px 6px;border-radius:3px;">/health</code> — ASP.NET Core health check (JSON)</li>
+                    <li><code style="background:#dbeafe;padding:1px 6px;border-radius:3px;">/api/laserfiche/status</code> — Live Laserfiche connection status (JSON)</li>
+                    <li><code style="background:#dbeafe;padding:1px 6px;border-radius:3px;">/api/laserfiche/repository</code> — Active repository descriptor (JSON)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+}
 
 @section Scripts {
 <script>

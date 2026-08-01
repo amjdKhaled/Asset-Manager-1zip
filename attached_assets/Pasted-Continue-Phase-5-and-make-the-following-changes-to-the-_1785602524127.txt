@@ -1,0 +1,272 @@
+Continue Phase 5 and make the following changes to the existing Dashboard project.
+
+IMPORTANT:
+Do not create a new image or mockup.
+Do not redesign the Dashboard.
+Do not create a separate Status page.
+Do not modify the old GovSearch AI integration.
+Modify the actual Dashboard.DesktopExtension and Dashboard web application.
+
+==================================================
+1. ACTIVE REPOSITORY MUST COME FROM LASERFICHE
+==================================================
+
+The Dashboard button inside Laserfiche Desktop Client must automatically open the Dashboard for the repository from which the button was clicked.
+
+The user must NOT need to manually configure Repository ID in Dashboard Settings every time they switch repositories.
+
+Expected behavior:
+
+Example:
+
+If the user is currently inside:
+
+LFNewRepoWF
+
+and clicks the Dashboard button:
+
+→ Dashboard opens using LFNewRepoWF.
+
+If the user switches in Laserfiche Desktop Client to:
+
+NewEmployeeTest
+
+and clicks Dashboard:
+
+→ Dashboard opens using NewEmployeeTest automatically.
+
+If the user switches to another repository:
+
+→ Dashboard must use that repository automatically.
+
+The repository context must come from Laserfiche Desktop Client at button-click time.
+
+Do NOT hard-code a repository.
+
+Do NOT overwrite the globally saved Repository ID just because the Desktop Client opened another repository.
+
+The repository passed by the Desktop Client should act as the active repository for that Dashboard session/request.
+
+Preferred flow:
+
+Laserfiche Desktop Client
+        ↓
+Dashboard toolbar button
+        ↓
+Read active/current Laserfiche repository
+        ↓
+Launch Dashboard URL with repository context
+        ↓
+Dashboard resolves that repository
+        ↓
+Dashboard / Archive / Settings use the same active repository context
+
+For example, a URL may conceptually look like:
+
+https://localhost:PORT/?repository=LFNewRepoWF
+
+However, use the architecture that best fits the existing application.
+
+Repository resolution priority should be:
+
+1. Repository supplied by Dashboard.DesktopExtension
+2. Current Dashboard session repository
+3. Saved/default repository from Settings as fallback
+
+The repository context must persist while navigating between:
+
+Dashboard
+Archive
+Settings
+
+Do not require ?repository=... to be manually added to every link if a session-based implementation is cleaner.
+
+IMPORTANT:
+Settings such as API Server URL, credentials, timeout, etc. may remain global.
+
+The dynamic value is the ACTIVE REPOSITORY.
+
+==================================================
+2. CHANGE THE ACTUAL LASERFICHE DASHBOARD BUTTON ICON
+==================================================
+
+Change the icon of the actual Dashboard toolbar button registered by:
+
+Dashboard.DesktopExtension
+
+Do NOT generate a mockup.
+Do NOT create a documentation-only image.
+Do NOT change the GovSearch AI icon.
+
+I provided a dashboard-style icon as the visual reference.
+
+Use that supplied icon/reference to create the actual icon resource used by the Dashboard toolbar button.
+
+The toolbar button should visually represent a dashboard/analytics application, similar to the supplied icon:
+- small dashboard/chart appearance
+- recognizable at toolbar size
+- clean Windows/Laserfiche toolbar appearance
+
+Store the icon inside the Dashboard.DesktopExtension project in an appropriate Resources/Assets location.
+
+If Laserfiche ClientAutomation requires .ico:
+- create/use a proper .ico resource
+- include appropriate small icon sizes such as 16x16, 24x24, 32x32, and/or 48x48 as appropriate
+- ensure the icon is copied/embedded correctly
+- ensure ToolbarRegistrar uses this icon when registering the Dashboard button
+
+The resulting Laserfiche toolbar button should show:
+
+[dashboard icon]
+Dashboard
+
+instead of a generic/default icon.
+
+Verify that --setup registers the button with the new icon.
+
+==================================================
+3. MOVE STATUS INTO SETTINGS
+==================================================
+
+Remove "Status" from the main navigation bar.
+
+Current navigation approximately contains:
+
+Status
+Dashboard
+Archive
+Settings
+
+Change it to:
+
+Dashboard
+Archive
+Settings
+
+Do NOT delete the Status functionality.
+
+Instead, move the existing Status information into the Settings page.
+
+Inside Settings, add a section such as:
+
+SYSTEM STATUS
+or
+CONNECTION STATUS
+
+Reuse the existing Status functionality/data.
+
+The Settings page should contain the useful status information that currently exists on the standalone Status page, including where currently available:
+
+- Connection status
+- Laserfiche API/server status
+- Repository
+- Server URL
+- Authentication/connection result
+- Last check / refresh information
+- Version/build information if currently shown
+- Test Connection functionality if applicable
+
+Do not duplicate backend logic unnecessarily.
+
+Reuse the existing Status services/view models/controller logic where practical.
+
+After this change, users should not need a separate Status page.
+
+If the old /Status route must remain temporarily for compatibility, it may redirect to the Settings page rather than maintaining a second UI.
+
+==================================================
+4. SETTINGS + DYNAMIC REPOSITORY BEHAVIOR
+==================================================
+
+Update Settings so it is clear which repository is currently active.
+
+For example:
+
+Active Repository
+LFNewRepoWF
+Source: Laserfiche Desktop Client
+
+If the Dashboard was opened directly without repository context, then the configured/default repository may be used and displayed as:
+
+Source: Default Configuration
+
+Do not force the user to save the repository coming from Desktop Client into permanent configuration.
+
+The manually configured Repository ID should remain only as a fallback/default for direct browser access.
+
+==================================================
+5. DO NOT BREAK EXISTING FEATURES
+==================================================
+
+The following must continue working:
+
+Dashboard analytics
+Archive browser
+Document metadata
+Document viewer/download
+Settings persistence
+Laserfiche authentication
+Repository discovery
+RootEntryId
+TimeoutSeconds
+DPAPI/DataProtection credentials
+Existing Dashboard.DesktopExtension --setup
+Existing Dashboard.DesktopExtension --remove
+
+Do not modify or remove the old GovSearch AI integration.
+
+The new Dashboard extension must remain independent.
+
+==================================================
+6. WINDOWS VERIFICATION
+==================================================
+
+After implementation:
+
+Build the web solution and verify:
+
+0 errors
+0 warnings
+
+Then verify the extension project is still compatible with:
+
+net48
+ClientAutomation.dll
+Windows Forms / Laserfiche Desktop Client
+
+Provide the exact Windows commands to:
+
+clean
+build
+register/update the Dashboard button
+
+Because the toolbar registration may already exist, make sure the instructions explain whether I should run:
+
+Dashboard.DesktopExtension.exe --remove
+
+followed by:
+
+Dashboard.DesktopExtension.exe --setup
+
+so the new icon/registration is refreshed.
+
+==================================================
+7. REQUIRED FINAL REPORT
+==================================================
+
+When finished, report:
+
+1. How the active repository is obtained from Laserfiche Desktop Client.
+2. How it is passed to Dashboard.
+3. How Dashboard preserves it between Dashboard / Archive / Settings.
+4. What happens when Dashboard is opened directly from a browser.
+5. Which files were modified.
+6. Where the new Dashboard toolbar icon is stored.
+7. How ToolbarRegistrar uses the new icon.
+8. How Status was integrated into Settings.
+9. Exact Windows clean/build/register commands.
+10. Build result and warnings/errors.
+
+Do not start Phase 6 yet.
+
+Finish these Phase 5 changes first.

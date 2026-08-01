@@ -24,9 +24,11 @@ namespace LFPortal.DesktopExtension
     ///   <item>
     ///     <term>Button-click handler (invoked by the Laserfiche Desktop Client)</term>
     ///     <description>
-    ///       Reads the portal URL from the extension config and opens it in the
-    ///       default browser. No Laserfiche SDK dependency is required for this path.
-    ///       <code>Dashboard.DesktopExtension.exe -buttonclick -connguid "{guid}" -hwnd "{hwnd}" -pid "{pid}"</code>
+    ///       Reads the portal URL from the extension config and opens it in the default
+    ///       browser. The Laserfiche token <c>%(DatabaseName)</c> is appended as a
+    ///       <c>?repository=</c> query parameter so the portal can automatically activate
+    ///       the repository that is open in the Desktop Client.
+    ///       <code>Dashboard.DesktopExtension.exe -buttonclick -connguid "{guid}" -hwnd "{hwnd}" -pid "{pid}" -databasename "{DatabaseName}"</code>
     ///     </description>
     ///   </item>
     /// </list>
@@ -50,12 +52,15 @@ namespace LFPortal.DesktopExtension
             // ----------------------------------------------------------------
             // Button-click handler
             // Invoked by Laserfiche Desktop Client when the toolbar button is
-            // clicked. Parse the Laserfiche-provided tokens; only the portal URL
-            // is needed for this thin-launcher implementation.
+            // clicked. Laserfiche expands %(DatabaseName) to the name of the
+            // repository currently active in the Desktop Client window.
+            // We append it as ?repository=<name> so the portal's session
+            // middleware can activate that repository without any configuration.
             // ----------------------------------------------------------------
             if (argList.Contains("-buttonclick"))
             {
-                OpenPortalInBrowser(silent);
+                var databaseName = ParseNamedArg(args, "-databasename");
+                OpenPortalInBrowser(silent, databaseName);
                 return;
             }
 
@@ -79,7 +84,7 @@ namespace LFPortal.DesktopExtension
         // Button-click: open the portal URL in the default browser           //
         // ------------------------------------------------------------------ //
 
-        private static void OpenPortalInBrowser(bool silent)
+        private static void OpenPortalInBrowser(bool silent, string databaseName)
         {
             var config = ExtensionConfig.Load();
             var url = config.PortalUrl?.Trim();
@@ -100,6 +105,14 @@ namespace LFPortal.DesktopExtension
                 return;
             }
 
+            // Append ?repository=<DatabaseName> when provided so the portal
+            // activates the same repository that is open in the Desktop Client.
+            if (!string.IsNullOrWhiteSpace(databaseName))
+            {
+                var separator = url.Contains('?') ? "&" : "?";
+                url = $"{url}{separator}repository={Uri.EscapeDataString(databaseName)}";
+            }
+
             try
             {
                 // UseShellExecute = true delegates to the OS default browser handler.
@@ -116,6 +129,25 @@ namespace LFPortal.DesktopExtension
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
             }
+        }
+
+        // ------------------------------------------------------------------ //
+        // Argument parsing helpers                                            //
+        // ------------------------------------------------------------------ //
+
+        /// <summary>
+        /// Extracts the value of a named argument from the command-line array.
+        /// Looks for <paramref name="name"/> and returns the next element.
+        /// Returns an empty string when the argument is not present.
+        /// </summary>
+        private static string ParseNamedArg(string[] args, string name)
+        {
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
+                    return args[i + 1];
+            }
+            return string.Empty;
         }
     }
 }

@@ -1,3 +1,5 @@
+@inject Microsoft.Extensions.Options.IOptions<LFPortal.Infrastructure.Options.LaserficheOptions> _lfOpts
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -51,9 +53,10 @@
             letter-spacing: .02em;
             color: #fff;
             text-decoration: none;
+            flex-shrink: 0;
         }
         .site-header__logo span { color: var(--lfp-accent); }
-        .site-header__nav { display: flex; gap: 4px; margin-left: auto; }
+        .site-header__nav { display: flex; gap: 4px; margin-left: auto; flex-shrink: 0; }
         .site-header__nav a {
             color: rgba(255,255,255,.8);
             text-decoration: none;
@@ -69,6 +72,53 @@
         .site-header__nav a.active {
             background: var(--lfp-accent);
             color: #fff;
+        }
+
+        /* ── Repository badge ── */
+        .repo-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 100px;
+            background: rgba(255,255,255,.1);
+            color: rgba(255,255,255,.85);
+            font-size: .8rem;
+            font-weight: 500;
+            margin: 0 4px;
+            flex-shrink: 1;
+            min-width: 0;
+            max-width: 240px;
+            border: 1px solid rgba(255,255,255,.1);
+            overflow: hidden;
+        }
+        .repo-badge--desktop {
+            background: rgba(59,130,246,.2);
+            border-color: rgba(59,130,246,.4);
+        }
+        .repo-badge__dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: rgba(255,255,255,.5);
+            flex-shrink: 0;
+        }
+        .repo-badge__dot--desktop { background: #60a5fa; }
+        .repo-badge__name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .repo-badge__src {
+            font-size: .625rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            background: rgba(59,130,246,.6);
+            color: #fff;
+            padding: 1px 5px;
+            border-radius: 3px;
+            flex-shrink: 0;
         }
 
         /* ── Main content ── */
@@ -114,6 +164,8 @@
         .badge--green  { background: #dcfce7; color: #166534; }
         .badge--red    { background: #fee2e2; color: #991b1b; }
         .badge--amber  { background: #fef3c7; color: #92400e; }
+        .badge--blue   { background: #dbeafe; color: #1e40af; }
+        .badge--gray   { background: #f1f5f9; color: #475569; }
         .badge::before { content: "●"; font-size: .625rem; }
 
         /* ── Status grid ── */
@@ -260,15 +312,33 @@
     </style>
 </head>
 <body>
+    @{
+        var _ctrl = ViewContext.RouteData.Values["controller"]?.ToString() ?? "";
+        var _sessionRepoId     = Context.Session.GetString("ActiveRepositoryId");
+        var _sessionRepoSource = Context.Session.GetString("ActiveRepositorySource");
+        var _displayRepoId     = _sessionRepoId ?? _lfOpts.Value.RepositoryId;
+        var _isDesktop         = _sessionRepoSource == "Laserfiche Desktop Client";
+    }
     <header class="site-header">
-        <a class="site-header__logo" asp-controller="Home" asp-action="Index">
+        <a class="site-header__logo" asp-controller="Dashboard" asp-action="Index">
             <span>LF</span>Dashboard
         </a>
-        @{
-            var _ctrl = ViewContext.RouteData.Values["controller"]?.ToString() ?? "";
+
+        @* ── Active repository badge ── *@
+        @if (!string.IsNullOrWhiteSpace(_displayRepoId))
+        {
+            <div class="repo-badge @(_isDesktop ? "repo-badge--desktop" : "")"
+                 title="Active repository: @_displayRepoId (@(_isDesktop ? "Laserfiche Desktop Client" : "Default Configuration"))">
+                <span class="repo-badge__dot @(_isDesktop ? "repo-badge__dot--desktop" : "")"></span>
+                <span class="repo-badge__name">@_displayRepoId</span>
+                @if (_isDesktop)
+                {
+                    <span class="repo-badge__src">Desktop</span>
+                }
+            </div>
         }
+
         <nav class="site-header__nav" aria-label="Primary navigation">
-            <a asp-controller="Home"      asp-action="Index" class="@(_ctrl == "Home"      ? "active" : "")">Status</a>
             <a asp-controller="Dashboard" asp-action="Index" class="@(_ctrl == "Dashboard" ? "active" : "")">Dashboard</a>
             <a asp-controller="Archive"   asp-action="Index" class="@(_ctrl == "Archive"   ? "active" : "")">Archive</a>
             <a asp-controller="Settings"  asp-action="Index" class="@(_ctrl == "Settings"  ? "active" : "")">Settings</a>

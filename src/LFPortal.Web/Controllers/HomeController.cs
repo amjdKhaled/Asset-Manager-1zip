@@ -1,47 +1,31 @@
-using LFPortal.Application.Interfaces;
-using LFPortal.Domain.Entities;
-using LFPortal.Domain.Version;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LFPortal.Web.Controllers;
 
 /// <summary>
-/// Handles the portal home (status) page.
-/// Performs a live Laserfiche connection check on every page load so that
-/// administrators can immediately see whether the portal can reach the API Server.
+/// Legacy entry point kept for backward compatibility.
+/// All requests to <c>/</c> and <c>/Home</c> are redirected to the Dashboard.
 /// </summary>
+/// <remarks>
+/// Connection status information previously shown on this page has been moved to
+/// the Settings page (<c>/Settings</c>), where it is displayed alongside the
+/// connection configuration as a "Connection Status" section.
+/// </remarks>
 public sealed class HomeController : Controller
 {
-    private readonly ILaserficheRepositoryService _repositoryService;
     private readonly ILogger<HomeController> _logger;
 
-    /// <summary>Initialises the controller with the required services.</summary>
-    public HomeController(
-        ILaserficheRepositoryService repositoryService,
-        ILogger<HomeController> logger)
+    /// <summary>Initialises the controller with a logger.</summary>
+    public HomeController(ILogger<HomeController> logger)
     {
-        _repositoryService = repositoryService;
-        _logger            = logger;
+        _logger = logger;
     }
 
-    /// <summary>
-    /// Displays the LFPortal status page, including the result of a live
-    /// Laserfiche connection check.
-    /// </summary>
+    /// <summary>Redirects to the Dashboard (legacy root URL support).</summary>
     [HttpGet]
-    public async Task<IActionResult> Index(CancellationToken cancellationToken)
+    public IActionResult Index()
     {
-        var status = await _repositoryService
-            .TestConnectionAsync(cancellationToken);
-
-        var model = new HomeViewModel
-        {
-            Version   = LFPortalVersion.Display,
-            Status    = status,
-            CheckedAt = DateTimeOffset.UtcNow
-        };
-
-        return View(model);
+        return RedirectToAction("Index", "Dashboard");
     }
 
     /// <summary>
@@ -54,19 +38,4 @@ public sealed class HomeController : Controller
         _logger.LogWarning("Error page rendered for request {TraceId}.", HttpContext.TraceIdentifier);
         return View();
     }
-}
-
-/// <summary>
-/// View model for the LFPortal home/status page.
-/// </summary>
-public sealed class HomeViewModel
-{
-    /// <summary>Portal version string, e.g. <c>LFPortal v1.0.0</c>.</summary>
-    public string Version { get; init; } = string.Empty;
-
-    /// <summary>Result of the live Laserfiche connection check.</summary>
-    public ConnectionStatus Status { get; init; } = ConnectionStatus.Failure("Not checked");
-
-    /// <summary>UTC timestamp when this view model was populated.</summary>
-    public DateTimeOffset CheckedAt { get; init; }
 }

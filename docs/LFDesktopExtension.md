@@ -27,9 +27,10 @@ Dashboard.DesktopExtension.exe --setup [--silent]
 Dashboard.DesktopExtension.exe --remove [--silent]
     Removes the Dashboard button from the Laserfiche Desktop Client toolbar.
 
-Dashboard.DesktopExtension.exe -buttonclick -connguid "..." -hwnd "..." -pid "..."
+Dashboard.DesktopExtension.exe -buttonclick -connguid "..." -hwnd "..." -pid "..." -databasename "..."
     Invoked by Laserfiche on button click. Reads the portal URL from the config
-    file and opens it in the default browser.
+    file and opens it in the default browser, appending ?repository=<databasename>
+    so the portal automatically activates the repository open in the Desktop Client.
 ```
 
 Running with no arguments is equivalent to `--setup`.
@@ -248,11 +249,25 @@ When the user clicks the button, the Desktop Client executes:
     -connguid "<ConnectionGUID>"
     -hwnd "<hwnd>"
     -pid "<PID>"
+    -databasename "<DatabaseName>"
 ```
 
-Laserfiche substitutes the `%(…)` tokens before invoking the process. The click handler
-ignores these tokens for this thin-launcher implementation; it only needs the portal URL
-from the config file.
+Laserfiche substitutes the `%(…)` tokens before invoking the process. The extension
+reads the `-databasename` value and appends `?repository=<DatabaseName>` to the portal
+URL before opening the browser. The server-side `RepositorySessionMiddleware` intercepts
+this parameter and stores it in the ASP.NET Core session, so all navigation within that
+browser session uses the Desktop Client's active repository rather than the configured
+default.
+
+### Toolbar Icon
+
+A bar-chart dashboard icon is bundled at `Resources\Dashboard.ico` alongside the EXE.
+`ToolbarRegistrar` automatically passes this path to `CustomButtonInfo.IconPath` during
+`--setup`. The icon contains four sizes: 16×16, 24×24, 32×32, and 48×48 pixels
+(navy background `#1a2744`, accent-blue bars `#3b82f6`).
+
+If the built-in icon is not found (e.g. non-standard install layout), `ToolbarRegistrar`
+falls back to the `iconPath` field in `extension.config.json`.
 
 ---
 

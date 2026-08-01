@@ -84,7 +84,7 @@ dotnet publish src/LFPortal.Web/LFPortal.Web.csproj \
 | Phase 2 | Dashboard page (live LF data) | ✅ Complete |
 | Phase 3 | Document Archive browser | 🔲 Not started |
 | Phase 4 | Settings page — credential UI & runtime reconfiguration | ✅ Complete |
-| Phase 5 | Desktop Client Extension | ⏸ Build verified on Windows; independent Dashboard toolbar runtime test pending |
+| Phase 5 | Desktop Client Extension | ✅ Build verified; dynamic repo context, icon, Status→Settings, Desktop Client badge complete |
 | Phase 6 | MSI Installer & IIS deployment package | ⏸ Not started |
 
 ## Quality Gates (apply to every phase)
@@ -101,7 +101,7 @@ dotnet publish src/LFPortal.Web/LFPortal.Web.csproj \
 
 | Endpoint | Description |
 |---|---|
-| `GET /` | Portal status page (live connection check) |
+| `GET /` | Redirects to Dashboard (Home controller backward-compat) |
 | `GET /health` | ASP.NET Core health check (JSON) |
 | `GET /api/laserfiche/status` | Live Laserfiche connection status (JSON) |
 | `GET /api/laserfiche/repository` | Active repository descriptor (JSON) |

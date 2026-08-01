@@ -1,5 +1,6 @@
 using LFPortal.Domain.Version;
 using LFPortal.Infrastructure.Extensions;
+using LFPortal.Web.Middleware;
 using Serilog;
 
 // ── Bootstrap logger — captures startup errors before full logging is configured ──
@@ -46,8 +47,18 @@ try
     // ── Laserfiche Infrastructure layer ───────────────────────────────────────
     builder.Services.AddLaserficheInfrastructure(builder.Configuration);
 
-    // ── HttpContext accessor (used by middleware / future auth) ───────────────
+    // ── HttpContext accessor (used by SessionAwareRepositoryContext) ──────────
     builder.Services.AddHttpContextAccessor();
+
+    // ── Session — stores the active repository when opened from the Desktop Client ──
+    builder.Services.AddDistributedMemoryCache();
+    builder.Services.AddSession(opts =>
+    {
+        opts.Cookie.HttpOnly  = true;
+        opts.Cookie.IsEssential = true;
+        opts.IdleTimeout      = TimeSpan.FromHours(8);
+        opts.Cookie.Name      = ".Dashboard.Session";
+    });
 
     // ── Build ─────────────────────────────────────────────────────────────────
     var app = builder.Build();
@@ -76,16 +87,22 @@ try
     // ── Routing ───────────────────────────────────────────────────────────────
     app.UseRouting();
 
+    // ── Session — must be after UseRouting, before controllers ───────────────
+    app.UseSession();
+
+    // ── Repository session middleware — captures ?repository= from Desktop Client ──
+    app.UseMiddleware<RepositorySessionMiddleware>();
+
     // ── Health check endpoint ─────────────────────────────────────────────────
     app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         ResponseWriter = WriteHealthResponseAsync
     });
 
-    // ── MVC routes ────────────────────────────────────────────────────────────
+    // ── MVC routes — default lands on the Dashboard ──────────────────────────
     app.MapControllerRoute(
         name: "default",
-        pattern: "{controller=Home}/{action=Index}/{id?}");
+        pattern: "{controller=Dashboard}/{action=Index}/{id?}");
 
     Log.Information("{Display} started successfully.", LFPortalVersion.Display);
     await app.RunAsync();

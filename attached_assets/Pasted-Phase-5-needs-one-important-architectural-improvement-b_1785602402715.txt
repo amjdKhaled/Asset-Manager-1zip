@@ -1,0 +1,249 @@
+Phase 5 needs one important architectural improvement before it can be considered complete.
+
+CURRENT PROBLEM
+The Dashboard currently depends on a Repository ID configured manually in Settings.
+
+I do NOT want the user to manually select or configure the repository when launching Dashboard from Laserfiche Desktop Client.
+
+REQUIRED BEHAVIOR
+The Dashboard Desktop Extension must detect the CURRENT ACTIVE LASERFICHE REPOSITORY from the Laserfiche Desktop Client at the exact moment the Dashboard button is clicked.
+
+Example:
+
+If the user is currently browsing:
+
+LFNewRepoWF
+
+and clicks the Dashboard button:
+
+Dashboard must open using LFNewRepoWF automatically.
+
+If the user switches Laserfiche Desktop Client to:
+
+NewEmployeeTest
+
+and clicks Dashboard:
+
+Dashboard must automatically open using NewEmployeeTest.
+
+If the user switches to:
+
+NewLFWorkflow
+
+and clicks Dashboard:
+
+Dashboard must automatically use NewLFWorkflow.
+
+There must be NO requirement to open Dashboard Settings and manually change Repository ID.
+
+IMPORTANT:
+Do not hard-code any repository names.
+Do not create a list of known repositories.
+Do not require repository configuration per repository.
+The repository context must come dynamically from Laserfiche Desktop Client.
+
+DESIRED FLOW
+
+Laserfiche Desktop Client
+        ↓
+User selects / browses a repository
+        ↓
+User clicks Dashboard toolbar button
+        ↓
+Dashboard.DesktopExtension receives the button-click context
+        ↓
+Determine the active/current repository dynamically
+        ↓
+Launch Dashboard and pass the repository context
+        ↓
+Dashboard uses that repository for the current session
+        ↓
+Status / Dashboard / Archive / Document Viewer
+all operate against that repository
+
+REPOSITORY CONTEXT
+
+The Desktop Extension should pass at minimum:
+
+- Repository ID / repository name
+
+If the Laserfiche Client SDK provides additional useful connection context safely, inspect it, but do not pass passwords or sensitive credentials through the URL.
+
+For example, an acceptable launch pattern could conceptually be:
+
+https://localhost/dashboard?repository=LFNewRepoWF
+
+However, do NOT blindly implement this exact URL format.
+
+First inspect the existing Dashboard.DesktopExtension implementation and the Laserfiche ClientAutomation SDK objects available during the toolbar button click.
+
+Determine the correct way to retrieve the active repository from the Laserfiche Desktop Client.
+
+The existing old GovSearch AI integration in the project may also be inspected because it previously launched an application from Laserfiche and may already demonstrate how ClientManager / application instances / repository context can be obtained.
+
+Do NOT modify or break the old GovSearch AI integration.
+
+SERVER-SIDE REQUIREMENT
+
+The repository received from the Desktop Extension must become SESSION-SCOPED repository context.
+
+Do NOT overwrite the globally saved Repository ID in laserfiche.json every time the Desktop button is clicked.
+
+This is important.
+
+There are two different concepts:
+
+1. Default Repository
+   The repository configured in Settings can remain as a fallback/default when Dashboard is opened directly from a browser.
+
+2. Active Repository
+   When Dashboard is launched from Laserfiche Desktop Client, the repository passed by the extension becomes the active repository for that browser/session.
+
+The active repository must override the default repository for that session only.
+
+Example:
+
+Configured default:
+LFNewRepoWF
+
+User launches Dashboard from:
+NewEmployeeTest
+
+For that Dashboard session:
+
+ActiveRepository = NewEmployeeTest
+
+But the persisted default configuration must remain:
+
+LFNewRepoWF
+
+Do NOT modify laserfiche.json just because the user opened another repository.
+
+ALL EXISTING FEATURES MUST RESPECT ACTIVE REPOSITORY
+
+Audit the current services/controllers and make sure the active repository context is used consistently by:
+
+- Status
+- Dashboard analytics
+- Archive
+- Folder navigation
+- Entry details
+- Metadata fields
+- Template definitions
+- Field definitions
+- Document Viewer
+- Document download/content proxy
+- Any repository-specific API request
+
+There must not be controllers that continue reading the static RepositoryId directly from configuration after an active repository was supplied by the Desktop Extension.
+
+ARCHITECTURE
+
+Create a clean repository-context abstraction rather than scattering query-string reads throughout controllers.
+
+For example, something conceptually like:
+
+IActiveRepositoryContext
+
+with functionality such as:
+
+GetRepositoryId()
+SetRepositoryId(...)
+HasActiveRepository
+
+The exact implementation is your decision based on the existing ASP.NET Core architecture.
+
+The repository context should survive navigation between Dashboard pages.
+
+For example:
+
+Desktop Client
+→ Dashboard
+→ Archive
+→ Document Viewer
+→ Back to Dashboard
+
+must continue using the same repository automatically.
+
+The repository should NOT need to be included manually in every link if ASP.NET session or another appropriate server-side context mechanism can safely maintain it.
+
+SETTINGS PAGE
+
+Do not remove Repository ID from Settings entirely.
+
+Change its meaning to:
+
+Default Repository / Fallback Repository
+
+It is used when Dashboard is opened normally outside Laserfiche Desktop Client and no active repository context exists.
+
+The UI should make this distinction clear.
+
+OPTIONAL UI IMPROVEMENT
+
+The Dashboard header currently shows the repository badge.
+
+Make sure that badge displays the ACTUAL ACTIVE REPOSITORY.
+
+For example:
+
+● NewEmployeeTest
+
+not the configured fallback repository.
+
+This gives the user visual confirmation that Dashboard is operating against the same repository they launched it from.
+
+SECURITY
+
+Validate the repository value received from the Desktop Extension.
+
+Prefer validating it against GET /Repositories before accepting it as active context.
+
+Do not accept arbitrary repository identifiers and blindly construct API requests.
+
+Do not expose:
+- Laserfiche passwords
+- bearer tokens
+- stored credentials
+in URLs or browser-side JavaScript.
+
+IMPORTANT IMPLEMENTATION RULE
+
+Before changing code:
+
+1. Inspect Dashboard.DesktopExtension.
+2. Inspect ToolbarRegistrar and the button-click execution flow.
+3. Inspect the existing Laserfiche ClientAutomation SDK references.
+4. Inspect the old GovSearch AI extension only as a reference.
+5. Determine exactly what Laserfiche provides to the EXE when -buttonclick is invoked.
+6. Determine whether repository/session/application context is directly available through ClientManager or related SDK objects.
+
+Do NOT guess the ClientAutomation API.
+
+If the currently referenced ClientAutomation.dll does not expose enough information, report exactly what SDK object/API is missing before inventing another mechanism.
+
+TEST REQUIREMENT
+
+Test with at least two repositories.
+
+Example test:
+
+1. Open LFNewRepoWF in Laserfiche Desktop Client.
+2. Click Dashboard.
+3. Verify Dashboard repository badge = LFNewRepoWF.
+4. Verify Archive displays LFNewRepoWF entries.
+
+Then:
+
+5. Switch Desktop Client to NewEmployeeTest.
+6. Click Dashboard.
+7. Verify Dashboard repository badge = NewEmployeeTest.
+8. Verify Archive displays NewEmployeeTest entries.
+9. Verify Settings was NOT manually changed.
+10. Verify the persisted default repository was NOT overwritten.
+
+Also verify direct browser launch still falls back to the repository configured in Settings.
+
+Do not start Phase 6 yet.
+
+Complete this dynamic repository-context behavior as the final Phase 5 requirement first.

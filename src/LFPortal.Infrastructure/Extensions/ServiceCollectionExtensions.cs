@@ -45,8 +45,9 @@ public static class ServiceCollectionExtensions
         // ── API adapter — singleton; reads live options via IOptionsMonitor ───
         services.AddSingleton<ILaserficheApiAdapter, LaserficheApiAdapter>();
 
-        // ── Repository context — singleton; reads live options per call ────────
-        services.AddSingleton<IRepositoryContext, ConfigurationRepositoryContext>();
+        // ── Repository context — singleton; reads session-scoped override first,
+        //    then falls back to live options (supports Desktop Client repo param) ─
+        services.AddSingleton<IRepositoryContext, SessionAwareRepositoryContext>();
 
         // ── Credential provider — singleton; chain(primary, env-var fallback) ─
         RegisterCredentialProvider(services);
