@@ -43,10 +43,21 @@ Running with no arguments is equivalent to `--setup`.
 | Visual Studio 2022 or MSBuild 17 | Windows only |
 | .NET Framework 4.8 Developer Pack | Download from Microsoft |
 | Laserfiche Desktop Client installed | Required for the SDK DLL |
-| `ClientAutomation.dll` present | `C:\Program Files\Laserfiche\SDK 10.4\bin\10.4\net-4.0\` |
+| `ClientAutomation.dll` present | Copied into the repository at `vendor\LaserficheSdk\bin\10.4\net-4.0\` |
 
-> **If `ClientAutomation.dll` is at a different path**, update the `<HintPath>` in
-> `src/Dashboard.DesktopExtension/Dashboard.DesktopExtension.csproj` before building.
+The project intentionally uses a repository-relative SDK path. Before building,
+copy the SDK DLL from the installed Laserfiche SDK into the repository:
+
+```powershell
+# From the repository root on Windows:
+$source = "${env:ProgramFiles}\Laserfiche\SDK 10.4\bin\10.4\net-4.0\ClientAutomation.dll"
+$destination = "vendor\LaserficheSdk\bin\10.4\net-4.0"
+New-Item -ItemType Directory -Force $destination | Out-Null
+Copy-Item $source "$destination\ClientAutomation.dll"
+```
+
+If the SDK is installed elsewhere, change only the `$source` value. Do not put an
+absolute path in the project file.
 
 ---
 
@@ -57,7 +68,10 @@ Linux/Replit development environment). Build it on a Windows machine with the
 Laserfiche SDK installed:
 
 ```powershell
-# From the repository root on Windows:
+# From the repository root on Windows, after copying ClientAutomation.dll:
+dotnet clean src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj `
+    --configuration Release
+
 dotnet build src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj `
     --configuration Release
 
@@ -68,6 +82,10 @@ The output is in:
 ```
 src\Dashboard.DesktopExtension\bin\Release\net48\Dashboard.DesktopExtension.exe
 ```
+
+The project must be built on Windows with the **.NET Framework 4.8 Developer Pack**
+installed. A Linux/.NET SDK environment can evaluate the project but cannot compile
+it without the .NET Framework 4.8 reference assemblies.
 
 ---
 

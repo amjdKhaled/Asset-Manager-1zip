@@ -1,14 +1,20 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
 
   <PropertyGroup>
     <!-- Must target .NET Framework 4.8: the Laserfiche Desktop Client SDK (SDK 10.4)
          ships net-4.0 DLLs that are not compatible with .NET 5+. -->
     <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
     <OutputType>WinExe</OutputType>
     <AssemblyName>Dashboard.DesktopExtension</AssemblyName>
     <RootNamespace>LFPortal.DesktopExtension</RootNamespace>
     <Nullable>enable</Nullable>
     <Platforms>x64;x86;AnyCPU</Platforms>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
+    <!-- Copy the Laserfiche SDK into this repository-relative folder on Windows:
+         vendor\LaserficheSdk\bin\10.4\net-4.0\ -->
+    <LaserficheSdkRoot>$(MSBuildThisFileDirectory)..\..\vendor\LaserficheSdk</LaserficheSdkRoot>
 
     <!-- Product metadata -->
     <Company>Dashboard</Company>
@@ -25,12 +31,12 @@
   </PropertyGroup>
 
   <!-- Laserfiche ClientAutomation SDK — required for toolbar button registration.
-       This DLL ships with the Laserfiche SDK 10.4 installer.
-       Standard installation path: C:\Program Files\Laserfiche\SDK 10.4\bin\10.4\net-4.0\
-       If your SDK is installed to a different path, update the HintPath below. -->
+       This repository-relative path keeps the project portable. See
+       docs/LFDesktopExtension.md for the Windows SDK copy step. -->
   <ItemGroup>
-    <Reference Include="Laserfiche.ClientAutomation">
-      <HintPath>C:\Program Files\Laserfiche\SDK 10.4\bin\10.4\net-4.0\ClientAutomation.dll</HintPath>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="ClientAutomation">
+      <HintPath>$(LaserficheSdkRoot)\bin\10.4\net-4.0\ClientAutomation.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

@@ -1,0 +1,148 @@
+Phase 5 Windows build failed.
+
+Do NOT move to Phase 6 yet.
+
+Fix Dashboard.DesktopExtension so it builds successfully on my Windows machine.
+
+Here is the exact build output:
+
+Dashboard.DesktopExtension failed with 11 errors.
+
+ERROR GROUP 1 — Duplicate Assembly Attributes
+
+Generated file:
+
+obj\Release\net48\Dashboard.DesktopExtension.AssemblyInfo.cs
+
+conflicts with:
+
+Properties\AssemblyInfo.cs
+
+Duplicate attributes include:
+
+AssemblyCompany
+AssemblyConfiguration
+AssemblyCopyright
+AssemblyDescription
+AssemblyFileVersion
+AssemblyProduct
+AssemblyTitle
+AssemblyVersion
+
+This is an SDK-style .NET Framework 4.8 project.
+
+Fix the project correctly.
+
+Do NOT delete generated files from obj as the solution because they will be regenerated on the next build.
+
+Choose ONE authoritative assembly metadata source.
+
+Preferred approach:
+
+If Properties\AssemblyInfo.cs is required because it contains Laserfiche/extension-specific metadata, add:
+
+<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
+to Dashboard.DesktopExtension.csproj.
+
+Otherwise remove the manual duplicate assembly attributes and allow the SDK to generate them.
+
+Inspect the actual project first and choose the safest approach.
+
+--------------------------------------------------
+
+ERROR GROUP 2 — System.Windows.Forms missing
+
+These files fail:
+
+Program.cs
+Properties\AssemblyInfo.cs
+ToolbarRegistrar.cs
+
+Error:
+
+CS0234:
+The type or namespace name 'Forms' does not exist in the namespace 'System.Windows'
+
+Dashboard.DesktopExtension targets:
+
+net48
+
+Add the correct .NET Framework reference required for System.Windows.Forms.
+
+For an SDK-style net48 project, configure the project correctly for Windows Forms, for example using the appropriate framework reference/project configuration supported by net48.
+
+Do NOT convert this project to .NET 8.
+
+It must remain compatible with the Laserfiche Desktop Client SDK and remain:
+
+net48
+
+Also inspect Properties\AssemblyInfo.cs carefully.
+
+System.Windows.Forms should normally NOT be imported inside AssemblyInfo.cs unless there is a genuine reason.
+
+If there is an unnecessary:
+
+using System.Windows.Forms;
+
+inside AssemblyInfo.cs, remove it.
+
+--------------------------------------------------
+
+IMPORTANT LASERFICHE RULE
+
+Do NOT change:
+
+- ClientManager
+- ToolbarManager
+- ClientAutomation.dll integration
+- Laserfiche SDK architecture
+- extension registration behavior
+- --setup
+- --remove
+- -buttonclick
+
+unless the compiler proves there is another issue after these two build problems are fixed.
+
+These current errors happen BEFORE Laserfiche integration is being validated.
+
+Fix compilation first.
+
+--------------------------------------------------
+
+AFTER FIXING
+
+Review the complete:
+
+src/Dashboard.DesktopExtension/Dashboard.DesktopExtension.csproj
+
+Make sure it contains all required net48 references and uses RELATIVE paths for Laserfiche SDK DLLs.
+
+No absolute path such as:
+
+C:\Program Files\Laserfiche\...
+
+may be hard-coded into the csproj.
+
+Then give me the corrected Windows build instructions.
+
+The command I am using is:
+
+dotnet clean src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+dotnet build src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+The project must pass this on Windows.
+
+Target result:
+
+Build succeeded.
+0 Error(s)
+0 Warning(s)
+
+If another compiler error appears after fixing these issues, fix it based on the actual compiler output.
+
+Do NOT claim Phase 5 is complete until Dashboard.DesktopExtension itself successfully builds on Windows.
+
+Do NOT start Phase 6.

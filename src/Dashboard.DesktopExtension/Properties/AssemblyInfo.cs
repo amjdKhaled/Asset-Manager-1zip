@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Windows.Forms;
 
 [assembly: AssemblyTitle("Dashboard Desktop Extension")]
 [assembly: AssemblyDescription("Laserfiche Desktop Client toolbar button that opens the Dashboard portal URL")]

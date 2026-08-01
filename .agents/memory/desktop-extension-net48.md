@@ -20,6 +20,17 @@ Pre-existing `laserfiche-extension/LaserficheAIExtension.csproj` in the workspac
 
 **Why:** Adding it to the solution would break the 0-errors gate on the CI/Replit environment.
 
+The SDK-style project must keep `GenerateAssemblyInfo=false` because it has a manual
+`Properties/AssemblyInfo.cs`, and must use `Microsoft.NET.Sdk.WindowsDesktop` with
+`UseWindowsForms=true` for `System.Windows.Forms` on net48. The SDK DLL is staged at
+the repository-relative `vendor\LaserficheSdk\bin\10.4\net-4.0\` path; never restore
+the old absolute `C:\Program Files\...` HintPath.
+
+**Why:** The first Windows build failed before Laserfiche API validation due to
+duplicate generated assembly attributes and missing WinForms references. Keeping one
+metadata authority and a portable SDK path makes the failure deterministic and
+machine-independent.
+
 ## How to apply
 
 When Phase 6 (MSI installer) is implemented, the installer build must happen on Windows and include `Dashboard.DesktopExtension.exe` built from the standalone csproj. The MSI should call `--setup --silent` on install and `--remove --silent` on uninstall.

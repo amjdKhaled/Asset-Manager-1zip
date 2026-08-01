@@ -145,8 +145,8 @@ namespace LFPortal.DesktopExtension
                     for (int i = btnCount - 1; i >= 0; i--)
                     {
                         var info = toolbarMgr.GetCustomToolbarButton(i);
-                        if (info.Command.Contains(exeName,
-                                StringComparison.OrdinalIgnoreCase))
+                        if (info.Command.IndexOf(exeName,
+                                StringComparison.OrdinalIgnoreCase) >= 0)
                         {
                             toolbarMgr.RemoveCustomToolbarButton(i);
                             removed = true;

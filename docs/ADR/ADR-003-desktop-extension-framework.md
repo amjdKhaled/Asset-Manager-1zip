@@ -58,11 +58,12 @@ with any `.NET Framework 4.x` host. Targeting `net48` is the safe and tested cho
 
 ```
 Reference: Laserfiche.ClientAutomation
-HintPath:  C:\Program Files\Laserfiche\SDK 10.4\bin\10.4\net-4.0\ClientAutomation.dll
+HintPath:  $(MSBuildThisFileDirectory)..\..\vendor\LaserficheSdk\bin\10.4\net-4.0\ClientAutomation.dll
 ```
 
-If your SDK is installed to a different path, update the `<HintPath>` in
-`src/Dashboard.DesktopExtension/Dashboard.DesktopExtension.csproj`.
+Before building on Windows, copy the installed SDK DLL to that repository-relative
+path. The source installation path may vary by machine; it must not be hard-coded
+in the project file.
 
 ---
 
