@@ -3,18 +3,15 @@
   Product.wxs: Top-level package definition for the Dashboard installer.
 
   Defines the package identity, upgrade logic, features, UI, and custom actions.
-  File content for WebApp and Extension is harvested via HarvestDirectory in
-  Dashboard.Installer.wixproj (not listed as File elements here).
+  File content for WebApp and Extension is harvested by New-HarvestWxs in
+  build\publish.ps1 (not via MSBuild HarvestDirectory; the build invokes
+  the wix CLI directly, bypassing the wixproj MSBuild pipeline).
 
-  Build requirements (Windows only):
-    dotnet tool install -global wix
-    wix extension add WixToolset.UI.wixext/4.0.5
-    wix extension add WixToolset.Iis.wixext/4.0.3
-    wix extension add WixToolset.Util.wixext/4.0.5
-    dotnet build installer\Dashboard.Installer\Dashboard.Installer.wixproj
+  Build:
+    .\build\publish.ps1        (produces Release\LFDashboard-Setup.exe)
 
-  To build with an explicit version or port:
-    dotnet build ... -p:ProductVersion=1.2.3 -p:DashboardPort=80
+  Manual MSI-only rebuild: see publish.ps1 Step 8 for the exact wix build
+  invocation with all -ext, -d, -b, and -out flags.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
@@ -33,7 +30,7 @@
     <!--
       MajorUpgrade: remove the old version before installing the new one.
       Configuration in %ProgramData%\Dashboard\ is preserved because those
-      components use NeverOverwrite="yes" in Configuration.wxs.
+      components use NeverOverwrite="yes" + Permanent="yes" in Configuration.wxs.
     -->
     <MajorUpgrade
       DowngradeErrorMessage="A newer version of Dashboard is already installed. Downgrade is not supported. Please uninstall the current version first."
@@ -42,6 +39,9 @@
     <!--
       Prerequisite: ASP.NET Core 8 Hosting Bundle.
       The Hosting Bundle writes a Version value under this key on 64-bit Windows.
+      Bitness="always64" (WiX 4 — replaces the WiX 3 Win64="yes" attribute) forces
+      the registry search to use the 64-bit registry view on all target machines,
+      which is where the Hosting Bundle records its installation on x64 Windows.
       If the property remains unset the Launch condition blocks installation.
     -->
     <Property Id="ASPNETCORE8">
@@ -49,7 +49,7 @@
                       Root="HKLM"
                       Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost"
                       Name="Version"
-                      Win64="yes"
+                      Bitness="always64"
                       Type="raw" />
     </Property>
 
@@ -84,12 +84,15 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
       Feature tree:
         [Required] Dashboard Web Application (always installed)
           [Optional] Laserfiche Desktop Client Extension
+
+      AllowAbsent="no" (WiX 4 — replaces WiX 3's Absent="disallow"): prevents
+      the user from deselecting the core web-application feature in the setup UI.
     -->
     <Feature Id="FeatureWebApp"
              Title="Dashboard Web Application"
              Description="Installs the Dashboard ASP.NET Core web application and configures IIS."
              Level="1"
-             Absent="disallow"
+             AllowAbsent="no"
              AllowAdvertise="no"
              Display="expand">
 
@@ -123,12 +126,24 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
       MSI Properties set by the Burn Bundle wizard (via MsiProperty in Bundle.wxs).
       When the MSI is run standalone (no Bundle), these are empty; the operator
       must supply them via the command line or run the Bundle instead.
+
+      Secure="yes":
+        Marks each property as a SecureCustomProperty.  This is required for
+        properties that are passed from the Bundle via MsiProperty and then used
+        inside ExeCommand attributes of *deferred* custom actions.  Without this,
+        Windows Installer's elevated-context security filter can discard the values
+        before the deferred actions run.
+
+      Value attribute omitted (WiX 4 rejects Value=""):
+        WiX 4 does not accept an empty string as a Property/@Value.  These
+        properties are intentionally unset at package-definition time; their
+        values are always supplied externally (Bundle or command line).
     -->
-    <Property Id="DASHBOARD_URL"          Value="" />
-    <Property Id="LF_API_URL"             Value="" />
-    <Property Id="LF_REPO_ID"             Value="" />
-    <Property Id="LF_DISPLAY_NAME"        Value="" />
-    <Property Id="LF_WEB_CLIENT_PATH"     Value="" />
+    <Property Id="DASHBOARD_URL"          Secure="yes" />
+    <Property Id="LF_API_URL"             Secure="yes" />
+    <Property Id="LF_REPO_ID"             Secure="yes" />
+    <Property Id="LF_DISPLAY_NAME"        Secure="yes" />
+    <Property Id="LF_WEB_CLIENT_PATH"     Secure="yes" />
     <Property Id="INSTALL_DESKTOP_BUTTON" Value="1" />
     <Property Id="INSTALL_WEB_BUTTON"     Value="0" />
     <Property Id="DASHBOARD_PORT"         Value="5000" />
@@ -185,6 +200,16 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
         Removes the Dashboard script tag from Browse.aspx on uninstall.
         Return=ignore: optional cleanup; if Browse.aspx was already removed, skip.
 
+      SetAppPoolNoManagedCode:
+        Calls appcmd.exe to set managedRuntimeVersion="" (No Managed Code) on
+        the Dashboard app pool after the WiX IIS extension has created it.
+        ManagedRuntimeVersion="" cannot be expressed as a WiX 4 IIS extension
+        attribute (WIX0006 rejects the empty string), so an appcmd CA is used.
+        "No Managed Code" is required for ASP.NET Core / ANCM: the CLR must not
+        be loaded into the IIS worker process.
+        Return=ignore: if appcmd is absent on a non-IIS machine the install still
+        succeeds (ANCM on a proper IIS install will always have appcmd).
+
       SECURITY NOTE: LF_WEB_CLIENT_PATH comes from the wizard (no user input
       during install); it is persisted in the Bundle DB and re-used on uninstall.
       No passwords or credentials are passed to any SetupHelper command.
@@ -219,36 +244,68 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
                   Return="ignore" />
 
     <!--
+      SetAppPoolNoManagedCode: sets managedRuntimeVersion="" on the Dashboard
+      app pool via appcmd.exe after the IIS extension's ConfigureIIs action has
+      created the pool.  Run elevated (Impersonate="no") so appcmd can write to
+      IIS configuration.  [SystemFolder] resolves to C:\Windows\System32\ at
+      scheduling time in the elevated execute sequence.
+    -->
+    <CustomAction Id="SetAppPoolNoManagedCode"
+                  Directory="WEBAPPFOLDER"
+                  ExeCommand='"[SystemFolder]inetsrv\appcmd.exe" set apppool "$(IisAppPoolName)" /managedRuntimeVersion:""'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!--
       Install execute sequence.
 
-      On install / upgrade (NOT REMOVE):
+      On install / upgrade (NOT REMOVE~="ALL"):
         InstallFiles              (MSI built-in: copies all harvested files)
+        ConfigureIIs              (WiX IIS ext: creates app pool and web site)
+        SetAppPoolNoManagedCode   (appcmd: sets managedRuntimeVersion="" on pool)
         WriteConfig               (writes %ProgramData%\Dashboard\ config files)
         RegisterExtension         (registers the Desktop Client toolbar button)
         RollbackWebClient         (rollback CA: restores Browse.aspx if later step fails)
         DeployWebClient           (patches Browse.aspx; conditioned on wizard choice)
 
-      On uninstall (REMOVE="ALL"):
+      On uninstall (REMOVE~="ALL"):
         RemoveWebClient           (strips Dashboard tag from Browse.aspx)
         UnregisterExtension       (removes toolbar button registration)
         RemoveFiles               (MSI built-in: deletes installed files)
+
+      WiX 4 change: conditions are a Condition="..." attribute on <Custom>;
+      inner text is no longer valid (WIX0400).  Double-quotes inside the
+      condition string are encoded as &quot; since the attribute is delimited
+      by double-quotes.
     -->
     <InstallExecuteSequence>
+      <!-- Set No Managed Code on the app pool after IIS creates it -->
+      <Custom Action="SetAppPoolNoManagedCode"
+              After="ConfigureIIs"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+
       <!-- Install / Upgrade actions -->
       <Custom Action="WriteConfig"
-              After="InstallFiles">NOT REMOVE~="ALL"</Custom>
+              After="InstallFiles"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="RegisterExtension"
-              After="WriteConfig">NOT REMOVE~="ALL"</Custom>
+              After="WriteConfig"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="RollbackWebClient"
-              After="RegisterExtension">NOT REMOVE~="ALL"</Custom>
+              After="RegisterExtension"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="DeployWebClient"
-              After="RollbackWebClient">NOT REMOVE~="ALL" AND INSTALL_WEB_BUTTON="1" AND LF_WEB_CLIENT_PATH&lt;&gt;""</Custom>
+              After="RollbackWebClient"
+              Condition="NOT REMOVE~=&quot;ALL&quot; AND INSTALL_WEB_BUTTON=&quot;1&quot; AND LF_WEB_CLIENT_PATH&lt;&gt;&quot;&quot;" />
 
       <!-- Uninstall actions -->
       <Custom Action="RemoveWebClient"
-              Before="UnregisterExtension">REMOVE~="ALL" AND LF_WEB_CLIENT_PATH&lt;&gt;""</Custom>
+              Before="UnregisterExtension"
+              Condition="REMOVE~=&quot;ALL&quot; AND LF_WEB_CLIENT_PATH&lt;&gt;&quot;&quot;" />
       <Custom Action="UnregisterExtension"
-              Before="RemoveFiles">REMOVE~="ALL"</Custom>
+              Before="RemoveFiles"
+              Condition="REMOVE~=&quot;ALL&quot;" />
     </InstallExecuteSequence>
 
   </Package>

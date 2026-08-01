@@ -19,9 +19,17 @@
     MSI as MsiProperty elements, ensuring correct operation without re-entering
     the wizard.
 
+  WiX 4 CHANGES vs WiX 3:
+    - bal:WixManagedBootstrapperApplicationHost no longer accepts
+      BAFactoryAssembly or BAConnectionTimeout attributes.  The managed BA
+      assembly is identified by adding it as a child Payload element inside
+      BootstrapperApplication.  The BAL host discovers it automatically.
+    - MsiPackage/@DisplayInternalUI was removed.  In WiX 4, Burn always
+      suppresses the MSI's internal UI; no attribute is needed or accepted.
+
   BUILD:
-    See Dashboard.Bundle.wixproj and build\publish.ps1.
-    Windows only; requires WiX v4 global tool + WixToolset.Bal.wixext.
+    See build\publish.ps1 Step 9.
+    Windows only; requires WiX v4 local tool + WixToolset.Bal.wixext.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
@@ -35,13 +43,20 @@
     <!--
       Managed Bootstrapper Application.
       Dashboard.BA.dll implements the 7-page setup wizard.
-      BAFactoryAssembly: the DLL built from installer\Dashboard.BA\.
-      BAConnectionTimeout: how long (ms) Burn waits for the BA to connect.
+
+      WiX 4 syntax: the BA assembly is a child Payload element inside
+      BootstrapperApplication.  The BAL host discovers it by looking for
+      the [assembly: BootstrapperApplicationFactory] attribute on the DLL.
+      BAFactoryAssembly and BAConnectionTimeout attributes were removed in
+      WiX 4 (WIX0004 errors if present).
+
+      If Dashboard.BA.dll has additional DLL dependencies beyond what
+      .NET 4.8 and the WiX Mba.Core host provide, add them as further
+      Payload elements here (e.g. third-party NuGet DLLs built into BA).
     -->
     <BootstrapperApplication>
-      <bal:WixManagedBootstrapperApplicationHost
-          BAFactoryAssembly="$(var.BAAssembly)"
-          BAConnectionTimeout="10000" />
+      <bal:WixManagedBootstrapperApplicationHost />
+      <Payload SourceFile="$(var.BAAssembly)" />
     </BootstrapperApplication>
 
     <!--
@@ -70,7 +85,8 @@
     <!--
       Package chain.
       Only the Dashboard MSI.
-      DisplayInternalUI="no": suppress the MSI wizard; the Bundle wizard is used.
+      DisplayInternalUI was removed in WiX 4 — Burn always suppresses the
+      MSI's wizard UI.  Omit the attribute; it is not needed or accepted.
       ForcePerMachine="yes": ensures per-machine install regardless of context.
 
       MsiProperty elements map each Bundle Variable to an MSI property.
@@ -82,7 +98,6 @@
       <MsiPackage
           Id="DashboardMsi"
           SourceFile="$(var.MsiPath)"
-          DisplayInternalUI="no"
           Vital="yes"
           ForcePerMachine="yes">
 

@@ -2,8 +2,22 @@
 <!--
   Configuration.wxs: ProgramData configuration files.
 
-  All NeverOverwrite files are created on first install and never touched by
-  subsequent upgrades or repairs.  Administrator-edited values are preserved.
+  Config files are created on first install and NEVER overwritten by subsequent
+  upgrades, repairs, or reinstalls.  Administrator-edited values are preserved.
+
+  This is achieved with two WiX 4 component attributes:
+    NeverOverwrite="yes" — Windows Installer never overwrites files in this
+                           component during upgrade or repair.  (WiX 4 moved
+                           this attribute from File to Component; WIX0004 is
+                           emitted if it appears on File.)
+    Permanent="yes"      — The component and its files are not removed during
+                           uninstall.  This satisfies the Phase 6 requirement
+                           that %ProgramData%\Dashboard\ configuration persists
+                           after the application is uninstalled.
+
+  The ConfigTemplate\ sub-directory is a separate component WITHOUT these
+  attributes: it IS overwritten on upgrade so administrators always have the
+  current schema reference, even when their live files are protected.
 
   Paths established here (matching the application source code):
     %ProgramData%\Dashboard\extension.config.json   (Desktop Extension config)
@@ -29,32 +43,37 @@
     <ComponentGroup Id="ConfigComponents">
 
       <!--
-        Extension config (NeverOverwrite).
-        Edit "portalUrl" to point to the Dashboard server after installation.
-        Administrator changes survive all upgrades and repairs.
+        Extension config.
+        NeverOverwrite="yes": Windows Installer never replaces this file during
+          upgrade or repair — administrator changes survive all updates.
+        Permanent="yes": file is not removed on uninstall — configuration is
+          preserved per the Phase 6 requirement.
+        (WiX 4: NeverOverwrite lives on Component, not File; WIX0004 is the
+        error if placed on File.)
       -->
       <Component Id="CompExtensionConfig"
                  Directory="PROGRAMDATAFOLDER"
-                 Guid="{D5E6F7A8-B9C0-4123-DEF0-456789012345}">
+                 Guid="{D5E6F7A8-B9C0-4123-DEF0-456789012345}"
+                 NeverOverwrite="yes"
+                 Permanent="yes">
         <File Id="FileExtensionConfig"
               Name="extension.config.json"
               Source="$(var.ConfigTemplateDir)\extension.config.json"
-              NeverOverwrite="yes"
               Vital="no" />
       </Component>
 
       <!--
-        Laserfiche connection config (NeverOverwrite).
-        Edit ServerUrl, RepositoryId, and DisplayName after installation.
-        Administrator changes survive all upgrades and repairs.
+        Laserfiche connection config.
+        NeverOverwrite="yes" + Permanent="yes": same protection as above.
       -->
       <Component Id="CompLaserficheConfig"
                  Directory="PROGRAMDATAFOLDER"
-                 Guid="{E6F7A8B9-C0D1-4234-EF01-567890123456}">
+                 Guid="{E6F7A8B9-C0D1-4234-EF01-567890123456}"
+                 NeverOverwrite="yes"
+                 Permanent="yes">
         <File Id="FileLaserficheConfig"
               Name="laserfiche.config.json"
               Source="$(var.ConfigTemplateDir)\laserfiche.config.json"
-              NeverOverwrite="yes"
               Vital="no" />
       </Component>
 
@@ -90,9 +109,9 @@
 
       <!--
         ConfigTemplate\ directory: reference copies of the latest config schema.
-        These ARE overwritten on upgrade so administrators always have the
-        current schema available, even if their live files are protected by
-        NeverOverwrite and contain older field values.
+        These ARE overwritten on upgrade (no NeverOverwrite/Permanent) so
+        administrators always have the current schema available, even if their
+        live files in PROGRAMDATAFOLDER are protected and contain older fields.
       -->
       <Component Id="CompConfigTemplates"
                  Directory="CONFIGTMPLFOLDER"
