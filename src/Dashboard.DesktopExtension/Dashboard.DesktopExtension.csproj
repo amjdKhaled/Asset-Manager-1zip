@@ -9,8 +9,21 @@
     <AssemblyName>Dashboard.DesktopExtension</AssemblyName>
     <RootNamespace>LFPortal.DesktopExtension</RootNamespace>
     <Nullable>enable</Nullable>
-    <Platforms>x64;x86;AnyCPU</Platforms>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
+    <!-- Platform target: x64, matching the GovSearch AI Laserfiche extension
+         (laserfiche-extension/GovSearchAIAssistant.csproj) which is the only other
+         Laserfiche toolbar extension on this machine that uses WebView2 and is
+         confirmed working. The Laserfiche Desktop Client is a 32-bit (x86) process
+         (see CustomButtonManager/CustomButtonManager.csproj), but our extension runs
+         as a separate child process whose architecture is determined by its own PE
+         header — not the parent's. x64 is required because:
+           1. GovSearch confirms WebView2 works at x64 on this machine.
+           2. AnyCPU without an explicit PlatformTarget leaves the WebView2 NuGet
+              build targets without a concrete arch, causing the wrong-bitness
+              WebView2Loader.dll to be loaded → ERROR_BAD_FORMAT (0x8007000B). -->
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
 
     <!-- Copy the Laserfiche SDK into this repository-relative folder on Windows:
          vendor\LaserficheSdk\bin\10.4\net-4.0\ -->
@@ -47,16 +60,20 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
 
     <!-- WebView2 WinForms control — hosts the Dashboard web application in a
-         native popup window. Requires the Microsoft Edge WebView2 Runtime to
-         be installed on the end-user machine (see docs/LFDesktopExtension.md).
-         Package ships: Microsoft.Web.WebView2.WinForms.WebView2 (WinForms control)
-                        Microsoft.Web.WebView2.Core.*                (core API types) -->
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2651.64" />
+         native popup window. Version 1.0.2420.47 is used here because it is the
+         version confirmed working on this machine by the GovSearch AI extension
+         (laserfiche-extension/GovSearchAIAssistant.csproj). Requires the Microsoft
+         Edge WebView2 Runtime on the end-user machine (Evergreen or Fixed).
+         At PlatformTarget=x64 MSBuild correctly promotes:
+             runtimes\win-x64\native\WebView2Loader.dll
+         to the output directory, avoiding the BadImageFormatException that occurs
+         with AnyCPU (0x8007000B / ERROR_BAD_FORMAT). -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2420.47" />
   </ItemGroup>
 
   <!-- Static content to copy to the output directory.
        Dashboard.ico is read at runtime by ToolbarRegistrar (icon registration)
-       and DashboardWindow (window icon). The path used in ToolbarRegistrar is:
+       and DashboardWindow (window icon). The path used by ToolbarRegistrar is:
            <ExeDir>\Resources\Dashboard.ico
        so the file must be present in the Resources\ sub-folder of the output. -->
   <ItemGroup>

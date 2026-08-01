@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Windows.Forms;
 
 namespace LFPortal.DesktopExtension
@@ -71,16 +72,22 @@ namespace LFPortal.DesktopExtension
             // ----------------------------------------------------------------
             if (argList.Contains("-buttonclick"))
             {
-                // --- Diagnostic log ---
-                ExtensionLogger.LogSection("DASHBOARD EXTENSION CLICK");
-                ExtensionLogger.Log($"Raw args ({args.Length}): {string.Join(" ", args)}");
-
                 var databaseName = ParseNamedArg(args, "-databasename");
 
-                if (string.IsNullOrWhiteSpace(databaseName))
-                    ExtensionLogger.Log("Repository detected: (none — will use configured default)");
-                else
-                    ExtensionLogger.Log($"Repository detected: {databaseName}");
+                // Log runtime diagnostics before attempting WebView2 initialization.
+                // This information is critical for diagnosing architecture mismatches
+                // (0x8007000B / BadImageFormatException) and missing runtime issues.
+                ExtensionLogger.LogSection("DASHBOARD RUNTIME");
+                ExtensionLogger.Log($"OS 64-bit:     {Environment.Is64BitOperatingSystem}");
+                ExtensionLogger.Log($"Process 64-bit:{Environment.Is64BitProcess}");
+                ExtensionLogger.Log($"Pointer size:  {IntPtr.Size} bytes ({IntPtr.Size * 8}-bit)");
+                ExtensionLogger.Log($"Executable:    {Application.ExecutablePath}");
+                ExtensionLogger.Log($"Raw args ({args.Length}): {string.Join(" ", args)}");
+                ExtensionLogger.Log($"Repository:    {(string.IsNullOrWhiteSpace(databaseName) ? "(none — will use configured default)" : databaseName)}");
+
+                // Log WebView2Loader.dll locations so architecture problems can be
+                // diagnosed from the log without re-running the extension.
+                LogWebView2LoaderPaths();
 
                 OpenPortalInWindow(silent, databaseName);
                 return;
@@ -109,9 +116,10 @@ namespace LFPortal.DesktopExtension
         private static void OpenPortalInWindow(bool silent, string databaseName)
         {
             var config = ExtensionConfig.Load();
-            var url    = config.PortalUrl?.Trim();
 
-            if (string.IsNullOrEmpty(url))
+            // Validate PortalUrl before doing anything else.
+            string? rawUrl = config.PortalUrl?.Trim();
+            if (string.IsNullOrEmpty(rawUrl))
             {
                 ExtensionLogger.Log("ERROR: PortalUrl is not configured.");
 
@@ -129,6 +137,11 @@ namespace LFPortal.DesktopExtension
                 return;
             }
 
+            // rawUrl is non-null/non-empty after the guard above.
+            // Assign to a non-nullable local so the compiler knows DashboardWindow
+            // will receive a valid string (fixes CS8604).
+            string url = rawUrl;
+
             // Append ?repository=<DatabaseName> so the portal's session middleware
             // activates the same repository that is currently open in the Desktop Client.
             // Priority (enforced by RepositorySessionMiddleware on the server):
@@ -137,7 +150,7 @@ namespace LFPortal.DesktopExtension
             //   3. Configured default — from Settings > Default Repository (Fallback)
             if (!string.IsNullOrWhiteSpace(databaseName))
             {
-                var separator = url.Contains('?') ? "&" : "?";
+                string separator = url.Contains('?') ? "&" : "?";
                 url = $"{url}{separator}repository={Uri.EscapeDataString(databaseName)}";
             }
 
@@ -149,12 +162,11 @@ namespace LFPortal.DesktopExtension
             // repositories in Laserfiche always opens a correctly-scoped window.
             try
             {
-                var window = new DashboardWindow(url);
-                Application.Run(window);
+                Application.Run(new DashboardWindow(url));
             }
             catch (Exception ex)
             {
-                ExtensionLogger.Log($"DashboardWindow launch failed: {ex.Message}");
+                ExtensionLogger.Log($"DashboardWindow launch failed: {ex.GetType().Name}: {ex.Message}");
 
                 MessageBox.Show(
                     $"Could not open the Dashboard portal.\n\nURL: {url}\n\nError: {ex.Message}",
@@ -162,6 +174,28 @@ namespace LFPortal.DesktopExtension
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
             }
+        }
+
+        // ------------------------------------------------------------------ //
+        // Diagnostic helpers                                                  //
+        // ------------------------------------------------------------------ //
+
+        /// <summary>
+        /// Logs the presence/absence of WebView2Loader.dll at the three candidate
+        /// locations the runtime searches.  Helps diagnose architecture mismatches
+        /// (0x8007000B) and missing runtime deployments before WebView2 is initialised.
+        /// </summary>
+        private static void LogWebView2LoaderPaths()
+        {
+            var exeDir = AppDomain.CurrentDomain.BaseDirectory;
+
+            var flat  = Path.Combine(exeDir, "WebView2Loader.dll");
+            var x64   = Path.Combine(exeDir, "runtimes", "win-x64", "native", "WebView2Loader.dll");
+            var x86   = Path.Combine(exeDir, "runtimes", "win-x86", "native", "WebView2Loader.dll");
+
+            ExtensionLogger.Log($"WebView2Loader (flat):     {flat}  exists={File.Exists(flat)}");
+            ExtensionLogger.Log($"WebView2Loader (win-x64):  {x64}  exists={File.Exists(x64)}");
+            ExtensionLogger.Log($"WebView2Loader (win-x86):  {x86}  exists={File.Exists(x86)}");
         }
 
         // ------------------------------------------------------------------ //

@@ -28,6 +28,14 @@ namespace LFPortal.DesktopExtension
     /// <c>Application.Run(window)</c>. The window disposes its WebView2 and
     /// cleans up automatically when closed.
     /// </para>
+    /// <para>
+    /// <strong>Architecture note:</strong> this project targets x64 (matching the
+    /// GovSearch AI Laserfiche extension which is the only other extension on this
+    /// machine that uses WebView2 and is confirmed working). The x64 target ensures
+    /// MSBuild promotes <c>runtimes\win-x64\native\WebView2Loader.dll</c> correctly.
+    /// Using AnyCPU causes <c>0x8007000B / BadImageFormatException</c> because the
+    /// NuGet build targets cannot determine which architecture loader to promote.
+    /// </para>
     /// </remarks>
     internal sealed class DashboardWindow : Form
     {
@@ -46,9 +54,8 @@ namespace LFPortal.DesktopExtension
         /// Initialises the window with the Dashboard URL to navigate to.
         /// </summary>
         /// <param name="url">
-        /// Fully-qualified URL, e.g.
+        /// Fully-qualified, non-empty URL, e.g.
         /// <c>https://localhost:5001/?repository=TestEmployee</c>.
-        /// Must not be null or empty.
         /// </param>
         internal DashboardWindow(string url)
         {
@@ -62,7 +69,7 @@ namespace LFPortal.DesktopExtension
             ClientSize      = new Size(1400, 850);
             MinimumSize     = new Size(1000, 650);
             StartPosition   = FormStartPosition.CenterScreen;
-            Icon            = LoadIcon();
+            Icon            = LoadWindowIcon();
 
             // ---- WebView2 ----
             _webView = new WebView2
@@ -80,16 +87,28 @@ namespace LFPortal.DesktopExtension
 
         private async void OnFormLoad(object sender, EventArgs e)
         {
+            string userDataFolder = Path.Combine(
+                Path.GetTempPath(),
+                "Dashboard_" + Guid.NewGuid().ToString("N"));
+
+            ExtensionLogger.Log($"WebView2 user data: {userDataFolder}");
+
+            // Probe runtime version before calling CreateAsync so we can emit a
+            // clear "runtime missing" message rather than a generic failure.
+            string runtimeVersion = "(unknown)";
             try
             {
-                // Each window gets its own isolated user-data folder so its
-                // session cookie is never shared with other Dashboard windows.
-                var userDataFolder = Path.Combine(
-                    Path.GetTempPath(),
-                    "Dashboard_" + Guid.NewGuid().ToString("N"));
+                runtimeVersion = CoreWebView2Environment.GetAvailableBrowserVersionString();
+                ExtensionLogger.Log($"WebView2 Runtime: {runtimeVersion}");
+            }
+            catch (Exception probeEx)
+            {
+                ExtensionLogger.Log($"WebView2 Runtime probe failed: {probeEx.Message}");
+                // Continue — CreateAsync will also fail with a clearer message below.
+            }
 
-                ExtensionLogger.Log($"WebView2 user data: {userDataFolder}");
-
+            try
+            {
                 var env = await CoreWebView2Environment.CreateAsync(
                     browserExecutableFolder: null,
                     userDataFolder:          userDataFolder);
@@ -110,18 +129,48 @@ namespace LFPortal.DesktopExtension
             }
             catch (Exception ex)
             {
-                ExtensionLogger.Log($"WebView2 init failed: {ex.Message}");
+                ExtensionLogger.Log(
+                    $"WebView2 init failed — {ex.GetType().Name} HRESULT=0x{(uint)ex.HResult:X8}: {ex.Message}");
 
-                MessageBox.Show(
-                    "Failed to initialise the Dashboard window.\n\n" +
-                    "Ensure the Microsoft Edge WebView2 Runtime is installed on this machine.\n\n" +
-                    $"Error: {ex.Message}\n\n" +
-                    "Download WebView2 Runtime from:\n" +
-                    "https://developer.microsoft.com/microsoft-edge/webview2/",
-                    "Dashboard — WebView2 Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                // Distinguish the error category so the user sees a meaningful message.
+                string title, detail;
 
+                if (ex is BadImageFormatException
+                    || (uint)ex.HResult == 0x8007000B)   // ERROR_BAD_FORMAT
+                {
+                    // Architecture mismatch: the extension bitness does not match the
+                    // WebView2Loader.dll that was deployed to the output folder.
+                    // Resolution: rebuild with the correct explicit PlatformTarget.
+                    title = "Dashboard — WebView2 Architecture Mismatch";
+                    detail =
+                        "The Dashboard extension or WebView2 native loader does not match " +
+                        "the required Windows architecture.\n\n" +
+                        $"Process 64-bit: {Environment.Is64BitProcess}  " +
+                        $"(pointer size = {IntPtr.Size * 8} bit)\n\n" +
+                        $"See the diagnostic log for loader paths:\n{GetLogPath()}";
+                }
+                else if ((uint)ex.HResult == 0x80070002   // ERROR_FILE_NOT_FOUND
+                      || (uint)ex.HResult == 0x80070003   // ERROR_PATH_NOT_FOUND
+                      || runtimeVersion == "(unknown)")
+                {
+                    title = "Dashboard — WebView2 Runtime Not Found";
+                    detail =
+                        "The Microsoft Edge WebView2 Runtime is not installed.\n\n" +
+                        "Download the Evergreen Bootstrapper from:\n" +
+                        "https://developer.microsoft.com/microsoft-edge/webview2/\n\n" +
+                        $"Error: {ex.Message}";
+                }
+                else
+                {
+                    title = "Dashboard — WebView2 Initialisation Failed";
+                    detail =
+                        $"Failed to start the Dashboard window.\n\n" +
+                        $"Runtime version detected: {runtimeVersion}\n\n" +
+                        $"Error (0x{(uint)ex.HResult:X8}): {ex.Message}\n\n" +
+                        $"See: {GetLogPath()}";
+                }
+
+                MessageBox.Show(detail, title, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 Close();
             }
         }
@@ -154,10 +203,10 @@ namespace LFPortal.DesktopExtension
         // ------------------------------------------------------------------ //
 
         /// <summary>
-        /// Attempts to load <c>Resources\Dashboard.ico</c> from the EXE directory.
-        /// Returns <see langword="null"/> if the file is absent (the OS default is used).
+        /// Attempts to load <c>Resources\Dashboard.ico</c> from the EXE directory
+        /// for the window title-bar icon. Returns <see langword="null"/> if absent.
         /// </summary>
-        private static Icon LoadIcon()
+        private static Icon? LoadWindowIcon()
         {
             try
             {
@@ -166,13 +215,18 @@ namespace LFPortal.DesktopExtension
                     "Resources",
                     "Dashboard.ico");
 
-                return File.Exists(path) ? new Icon(path) : null!;
+                return File.Exists(path) ? new Icon(path) : null;
             }
             catch
             {
-                return null!;
+                return null;
             }
         }
+
+        private static string GetLogPath() =>
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "Dashboard", "logs", "extension.log");
 
         // ------------------------------------------------------------------ //
         // Disposal                                                            //

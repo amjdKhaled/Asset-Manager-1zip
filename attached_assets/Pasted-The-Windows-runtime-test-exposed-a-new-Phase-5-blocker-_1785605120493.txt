@@ -1,0 +1,321 @@
+The Windows runtime test exposed a new Phase 5 blocker.
+
+DO NOT proceed to Phase 6.
+
+There is good news first:
+
+The NEW Dashboard toolbar icon is now visibly working inside Laserfiche Desktop Client.
+
+Therefore the toolbar icon requirement is VERIFIED and should not be changed again.
+
+==================================================
+CURRENT RUNTIME FAILURE
+==================================================
+
+Clicking the Dashboard button now opens the extension, but the WebView2 popup fails during initialization.
+
+Exact Windows error:
+
+Dashboard — WebView2 Error
+
+Failed to initialise the Dashboard window.
+
+Error:
+An attempt was made to load a program with an incorrect format.
+(Exception from HRESULT: 0x8007000B)
+
+This is NOT sufficient evidence that WebView2 Runtime is simply missing.
+
+HRESULT 0x8007000B / BadImageFormatException commonly indicates an architecture mismatch or incompatible native DLL.
+
+Investigate the ACTUAL cause before changing anything.
+
+==================================================
+IMPORTANT: CHECK LASERFICHE PROCESS ARCHITECTURE
+==================================================
+
+Determine whether the installed Laserfiche Desktop Client is:
+
+x86
+or
+x64
+
+Then determine the architecture of:
+
+Dashboard.DesktopExtension.exe
+Microsoft.Web.WebView2.Core.dll
+WebView2Loader.dll
+
+The extension must use a WebView2 native loader compatible with the process/application architecture.
+
+Do not blindly install another WebView2 Runtime.
+
+==================================================
+CHECK BUILD OUTPUT
+==================================================
+
+Inspect:
+
+src\Dashboard.DesktopExtension\bin\Release\net48\
+
+and all WebView2 runtime/native subdirectories.
+
+Specifically inspect whether NuGet produced:
+
+runtimes\win-x86\native\WebView2Loader.dll
+
+runtimes\win-x64\native\WebView2Loader.dll
+
+and/or:
+
+WebView2Loader.dll
+
+Determine which DLL the extension is actually attempting to load.
+
+Do NOT copy both architecture-specific native loaders into the same effective load location.
+
+==================================================
+FIX THE PROJECT PLATFORM EXPLICITLY
+==================================================
+
+Dashboard.DesktopExtension currently targets net48 but architecture must be explicit.
+
+Do not leave this as an ambiguous AnyCPU build if WebView2 native loading depends on process architecture.
+
+Determine the architecture required by the installed Laserfiche Desktop Client / extension execution model.
+
+Then configure Dashboard.DesktopExtension.csproj accordingly.
+
+For example, ONLY if the runtime evidence shows Laserfiche requires x64:
+
+<PlatformTarget>x64</PlatformTarget>
+<Prefer32Bit>false</Prefer32Bit>
+
+If it requires x86:
+
+<PlatformTarget>x86</PlatformTarget>
+
+Do not guess x86 or x64.
+
+Use the installed Laserfiche process architecture and existing working Laserfiche extension/sample configuration as evidence.
+
+==================================================
+WEBVIEW2 RUNTIME DETECTION
+==================================================
+
+Before creating CoreWebView2Environment, explicitly check whether the WebView2 Runtime is installed using the WebView2 API where possible.
+
+Do not convert every WebView2 initialization exception into:
+
+"Ensure Microsoft Edge WebView2 Runtime is installed."
+
+That message is misleading for HRESULT 0x8007000B.
+
+Distinguish at minimum:
+
+Runtime missing
+Architecture/native DLL mismatch
+WebView2 initialization failure
+Invalid portal URL
+
+For BadImageFormatException / HRESULT 0x8007000B display something like:
+
+Dashboard WebView2 architecture mismatch.
+
+The Dashboard extension or WebView2 native loader does not match the required Windows architecture.
+
+See:
+%ProgramData%\Dashboard\logs\extension.log
+
+==================================================
+LOG ARCHITECTURE DIAGNOSTICS
+==================================================
+
+Extend:
+
+%ProgramData%\Dashboard\logs\extension.log
+
+On every Dashboard launch log:
+
+Environment.Is64BitOperatingSystem
+Environment.Is64BitProcess
+IntPtr.Size
+Executable path
+.NET Framework version if practical
+WebView2 Runtime version
+WebView2Loader path if resolvable
+WebView2 user-data folder
+Repository received from Laserfiche
+Final Dashboard URL
+
+Example:
+
+===== DASHBOARD RUNTIME =====
+OS 64-bit: True
+Process 64-bit: True
+Pointer size: 8
+Executable: ...
+Repository: TestEmployee
+Final URL: ...
+WebView2 Runtime: 1xx.x.x
+User Data: ...
+=============================
+
+Do not log credentials or tokens.
+
+==================================================
+FIX THE CURRENT BUILD WARNING
+==================================================
+
+The Windows build currently succeeds with one warning:
+
+Program.cs(152,50):
+warning CS8604:
+Possible null reference argument for parameter 'url'
+in DashboardWindow.DashboardWindow(string url)
+
+Fix this correctly.
+
+Do NOT suppress the warning.
+
+Validate the URL before constructing DashboardWindow.
+
+The extension must not launch DashboardWindow when PortalUrl/final URL is null, empty, or invalid.
+
+Expected final build:
+
+0 errors
+0 warnings
+
+==================================================
+IMPORTANT — DO NOT BREAK WHAT NOW WORKS
+==================================================
+
+Do NOT change:
+
+Dashboard toolbar icon registration
+
+%(DatabaseName) token
+
+RepositorySessionMiddleware
+
+SessionAwareRepositoryContext
+
+Dashboard website
+
+Archive
+
+Settings
+
+Dashboard analytics
+
+The new Dashboard toolbar icon is visibly correct now.
+
+Preserve it.
+
+==================================================
+WEBVIEW2 POPUP REQUIREMENT REMAINS
+==================================================
+
+Do NOT fall back to:
+
+Process.Start(url)
+
+Do NOT open Chrome.
+
+Do NOT open Edge.
+
+Do NOT open the user's default browser.
+
+The Dashboard must still open in its own native Dashboard popup containing WebView2.
+
+==================================================
+AFTER FIXING
+==================================================
+
+On Windows run:
+
+dotnet clean src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+dotnet build src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+Required:
+
+Build succeeded.
+0 errors.
+0 warnings.
+
+Then:
+
+Dashboard.DesktopExtension.exe --remove
+Dashboard.DesktopExtension.exe --setup
+
+Restart Laserfiche Desktop Client.
+
+==================================================
+LIVE TEST
+==================================================
+
+Open:
+
+TestEmployee
+
+in Laserfiche Desktop Client.
+
+Click the Dashboard toolbar button.
+
+Expected:
+
+Dashboard popup opens successfully.
+
+NO WebView2 initialization error.
+
+NO external browser.
+
+Dashboard header repository:
+
+TestEmployee
+
+Archive:
+
+TestEmployee data
+
+Settings:
+
+Active Repository = TestEmployee
+Repository Source = Desktop Client
+
+Then close the popup.
+
+Switch Laserfiche to:
+
+LFNewRepoWF
+
+Click Dashboard again.
+
+Expected:
+
+new popup
+repository = LFNewRepoWF
+
+without changing Settings.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report:
+
+1. Exact cause of HRESULT 0x8007000B.
+2. Laserfiche/extension architecture detected: x86 or x64.
+3. Dashboard.DesktopExtension platform target.
+4. WebView2 Runtime version detected.
+5. Exact native WebView2Loader.dll being loaded.
+6. Confirmation that the toolbar icon was preserved.
+7. Confirmation CS8604 is fixed.
+8. Build result: must be 0 errors / 0 warnings.
+9. TestEmployee runtime result.
+10. LFNewRepoWF runtime result.
+11. Confirmation that the Dashboard opens as WebView2 popup and not an external browser.
+
+Phase 5 remains incomplete until this Windows runtime test passes.

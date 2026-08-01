@@ -12,8 +12,9 @@ portal in a native **WebView2 popup window** — no external browser is launched
 |--------|--------|
 | Target framework | .NET Framework 4.8 (`net48`) |
 | Output type | `WinExe` (no console window) |
+| Process architecture | **x64** — matches the GovSearch AI extension, the only other Laserfiche WebView2 extension confirmed working on this machine |
 | SDK dependency | `Laserfiche.ClientAutomation` (SDK 10.4) — setup/registration only |
-| Click handler | WinForms `DashboardWindow` with `Microsoft.Web.WebView2` (no Laserfiche SDK at click time) |
+| Click handler | WinForms `DashboardWindow` with `Microsoft.Web.WebView2 v1.0.2420.47` (no Laserfiche SDK at click time) |
 | Popup window | 1400×850 initial, 1000×650 minimum, centered on screen |
 | Config file | `%ProgramData%\Dashboard\extension.config.json` |
 | Legacy fallback | `%ProgramData%\LFPortal\extension.config.json` (read-only; backward compat) |
