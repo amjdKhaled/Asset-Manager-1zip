@@ -1,0 +1,80 @@
+The server-side Web Client integration is complete.
+
+Now I want to do the ACTUAL Laserfiche Web Client deployment.
+
+Do not make any more changes to the Dashboard backend yet.
+
+I need you to guide me through installing:
+
+src/LFPortal.Web/wwwroot/js/lf-webclient-button.js
+
+into my actual Laserfiche Web Client so that the Dashboard button physically appears in the Laserfiche Web Client UI.
+
+IMPORTANT:
+
+Do not assume the JavaScript file automatically runs just because it exists in the Dashboard project.
+
+The Dashboard application and Laserfiche Web Client are separate applications.
+
+I need the script loaded by the actual Laserfiche Web Client.
+
+Before changing anything, determine exactly what information you need from my Laserfiche Web Client installation.
+
+Ask me for the required files/screenshots if necessary.
+
+We need to determine:
+
+1. My Laserfiche Web Client version.
+2. The IIS application/site hosting Laserfiche Web Client.
+3. The physical Web Client installation directory.
+4. Which page/layout/bundle is appropriate for loading custom JavaScript.
+5. Whether my Web Client is classic ASP.NET, SPA, or another LF version-specific implementation.
+6. Whether Browse.aspx or another shell page exists.
+7. The safest place to load lf-webclient-button.js without modifying vendor files unnecessarily.
+8. How the current repository name is actually exposed by MY Web Client.
+
+Do NOT rely on the five repository-detection guesses in lf-webclient-button.js until we inspect the real Web Client.
+
+I want repository detection based on evidence from my installation.
+
+The final behavior must be:
+
+Laserfiche Web Client
+    ↓
+User is currently inside TestEmployee
+    ↓
+Dashboard button is visible in Web Client
+    ↓
+Click Dashboard
+    ↓
+Dashboard opens
+    ↓
+URL/context receives:
+repository=TestEmployee
+source=webclient
+    ↓
+Login page
+    ↓
+Successful login
+    ↓
+TestEmployee Dashboard
+
+And when the user is inside LFNewRepoWF:
+
+Dashboard button
+→ repository=LFNewRepoWF
+→ Login
+→ LFNewRepoWF Dashboard
+
+Do not hard-code either repository.
+
+Also:
+
+Do not modify the Desktop Client extension.
+Do not change the working Desktop Login flow.
+Do not change Dashboard analytics.
+Do not start Phase 6.
+
+First tell me EXACTLY what file, screenshot, browser DevTools information, or IIS information you need from my Laserfiche Web Client installation to implement and verify the button correctly.
+
+Do not write more integration code until we have confirmed how my actual Web Client exposes the active repository.
