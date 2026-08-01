@@ -1,0 +1,560 @@
+We need to change the authentication flow for the Dashboard Desktop Extension.
+
+IMPORTANT:
+Do not start Phase 6.
+Do not redesign the Dashboard.
+Do not remove the dynamic repository detection that is already working.
+Do not change the Laserfiche API endpoints.
+Do not modify the existing Dashboard analytics calculations.
+
+CURRENT WORKING BEHAVIOR
+The Dashboard Desktop Extension is now working correctly as a native WebView2 popup.
+
+When the user is inside a Laserfiche Desktop Client repository and clicks the Dashboard toolbar button:
+
+- %(DatabaseName) correctly identifies the currently active repository.
+- The popup opens correctly.
+- The active repository is passed dynamically to the web application.
+- The Dashboard header correctly displays the repository selected in Laserfiche.
+
+For example:
+TestEmployee is correctly detected and displayed.
+
+PROBLEM
+
+Credentials are still effectively dependent on the credentials stored through Settings.
+
+Therefore, when the user switches from one Laserfiche repository to another and clicks Dashboard:
+
+- The new repository is detected correctly.
+- The Dashboard opens.
+- But repository data may show 0 folders / 0 documents / 0 templates because the currently available credentials are not valid for that repository.
+- The user currently has to go to Settings, enter Username and Password, save them, then return to Dashboard.
+
+This is not the desired user experience.
+
+==================================================
+NEW REQUIRED FLOW
+==================================================
+
+When Dashboard is launched FROM THE LASERFICHE DESKTOP CLIENT:
+
+Laserfiche Desktop
+    ↓
+Dashboard toolbar button
+    ↓
+Detect active repository using %(DatabaseName)
+    ↓
+Open Dashboard WebView2 popup
+    ↓
+SHOW LOGIN PAGE FIRST
+    ↓
+User enters credentials for this repository
+    ↓
+Validate credentials against the ACTIVE repository
+    ↓
+If successful
+    ↓
+Dashboard
+
+The Dashboard itself must NOT load before authentication succeeds.
+
+==================================================
+1. CREATE A DASHBOARD LOGIN PAGE
+==================================================
+
+Create a dedicated login screen for the Desktop Client Dashboard flow.
+
+Suggested route:
+
+GET /Login
+
+or preferably a dedicated controller such as:
+
+DashboardLoginController
+
+The page should visually match the existing Dashboard dark theme.
+
+Display:
+
+Dashboard logo/name
+
+"Sign in to Laserfiche"
+
+Active Repository:
+TestEmployee
+
+Username:
+[________________]
+
+Password:
+[________________]
+
+[ Sign In ]
+
+The active repository must NOT be manually editable on this page.
+
+It must come from the repository passed by the Laserfiche Desktop Extension.
+
+Example:
+
+Repository
+TestEmployee
+
+Username
+ADMIN
+
+Password
+********
+
+Sign In
+
+==================================================
+2. PASSWORD MUST BE OPTIONAL
+==================================================
+
+VERY IMPORTANT:
+
+Some Laserfiche accounts may have an empty password.
+
+Therefore:
+
+Password MUST NOT be required.
+
+The following must be accepted:
+
+Username:
+ADMIN
+
+Password:
+(empty)
+
+The server must attempt authentication exactly with:
+
+username = "ADMIN"
+password = ""
+
+Do NOT reject the request because the password is blank.
+
+Do NOT use:
+
+[Required]
+
+on the Password property.
+
+Do NOT add JavaScript required validation to Password.
+
+Do NOT automatically convert an empty password into the previously saved password.
+
+An intentionally empty password is a valid login attempt.
+
+Username can remain required.
+
+==================================================
+3. LOGIN MUST TARGET THE ACTIVE REPOSITORY
+==================================================
+
+The credentials entered on this login page must be tested against the repository that came from the Desktop Client.
+
+Example:
+
+Laserfiche currently open repository:
+
+TestEmployee
+
+Extension launches:
+
+...?repository=TestEmployee
+
+Login page must authenticate against:
+
+TestEmployee
+
+NOT:
+
+LFNewRepoWF
+
+NOT:
+
+Default Repository
+
+NOT:
+
+the repository saved in Settings.
+
+Repository priority must remain:
+
+Desktop Client repository
+    ↓
+session repository context
+    ↓
+configured default repository only as fallback
+
+==================================================
+4. DO NOT LOAD DASHBOARD BEFORE LOGIN
+==================================================
+
+Currently the Dashboard loads immediately and API calls fail or return empty data when credentials are unavailable.
+
+Change this.
+
+For Desktop Client sessions:
+
+If the repository does not yet have authenticated credentials for the current Dashboard session:
+
+DO NOT render Dashboard.
+
+Redirect to Login.
+
+For example:
+
+Dashboard button
+→ repository=TestEmployee
+→ credentials not established
+→ /Login
+→ successful login
+→ /Dashboard
+
+The user should never see a fake empty Dashboard containing:
+
+0 folders
+0 documents
+0 templates
+
+just because authentication has not happened yet.
+
+==================================================
+5. SESSION-BASED AUTHENTICATION
+==================================================
+
+For the Desktop Client popup, credentials should belong to the current Dashboard session.
+
+Do NOT globally overwrite credentials every time somebody logs into another repository.
+
+The WebView2 popup already uses an isolated user-data folder/session per launch.
+
+Use that isolation.
+
+The login state should therefore be associated with:
+
+Current WebView2 session
++
+Current repository
+
+Conceptually:
+
+Session:
+ActiveRepositoryId = TestEmployee
+AuthenticatedRepository = TestEmployee
+Authenticated = true
+
+The application services used by Dashboard / Archive / Document Viewer must use the credentials established for that session.
+
+Do not accidentally use credentials belonging to another WebView2 window.
+
+==================================================
+6. REPOSITORY CHANGE MUST INVALIDATE LOGIN
+==================================================
+
+If the session repository changes:
+
+LFNewRepoWF
+→ TestEmployee
+
+credentials authenticated for LFNewRepoWF must NOT automatically be considered authenticated for TestEmployee.
+
+Require login for the new repository.
+
+Example:
+
+AuthenticatedRepository = LFNewRepoWF
+CurrentRepository = TestEmployee
+
+Result:
+
+Redirect to Login.
+
+Only after successful authentication:
+
+AuthenticatedRepository = TestEmployee
+
+Then allow Dashboard.
+
+==================================================
+7. LOGIN VALIDATION
+==================================================
+
+When Sign In is clicked:
+
+1. Read active repository from IRepositoryContext/session.
+2. Read Username.
+3. Read Password, allowing "".
+4. Attempt real Laserfiche authentication.
+5. Confirm access to the active repository.
+6. Only if authentication succeeds:
+   - establish credentials for the current session/repository
+   - mark session authenticated
+   - redirect to Dashboard.
+
+If authentication fails:
+
+Stay on Login.
+
+Display a clean error such as:
+
+"Unable to sign in to TestEmployee. Check the username and password."
+
+Do NOT expose:
+
+stack traces
+Bearer tokens
+raw Laserfiche API responses
+internal exception details
+
+==================================================
+8. SETTINGS CREDENTIALS BECOME FALLBACK / ADMIN CONFIG
+==================================================
+
+Do not delete the credentials functionality from Settings.
+
+It can remain useful when Dashboard is opened directly outside Laserfiche Desktop Client.
+
+But Desktop Client behavior should be:
+
+Desktop Client launch
+→ active repository
+→ Login
+→ session credentials
+→ Dashboard
+
+The user should NOT need to visit Settings to authenticate a repository.
+
+Update the Settings wording if necessary so it is clear that saved credentials are fallback/default credentials and are not required for Desktop Client sessions.
+
+==================================================
+9. PROTECT THE REST OF THE PORTAL
+==================================================
+
+For a Desktop Client session that has not authenticated successfully, direct navigation to:
+
+/Dashboard
+/Archive
+/Document/View/...
+
+must not bypass login.
+
+Redirect to Login.
+
+Settings may remain accessible if needed for administration, but Dashboard repository operations must require valid session authentication.
+
+Do not create redirect loops.
+
+==================================================
+10. LOGOUT / CHANGE ACCOUNT
+==================================================
+
+Add a small action in the Dashboard header or Settings:
+
+Change Account
+
+When clicked:
+
+Clear ONLY the current session authentication/credentials.
+
+Keep the active repository.
+
+Then redirect to Login.
+
+Example:
+
+Repository remains:
+TestEmployee
+
+But Username/Password authentication is cleared.
+
+User can sign in as another Laserfiche account.
+
+Do NOT delete globally saved fallback credentials when Change Account is clicked.
+
+==================================================
+11. SECURITY
+==================================================
+
+Do not place Username or Password in:
+
+URL query strings
+HTML source
+JavaScript variables
+browser localStorage
+browser sessionStorage
+logs
+
+Especially never generate URLs such as:
+
+?username=ADMIN&password=123
+
+The only value coming from the Desktop Client URL should remain the repository context.
+
+Credentials must be submitted using POST.
+
+Password input must use:
+
+type="password"
+
+Do not log the password.
+
+==================================================
+12. DO NOT BREAK THE CURRENT DYNAMIC REPOSITORY FEATURE
+==================================================
+
+This is already working.
+
+The screenshot confirms:
+
+Laserfiche repository:
+TestEmployee
+
+Dashboard header:
+TestEmployee DESKTOP
+
+Therefore DO NOT replace or redesign the %(DatabaseName) implementation.
+
+Keep:
+
+Laserfiche Desktop
+→ %(DatabaseName)
+→ Dashboard.DesktopExtension
+→ ?repository=...
+→ RepositorySessionMiddleware
+→ IRepositoryContext
+
+Only add authentication on top of this working repository-context chain.
+
+==================================================
+13. EXPECTED FINAL BEHAVIOR
+==================================================
+
+TEST A
+
+Laserfiche Desktop:
+TestEmployee
+
+Click Dashboard.
+
+Expected:
+
+Dashboard popup
+→ Login page
+
+Repository:
+TestEmployee
+
+Enter:
+
+Username: ADMIN
+Password: [blank]
+
+Click Sign In.
+
+If Laserfiche accepts those credentials:
+
+→ Dashboard opens
+→ TestEmployee data appears.
+
+==================================================
+
+TEST B
+
+Close popup.
+
+Switch Laserfiche to:
+
+LFNewRepoWF
+
+Click Dashboard.
+
+Expected:
+
+New popup
+→ Login page
+
+Repository:
+LFNewRepoWF
+
+Enter credentials.
+
+→ Dashboard opens with LFNewRepoWF data.
+
+No Settings page interaction should be required.
+
+==================================================
+
+TEST C
+
+Switch back to TestEmployee and open a NEW popup.
+
+Because each Desktop Extension popup uses an isolated WebView2 session, showing Login again is acceptable and preferred for this implementation.
+
+Do not share plaintext credentials between popup instances.
+
+==================================================
+14. IMPORTANT EMPTY-PASSWORD TEST
+==================================================
+
+Explicitly test this server-side path:
+
+Username = "ADMIN"
+Password = ""
+
+The model validation must succeed.
+
+The authentication request must actually be sent to Laserfiche.
+
+The application must NOT return:
+
+"Password is required"
+
+before contacting Laserfiche.
+
+==================================================
+15. QUALITY GATE
+==================================================
+
+After implementation:
+
+dotnet restore
+dotnet build --configuration Release
+
+For Dashboard.DesktopExtension on Windows:
+
+dotnet clean src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+dotnet build src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+Required:
+
+0 errors
+0 warnings
+
+Do not mark the work complete until the login flow has been reviewed for:
+
+- Desktop repository context
+- repository-specific authentication
+- blank password support
+- session isolation
+- Change Account
+- protection against Dashboard loading before login
+- no credential leakage
+
+Do not start Phase 6.
+
+At completion, report exactly:
+
+1. New files created.
+2. Existing files modified.
+3. How session credentials are stored.
+4. How IRepositoryContext determines the repository.
+5. How an empty password is handled.
+6. How Dashboard/Archive are protected before login.
+7. How Change Account works.
+8. Windows build result.
+9. Manual test steps for TestEmployee and LFNewRepoWF.
