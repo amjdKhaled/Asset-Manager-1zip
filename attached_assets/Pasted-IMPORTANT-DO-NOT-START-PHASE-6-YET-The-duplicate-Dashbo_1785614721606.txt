@@ -1,0 +1,301 @@
+IMPORTANT — DO NOT START PHASE 6 YET.
+
+The duplicate Dashboard tab/window bug is STILL PRESENT.
+
+The previous fix did NOT solve the issue.
+
+Current behavior:
+
+Laserfiche Web Client
+        ↓
+Click Dashboard ONCE
+        ↓
+TWO Dashboard pages/tabs still open
+
+So do NOT mark the Web Client integration complete and do NOT proceed to Phase 6 until this is actually fixed and verified.
+
+==================================================
+RE-INVESTIGATE — PREVIOUS DIAGNOSIS WAS INCOMPLETE
+==================================================
+
+The previous implementation:
+
+- Removed the direct button click listener.
+- Kept one capture-phase delegated click listener.
+- Added a 500 ms launch guard.
+
+Despite this, ONE physical click STILL opens TWO Dashboard pages.
+
+Therefore the assumption that the duplicate launch was caused only by the two JavaScript click listeners was incomplete or incorrect.
+
+Do not simply increase the debounce timeout.
+
+Do not add another random boolean guard.
+
+Find the ACTUAL second navigation source.
+
+==================================================
+TRACE EVERY POSSIBLE NAVIGATION
+==================================================
+
+Audit the complete current:
+
+src/LFPortal.Web/wwwroot/js/lf-webclient-button.js
+
+and the deployed Web Client integration.
+
+Determine exactly where BOTH pages originate.
+
+Instrument the script temporarily with a unique launch ID.
+
+For example:
+
+var launchId = Date.now() + '-' + Math.random();
+
+Log:
+
+[LFDashboard] CLICK RECEIVED <launchId>
+[LFDashboard] OPEN PRIMARY <launchId>
+[LFDashboard] OPEN FALLBACK <launchId>
+[LFDashboard] SCRIPT INITIALIZED <instanceId>
+
+Also log a stack trace immediately before every navigation/open operation:
+
+console.trace(...)
+
+Search the entire script for ALL navigation mechanisms, including:
+
+window.open
+location.href
+location.assign
+location.replace
+anchor.click
+dispatchEvent
+form.submit
+click()
+target="_blank"
+
+There must ultimately be exactly ONE navigation mechanism for a successful click.
+
+==================================================
+CHECK WHETHER THE SCRIPT RUNS TWICE
+==================================================
+
+This is now a major suspect.
+
+Verify whether:
+
+lf-dashboard-button.js
+
+is loaded/executed more than once.
+
+Check:
+
+Browse.aspx
+assets/custom/
+other custom JS files
+bundles
+dynamic Laserfiche page loading
+
+Search Browse.aspx and the Web Client installation for every reference to:
+
+lf-dashboard-button.js
+lf-webclient-button.js
+LFDashboard
+
+Make sure Browse.aspx contains only ONE script include.
+
+Add a global initialization guard using the real browser window.
+
+Conceptually:
+
+if (window.__lfDashboardInitialized) {
+    console.log('[LFDashboard] Duplicate script initialization blocked.');
+    return;
+}
+
+window.__lfDashboardInitialized = true;
+
+This is important because a local variable such as:
+
+var _delegatedRegistered = false;
+
+does NOT protect against the entire JavaScript file being executed twice.
+
+Each script execution would create its own independent variable and its own document click listener.
+
+A window-level singleton guard does.
+
+==================================================
+CHECK THE POPUP FALLBACK
+==================================================
+
+This is also a major suspect.
+
+The current implementation reportedly uses:
+
+window.open(url, '_blank', 'noopener,noreferrer')
+
+and checks its return value.
+
+Be careful:
+
+When using "noopener" or "noreferrer", some browsers may return null even when the new tab was successfully created.
+
+If the code does:
+
+var popup = window.open(
+    url,
+    '_blank',
+    'noopener,noreferrer'
+);
+
+if (!popup) {
+    // anchor fallback
+    anchor.click();
+}
+
+then it may be doing:
+
+window.open()
+    ↓
+FIRST TAB successfully opens
+    ↓
+return value is null because of noopener/noreferrer
+    ↓
+code incorrectly assumes popup was blocked
+    ↓
+anchor.click()
+    ↓
+SECOND TAB opens
+
+This EXACTLY matches the current symptom.
+
+Investigate this carefully.
+
+Do NOT use the return value from a noopener/noreferrer window.open call as proof that the popup failed unless browser behavior guarantees it.
+
+Prefer ONE safe navigation method.
+
+Since this code executes synchronously from a real user click, consider using a single real anchor navigation:
+
+<a
+    href="..."
+    target="_blank"
+    rel="noopener noreferrer">
+
+and programmatically invoke it ONCE,
+
+OR use window.open ONCE without subsequently triggering a second navigation.
+
+Choose the safest implementation for Laserfiche Web Client.
+
+There must NOT be:
+
+window.open(...)
++
+anchor.click()
+
+for the same physical click.
+
+==================================================
+RECOMMENDED FINAL ARCHITECTURE
+==================================================
+
+Keep:
+
+ONE global script initialization
+        ↓
+ONE capture-phase delegated click listener
+        ↓
+ONE short duplicate-event guard
+        ↓
+ONE repository detection
+        ↓
+ONE URL generation
+        ↓
+ONE navigation mechanism
+
+For example:
+
+Laserfiche
+   ↓
+Dashboard click
+   ↓
+capture listener
+   ↓
+handleDashboardClick()
+   ↓
+repository = WebAccessRepositoryName
+   ↓
+URL
+   ↓
+ONE anchor/window.open
+   ↓
+ONE Dashboard tab
+
+Nothing else should be capable of launching Dashboard.
+
+==================================================
+VERIFY THE DEPLOYED FILE TOO
+==================================================
+
+Do not only inspect the source repository.
+
+The deployed file is:
+
+C:\Program Files\Laserfiche\Web Access\Web Files\assets\custom\lf-dashboard-button.js
+
+Provide PowerShell commands that allow me to verify:
+
+1. only one script tag exists in Browse.aspx;
+2. only one deployed Dashboard script exists;
+3. the deployed script matches the current source;
+4. there are no old copies being referenced.
+
+Remember that we previously had a 404 because this deployed file did not exist.
+
+The source file and deployed Laserfiche file are separate copies.
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+The fix is NOT complete until:
+
+1. Open Laserfiche Web Client.
+2. Open NewEmployeeTest.
+3. Click Dashboard exactly ONCE.
+4. EXACTLY ONE Dashboard tab appears.
+5. Console contains exactly ONE:
+
+   [LFDashboard] Dashboard button clicked.
+
+6. Exactly ONE repository log.
+7. Exactly ONE opening/navigation log.
+8. Login shows NewEmployeeTest.
+9. Close Dashboard.
+10. Click Dashboard again.
+11. Exactly ONE new Dashboard tab appears.
+12. Switch repository.
+13. Click Dashboard once.
+14. Exactly ONE Dashboard tab opens for that repository.
+15. No duplicate Dashboard buttons.
+16. No duplicate script initialization.
+17. No fallback navigation after a successful primary navigation.
+
+Only AFTER this has been fixed and verified should you mark Phase 5/Web Client integration complete.
+
+==================================================
+THEN START PHASE 6
+==================================================
+
+After fixing the duplicate-page bug, proceed immediately with:
+
+Phase 6 — MSI Installer & Complete Deployment Package
+
+using the Phase 6 requirements already provided.
+
+Do not ask me again whether to start Phase 6.
+
+First fix this remaining Phase 5 regression, then continue directly into Phase 6.

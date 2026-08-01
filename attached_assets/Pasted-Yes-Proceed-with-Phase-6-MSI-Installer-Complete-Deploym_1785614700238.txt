@@ -1,0 +1,368 @@
+Yes. Proceed with Phase 6 — MSI Installer & Complete Deployment Package.
+
+Phase 0 through Phase 5 are complete.
+
+The additional Laserfiche Web Client integration completed during Phase 5 must also be included in the deployment design.
+
+Before implementing anything, read the original Phase 6 task/specification from .local/tasks/ and follow it as the authoritative Phase 6 requirements.
+
+Do NOT redesign or reimplement completed functionality from Phases 0–5.
+
+==================================================
+PHASE 6 OBJECTIVE
+==================================================
+
+Produce a professional Windows deployment package for Dashboard so an administrator can deploy the complete solution without:
+
+- Visual Studio
+- .NET SDK
+- source code
+- manual builds
+- manually copying application binaries
+
+The primary deliverable must be a single MSI installer where technically appropriate.
+
+The installation must cover the existing ASP.NET Core Dashboard application and the Laserfiche Desktop Client extension.
+
+The Web Client integration added during Phase 5 must also receive a supported deployment procedure.
+
+==================================================
+IMPORTANT — PRESERVE CURRENT WORKING ARCHITECTURE
+==================================================
+
+Do not break or redesign:
+
+- Dashboard
+- Archive
+- Settings
+- Login flow
+- blank-password support
+- repository-specific authentication
+- dynamic repository context
+- Desktop Client repository detection via %(DatabaseName)
+- Desktop WebView2 popup
+- Dashboard toolbar registration
+- Dashboard toolbar icon
+- Web Client Dashboard button
+- WebAccessRepositoryName detection
+- rightNavbar injection
+- source=webclient
+- RepositorySessionMiddleware
+- SessionAuthGuardMiddleware
+- session-isolated credentials
+- DPAPI/Data Protection credential handling
+- configuration persistence
+- repository discovery
+- existing upgrade-safe configuration behavior
+
+Phase 6 is DEPLOYMENT/PACKAGING.
+
+Do not rewrite the application architecture.
+
+==================================================
+ORIGINAL PHASE 6 REQUIREMENTS
+==================================================
+
+Implement the requirements from the Phase 6 task, including:
+
+1. WiX v4 installer project
+
+Create the installer project required by the original specification, such as:
+
+LFPortal.Installer.wixproj
+
+or use the current Dashboard naming where appropriate if the task allows it.
+
+The user-facing product name must be:
+
+Dashboard
+
+Avoid reintroducing LFPortal as the user-facing product name.
+
+Internal legacy namespaces/paths should only be renamed if doing so is safe and explicitly required.
+
+2. IIS deployment
+
+Installer must deploy the ASP.NET Core Dashboard application and configure:
+
+- IIS Website/Application
+- Application Pool
+- physical application directory
+- bindings/port
+- required permissions
+
+The installed Dashboard must be runnable without the .NET SDK.
+
+Use published application artifacts, not source code.
+
+3. ASP.NET Core Hosting Bundle prerequisite
+
+Detect whether the required ASP.NET Core Hosting Bundle/runtime is installed.
+
+Do not silently install arbitrary dependencies without understanding the existing target framework.
+
+Provide a clear installer error/prerequisite message when required components are missing.
+
+4. Desktop Extension deployment
+
+Deploy:
+
+Dashboard.DesktopExtension.exe
+
+and every runtime dependency it actually requires, including the correct WebView2 components produced by the Release build.
+
+Preserve the verified:
+
+net48
+x64
+
+architecture.
+
+Do not reintroduce the previous:
+
+net48/win-x64
+
+RuntimeIdentifier problem.
+
+Do not alter the working WebView2 architecture unless required by actual build evidence.
+
+Register the Dashboard Laserfiche Desktop toolbar integration during installation using the existing supported registration mechanism.
+
+Uninstall must remove that registration safely.
+
+5. Configuration
+
+Install/write the appropriate configuration files under the established ProgramData location.
+
+Current Dashboard paths and backward compatibility must be reviewed before deciding final paths.
+
+Configuration created by an administrator/user must NOT be overwritten during upgrade.
+
+Credentials must never be embedded in MSI source, scripts, logs, or installer properties.
+
+6. Upgrade behavior
+
+Installing a newer Dashboard version over an existing installation must:
+
+- upgrade application binaries
+- upgrade Desktop Extension binaries
+- preserve configuration
+- preserve stored credentials where appropriate
+- preserve ProgramData
+- avoid duplicate IIS applications/sites
+- avoid duplicate Laserfiche toolbar registration
+
+7. Uninstall behavior
+
+Uninstall should remove:
+
+- Dashboard application binaries
+- IIS application/site created by Dashboard
+- Desktop Extension binaries
+- Desktop toolbar registration
+
+But preserve administrator/user configuration and ProgramData unless the original Phase 6 specification explicitly says otherwise.
+
+==================================================
+WEB CLIENT INTEGRATION — ADDITIONAL PHASE 6 REQUIREMENT
+==================================================
+
+The original roadmap did not include the Web Client integration because it was added during Phase 5.
+
+Do NOT ignore it.
+
+However, do not blindly modify Laserfiche vendor files from MSI without evaluating upgrade safety.
+
+Current working Web Client integration consists of:
+
+Laserfiche Browse.aspx loading:
+
+assets/custom/lf-dashboard-button.js
+
+The custom script is deployed to:
+
+C:\Program Files\Laserfiche\Web Access\Web Files\assets\custom\lf-dashboard-button.js
+
+The script uses:
+
+WebAccessRepositoryName
+
+as the confirmed repository source.
+
+The Dashboard button is injected into:
+
+rightNavbar
+
+The generated Dashboard URL uses:
+
+?repository=<repository>&source=webclient
+
+The final click architecture uses ONE capture-phase delegated click handler and a short duplicate-launch guard so one physical click opens exactly one Dashboard tab.
+
+The previous issues that were solved MUST NOT be reintroduced:
+
+- JS 404 because the file was not copied into assets/custom
+- button missing
+- button visible but not clickable
+- duplicate Dashboard tabs from one click
+- repository switching failure
+
+For Phase 6:
+
+Design the safest deployment mechanism for this Web Client customization.
+
+Prefer an explicit installer option or documented post-install configuration if automatically editing Laserfiche Browse.aspx would be unsafe across Laserfiche upgrades.
+
+If automated:
+
+- backup Browse.aspx before modification
+- detect whether the script tag already exists
+- never insert duplicates
+- make the operation idempotent
+- do not destroy other customer customizations
+- do not overwrite browse-custom.css
+- preserve unrelated Browse.aspx content
+- document what happens after a Laserfiche Web Client upgrade
+
+If automatic Web Client modification is not safe enough for MSI, provide a dedicated administrator deployment script and document it clearly.
+
+Make the decision based on maintainability and upgrade safety, not convenience.
+
+==================================================
+BUILD / RELEASE PIPELINE
+==================================================
+
+Implement the Phase 6 build script requested in the roadmap:
+
+build\publish.ps1
+
+It should produce a clean release under:
+
+artifacts\
+
+The build should:
+
+- restore required projects
+- build/publish Dashboard
+- build Dashboard.DesktopExtension
+- stage installer payload
+- build MSI
+- fail on errors
+- fail on warnings where appropriate
+- produce deterministic, understandable output
+
+Do not require developers to manually collect files.
+
+==================================================
+DOCUMENTATION
+==================================================
+
+Create/update:
+
+docs\InstallationGuide.md
+docs\UpgradeGuide.md
+docs\ReleaseNotes.md
+
+Also update existing Desktop/Web Client deployment documentation so it agrees with the MSI deployment model.
+
+InstallationGuide must explain:
+
+- prerequisites
+- MSI installation
+- IIS configuration
+- Dashboard URL
+- initial configuration
+- Desktop Client integration
+- WebView2 requirement
+- Web Client integration
+- first login
+- blank-password behavior where relevant
+- verification procedure
+- log locations
+- troubleshooting
+
+UpgradeGuide must explain:
+
+- Dashboard upgrades
+- configuration preservation
+- credential preservation
+- Desktop Extension update
+- Laserfiche Web Client customization considerations
+- rollback/recovery where supported
+
+==================================================
+IMPORTANT: AUDIT BEFORE IMPLEMENTATION
+==================================================
+
+Before creating WiX files:
+
+1. Read the original Phase 6 task completely.
+2. Audit all current project target frameworks.
+3. Audit current publish output.
+4. Audit Dashboard.DesktopExtension Release output.
+5. Audit ProgramData paths.
+6. Audit credential storage paths.
+7. Audit IIS assumptions.
+8. Audit existing Desktop registration implementation.
+9. Audit Web Client deployment files.
+10. Identify prerequisites.
+
+Then present a concise implementation plan and execute it.
+
+Do not invent paths or dependencies without checking the repository.
+
+==================================================
+QUALITY GATE
+==================================================
+
+Before declaring Phase 6 complete:
+
+- Main Dashboard Release build: 0 errors, 0 warnings.
+- Desktop Extension Release build: 0 errors, 0 warnings on Windows.
+- JavaScript syntax validation passes.
+- MSI build succeeds.
+- Clean-machine installation procedure is documented.
+- Upgrade procedure is documented.
+- Uninstall behavior is documented.
+- No credentials/secrets are packaged.
+- No machine-specific developer paths are packaged.
+- No duplicate toolbar registration.
+- No duplicate Web Client script injection.
+- Configuration survives upgrade.
+- ProgramData survives uninstall as required.
+- Dashboard works after installation without Visual Studio/.NET SDK.
+
+Do NOT claim Windows/MSI verification if the current environment cannot actually perform it.
+
+Clearly separate:
+- statically verified
+- build verified
+- Windows runtime verified
+- installation verified
+
+==================================================
+FINAL DELIVERABLE
+==================================================
+
+At completion report:
+
+1. Exact files created/modified.
+2. MSI architecture.
+3. Installation flow.
+4. Upgrade behavior.
+5. Uninstall behavior.
+6. IIS configuration.
+7. Desktop Extension deployment/registration.
+8. Web Client integration deployment strategy.
+9. ProgramData/config preservation strategy.
+10. Prerequisites.
+11. Build commands.
+12. MSI output path.
+13. Verification results.
+14. Any remaining Windows/on-site verification.
+
+Then mark Phase 6 complete ONLY if its actual quality gates have been satisfied.
+
+Do not create a Phase 7 unless one exists in the original roadmap.
+
+Start Phase 6 now.

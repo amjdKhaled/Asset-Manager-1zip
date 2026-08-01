@@ -1,0 +1,91 @@
+<Project Sdk="WixToolset.Wix/4.0.5">
+
+  <!--
+    Dashboard.Installer.wixproj — WiX v4 MSI installer for the Dashboard suite.
+
+    BUILD REQUIREMENTS (Windows only):
+      1. .NET 8 SDK
+      2. WiX v4 global tool:
+             dotnet tool install --global wix
+      3. WiX extensions:
+             wix extension add WixToolset.UI.wixext/4.0.5
+             wix extension add WixToolset.Iis.wixext/4.0.3
+             wix extension add WixToolset.Util.wixext/4.0.5
+      4. Staged artifacts from build\publish.ps1:
+             artifacts\staging\WebApp\        (dotnet publish output)
+             artifacts\staging\Extension\     (Desktop Extension Release output)
+             artifacts\staging\ConfigTemplate\ (config templates)
+
+    OUTPUT:
+      artifacts\Dashboard-$(ProductVersion)-Setup.msi
+
+    DO NOT build this project on Linux — WiX v4 MSI output requires Windows.
+    Run build\publish.ps1 on a Windows machine to produce the full release.
+  -->
+
+  <PropertyGroup>
+    <OutputName>Dashboard-$(ProductVersion)-Setup</OutputName>
+    <OutputType>Package</OutputType>
+    <!-- Build output goes to the artifacts folder. -->
+    <OutputPath>..\..\artifacts\</OutputPath>
+    <IntermediateOutputPath>obj\</IntermediateOutputPath>
+  </PropertyGroup>
+
+  <!-- ── Build-time property overrides ──────────────────────────────────── -->
+  <!--
+    Override at build time:
+      dotnet build -p:ProductVersion=1.2.3
+      dotnet build -p:DashboardPort=80
+  -->
+  <PropertyGroup>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
+    <DashboardPort   Condition="'$(DashboardPort)'   == ''">5000</DashboardPort>
+  </PropertyGroup>
+
+  <!-- ── Preprocessor variables passed to all .wxs files ───────────────── -->
+  <!--
+    $(var.PublishDir)       — dotnet publish output (WebApp files)
+    $(var.ExtensionDir)     — Desktop Extension Release output
+    $(var.ConfigTemplateDir)— config template JSON files
+  -->
+  <PropertyGroup>
+    <DefineConstants>
+      PublishDir=$(MSBuildThisFileDirectory)..\..\artifacts\staging\WebApp;
+      ExtensionDir=$(MSBuildThisFileDirectory)..\..\artifacts\staging\Extension;
+      ConfigTemplateDir=$(MSBuildThisFileDirectory)..\..\artifacts\staging\ConfigTemplate;
+      ProductVersion=$(ProductVersion);
+      DashboardPort=$(DashboardPort)
+    </DefineConstants>
+  </PropertyGroup>
+
+  <!-- ── WiX extensions ─────────────────────────────────────────────────── -->
+  <ItemGroup>
+    <!-- Standard WiX UI dialogs (InstallDir, FeatureTree, etc.) -->
+    <PackageReference Include="WixToolset.UI.wixext"   Version="4.0.5" />
+    <!-- IIS website, application pool, web application components -->
+    <PackageReference Include="WixToolset.Iis.wixext"  Version="4.0.3" />
+    <!-- ExecCmd custom action, RegistrySearch, PermissionEx -->
+    <PackageReference Include="WixToolset.Util.wixext" Version="4.0.5" />
+  </ItemGroup>
+
+  <!-- ── WiX source files ───────────────────────────────────────────────── -->
+  <ItemGroup>
+    <Compile Include="Product.wxs" />
+    <Compile Include="WebApplication.wxs" />
+    <Compile Include="DesktopExtension.wxs" />
+    <Compile Include="Configuration.wxs" />
+    <Compile Include="Shortcuts.wxs" />
+  </ItemGroup>
+
+  <!-- ── Embedded resources (UI bitmaps, license) ──────────────────────── -->
+  <!--
+    Replace License.rtf, Banner.bmp, Dialog.bmp with branded versions for
+    a production release.  Placeholder files are provided in this directory.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="License.rtf" />
+    <EmbeddedResource Include="Banner.bmp"  Condition="Exists('Banner.bmp')" />
+    <EmbeddedResource Include="Dialog.bmp"  Condition="Exists('Dialog.bmp')" />
+  </ItemGroup>
+
+</Project>

@@ -26,14 +26,19 @@
  * All DOM access uses _doc / _win, captured from the real browser window
  * at IIFE entry — before Angular can override them.
  *
- * EVENT HANDLING ARCHITECTURE
- * ────────────────────────────
- * ONE capture-phase delegated listener on _doc is the single authoritative
- * click path.  Capture phase fires before Angular's bubble-phase listeners
- * so it cannot be blocked by Angular stopPropagation() calls.
- * No direct click listener is registered on the button itself — that was
- * the cause of the double-open bug.  A 500 ms launch lock prevents any
- * residual duplicate events from opening a second tab.
+ * EVENT HANDLING ARCHITECTURE — ONE NAVIGATION ONLY
+ * ──────────────────────────────────────────────────
+ * ONE window-level singleton guard prevents duplicate script initialization.
+ * ONE capture-phase delegated listener on _doc handles all clicks.
+ * ONE anchor navigation (<a>) opens the Dashboard tab.
+ *
+ * WHY NOT window.open?
+ * When called with 'noopener,noreferrer' features, window.open() returns null
+ * on some browsers even when the new tab opened successfully.  Checking that
+ * null return value as a "popup blocked" signal then triggers a second anchor
+ * navigation — opening two tabs from one click.  Using a single programmatic
+ * anchor click (<a target="_blank" rel="noopener noreferrer">) avoids any
+ * return-value ambiguity and guarantees exactly one tab per click.
  *
  * REPOSITORY DETECTION
  * ─────────────────────
@@ -50,6 +55,21 @@
 
 (function () {
     'use strict';
+
+    // ── SINGLETON GUARD ──────────────────────────────────────────────────
+    // Prevents the entire script from running twice if Browse.aspx (or a
+    // Laserfiche SPA navigation) somehow evaluates it more than once.
+    // A local variable (var _registered = false) would NOT protect here —
+    // each script execution gets its own closure scope.  window-level state
+    // is shared across all executions.
+    if (window.__lfDashboardInitialized) {
+        console.log('[LFDashboard] Duplicate script initialization blocked.');
+        return;
+    }
+    window.__lfDashboardInitialized = true;
+
+    console.log('[LFDashboard] Script initialized.');
+    // ─────────────────────────────────────────────────────────────────────
 
     // ── SAFE BROWSER GLOBALS ─────────────────────────────────────────────
     // Capture the real browser objects immediately, before Laserfiche Angular
@@ -77,24 +97,15 @@
     var BUTTON_DATA_ATTR = 'data-lf-dashboard-button';
 
     /**
-     * Cooldown duration (ms) after a successful launch.
-     * Prevents residual duplicate events from opening a second tab.
+     * Cooldown (ms) after a launch.  Prevents a second click registered
+     * within the same browser event flush from opening a second tab.
      * Does NOT prevent the user from clicking again after the cooldown.
      */
     var LAUNCH_COOLDOWN_MS = 500;
     // ─────────────────────────────────────────────────────────────────────
 
-    /**
-     * True while a Dashboard window.open is in progress / just completed.
-     * Reset after LAUNCH_COOLDOWN_MS.
-     */
+    /** True while a launch is in progress / cooling down. */
     var _launchInProgress = false;
-
-    /**
-     * True once the capture-phase delegated listener has been registered
-     * on _doc.  Ensures it is registered exactly once.
-     */
-    var _delegatedRegistered = false;
 
     // ─────────────────────────────────────────────────────────────────────
 
@@ -136,13 +147,37 @@
     }
 
     /**
+     * Opens the Dashboard in a new tab using a single programmatic anchor.
+     *
+     * WHY ANCHOR INSTEAD OF window.open?
+     * window.open(url, '_blank', 'noopener,noreferrer') returns null on some
+     * browsers even when the new tab opened successfully.  Using the null
+     * return as a "blocked" signal then triggers a second anchor navigation,
+     * opening two tabs per click.  A single anchor click has no return value
+     * to misinterpret — it is one navigation, always.
+     *
+     * @param {string} url  Full Dashboard URL including query parameters.
+     */
+    function openDashboard(url) {
+        var a = _doc.createElement('a');
+        a.href   = url;
+        a.target = '_blank';
+        a.rel    = 'noopener noreferrer';
+        a.style.display = 'none';
+        _doc.body.appendChild(a);
+        a.click();
+        _doc.body.removeChild(a);
+    }
+
+    /**
      * Handles a confirmed Dashboard button click.
      *
-     * ONE execution per physical click is guaranteed by:
-     *   1. A single capture-phase delegated listener (no direct button listener).
-     *   2. The _launchInProgress cooldown guard.
+     * Guarantees exactly ONE navigation per physical click via:
+     *   1. window.__lfDashboardInitialized — blocks duplicate script runs.
+     *   2. _launchInProgress cooldown — blocks duplicate events within 500 ms.
+     *   3. Single openDashboard() call — no fallback navigation.
      *
-     * Console log sequence for a single successful click:
+     * Console log sequence for one successful click:
      *   [LFDashboard] Dashboard button clicked.
      *   [LFDashboard] Repository: <name>
      *   [LFDashboard] Opening Dashboard: <url>
@@ -161,7 +196,7 @@
         // ── Step 1: confirm click fired ───────────────────────────────────
         console.log('[LFDashboard] Dashboard button clicked.');
 
-        // Prevent Laserfiche navbar from processing this click.
+        // Prevent the Laserfiche navbar from also processing this event.
         if (event) {
             if (event.stopPropagation)          event.stopPropagation();
             if (event.stopImmediatePropagation) event.stopImmediatePropagation();
@@ -190,37 +225,13 @@
 
         console.log('[LFDashboard] Repository: ' + repo);
 
-        // ── Step 4: open Dashboard ────────────────────────────────────────
+        // ── Step 4: open Dashboard (ONE navigation, no fallback) ──────────
         var url = buildDashboardUrl(repo);
         console.log('[LFDashboard] Opening Dashboard: ' + url);
 
-        // window.open must be called synchronously within the user-gesture
-        // handler — repository detection above is synchronous, so this call
-        // is still within the same gesture and will not be blocked as a popup.
-        var newWin = _win.open(url, '_blank', 'noopener,noreferrer');
-
-        if (!newWin) {
-            // Browser blocked the popup.  Fallback: programmatic anchor click.
-            // Only reached when window.open fails — never runs alongside it.
-            console.warn('[LFDashboard] Browser blocked the Dashboard popup. Trying anchor fallback.');
-            try {
-                var a = _doc.createElement('a');
-                a.href   = url;
-                a.target = '_blank';
-                a.rel    = 'noopener noreferrer';
-                a.style.display = 'none';
-                _doc.body.appendChild(a);
-                a.click();
-                _doc.body.removeChild(a);
-            } catch (e) {
-                console.warn('[LFDashboard] Anchor fallback also failed: ' + e);
-                alert(
-                    'Your browser blocked the Dashboard from opening.\n\n' +
-                    'Allow pop-ups for this site, or open this URL manually:\n' +
-                    url
-                );
-            }
-        }
+        // openDashboard() uses a single programmatic anchor click.
+        // There is no conditional fallback — nothing else can open a second tab.
+        openDashboard(url);
     }
 
     /**
@@ -228,12 +239,11 @@
      *
      * NO click listener is attached here.
      * The single authoritative click path is the capture-phase delegated
-     * listener registered by ensureDelegatedHandler().  Attaching a direct
-     * listener on the button as well was the root cause of the double-open bug.
+     * listener registered by ensureDelegatedHandler().
      *
-     * pointer-events:none on the SVG icon and text label ensures that clicks
-     * anywhere inside the button register the <button> itself as event.target,
-     * so the delegated listener's parentNode walk terminates quickly.
+     * pointer-events:none on SVG and label ensures clicks on any child
+     * register the <button> as event.target, so the delegated listener's
+     * parentNode walk terminates immediately.
      *
      * @returns {HTMLButtonElement}
      */
@@ -282,7 +292,6 @@
         svg.setAttribute('viewBox',     '0 0 24 24');
         svg.setAttribute('fill',        'currentColor');
         svg.setAttribute('aria-hidden', 'true');
-        // pointer-events:none — clicks on the icon fall through to the <button>.
         svg.style.cssText = 'flex-shrink:0;vertical-align:middle;pointer-events:none;';
         svg.innerHTML =
             '<rect x="2"  y="10" width="4" height="11" rx="1"/>' +
@@ -292,44 +301,28 @@
 
         var label = _doc.createElement('span');
         label.textContent = 'Dashboard';
-        // pointer-events:none — clicks on the label fall through to the <button>.
         label.style.cssText = 'pointer-events:none;';
         btn.appendChild(label);
 
         // !! No click listener added here !!
-        // The single authoritative handler is the capture-phase delegated
-        // listener on _doc registered in ensureDelegatedHandler().
+        // The sole click handler is the capture-phase delegated listener on _doc.
 
         return btn;
     }
 
     /**
-     * Registers the capture-phase delegated click listener on _doc exactly
-     * once.
+     * Registers the capture-phase delegated click listener on _doc exactly once.
      *
-     * Why capture phase?
-     *   Fires BEFORE Angular's bubble-phase listeners, so it cannot be
-     *   silently blocked by Angular stopPropagation() calls on a parent.
+     * Capture phase fires BEFORE Angular's bubble-phase listeners, so it
+     * cannot be blocked by Angular stopPropagation() calls on a parent.
      *
-     * Why delegated from _doc?
-     *   Survives Laserfiche Angular re-rendering the navbar.  Even if
-     *   Angular replaces the button's DOM node, the document-level listener
-     *   continues to match any element that carries BUTTON_DATA_ATTR.
-     *
-     * Why only once?
-     *   _delegatedRegistered ensures that MutationObserver-triggered
-     *   re-injection calls and the polling loop cannot register a second
-     *   listener, which would double-fire onDashboardClick.
+     * This function is idempotent — the window-level singleton guard and the
+     * fact it is called only from tryInject() (which itself checks for an
+     * existing button) prevent duplicate registrations.
      */
     function ensureDelegatedHandler() {
-        if (_delegatedRegistered) return;
-        _delegatedRegistered = true;
-
         _doc.addEventListener('click', function (event) {
             var target = event.target;
-            // Walk up from the clicked element.
-            // With pointer-events:none on SVG/span, event.target is already
-            // the <button>; the loop is a safety net for edge cases.
             while (target && target !== _doc) {
                 if (target.getAttribute &&
                     target.getAttribute(BUTTON_DATA_ATTR) === 'true') {
@@ -380,10 +373,11 @@
         ].join(';');
         ul.appendChild(li);
 
-        // Insert before existing children (repo picker, user menu).
         rightNavbar.insertBefore(ul, rightNavbar.firstChild);
 
-        // Register the single authoritative click handler (once).
+        // Register the single click handler once, the first time the button
+        // is successfully injected.  The singleton guard on window ensures this
+        // function body only runs once regardless of re-injection.
         ensureDelegatedHandler();
 
         console.info('[LFDashboard] Dashboard button injected into rightNavbar.');
@@ -391,14 +385,11 @@
     }
 
     /**
-     * MutationObserver — re-injects the button if Laserfiche Angular
-     * re-renders the navbar (e.g. after a repository switch).
+     * MutationObserver — re-injects the button if Laserfiche Angular re-renders
+     * the navbar (e.g. after a repository switch).
      *
-     * Scoped to _doc.body (subtree).  Acts only when our button is missing
-     * and rightNavbar still exists — no-ops on all unrelated mutations.
-     * The delegated click handler (ensureDelegatedHandler) is NOT
-     * re-registered on re-injection because _delegatedRegistered is already
-     * true.
+     * ensureDelegatedHandler() is called on re-injection but the window-level
+     * singleton guard means the click listener is never registered twice.
      */
     function startObserver() {
         if (!_win.MutationObserver) return;
@@ -445,9 +436,6 @@
     }
 
     // ── Startup ───────────────────────────────────────────────────────────
-    // Browse.aspx loads this script in <head>, so DOMContentLoaded fires
-    // before Angular bootstraps the navbar.  Use _doc (real browser document)
-    // for the readyState check and event registration.
     if (_doc.readyState === 'loading') {
         _doc.addEventListener('DOMContentLoaded', init);
     } else {

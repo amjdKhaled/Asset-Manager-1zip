@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Variables.wxi — Externalized installer properties for Dashboard.
+  All environment-specific or build-time values live here so they can be
+  overridden at build time via:
+      dotnet build -p:ProductVersion=1.2.3 -p:DashboardPort=5000
+  without touching the main WiX source files.
+-->
+<Include xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!--
+    ProductVersion: sourced from Directory.Build.props (1.0.0).
+    Override at build time via -p:ProductVersion=<version> on the wixproj.
+  -->
+  <?ifndef ProductVersion ?>
+    <?define ProductVersion = "1.0.0" ?>
+  <?endif ?>
+
+  <!--
+    IIS binding port.  Default 5000 matches the development/run configuration.
+    Change to 80 for a standard HTTP IIS deployment:
+        dotnet build installer\... -p:DashboardPort=80
+  -->
+  <?ifndef DashboardPort ?>
+    <?define DashboardPort = "5000" ?>
+  <?endif ?>
+
+  <!-- IIS site and application pool names (user-visible in IIS Manager). -->
+  <?define IisSiteName       = "Dashboard" ?>
+  <?define IisAppPoolName    = "Dashboard" ?>
+
+  <!--
+    Physical install root.  Web app and extension go into sub-folders.
+    Override at install time:  msiexec /i Dashboard-Setup.msi INSTALLFOLDER="D:\Apps\Dashboard\"
+  -->
+  <?define InstallFolderName = "Dashboard" ?>
+
+  <!-- Start Menu folder name. -->
+  <?define StartMenuFolder   = "Dashboard" ?>
+
+  <!--
+    UpgradeCode — a fixed GUID that NEVER changes across any release.
+    This GUID uniquely identifies the "Dashboard" product family for
+    MajorUpgrade detection.  Any change will break silent upgrades.
+  -->
+  <?define UpgradeCode = "{A7F3C2D1-B4E5-4891-9ACE-F12345678901}" ?>
+
+</Include>

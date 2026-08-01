@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WebApplication.wxs — Files and IIS configuration for the Dashboard web application.
+
+  The web app files are harvested from the dotnet publish output staged at:
+    artifacts\staging\WebApp\
+  by build\publish.ps1 before the WiX build runs.
+
+  IIS configuration:
+    Application Pool : Dashboard (No Managed Code, Integrated pipeline)
+    Web Site         : Dashboard, port $(DashboardPort) (default 5000)
+    Physical path    : [WEBAPPFOLDER]
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:iis="http://wixtoolset.org/schemas/v4/wxs/iis">
+
+  <?include Variables.wxi ?>
+
+  <Fragment>
+
+    <!-- ── Web application files ──────────────────────────────────────── -->
+    <!--
+      All files from the dotnet publish output.
+      WiX v4 glob syntax: <Files Include="..."> inside a ComponentGroup
+      automatically generates one Component per file with Guid="*".
+
+      The publish output contains:
+        Dashboard.dll, Dashboard.runtimeconfig.json, web.config,
+        appsettings.json (template — NeverOverwrite handled in Configuration.wxs),
+        wwwroot\** (static assets, Chart.js, portal CSS, lf-webclient-button.js, etc.)
+    -->
+    <ComponentGroup Id="WebAppComponents" Directory="WEBAPPFOLDER">
+      <Files Include="$(var.PublishDir)\**\*.*"
+             ExcludeFiles="$(var.PublishDir)\appsettings*.json" />
+    </ComponentGroup>
+
+    <!-- ── IIS: Application Pool ─────────────────────────────────────── -->
+    <!--
+      No Managed Code pipeline mode is required for ASP.NET Core.
+      The ASP.NET Core Module (ANCM) handles all request processing.
+      ManagedRuntimeVersion="" = No Managed Code.
+    -->
+    <ComponentGroup Id="IisComponents" Directory="WEBAPPFOLDER">
+
+      <Component Id="CompIisAppPool" Guid="{B3C4D5E6-F7A8-4901-BCDE-F23456789012}">
+        <iis:WebAppPool
+          Id="DashboardAppPool"
+          Name="$(IisAppPoolName)"
+          ManagedRuntimeVersion=""
+          ManagedPipelineMode="Integrated"
+          Identity="networkService" />
+      </Component>
+
+      <!--
+        Web Site bound to port $(DashboardPort).
+        The web application is deployed as the root "/" of this site.
+
+        After installation, the Dashboard is accessible at:
+          http://<server>:$(DashboardPort)/
+
+        To change the port after installation: use IIS Manager or
+        run msiexec /i Dashboard-Setup.msi REINSTALL=ALL REINST
+        ALLEMODE=vomus DASHBOARD_PORT=<new-port>
+
+        Note: if port 80 is desired, set DashboardPort=80 at build time.
+      -->
+      <Component Id="CompIisWebSite" Guid="{C4D5E6F7-A8B9-4012-CDEF-345678901234}">
+        <CreateFolder />
+        <iis:WebSite
+          Id="DashboardWebSite"
+          Description="$(IisSiteName)"
+          Directory="WEBAPPFOLDER"
+          AutoStart="yes"
+          StartOnInstall="yes">
+          <iis:WebAddress Id="DashboardWebAddress" Port="$(DashboardPort)" />
+          <iis:WebApplication
+            Id="DashboardWebApp"
+            Name=""
+            WebAppPool="DashboardAppPool"
+            AllowUnsafeCertificateRevocationCheck="no" />
+        </iis:WebSite>
+      </Component>
+
+    </ComponentGroup>
+
+  </Fragment>
+</Wix>

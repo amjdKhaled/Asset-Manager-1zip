@@ -20,3 +20,4 @@
 - [Phase 5 WebView2 popup](phase5-webview2-popup.md) — DashboardWindow with isolated user-data folder per click; why browser was replaced; %(DatabaseName) confirmed correct.
 - [LFPortal session auth](lfportal-session-auth.md) — Desktop Client login flow: session keys, credential stack, guard middleware, TryAuthenticateAsync, Change Account.
 - [LFPortal Web Client button](lfportal-webclient-button.md) — Final architecture: capture-phase delegated listener only (no direct button listener); _doc=window.document; 500ms cooldown; problems solved in order.
+- [Phase 6 installer architecture](phase6-installer.md) — WiX v4 MSI in installer/Dashboard.Installer/; Web Client button deployed by separate PS1, not MSI; build/publish.ps1 orchestrates full release.

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shortcuts.wxs — Start Menu shortcuts for Dashboard.
+
+  Creates a Start Menu folder "Dashboard" containing:
+    Open Dashboard        — opens http://localhost:$(DashboardPort)/ in default browser
+    Dashboard Settings    — opens the Laserfiche configuration file in Notepad
+    Uninstall Dashboard   — launches the MSI uninstaller
+
+  No Desktop shortcut is created by default.  Administrators who want one
+  can create it manually or add a feature/component here.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?include Variables.wxi ?>
+
+  <Fragment>
+
+    <ComponentGroup Id="ShortcutComponents" Directory="STARTMENUFOLDER">
+
+      <!--
+        "Open Dashboard" — launches the default browser pointing at the local
+        Dashboard URL.  Uses a wscript helper to open a URL via shell execute.
+      -->
+      <Component Id="CompShortcutOpen"
+                 Guid="{D1E2F3A4-B5C6-4789-3456-012345678901}">
+
+        <Shortcut Id="ShortcutOpenDashboard"
+                  Name="Open Dashboard"
+                  Description="Open the Dashboard in your web browser"
+                  Target="[SystemFolder]cmd.exe"
+                  Arguments='/c start "" "http://localhost:$(DashboardPort)/"'
+                  WorkingDirectory="STARTMENUFOLDER"
+                  Show="minimized" />
+
+        <RegistryValue Root="HKCU"
+                       Key="SOFTWARE\Dashboard\Shortcuts"
+                       Name="Open"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+      <!--
+        "Configure Dashboard" — opens the Laserfiche connection config file.
+      -->
+      <Component Id="CompShortcutConfigure"
+                 Guid="{E2F3A4B5-C6D7-4890-4567-123456789012}">
+
+        <Shortcut Id="ShortcutConfigure"
+                  Name="Configure Dashboard"
+                  Description="Edit the Laserfiche connection configuration"
+                  Target="[SystemFolder]notepad.exe"
+                  Arguments='"[PROGRAMDATAFOLDER]laserfiche.config.json"'
+                  WorkingDirectory="PROGRAMDATAFOLDER" />
+
+        <RegistryValue Root="HKCU"
+                       Key="SOFTWARE\Dashboard\Shortcuts"
+                       Name="Configure"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+      <!--
+        "Uninstall Dashboard" — launches Add/Remove Programs for this product.
+      -->
+      <Component Id="CompShortcutUninstall"
+                 Guid="{F3A4B5C6-D7E8-4901-5678-234567890123}">
+
+        <Shortcut Id="ShortcutUninstall"
+                  Name="Uninstall Dashboard"
+                  Description="Remove the Dashboard application"
+                  Target="[SystemFolder]msiexec.exe"
+                  Arguments="/x [ProductCode]"
+                  WorkingDirectory="STARTMENUFOLDER" />
+
+        <RegistryValue Root="HKCU"
+                       Key="SOFTWARE\Dashboard\Shortcuts"
+                       Name="Uninstall"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+      <!-- Remove the Start Menu folder on uninstall. -->
+      <Component Id="CompStartMenuDir"
+                 Guid="{A4B5C6D7-E8F9-4012-6789-345678901234}">
+        <RemoveFolder Id="RemoveStartMenuFolder"
+                      Directory="STARTMENUFOLDER"
+                      On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="SOFTWARE\Dashboard\Shortcuts"
+                       Name="Dir"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+  </Fragment>
+</Wix>
