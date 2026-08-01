@@ -182,22 +182,25 @@ function New-HarvestWxs {
         return
     }
 
-    # Map every directory encountered to a WiX-safe ID.
+    # Map EVERY subdirectory (not just file-parent directories) to a WiX-safe ID.
     # Root directory uses the caller-supplied DirectoryRefId.
+    #
+    # IMPORTANT: we must enumerate ALL directories with Get-ChildItem -Directory,
+    # not just those derived from $allFiles.DirectoryName.  A directory that only
+    # contains sub-directories (e.g. wwwroot/) would be missing from $dirId, which
+    # causes a HashTable KeyError under Set-StrictMode when building $childMap.
     $dirId = @{}
     $dirId[$SourceDir] = $DirectoryRefId
     $idx = 0
-    $allFiles |
-        ForEach-Object { $_.DirectoryName } |
-        Select-Object -Unique |
-        Sort-Object |
+    @(Get-ChildItem -Path $SourceDir -Recurse -Directory | Sort-Object FullName) |
         ForEach-Object {
-            if (-not $dirId.ContainsKey($_)) {
+            $dPath = $_.FullName.TrimEnd([char[]]@('\', '/'))
+            if (-not $dirId.ContainsKey($dPath)) {
                 $idx++
-                $rel = $_.Substring($SourceDir.Length + 1) -replace '[^A-Za-z0-9]', '_'
+                $rel = $dPath.Substring($SourceDir.Length + 1) -replace '[^A-Za-z0-9]', '_'
                 if ($rel -match '^[0-9]') { $rel = "d_$rel" }
                 if ($rel.Length -gt 50)   { $rel = $rel.Substring(0, 50) }
-                $dirId[$_] = ("dir_{0}_{1}_{2}" -f $ComponentGroupName, $idx, $rel)
+                $dirId[$dPath] = ("dir_{0}_{1}_{2}" -f $ComponentGroupName, $idx, $rel)
             }
         }
 
@@ -213,31 +216,45 @@ function New-HarvestWxs {
         }
     }
 
+    # XML attribute-value escaper: replaces the five characters that are illegal
+    # inside XML attribute values.  File paths on Windows rarely contain these,
+    # but ampersands in share paths (\\server\it&ops\) or angle-brackets would
+    # otherwise produce malformed XML that WiX rejects at compile time.
+    function EscapeXmlAttr([string]$val) {
+        $val.Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;').Replace('"','&quot;').Replace("'","&apos;")
+    }
+
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add('<?xml version="1.0" encoding="utf-8"?>')
     $lines.Add('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">')
     $lines.Add('  <Fragment>')
 
-    # One <DirectoryRef> block per parent that has sub-directories.
+    # One <DirectoryRef> block per parent directory that has sub-directories.
+    # NOTE: $pid is a read-only PowerShell automatic variable (process ID).
+    #       Use $parentDirId / $childDirId instead.
     foreach ($parent in ($childMap.Keys | Sort-Object Length)) {
-        $pid = $dirId[$parent]
-        $lines.Add("    <DirectoryRef Id=`"$pid`">")
+        $parentDirId = $dirId[$parent]
+        $lines.Add("    <DirectoryRef Id=`"$parentDirId`">")
         foreach ($child in ($childMap[$parent] | Sort-Object)) {
-            $cid   = $dirId[$child]
-            $cname = Split-Path $child -Leaf
-            $lines.Add("      <Directory Id=`"$cid`" Name=`"$cname`" />")
+            $childDirId  = $dirId[$child]
+            $childDirName = EscapeXmlAttr (Split-Path $child -Leaf)
+            $lines.Add("      <Directory Id=`"$childDirId`" Name=`"$childDirName`" />")
         }
         $lines.Add("    </DirectoryRef>")
     }
 
     # One <Component> per file inside <ComponentGroup>.
+    # Guid="*" is safe in WiX 4: the toolset generates a deterministic GUID from
+    # the component's install directory + key-path, so upgrade/repair identity is
+    # stable across builds as long as the install path does not change.
     $lines.Add("    <ComponentGroup Id=`"$ComponentGroupName`">")
-    $ci = 0
+    $compSeq = 0
     foreach ($file in $allFiles) {
-        $ci++
-        $pid = $dirId[$file.DirectoryName]
-        $lines.Add("      <Component Id=`"Comp_${ComponentGroupName}_${ci}`" Directory=`"$pid`" Guid=`"*`">")
-        $lines.Add("        <File Source=`"$($file.FullName)`" />")
+        $compSeq++
+        $fileDirId  = $dirId[$file.DirectoryName]
+        $fileSrcEsc = EscapeXmlAttr $file.FullName
+        $lines.Add("      <Component Id=`"Comp_${ComponentGroupName}_${compSeq}`" Directory=`"$fileDirId`" Guid=`"*`">")
+        $lines.Add("        <File Source=`"$fileSrcEsc`" />")
         $lines.Add("      </Component>")
     }
     $lines.Add("    </ComponentGroup>")
@@ -295,18 +312,69 @@ $DbPropsPath     = Join-Path $RepoRoot "Directory.Build.props"
 $ToolManifest    = Join-Path $RepoRoot ".config\dotnet-tools.json"
 
 # =============================================================================
-# VALIDATE REQUIRED SOURCE FILES
+# PREFLIGHT: VERIFY ALL REQUIRED SOURCE/BUILD FILES
 # =============================================================================
+# Fail early with a complete list of missing files rather than discovering
+# individual absences deep into the build.  All paths derive from $RepoRoot
+# so this check is independent of the caller's working directory.
 
-foreach ($required in @($WebProjPath, $DbPropsPath)) {
-    if (-not (Test-Path $required)) {
-        Write-Host ""
-        Write-Host "  [ERROR] Required file not found: $required" -ForegroundColor Red
-        Write-Host "          Make sure you are running this script from the repository root." -ForegroundColor Red
-        Write-Host "          Example: .\build\publish.ps1" -ForegroundColor Gray
-        exit 1
+$preflightAlways = @(
+    $WebProjPath,
+    $DbPropsPath,
+    (Join-Path $RepoRoot "LFPortal.sln")
+)
+
+$preflightWindows = @(
+    # WiX tool manifest (must be committed -- see .config/dotnet-tools.json)
+    $ToolManifest,
+    # Installer source files
+    (Join-Path $RepoRoot "installer\Dashboard.Installer\Product.wxs"),
+    (Join-Path $RepoRoot "installer\Dashboard.Installer\WebApplication.wxs"),
+    (Join-Path $RepoRoot "installer\Dashboard.Installer\DesktopExtension.wxs"),
+    (Join-Path $RepoRoot "installer\Dashboard.Installer\Configuration.wxs"),
+    (Join-Path $RepoRoot "installer\Dashboard.Installer\Shortcuts.wxs"),
+    (Join-Path $RepoRoot "installer\Dashboard.Bundle\Bundle.wxs"),
+    # Desktop Extension project
+    $ExtProjPath,
+    # Managed Bootstrapper Application project
+    $BAProjPath,
+    # SetupHelper project
+    $SetupHelperProj,
+    # Config templates embedded in the MSI
+    (Join-Path $RepoRoot "config\templates"),
+    # Web Client button JavaScript
+    (Join-Path $RepoRoot "src\LFPortal.Web\wwwroot\js\lf-webclient-button.js"),
+    # README shipped in Release\
+    (Join-Path $RepoRoot "Release\README.txt")
+)
+
+$missingFiles = [System.Collections.Generic.List[string]]::new()
+
+foreach ($f in $preflightAlways) {
+    if (-not (Test-Path $f)) { $missingFiles.Add($f) }
+}
+
+if ($IsWindowsOS -and (-not $SkipMsi) -and (-not $SkipExtension)) {
+    foreach ($f in $preflightWindows) {
+        if (-not (Test-Path $f)) { $missingFiles.Add($f) }
     }
 }
+
+if ($missingFiles.Count -gt 0) {
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Red
+    Write-Host "  [PREFLIGHT FAILED] Required files are missing from the repository:" `
+        -ForegroundColor Red
+    foreach ($mf in $missingFiles) {
+        Write-Host ("    MISSING: {0}" -f $mf) -ForegroundColor Red
+    }
+    Write-Host ""
+    Write-Host "  Sync/clone the complete repository before building." -ForegroundColor Red
+    Write-Host "  ============================================================" -ForegroundColor Red
+    exit 1
+}
+
+Write-OK "Preflight: all required source files present."
 
 # =============================================================================
 # RESOLVE VERSION
@@ -690,19 +758,33 @@ else {
         $webAppHarvestWxs = Join-Path $harvestDir "WebAppComponents.wxs"
         $extHarvestWxs    = Join-Path $harvestDir "ExtensionComponents.wxs"
 
+        $webAppStagingDir = Join-Path $StagingDir "WebApp"
         New-HarvestWxs `
-            -SourceDir          (Join-Path $StagingDir "WebApp") `
+            -SourceDir          $webAppStagingDir `
             -ComponentGroupName "WebAppComponents" `
             -DirectoryRefId     "WEBAPPFOLDER" `
             -OutputWxs          $webAppHarvestWxs
-        Write-OK "Harvested WebApp -> $webAppHarvestWxs"
+        $webAppFileCount = @(Get-ChildItem -Path $webAppStagingDir -Recurse -File -ErrorAction SilentlyContinue).Count
+        if ($webAppFileCount -eq 0) {
+            Write-Host "  [FAILED] WebApp staging directory is empty: $webAppStagingDir" -ForegroundColor Red
+            Write-Host "           Step 3 (dotnet publish) must complete before Step 8." -ForegroundColor Red
+            exit 1
+        }
+        Write-OK ("Harvested WebApp: {0} files -> {1}" -f $webAppFileCount, $webAppHarvestWxs)
 
+        $extStagingDir = Join-Path $StagingDir "Extension"
         New-HarvestWxs `
-            -SourceDir          (Join-Path $StagingDir "Extension") `
+            -SourceDir          $extStagingDir `
             -ComponentGroupName "ExtensionComponents" `
             -DirectoryRefId     "EXTENSIONFOLDER" `
             -OutputWxs          $extHarvestWxs
-        Write-OK "Harvested Extension -> $extHarvestWxs"
+        $extFileCount = @(Get-ChildItem -Path $extStagingDir -Recurse -File -ErrorAction SilentlyContinue).Count
+        if ($extFileCount -eq 0) {
+            Write-Host "  [FAILED] Extension staging directory is empty: $extStagingDir" -ForegroundColor Red
+            Write-Host "           Step 4 (Desktop Extension build) must complete before Step 8." -ForegroundColor Red
+            exit 1
+        }
+        Write-OK ("Harvested Extension: {0} files -> {1}" -f $extFileCount, $extHarvestWxs)
 
         # 8e -- Build the MSI.
         # All source and output paths are absolute (derived from $RepoRoot /

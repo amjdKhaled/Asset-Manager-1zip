@@ -12,6 +12,10 @@ obj/
 *.snupkg
 packages/
 nuget.config.user
+
+# The system-level /etc/.gitignore ignores .config/ but the dotnet local-tool
+# manifest must be committed so any machine can run 'dotnet tool restore'.
+!.config/dotnet-tools.json
 project.lock.json
 project.fragment.lock.json
 artifacts/
