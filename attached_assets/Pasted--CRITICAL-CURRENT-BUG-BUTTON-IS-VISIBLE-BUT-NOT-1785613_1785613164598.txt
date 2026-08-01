@@ -1,0 +1,296 @@
+==================================================
+CRITICAL CURRENT BUG — BUTTON IS VISIBLE BUT NOT CLICKABLE
+==================================================
+
+This is the MAIN bug that must be fixed now.
+
+The Dashboard button is successfully rendered and visible in the Laserfiche Web Client top navigation bar.
+
+Visually it appears correctly next to the repository/user controls.
+
+The Browser Console confirms:
+
+[LFDashboard] Dashboard button injected into rightNavbar.
+
+Therefore:
+
+- Browse.aspx successfully loads the custom JavaScript.
+- lf-dashboard-button.js is being executed.
+- rightNavbar is found successfully.
+- The Dashboard element is successfully created.
+- The Dashboard element is successfully inserted into the Laserfiche navbar.
+
+HOWEVER:
+
+THE DASHBOARD BUTTON CANNOT CURRENTLY BE CLICKED.
+
+When I physically click the visible Dashboard button:
+
+- Nothing happens.
+- Dashboard does not open.
+- No new browser tab opens.
+- No Login page opens.
+- No request reaches the Dashboard application.
+- No "[LFDashboard] Dashboard button clicked." message appears.
+- No repository diagnostic appears.
+- No Dashboard URL diagnostic appears.
+- No JavaScript error related to the Dashboard click appears.
+
+This means the current problem happens BEFORE Dashboard navigation.
+
+The failure is somewhere around:
+
+Visible Dashboard element
+        ↓
+Mouse click / pointer event
+        ↓
+Event reaching the element
+        ↓
+Registered click handler
+        ↓
+Navigation
+
+Do NOT treat this as a repository-detection problem yet.
+
+Do NOT treat this as an ASP.NET Core problem yet.
+
+Do NOT treat this as a Dashboard Login problem yet.
+
+The FIRST thing that must work is:
+
+PHYSICAL CLICK
+        ↓
+[LFDashboard] Dashboard button clicked.
+
+Only after that should repository detection and navigation occur.
+
+==================================================
+INVESTIGATE WHY THE VISIBLE BUTTON CANNOT RECEIVE CLICKS
+==================================================
+
+Do not assume that merely calling addEventListener("click", ...) solves the problem.
+
+Audit the actual generated DOM structure and CSS behavior of the Dashboard element.
+
+Investigate all likely causes, including:
+
+1. Another Laserfiche element is physically overlaying the Dashboard button.
+
+2. The Dashboard element or one of its parents has:
+
+pointer-events: none
+
+3. A transparent element is positioned above the button because of:
+
+position
+z-index
+absolute/fixed positioning
+
+4. The button was inserted inside a Laserfiche/Angular element that intercepts pointer events.
+
+5. Laserfiche has a parent click handler calling:
+
+preventDefault()
+stopPropagation()
+stopImmediatePropagation()
+
+6. Laserfiche replaces/clones the navbar DOM after our handler is attached.
+
+7. The visible element is not the same DOM node that owns the click handler.
+
+8. An invisible Angular/bootstrap/navbar element is covering the button.
+
+9. The element type or markup being injected is incompatible with the navbar.
+
+10. CSS classes copied from Laserfiche are making the element visually correct but functionally non-interactive.
+
+11. The button is being recreated after initialization without its event listener.
+
+12. A capture/bubble phase conflict is preventing our handler from executing.
+
+13. The custom script is executing in an unusual Laserfiche JavaScript context.
+
+Determine the ACTUAL cause from the implementation instead of applying random workarounds.
+
+==================================================
+MAKE THE BUTTON DEFINITELY INTERACTIVE
+==================================================
+
+The final Dashboard control must be a genuinely interactive element.
+
+Prefer semantic markup such as:
+
+<button type="button">
+
+or:
+
+<a href="..." role="button">
+
+depending on what integrates most safely with the existing Laserfiche navbar.
+
+It must have a stable identifier, for example:
+
+id="lf-dashboard-button"
+
+and/or:
+
+data-lf-dashboard-button="true"
+
+Ensure the final element has appropriate interaction properties such as:
+
+cursor: pointer;
+pointer-events: auto;
+
+Only add z-index/positioning overrides if actually necessary.
+
+Do NOT use an arbitrarily huge z-index unless investigation proves an overlay is the cause.
+
+==================================================
+ROBUST CLICK EVENT
+==================================================
+
+The click handler MUST log immediately as its first operation:
+
+console.log('[LFDashboard] Dashboard button clicked.');
+
+This log must happen BEFORE:
+
+repository detection
+URL construction
+window.open
+server requests
+authentication logic
+
+Therefore we can distinguish:
+
+click failure
+
+from:
+
+repository/navigation failure.
+
+Use a robust event registration strategy.
+
+If direct:
+
+button.addEventListener('click', handler);
+
+is reliable, use it.
+
+If Laserfiche replaces navbar nodes dynamically, use delegated event handling from a stable ancestor or window.document.
+
+For example, conceptually:
+
+stableAncestor.addEventListener('click', function (event) {
+    var target = ...;
+
+    if (target matches Dashboard button or is inside it) {
+        handleDashboardClick(event);
+    }
+});
+
+Do not register duplicate handlers.
+
+If both direct and delegated handling are used for resilience, ensure a single physical click cannot open Dashboard twice.
+
+==================================================
+HANDLE LASERFICHE DOM RE-RENDERING
+==================================================
+
+Laserfiche Web Client is dynamic.
+
+The implementation must survive repository switching and navbar re-rendering.
+
+If Laserfiche removes/recreates rightNavbar or its children:
+
+- Detect the replacement.
+- Reinsert Dashboard if necessary.
+- Restore its interactive behavior.
+- Never create duplicate Dashboard buttons.
+
+A MutationObserver is acceptable if needed.
+
+But keep it narrowly scoped and efficient.
+
+Do not continuously poll the entire DOM at high frequency.
+
+==================================================
+IMPORTANT EVIDENCE FROM CURRENT TEST
+==================================================
+
+The current screen proves the button exists visually.
+
+The Console proves:
+
+[LFDashboard] Dashboard button injected into rightNavbar.
+
+But clicking produces NO Dashboard click log.
+
+Therefore the implementation is NOT complete until a physical mouse click produces:
+
+[LFDashboard] Dashboard button clicked.
+
+Then, for repository NewEmployeeTest, it should produce something equivalent to:
+
+[LFDashboard] Repository: NewEmployeeTest
+
+[LFDashboard] Opening Dashboard: <dashboard-base-url>/?repository=NewEmployeeTest&source=webclient
+
+and then actually open the Dashboard Login page.
+
+==================================================
+ACCEPTANCE TEST
+==================================================
+
+Do not consider the Web Client integration fixed merely because the button appears.
+
+It passes only when ALL of these work:
+
+1. Open Laserfiche Web Client.
+
+2. Open repository:
+   NewEmployeeTest
+
+3. Dashboard button is visible.
+
+4. Hovering over Dashboard clearly behaves like an interactive control.
+
+5. Physically click Dashboard.
+
+6. Console immediately prints:
+
+   [LFDashboard] Dashboard button clicked.
+
+7. Console prints:
+
+   [LFDashboard] Repository: NewEmployeeTest
+
+8. Console prints the final Dashboard URL.
+
+9. Dashboard Login page actually opens.
+
+10. Login page shows:
+
+    NewEmployeeTest
+
+11. Username can be entered.
+
+12. Password is allowed to be blank.
+
+13. Successful login opens Dashboard data for NewEmployeeTest.
+
+14. Return to Laserfiche.
+
+15. Switch to another repository.
+
+16. Click the SAME Dashboard button again.
+
+17. The NEW repository is detected.
+
+18. Dashboard Login opens for the NEW repository.
+
+19. No duplicate Dashboard buttons appear.
+
+20. No duplicate Dashboard windows/tabs open from a single click.
+
+Until the physical click itself works, DO NOT mark this task complete.
