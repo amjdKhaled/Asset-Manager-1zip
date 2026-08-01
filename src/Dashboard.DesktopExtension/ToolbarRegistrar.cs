@@ -19,11 +19,27 @@ namespace LFPortal.DesktopExtension
     /// <para>
     /// The registration API is documented in the Laserfiche SDK 10.4 sample project
     /// <em>CustomButtonManager</em>. The button <c>Command</c> field is set to:
-    /// <code>"path\to\Dashboard.DesktopExtension.exe" -buttonclick -connguid "%(ConnectionGUID)" -hwnd "%(hwnd)" -pid "%(PID)" -databasename "%(DatabaseName)"</code>
+    /// <code>
+    /// "path\Dashboard.DesktopExtension.exe" -buttonclick
+    ///     -connguid "%(ConnectionGUID)"
+    ///     -hwnd "%(hwnd)"
+    ///     -pid "%(PID)"
+    ///     -databasename "%(DatabaseName)"
+    /// </code>
     /// Laserfiche replaces the <c>%(…)</c> tokens at runtime before invoking the process.
     /// The <c>%(DatabaseName)</c> token provides the name of the repository that is
     /// currently active in the Laserfiche Desktop Client window, allowing the portal
     /// to pre-select that repository without any SDK calls at click time.
+    /// </para>
+    /// <para>
+    /// Token reference — from the SDK 10.4 <em>CustomButtonManager</em> Readme:
+    /// <list type="bullet">
+    ///   <item><c>%(DatabaseName)</c> — current database (repository) name</item>
+    ///   <item><c>%(DatabaseGUID)</c> — current database GUID</item>
+    ///   <item><c>%(ConnectionGUID)</c> — LFSO connection GUID</item>
+    ///   <item><c>%(hwnd)</c> — current window handle</item>
+    ///   <item><c>%(PID)</c> / <c>%(ProcessID)</c> — LF.exe process ID</item>
+    /// </list>
     /// </para>
     /// </remarks>
     internal static class ToolbarRegistrar
@@ -33,8 +49,9 @@ namespace LFPortal.DesktopExtension
         /// <summary>
         /// Adds the Dashboard toolbar button to the Laserfiche Desktop Client main window.
         /// If the toolbar already exists it is removed first to avoid duplicates.
+        /// Setup diagnostics are written to the extension log.
         /// </summary>
-        /// <param name="config">Extension configuration (button label, icon path).</param>
+        /// <param name="config">Extension configuration (button label, portal URL, icon path).</param>
         /// <param name="silent">
         /// When <c>true</c> no dialog is shown on success. Errors always show a dialog.
         /// </param>
@@ -71,6 +88,19 @@ namespace LFPortal.DesktopExtension
                     ? builtInIconPath
                     : config.IconPath;
 
+                bool iconExists = !string.IsNullOrWhiteSpace(resolvedIconPath)
+                                  && File.Exists(resolvedIconPath);
+
+                // --- Setup diagnostics ---
+                ExtensionLogger.LogSection("DASHBOARD EXTENSION SETUP");
+                ExtensionLogger.Log($"Toolbar:    {ToolbarName}");
+                ExtensionLogger.Log($"Button:     {config.ButtonLabel}");
+                ExtensionLogger.Log($"Executable: {exePath}");
+                ExtensionLogger.Log($"Command:    {command}");
+                ExtensionLogger.Log($"Icon:       {resolvedIconPath ?? "(none)"}");
+                ExtensionLogger.Log($"IconExists: {iconExists}");
+                ExtensionLogger.Log($"PortalUrl:  {config.PortalUrl}");
+
                 using (var clientManager = new ClientManager())
                 using (var toolbarMgr = clientManager.GetToolbarManager(ClientWindowType.Main))
                 {
@@ -84,14 +114,23 @@ namespace LFPortal.DesktopExtension
                         Command     = command,
                     };
 
-                    // Only set the icon path when a valid file is resolved.
-                    if (!string.IsNullOrWhiteSpace(resolvedIconPath)
-                        && File.Exists(resolvedIconPath))
+                    // Only set the icon path when a valid .ico file is confirmed present.
+                    // Laserfiche will use a blank icon if this is omitted or points to a
+                    // missing file — DO NOT pass an invalid path.
+                    if (iconExists)
                     {
                         buttonInfo.IconPath = resolvedIconPath;
+                        ExtensionLogger.Log($"Icon path passed to Laserfiche: {resolvedIconPath}");
+                    }
+                    else
+                    {
+                        ExtensionLogger.Log(
+                            "WARNING: icon file not found — button will use default Laserfiche icon. " +
+                            "Ensure Resources\\Dashboard.ico is present in the same directory as the EXE.");
                     }
 
                     int buttonId = toolbarMgr.AddCustomToolbarButton(buttonInfo);
+                    ExtensionLogger.Log($"Button registered with ID: {buttonId}");
 
                     // Add the registered button to the toolbar.
                     var tbButton = new ToolbarButtonInfo
@@ -102,14 +141,17 @@ namespace LFPortal.DesktopExtension
                     toolbarMgr.AddButton(ToolbarName, tbButton, -1);
                 }
 
+                ExtensionLogger.Log("Registration succeeded.");
+
                 if (!silent)
                 {
                     MessageBox.Show(
                         $"Dashboard toolbar button \"{config.ButtonLabel}\" added " +
-                        "to the Laserfiche Desktop Client.\n\n" +
+                        $"to the Laserfiche Desktop Client.\n\n" +
                         $"Portal URL: {config.PortalUrl}\n\n" +
-                        "When the button is clicked, the active Laserfiche repository " +
-                        "will be passed automatically to the Dashboard.",
+                        $"Icon: {(iconExists ? resolvedIconPath : "(default — Dashboard.ico not found)")}\n\n" +
+                        "When the button is clicked, Dashboard will open in a standalone\n" +
+                        "popup window with the active Laserfiche repository pre-selected.",
                         "Dashboard Extension — Setup Complete",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information);
@@ -117,6 +159,8 @@ namespace LFPortal.DesktopExtension
             }
             catch (Exception ex)
             {
+                ExtensionLogger.Log($"Registration FAILED: {ex.Message}");
+
                 MessageBox.Show(
                     "Failed to register the Dashboard toolbar button.\n\n" +
                     "Ensure the Laserfiche Desktop Client is installed and that this " +
@@ -178,6 +222,10 @@ namespace LFPortal.DesktopExtension
 
                 if (!silent)
                 {
+                    ExtensionLogger.Log(removed
+                        ? "Dashboard toolbar button removed successfully."
+                        : "No Dashboard toolbar button found to remove.");
+
                     MessageBox.Show(
                         removed
                             ? "Dashboard toolbar button removed from the Laserfiche Desktop Client."
@@ -189,6 +237,8 @@ namespace LFPortal.DesktopExtension
             }
             catch (Exception ex)
             {
+                ExtensionLogger.Log($"Remove FAILED: {ex.Message}");
+
                 if (!silent)
                 {
                     MessageBox.Show(

@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Windows.Forms;
 
 namespace LFPortal.DesktopExtension
@@ -24,11 +23,18 @@ namespace LFPortal.DesktopExtension
     ///   <item>
     ///     <term>Button-click handler (invoked by the Laserfiche Desktop Client)</term>
     ///     <description>
-    ///       Reads the portal URL from the extension config and opens it in the default
-    ///       browser. The Laserfiche token <c>%(DatabaseName)</c> is appended as a
-    ///       <c>?repository=</c> query parameter so the portal can automatically activate
-    ///       the repository that is open in the Desktop Client.
-    ///       <code>Dashboard.DesktopExtension.exe -buttonclick -connguid "{guid}" -hwnd "{hwnd}" -pid "{pid}" -databasename "{DatabaseName}"</code>
+    ///       Reads the portal URL from the extension config, constructs a URL with the
+    ///       active repository appended as <c>?repository=</c>, and opens Dashboard in a
+    ///       native WebView2 popup window. No external browser is launched.
+    ///       <code>
+    ///       Dashboard.DesktopExtension.exe -buttonclick
+    ///           -connguid "%(ConnectionGUID)"
+    ///           -hwnd "%(hwnd)"
+    ///           -pid "%(PID)"
+    ///           -databasename "%(DatabaseName)"
+    ///       </code>
+    ///       The <c>%(DatabaseName)</c> token is substituted by the Laserfiche Desktop
+    ///       Client at click time with the name of the currently active repository.
     ///     </description>
     ///   </item>
     /// </list>
@@ -56,11 +62,27 @@ namespace LFPortal.DesktopExtension
             // repository currently active in the Desktop Client window.
             // We append it as ?repository=<name> so the portal's session
             // middleware can activate that repository without any configuration.
+            //
+            // Token reference (from Laserfiche SDK 10.4 CustomButtonManager docs):
+            //   %(ConnectionGUID) — GUID of the active repository connection
+            //   %(hwnd)           — HWND of the active Desktop Client window
+            //   %(PID)            — process ID of the Desktop Client process
+            //   %(DatabaseName)   — name of the currently open repository  ← used here
             // ----------------------------------------------------------------
             if (argList.Contains("-buttonclick"))
             {
+                // --- Diagnostic log ---
+                ExtensionLogger.LogSection("DASHBOARD EXTENSION CLICK");
+                ExtensionLogger.Log($"Raw args ({args.Length}): {string.Join(" ", args)}");
+
                 var databaseName = ParseNamedArg(args, "-databasename");
-                OpenPortalInBrowser(silent, databaseName);
+
+                if (string.IsNullOrWhiteSpace(databaseName))
+                    ExtensionLogger.Log("Repository detected: (none — will use configured default)");
+                else
+                    ExtensionLogger.Log($"Repository detected: {databaseName}");
+
+                OpenPortalInWindow(silent, databaseName);
                 return;
             }
 
@@ -81,16 +103,18 @@ namespace LFPortal.DesktopExtension
         }
 
         // ------------------------------------------------------------------ //
-        // Button-click: open the portal URL in the default browser           //
+        // Button-click: open Dashboard in a native WebView2 popup window     //
         // ------------------------------------------------------------------ //
 
-        private static void OpenPortalInBrowser(bool silent, string databaseName)
+        private static void OpenPortalInWindow(bool silent, string databaseName)
         {
             var config = ExtensionConfig.Load();
-            var url = config.PortalUrl?.Trim();
+            var url    = config.PortalUrl?.Trim();
 
             if (string.IsNullOrEmpty(url))
             {
+                ExtensionLogger.Log("ERROR: PortalUrl is not configured.");
+
                 if (!silent)
                 {
                     MessageBox.Show(
@@ -105,24 +129,33 @@ namespace LFPortal.DesktopExtension
                 return;
             }
 
-            // Append ?repository=<DatabaseName> when provided so the portal
-            // activates the same repository that is open in the Desktop Client.
+            // Append ?repository=<DatabaseName> so the portal's session middleware
+            // activates the same repository that is currently open in the Desktop Client.
+            // Priority (enforced by RepositorySessionMiddleware on the server):
+            //   1. This parameter — Desktop Client active repository (always wins)
+            //   2. Existing session  — from a previous navigation in this same window
+            //   3. Configured default — from Settings > Default Repository (Fallback)
             if (!string.IsNullOrWhiteSpace(databaseName))
             {
                 var separator = url.Contains('?') ? "&" : "?";
                 url = $"{url}{separator}repository={Uri.EscapeDataString(databaseName)}";
             }
 
+            ExtensionLogger.Log($"PortalUrl (from config): {config.PortalUrl}");
+            ExtensionLogger.Log($"Final URL: {url}");
+
+            // Open Dashboard in a native WebView2 popup. No external browser is used.
+            // Each window gets an isolated WebView2 session so switching between
+            // repositories in Laserfiche always opens a correctly-scoped window.
             try
             {
-                // UseShellExecute = true delegates to the OS default browser handler.
-                Process.Start(new ProcessStartInfo(url)
-                {
-                    UseShellExecute = true,
-                });
+                var window = new DashboardWindow(url);
+                Application.Run(window);
             }
             catch (Exception ex)
             {
+                ExtensionLogger.Log($"DashboardWindow launch failed: {ex.Message}");
+
                 MessageBox.Show(
                     $"Could not open the Dashboard portal.\n\nURL: {url}\n\nError: {ex.Message}",
                     "Dashboard Extension — Error",

@@ -1,0 +1,474 @@
+Phase 5 is NOT complete.
+
+The latest live Windows test proves that two previously implemented requirements are not working.
+
+Do NOT proceed to Phase 6.
+
+Fix these two runtime issues first.
+
+==================================================
+ISSUE 1 — CURRENT LASERFICHE REPOSITORY IS NOT PASSED
+==================================================
+
+LIVE TEST RESULT:
+
+Laserfiche Desktop Client is currently opened on repository:
+
+TestEmployee
+
+This is clearly visible in the Laserfiche Desktop Client title/location/tree.
+
+However, after clicking the Dashboard button, the Dashboard still shows:
+
+LFNewRepoWF
+
+Therefore the dynamic repository-context feature is NOT working.
+
+The Dashboard is falling back to the configured repository instead of receiving the repository from the Laserfiche Desktop Client.
+
+Do not consider the existing implementation correct merely because:
+
+%(DatabaseName)
+
+was added to the command.
+
+The actual runtime result proves that it is not reaching the Dashboard correctly.
+
+==================================================
+REQUIRED INVESTIGATION
+==================================================
+
+Trace the complete runtime chain.
+
+Do NOT immediately rewrite the backend.
+
+First inspect exactly what Laserfiche passes to:
+
+Dashboard.DesktopExtension.exe
+
+when the custom toolbar button is clicked.
+
+Temporarily add diagnostic logging to the Desktop Extension.
+
+Log the complete command-line arguments received by Program.Main(string[] args).
+
+Write them to something like:
+
+%ProgramData%\Dashboard\logs\extension.log
+
+Log:
+
+Timestamp
+Raw args[]
+Resolved repository argument
+Constructed Dashboard URL
+PortalUrl
+Execution mode
+
+Example:
+
+===== DASHBOARD EXTENSION CLICK =====
+Args:
+[0] ...
+[1] ...
+Repository detected: TestEmployee
+Portal URL: ...
+Final URL: ...?repository=TestEmployee
+=====================================
+
+Do NOT log passwords, bearer tokens, or credentials.
+
+==================================================
+IMPORTANT — VERIFY THE LASERFICHE TOKEN
+==================================================
+
+Do not assume %(DatabaseName) is the correct Laserfiche ClientAutomation substitution token.
+
+Verify it against:
+
+1. The existing CustomButtonManager sample in the repository.
+2. The installed Laserfiche ClientAutomation SDK/sample.
+3. Existing working GovSearch integration if it receives repository/session information.
+4. Any available Laserfiche SDK documentation already present in the project.
+
+Determine the ACTUAL supported toolbar-command substitution token for the repository/database currently active in Laserfiche Desktop Client.
+
+If %(DatabaseName) is wrong, replace it with the correct supported token.
+
+Do not guess another token.
+
+==================================================
+DESIRED BEHAVIOR
+==================================================
+
+Test case A:
+
+Laserfiche active repository:
+
+LFNewRepoWF
+
+Click Dashboard.
+
+Dashboard must show:
+
+LFNewRepoWF
+
+Test case B:
+
+Laserfiche active repository:
+
+TestEmployee
+
+Click Dashboard.
+
+Dashboard must show:
+
+TestEmployee
+
+Test case C:
+
+Laserfiche active repository:
+
+NewEmployeeTest
+
+Click Dashboard.
+
+Dashboard must show:
+
+NewEmployeeTest
+
+No repository should need to be manually added or selected in Dashboard Settings before opening it from Laserfiche.
+
+The Settings repository remains ONLY a fallback for direct/non-Laserfiche launches.
+
+==================================================
+DO NOT LET OLD SESSION OVERRIDE THE NEW REPOSITORY
+==================================================
+
+Inspect RepositorySessionMiddleware and SessionAwareRepositoryContext.
+
+When the Dashboard is launched with a valid repository parameter, for example:
+
+?repository=TestEmployee
+
+that repository MUST replace any previous repository stored in the Dashboard session.
+
+The priority must be:
+
+1. Repository explicitly supplied by Laserfiche Desktop Client
+2. Current session repository
+3. Default Repository configured in Settings
+
+NOT:
+
+1. Old session
+2. Settings
+3. Laserfiche parameter
+
+The newest Desktop Client repository must always win.
+
+==================================================
+WEBVIEW2 / POPUP
+==================================================
+
+This fix must work with the previously requested popup architecture.
+
+The flow should be:
+
+Laserfiche Desktop Client
+        ↓
+Dashboard toolbar button
+        ↓
+current repository resolved
+        ↓
+Dashboard.DesktopExtension.exe
+        ↓
+DashboardWindow
+        ↓
+WebView2
+        ↓
+Dashboard URL + repository
+        ↓
+RepositorySessionMiddleware
+        ↓
+SessionAwareRepositoryContext
+        ↓
+ALL Dashboard services use TestEmployee
+
+Do NOT open the system browser.
+
+The Dashboard must remain a standalone WebView2 popup.
+
+==================================================
+ISSUE 2 — LASERFICHE TOOLBAR ICON DID NOT CHANGE
+==================================================
+
+The live Laserfiche screenshot also proves that the toolbar button icon was NOT changed to the requested Dashboard icon.
+
+Fix the ACTUAL Laserfiche toolbar registration.
+
+I am NOT asking you to:
+
+- generate an image for documentation
+- change the Dashboard website logo
+- change LFDashboard text
+- create a mockup
+- merely add Dashboard.ico to the project
+
+I specifically mean:
+
+THE ICON DISPLAYED ON THE LASERFICHE DESKTOP CLIENT TOOLBAR BUTTON.
+
+==================================================
+DASHBOARD TOOLBAR ICON
+==================================================
+
+Use:
+
+src\Dashboard.DesktopExtension\Resources\Dashboard.ico
+
+as the actual icon passed to Laserfiche ClientAutomation when registering the custom toolbar button.
+
+Inspect:
+
+ToolbarRegistrar.cs
+
+and verify exactly what value is passed to:
+
+ToolbarManager.AddCustomToolbarButton(...)
+
+or the equivalent registration API.
+
+The icon path passed to Laserfiche must point to the actual deployed .ico file.
+
+Do not assume Laserfiche will automatically discover Resources\Dashboard.ico.
+
+==================================================
+COPY ICON TO RELEASE OUTPUT
+==================================================
+
+Ensure Dashboard.ico is copied into the Release output.
+
+For example the final deployment directory should contain:
+
+Dashboard.DesktopExtension.exe
+Dashboard.DesktopExtension.exe.config
+Dashboard.ico
+Microsoft.Web.WebView2.*
+other required DLLs
+
+or:
+
+Resources\Dashboard.ico
+
+depending on the path expected by ToolbarRegistrar.
+
+The .csproj must explicitly copy the icon if required.
+
+Example concept:
+
+<Content Include="Resources\Dashboard.ico">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+</Content>
+
+Use the actual correct project configuration.
+
+==================================================
+IMPORTANT — LASERFICHE MAY CACHE BUTTON REGISTRATION
+==================================================
+
+Changing Dashboard.ico in the project is NOT enough if the existing toolbar button is already registered.
+
+The old registration may still contain the old icon path.
+
+After fixing ToolbarRegistrar:
+
+1. Close Laserfiche Desktop Client completely.
+
+2. Run:
+
+Dashboard.DesktopExtension.exe --remove
+
+3. Verify the old Dashboard custom toolbar registration is removed.
+
+4. Run:
+
+Dashboard.DesktopExtension.exe --setup
+
+5. Verify the new registration uses Dashboard.ico.
+
+6. Restart Laserfiche Desktop Client.
+
+Do not modify or remove the existing GovSearch AI integration.
+
+Only remove/re-register the Dashboard integration.
+
+==================================================
+DO NOT CONFUSE THESE TWO LOGOS
+==================================================
+
+There are TWO different visual elements:
+
+A)
+LFDashboard
+
+inside the web application's top-left header.
+
+Do NOT change this unless necessary.
+
+B)
+The Dashboard BUTTON ICON inside Laserfiche Desktop Client.
+
+THIS is the icon I am asking you to change.
+
+The required fix is B.
+
+==================================================
+REGISTRATION DIAGNOSTICS
+==================================================
+
+Add safe setup diagnostics.
+
+When running:
+
+Dashboard.DesktopExtension.exe --setup
+
+log:
+
+Toolbar name
+Button name
+Executable path
+Command arguments
+Icon path
+Whether icon exists
+Registration success/failure
+
+Example:
+
+Toolbar: Dashboard
+Button: Dashboard
+Executable:
+C:\...\Dashboard.DesktopExtension.exe
+
+Icon:
+C:\...\Resources\Dashboard.ico
+
+IconExists: True
+
+Do not report setup success unless registration actually succeeds.
+
+==================================================
+FINAL WINDOWS VERIFICATION
+==================================================
+
+After implementation:
+
+Build:
+
+dotnet clean src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+dotnet build src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+Expected:
+
+0 errors
+0 warnings
+
+Then re-register:
+
+.\src\Dashboard.DesktopExtension\bin\Release\net48\Dashboard.DesktopExtension.exe --remove
+
+.\src\Dashboard.DesktopExtension\bin\Release\net48\Dashboard.DesktopExtension.exe --setup
+
+Restart Laserfiche Desktop Client.
+
+==================================================
+MANDATORY RUNTIME TEST
+==================================================
+
+Test repository:
+
+TestEmployee
+
+Open TestEmployee in Laserfiche Desktop Client.
+
+Click the Dashboard button.
+
+Expected:
+
+1. Dashboard opens as a WebView2 popup.
+2. No external browser opens.
+3. Dashboard repository badge says:
+
+TestEmployee
+
+4. Dashboard statistics are loaded from TestEmployee.
+5. Archive browses TestEmployee.
+6. Settings Connection Status reports TestEmployee as Active Repository.
+7. Repository Source reports Desktop Client.
+8. Laserfiche toolbar shows the NEW Dashboard icon.
+
+Then switch Laserfiche to:
+
+LFNewRepoWF
+
+without manually changing Dashboard Settings.
+
+Click Dashboard again.
+
+Expected:
+
+Dashboard now uses LFNewRepoWF.
+
+==================================================
+IF REPOSITORY STILL SHOWS LFNewRepoWF
+==================================================
+
+Do NOT call the feature complete.
+
+Inspect:
+
+%ProgramData%\Dashboard\logs\extension.log
+
+and determine where TestEmployee was lost:
+
+Laserfiche toolbar registration
+        ↓
+command substitution
+        ↓
+Program.cs args
+        ↓
+constructed URL
+        ↓
+WebView2 navigation
+        ↓
+RepositorySessionMiddleware
+        ↓
+SessionAwareRepositoryContext
+
+Report the exact failing layer and fix that layer.
+
+Do not hide the problem by changing the configured default repository.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Only after the LIVE Windows test succeeds, report:
+
+1. What caused TestEmployee not to reach Dashboard.
+2. What exact Laserfiche substitution mechanism/token is now used.
+3. Raw argument STRUCTURE received by the extension (without secrets).
+4. Example final URL structure.
+5. Confirmation that Desktop repository overrides previous session/default.
+6. Exact Dashboard.ico path registered with Laserfiche.
+7. Confirmation IconExists=True during registration.
+8. Confirmation the button was removed and re-registered.
+9. Confirmation TestEmployee → Dashboard shows TestEmployee.
+10. Confirmation LFNewRepoWF → Dashboard shows LFNewRepoWF.
+11. Confirmation Dashboard opens in WebView2 popup, not browser.
+12. Build result.
+
+DO NOT START PHASE 6.
+
+Phase 5 remains incomplete until BOTH live issues are verified on Windows.

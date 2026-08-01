@@ -1,0 +1,330 @@
+One important Phase 5 change before final approval:
+
+DO NOT open Dashboard in the user's default web browser.
+
+The Dashboard button inside Laserfiche Desktop Client must open Dashboard as a standalone desktop popup window.
+
+==================================================
+DASHBOARD POPUP WINDOW
+==================================================
+
+Current behavior:
+Laserfiche Dashboard button
+→ launches the Dashboard URL in the default browser.
+
+Change this behavior to:
+
+Laserfiche Desktop Client
+→ Dashboard toolbar button
+→ Dashboard.DesktopExtension.exe
+→ standalone Dashboard popup window
+→ WebView2 renders the existing Dashboard web application inside it.
+
+Do NOT open Chrome, Edge, Firefox, or the system default browser.
+
+Use Microsoft Edge WebView2 inside Dashboard.DesktopExtension.
+
+The existing ASP.NET Core Dashboard application remains unchanged as the actual application/backend.
+
+The DesktopExtension should simply host that application inside a native Windows popup.
+
+==================================================
+REPOSITORY CONTEXT MUST STILL WORK
+==================================================
+
+Preserve the dynamic repository behavior already implemented.
+
+When the user is currently inside:
+
+LFNewRepoWF
+
+and clicks Dashboard:
+
+→ open the popup
+→ load Dashboard using LFNewRepoWF.
+
+When the user switches to:
+
+NewEmployeeTest
+
+and clicks Dashboard:
+
+→ open the popup using NewEmployeeTest.
+
+The flow should remain:
+
+Laserfiche Desktop Client
+        ↓
+Dashboard button
+        ↓
+%(DatabaseName)
+        ↓
+Dashboard.DesktopExtension.exe
+        ↓
+construct Dashboard URL with repository context
+        ↓
+WebView2 popup
+        ↓
+Dashboard session receives active repository
+
+Do NOT remove the repository/session implementation that was just completed.
+
+==================================================
+POPUP WINDOW REQUIREMENTS
+==================================================
+
+Create a proper desktop window for Dashboard.
+
+Recommended implementation:
+
+WinForms Form + Microsoft.Web.WebView2.WinForms.WebView2
+
+The extension already targets:
+
+.NET Framework 4.8
+Windows
+WinForms
+
+Therefore keep the existing architecture and add WebView2 support.
+
+Create something similar to:
+
+DashboardWindow.cs
+
+Responsibilities:
+
+- Create the native popup window.
+- Initialize WebView2.
+- Navigate to the Dashboard URL.
+- Pass the repository URL already constructed by Program.cs.
+- Handle WebView2 initialization failures cleanly.
+
+Suggested window title:
+
+Dashboard
+
+Recommended initial size:
+
+1400 x 850
+
+Minimum size:
+
+1000 x 650
+
+Allow:
+- resize
+- maximize
+- minimize
+- close
+
+Open centered on screen.
+
+The Dashboard should fill the entire client area.
+
+Do not display browser:
+- address bar
+- tabs
+- browser toolbar
+- browser navigation UI
+
+It should look like a native Dashboard application.
+
+==================================================
+WEBVIEW2
+==================================================
+
+Add the appropriate Microsoft.Web.WebView2 NuGet dependency to:
+
+Dashboard.DesktopExtension.csproj
+
+Use:
+
+Microsoft.Web.WebView2.WinForms
+
+Initialize CoreWebView2 asynchronously before navigation when required.
+
+The Dashboard URL should come from the existing:
+
+extension.config.json
+
+PortalUrl
+
+Do NOT hard-code localhost or a port.
+
+The repository parameter must still be appended dynamically.
+
+Example internally:
+
+PortalUrl:
+https://localhost:5001
+
+Current repository:
+NewEmployeeTest
+
+WebView2 loads:
+
+https://localhost:5001/?repository=NewEmployeeTest
+
+The user should NOT see this URL.
+
+==================================================
+SINGLE POPUP BEHAVIOR
+==================================================
+
+Avoid creating multiple unnecessary Dashboard windows.
+
+If practical:
+
+If Dashboard is already open and the user clicks the button again:
+
+- bring the existing Dashboard window to front
+OR
+- update/reload it using the newly selected repository.
+
+However, do not introduce complicated IPC architecture if the Laserfiche custom-button execution model launches a separate process each time.
+
+Reliability is more important than implementing single-instance behavior.
+
+==================================================
+IMPORTANT: DO NOT BREAK EXISTING BUTTON
+==================================================
+
+Keep:
+
+Dashboard.DesktopExtension.exe --setup
+Dashboard.DesktopExtension.exe --remove
+
+These remain registration commands.
+
+Only the normal Laserfiche button-click execution should open DashboardWindow.
+
+Do NOT open the popup during --setup.
+
+Do NOT open the popup during --remove.
+
+==================================================
+DASHBOARD BUTTON ICON
+==================================================
+
+Keep the Dashboard toolbar icon work from the previous requirement.
+
+The actual Laserfiche Dashboard toolbar button must use:
+
+Resources/Dashboard.ico
+
+Do NOT generate a mockup or documentation image.
+
+This must be the actual icon registered with Laserfiche ClientAutomation.
+
+==================================================
+STATUS / SETTINGS
+==================================================
+
+Keep the previous change:
+
+Remove Status from the main navigation.
+
+Navigation:
+
+Dashboard
+Archive
+Settings
+
+Status information remains integrated inside Settings.
+
+Do not revert this.
+
+==================================================
+SECURITY
+==================================================
+
+Do not expose Laserfiche credentials to WebView2.
+
+WebView2 only receives the Dashboard URL.
+
+Authentication with Laserfiche must continue to happen server-side through the existing Dashboard backend.
+
+Do not put:
+- Laserfiche username
+- password
+- bearer token
+
+in the URL, JavaScript, query string, or WebView2 configuration.
+
+Only the repository identifier may be passed.
+
+==================================================
+BUILD / VERIFICATION
+==================================================
+
+After implementation:
+
+1. Build the ASP.NET Core Dashboard solution.
+
+Expected:
+0 errors
+0 warnings
+
+2. Build:
+
+src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj
+
+on .NET Framework 4.8.
+
+3. Verify the WebView2 NuGet dependency is copied correctly to the Release output.
+
+4. Verify:
+
+Dashboard.DesktopExtension.exe --setup
+
+still registers the Dashboard button.
+
+5. If registration already exists, provide the exact commands for refreshing it:
+
+Dashboard.DesktopExtension.exe --remove
+Dashboard.DesktopExtension.exe --setup
+
+6. Runtime test:
+
+Open Laserfiche Desktop Client.
+
+Select:
+LFNewRepoWF
+
+Click Dashboard.
+
+EXPECTED:
+A standalone Dashboard popup opens.
+No external browser opens.
+Dashboard shows LFNewRepoWF as Active Repository.
+
+Close popup.
+
+Switch Laserfiche to:
+NewEmployeeTest
+
+Click Dashboard.
+
+EXPECTED:
+A new standalone Dashboard popup opens.
+No external browser opens.
+Dashboard shows NewEmployeeTest as Active Repository.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report:
+
+1. Which WebView2 package/version was added.
+2. Which new popup/window files were created.
+3. How Program.cs now launches the popup.
+4. How the active Laserfiche repository reaches WebView2.
+5. Confirm that no external browser is launched.
+6. Confirm Status remains inside Settings.
+7. Confirm Resources/Dashboard.ico is the actual toolbar icon.
+8. Exact Windows build commands.
+9. Exact --remove / --setup commands.
+10. Any WebView2 Runtime prerequisite required on the client machine.
+
+Do NOT proceed to Phase 6 until this popup behavior is implemented and verified.

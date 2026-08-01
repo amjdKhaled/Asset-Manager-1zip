@@ -48,6 +48,12 @@ public sealed class RepositorySessionMiddleware
         {
             var trimmed = repoParam.Trim();
 
+            // Desktop Client parameter always wins — overwrite any previously
+            // stored repository (e.g. from an earlier click on a different repo).
+            // Priority enforced here:
+            //   1. This parameter (Desktop Client active repository)  ← always wins
+            //   2. Existing session value                             ← overwritten
+            //   3. Configured default (LaserficheOptions.RepositoryId) ← never reached
             context.Session.SetString(SessionKeyRepositoryId, trimmed);
             context.Session.SetString(SessionKeySource, "Laserfiche Desktop Client");
 

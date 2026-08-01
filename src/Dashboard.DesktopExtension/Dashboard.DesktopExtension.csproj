@@ -19,7 +19,7 @@
     <!-- Product metadata -->
     <Company>Dashboard</Company>
     <Product>Dashboard Desktop Extension</Product>
-    <Description>Laserfiche Desktop Client toolbar button that opens the Dashboard portal URL.</Description>
+    <Description>Laserfiche Desktop Client toolbar button that opens the Dashboard portal in a standalone WebView2 popup.</Description>
     <Copyright>Copyright © 2026 Dashboard</Copyright>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
@@ -41,9 +41,28 @@
     </Reference>
   </ItemGroup>
 
-  <!-- System.Text.Json is not inbox on net48; use Newtonsoft.Json from NuGet. -->
+  <!-- NuGet packages -->
   <ItemGroup>
+    <!-- System.Text.Json is not inbox on net48; use Newtonsoft.Json from NuGet. -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+
+    <!-- WebView2 WinForms control — hosts the Dashboard web application in a
+         native popup window. Requires the Microsoft Edge WebView2 Runtime to
+         be installed on the end-user machine (see docs/LFDesktopExtension.md).
+         Package ships: Microsoft.Web.WebView2.WinForms.WebView2 (WinForms control)
+                        Microsoft.Web.WebView2.Core.*                (core API types) -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2651.64" />
+  </ItemGroup>
+
+  <!-- Static content to copy to the output directory.
+       Dashboard.ico is read at runtime by ToolbarRegistrar (icon registration)
+       and DashboardWindow (window icon). The path used in ToolbarRegistrar is:
+           <ExeDir>\Resources\Dashboard.ico
+       so the file must be present in the Resources\ sub-folder of the output. -->
+  <ItemGroup>
+    <Content Include="Resources\Dashboard.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <!-- Exclude from the main LFPortal.sln build. -->

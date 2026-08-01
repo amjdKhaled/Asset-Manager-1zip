@@ -2,7 +2,7 @@
 
 The **Dashboard Desktop Extension** (`Dashboard.DesktopExtension.exe`) adds a toolbar
 button to the Laserfiche Windows Desktop Client. Clicking the button opens the Dashboard
-portal URL in the user's default browser.
+portal in a native **WebView2 popup window** — no external browser is launched.
 
 ---
 
@@ -13,9 +13,11 @@ portal URL in the user's default browser.
 | Target framework | .NET Framework 4.8 (`net48`) |
 | Output type | `WinExe` (no console window) |
 | SDK dependency | `Laserfiche.ClientAutomation` (SDK 10.4) — setup/registration only |
-| Click handler | Pure .NET Framework — no Laserfiche SDK required at click time |
+| Click handler | WinForms `DashboardWindow` with `Microsoft.Web.WebView2` (no Laserfiche SDK at click time) |
+| Popup window | 1400×850 initial, 1000×650 minimum, centered on screen |
 | Config file | `%ProgramData%\Dashboard\extension.config.json` |
 | Legacy fallback | `%ProgramData%\LFPortal\extension.config.json` (read-only; backward compat) |
+| Diagnostic log | `%ProgramData%\Dashboard\logs\extension.log` |
 
 The extension has two operating modes selected by command-line arguments:
 
@@ -29,8 +31,8 @@ Dashboard.DesktopExtension.exe --remove [--silent]
 
 Dashboard.DesktopExtension.exe -buttonclick -connguid "..." -hwnd "..." -pid "..." -databasename "..."
     Invoked by Laserfiche on button click. Reads the portal URL from the config
-    file and opens it in the default browser, appending ?repository=<databasename>
-    so the portal automatically activates the repository open in the Desktop Client.
+    file, appends ?repository=<databasename>, and opens Dashboard in a native
+    WebView2 popup window. No external browser is launched.
 ```
 
 Running with no arguments is equivalent to `--setup`.
@@ -253,11 +255,21 @@ When the user clicks the button, the Desktop Client executes:
 ```
 
 Laserfiche substitutes the `%(…)` tokens before invoking the process. The extension
-reads the `-databasename` value and appends `?repository=<DatabaseName>` to the portal
-URL before opening the browser. The server-side `RepositorySessionMiddleware` intercepts
-this parameter and stores it in the ASP.NET Core session, so all navigation within that
-browser session uses the Desktop Client's active repository rather than the configured
-default.
+reads the `-databasename` value, appends `?repository=<DatabaseName>` to the portal URL,
+and opens `DashboardWindow` — a WinForms form hosting a `WebView2` control that navigates
+to that URL. No external browser is launched.
+
+`RepositorySessionMiddleware` on the server intercepts the `?repository=` parameter and
+stores it in the ASP.NET Core session. Priority order (highest first):
+
+1. **`?repository=` from the Desktop Client** — always overwrites the session
+2. Existing session value — from a previous navigation in the same window
+3. Configured default — `Settings > Default Repository (Fallback)`
+
+Each `DashboardWindow` uses an isolated WebView2 user-data folder
+(`%TEMP%\Dashboard_<GUID>\`) so its session cookie is never shared with other open
+Dashboard windows. This ensures that clicking the button while `TestEmployee` is active
+always shows `TestEmployee`, even if a window for `LFNewRepoWF` is already open.
 
 ### Toolbar Icon
 
