@@ -1,9 +1,25 @@
 ---
 name: WiX v4 Mba.Core API quirks
-description: Confirmed API surface of WixToolset.Mba.Core 4.0.5; traps when writing a managed BA.
+description: Confirmed API surface of WixToolset.Mba.Core 4.0.5 and toolchain pinning rules.
 ---
 
 # WiX v4 Mba.Core 4.0.5 — Confirmed API and Traps
+
+## WiX version pin (SINGLE SOURCE OF TRUTH)
+`$WixPinnedVersion = "4.0.5"` is declared at the top of `build/publish.ps1`.
+Never install `wix` without `--version $WixPinnedVersion`.
+`dotnet tool update --global wix --version X` works for both upgrades AND downgrades.
+
+## WiX SDK names — generational incompatibility
+- WiX 4.x: `Sdk="WixToolset.Wix/4.0.5"` — resolved by the WiX 4 global tool's SDK resolver.
+- WiX 7.x: uses `Sdk="WixToolset.Sdk"` — completely different; WiX 7's resolver doesn't
+  know about `WixToolset.Wix`, and that package does NOT exist on NuGet as a standalone download.
+- Installing `wix` without a version pin gets the latest (7.x) → "Could not resolve SDK 'WixToolset.Wix'."
+
+## WiX version detection in publish.ps1
+Use `dotnet tool list --global` (reliable, no PATH dependency) to check installed version.
+Do NOT use `dotnet wix --version` — WiX registers as a standalone `wix` command, not as a
+dotnet subcommand; `dotnet wix` silently fails or invokes the wrong binary.
 
 ## BootstrapperApplication constructor
 `protected BootstrapperApplication(IEngine engine)` — requires IEngine.
@@ -37,6 +53,16 @@ protected override IBootstrapperApplication Create(IEngine engine, IBootstrapper
 - `TextBox.PlaceholderText` — in .NET Framework 4.7.2+ but absent from Linux reference assemblies.
   Remove or conditionalize; it is only a UI hint.
 
-**Why:** These traps are invisible from static code review; only caught by actual compilation.
-**How to apply:** Every future managed BA or net48 project must go through a real Windows (or
-at minimum Linux dotnet build) compile pass before delivery.
+## CS8618 WinForms field declarations
+WinForms fields initialized in BuildForm() (not the constructor) trigger CS8618 in nullable-enabled projects.
+**Fix:** Declare them with `= null!` (null-forgiving). Do NOT disable nullable globally.
+
+## MSI placeholder BMP files
+WiX UI requires Banner.bmp (493×58) and Dialog.bmp (493×312) at MSI link time.
+Created via Python: dark-blue Banner, light-grey Dialog.
+Stored in `installer/Dashboard.Installer/`.
+
+**Why:** These traps are invisible from static code review; only caught by actual compilation
+and a real Windows build attempt.
+**How to apply:** Every future managed BA or net48 project must go through a Linux dotnet build
+pass AND a Windows WiX build pass before delivery.

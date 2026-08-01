@@ -46,50 +46,54 @@ namespace Dashboard.BA
         private readonly Panel[] _pages = new Panel[7];
 
         // ---------------------------------------------------------------- Layout controls
-        private Panel  _headerPanel;
-        private Label  _lblHeaderTitle;
-        private Label  _lblHeaderSubtitle;
-        private Panel  _contentPanel;
-        private Panel  _footerPanel;
-        private Button _btnBack;
-        private Button _btnNext;
-        private Button _btnCancel;
+        // All fields are assigned in BuildForm() which is always called from the
+        // constructor.  = null! (null-forgiving) suppresses CS8618 without hiding
+        // genuine nullability bugs; any access before BuildForm() would still
+        // throw a NullReferenceException at runtime as expected.
+        private Panel  _headerPanel      = null!;
+        private Label  _lblHeaderTitle   = null!;
+        private Label  _lblHeaderSubtitle = null!;
+        private Panel  _contentPanel     = null!;
+        private Panel  _footerPanel      = null!;
+        private Button _btnBack          = null!;
+        private Button _btnNext          = null!;
+        private Button _btnCancel        = null!;
 
         // ---------------------------------------------------------------- Detection page controls
-        private Label  _lblDetectStatus;
-        private Label  _lblIisStatus;
-        private Label  _lblAspNetStatus;
-        private Label  _lblWebView2Status;
-        private Label  _lblDesktopStatus;
-        private Label  _lblWebClientStatus;
-        private Button _btnReDetect;
+        private Label  _lblDetectStatus  = null!;
+        private Label  _lblIisStatus     = null!;
+        private Label  _lblAspNetStatus  = null!;
+        private Label  _lblWebView2Status = null!;
+        private Label  _lblDesktopStatus = null!;
+        private Label  _lblWebClientStatus = null!;
+        private Button _btnReDetect      = null!;
 
         // ---------------------------------------------------------------- Config page controls
-        private TextBox _txtDashboardUrl;
-        private TextBox _txtLFApiUrl;
-        private TextBox _txtRepoId;
-        private TextBox _txtDisplayName;
-        private TextBox _txtPort;
+        private TextBox _txtDashboardUrl = null!;
+        private TextBox _txtLFApiUrl     = null!;
+        private TextBox _txtRepoId       = null!;
+        private TextBox _txtDisplayName  = null!;
+        private TextBox _txtPort         = null!;
 
         // ---------------------------------------------------------------- Integration page controls
-        private CheckBox _chkDesktop;
-        private Label    _lblDesktopInfo;
-        private CheckBox _chkWebClient;
-        private Label    _lblWebClientInfo;
-        private TextBox  _txtWebClientPath;
-        private Panel    _pnlWebClientPath;
+        private CheckBox _chkDesktop       = null!;
+        private Label    _lblDesktopInfo   = null!;
+        private CheckBox _chkWebClient     = null!;
+        private Label    _lblWebClientInfo = null!;
+        private TextBox  _txtWebClientPath = null!;
+        private Panel    _pnlWebClientPath = null!;
 
         // ---------------------------------------------------------------- Ready page controls
-        private Label _lblReadySummary;
+        private Label _lblReadySummary = null!;
 
         // ---------------------------------------------------------------- Progress page controls
-        private ProgressBar _progressBar;
-        private Label       _lblCurrentAction;
-        private TextBox     _txtLog;
+        private ProgressBar _progressBar     = null!;
+        private Label       _lblCurrentAction = null!;
+        private TextBox     _txtLog           = null!;
 
         // ---------------------------------------------------------------- Complete page controls
-        private Label _lblCompleteTitle;
-        private Label _lblCompleteDetail;
+        private Label _lblCompleteTitle  = null!;
+        private Label _lblCompleteDetail = null!;
 
         // ---------------------------------------------------------------- Page metadata
         private static readonly string[] PageTitles =

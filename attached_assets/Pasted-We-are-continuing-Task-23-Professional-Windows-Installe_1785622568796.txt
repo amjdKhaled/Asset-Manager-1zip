@@ -1,0 +1,449 @@
+We are continuing Task #23: Professional Windows Installer.
+
+The Windows release build now successfully passes Steps 1 through 7.
+
+The current real Windows failure is Step 8/11 while building the MSI.
+
+Actual output:
+
+[Step 8/11] Building MSI installer (WiX v4)
+
+WiX was not initially available.
+The build script automatically installed:
+
+Tool 'wix' (version '7.0.0') was successfully installed.
+
+But then the MSI project failed:
+
+Could not resolve SDK "WixToolset.Wix".
+
+Unable to find package WixToolset.Wix.
+No packages exist with this id in source(s):
+- Microsoft Visual Studio Offline Packages
+- nuget.org
+
+Dashboard.Installer.wixproj:
+error MSB4236:
+The SDK 'WixToolset.Wix/4.0.5' specified could not be found.
+
+IMPORTANT:
+
+Do not just patch this one error.
+
+I want you to fully audit and fix the complete Windows installer build pipeline from Step 8 through Step 11.
+
+The final goal remains:
+
+Release\
+    LFDashboard-Setup.exe
+    README.txt
+
+The customer must only need to double-click LFDashboard-Setup.exe.
+
+No PowerShell, CMD, manual JSON editing, manual IIS setup, or developer tools should be required during normal customer installation.
+
+==================================================
+1. FIRST: AUDIT THE WIX TOOLCHAIN
+==================================================
+
+Inspect:
+
+installer/Dashboard.Installer/Dashboard.Installer.wixproj
+installer/Dashboard.Bundle/Dashboard.Bundle.wixproj
+installer/Dashboard.Bundle/Bundle.wxs
+installer/Dashboard.Installer/*.wxs
+build/publish.ps1
+
+Determine exactly why:
+
+WixToolset.Wix/4.0.5
+
+cannot be resolved while the build script installs wix CLI 7.0.0.
+
+Do NOT mix incompatible WiX generations.
+
+Choose ONE coherent and supported WiX toolchain for the entire project.
+
+The MSI project, Bundle project, extensions, CLI, SDK packages and build script must all use compatible versions.
+
+Do not hard-code an obsolete WiX version if it is unnecessary.
+
+If WiX 7 is the correct current toolchain for this project, migrate the projects correctly.
+
+If WiX 4 is required by the current source syntax or MBA architecture, pin and install the correct WiX 4 toolchain instead.
+
+Make this decision based on the actual project files and package compatibility.
+
+Do not guess.
+
+==================================================
+2. FIX NUGET RESTORE
+==================================================
+
+Audit NuGet configuration.
+
+Check:
+
+dotnet nuget list source
+
+Make sure nuget.org is enabled and usable.
+
+Do not rely on:
+
+Microsoft Visual Studio Offline Packages
+
+for WiX.
+
+Make sure all WiX SDK/package dependencies restore from nuget.org.
+
+If a NuGet.config in the repository is overriding sources, inspect and fix it only if necessary.
+
+Do not remove legitimate corporate/private sources.
+
+The build should fail with a clear diagnostic if nuget.org cannot be reached.
+
+==================================================
+3. REMOVE TOOLCHAIN VERSION DRIFT
+==================================================
+
+Currently publish.ps1 automatically installs the latest:
+
+dotnet tool install --global wix
+
+This installed WiX 7.0.0 while the project requests WixToolset.Wix/4.0.5.
+
+This is unsafe.
+
+Fix this architecture.
+
+There must be a SINGLE SOURCE OF TRUTH for the WiX version.
+
+For example, use a version variable/property that both the projects and build process follow, or use a local tool manifest if that is more reliable.
+
+Do not allow:
+
+Project = WiX 4
+CLI = WiX 7
+
+or any other silent version mismatch.
+
+Prefer a repository-local/reproducible toolchain over machine-global state where practical.
+
+The same source checkout should build consistently on another Windows development machine.
+
+==================================================
+4. AUDIT ALL WIX EXTENSIONS
+==================================================
+
+Check every required extension:
+
+WixToolset.UI.wixext
+WixToolset.Iis.wixext
+WixToolset.Util.wixext
+WixToolset.Bal.wixext
+and any other extension actually referenced.
+
+Make sure:
+
+- package versions are compatible
+- extension versions match the chosen WiX generation
+- MSI project references are correct
+- Bundle project references are correct
+- Burn/BAL references are correct
+- MBA references are compatible
+
+Do not install extensions globally unless actually necessary.
+
+Prefer project-declared dependencies so a clean machine can restore them automatically.
+
+==================================================
+5. BUILD MSI FOR REAL
+==================================================
+
+After fixing the toolchain, actually run on Windows:
+
+dotnet restore
+
+then build:
+
+installer/Dashboard.Installer/Dashboard.Installer.wixproj
+
+Do not stop after XML validation.
+
+Fix EVERY compile/link error until the MSI is actually produced.
+
+Verify the generated MSI exists.
+
+Print its exact path.
+
+==================================================
+6. BUILD BURN BUNDLE FOR REAL
+==================================================
+
+Then build:
+
+installer/Dashboard.Bundle/Dashboard.Bundle.wixproj
+
+Fix all actual Burn/WiX errors.
+
+Verify that:
+
+LFDashboard-Setup.exe
+
+is physically generated.
+
+Do not consider Task #23 complete merely because the XML parses.
+
+The EXE must exist.
+
+==================================================
+7. VERIFY MANAGED BOOTSTRAPPER
+==================================================
+
+Dashboard.BA currently builds successfully but produces 32 CS8618 warnings.
+
+Do not let these block the installer work.
+
+However, after MSI/Bundle succeeds, clean these warnings properly if possible.
+
+Do NOT disable nullable globally just to hide them.
+
+The fields are initialized by BuildForm(), so use an appropriate safe C# solution such as initialization/null-forgiving declarations where justified.
+
+Target final result:
+
+0 errors
+0 warnings
+
+if practical.
+
+==================================================
+8. PORTABILITY / NO HARD-CODED MACHINE VALUES
+==================================================
+
+This installer is intended to work on different Windows machines.
+
+Audit the complete installer for hard-coded values such as:
+
+C:\Users\Amjad...
+DESKTOP-...
+localhost assumptions
+specific repository names
+NewEmployeeTest
+TestEmployee
+machine-specific Laserfiche paths
+development output directories
+
+Development paths may exist inside build logic relative to the repository root, but must NEVER be embedded into the final installer.
+
+Runtime paths must use appropriate Windows locations/properties such as:
+
+ProgramFilesFolder / ProgramFiles64Folder
+ProgramData
+INSTALLFOLDER
+registry detection
+IIS detection
+environment variables
+wizard-selected paths
+
+Dashboard URL must be generated from the target machine / wizard configuration rather than my development PC.
+
+Laserfiche Web Client path must be detected or selected by the administrator.
+
+Repository must be entered/detected through the wizard.
+
+==================================================
+9. CUSTOMER MACHINE MUST NOT NEED BUILD TOOLS
+==================================================
+
+Very important:
+
+The DEVELOPMENT machine may require:
+
+.NET SDK
+WiX SDK/tooling
+Laserfiche SDK
+
+to CREATE LFDashboard-Setup.exe.
+
+But the CUSTOMER machine must NOT require:
+
+Visual Studio
+.NET SDK
+WiX
+PowerShell scripts
+source code
+NuGet
+dotnet build
+
+The generated EXE must contain/install everything belonging to our application.
+
+Only true runtime prerequisites may be required/detected.
+
+==================================================
+10. PREREQUISITE DETECTION
+==================================================
+
+Verify the wizard detects at least:
+
+IIS
+ASP.NET Core 8 Hosting Bundle
+WebView2 Runtime
+Laserfiche Desktop Client
+Laserfiche Web Client
+
+If a required prerequisite is missing, display a clear graphical message.
+
+Do not crash.
+
+Do not show cryptic MSI/WiX errors to normal administrators.
+
+==================================================
+11. WEB CLIENT INTEGRATION
+==================================================
+
+Preserve the working Web Client integration.
+
+The installer must:
+
+detect/select Laserfiche Web Client path
+
+copy:
+
+lf-dashboard-button.js
+
+to:
+
+assets\custom\lf-dashboard-button.js
+
+patch Browse.aspx idempotently
+
+set the Dashboard URL dynamically
+
+avoid duplicate script tags
+
+preserve/backup Browse.aspx before modification
+
+repair the integration if Laserfiche upgrade removes it
+
+remove our script tag during uninstall
+
+do not destroy unrelated customer customizations
+
+==================================================
+12. DESKTOP CLIENT INTEGRATION
+==================================================
+
+Preserve the working Desktop Client Extension.
+
+The installer must deploy and register it automatically.
+
+No customer command line should be required.
+
+Repair should restore registration.
+
+Uninstall should unregister it.
+
+==================================================
+13. CONFIGURATION
+==================================================
+
+The graphical wizard should collect/detect everything needed and write:
+
+%ProgramData%\Dashboard\laserfiche.config.json
+%ProgramData%\Dashboard\extension.config.json
+
+Do not embed credentials.
+
+Do not overwrite customer configuration unnecessarily during upgrades.
+
+==================================================
+14. PUBLISH.PS1
+==================================================
+
+publish.ps1 is a DEVELOPMENT build orchestrator only.
+
+Customers will never use it.
+
+Make it deterministic.
+
+It must:
+
+1. clean artifacts
+2. restore
+3. publish WebApp
+4. build Desktop Extension
+5. build SetupHelper
+6. build Dashboard.BA
+7. stage support files
+8. build MSI
+9. build Burn Bundle
+10. assemble Release
+11. verify final release
+
+If ANY required Windows release artifact is missing, exit non-zero.
+
+Never print BUILD SUCCESSFUL unless:
+
+Release\LFDashboard-Setup.exe
+
+actually exists.
+
+==================================================
+15. FINAL REAL VALIDATION
+==================================================
+
+Run the complete:
+
+.\build\publish.ps1
+
+on Windows.
+
+Do not stop at partial success.
+
+Continue fixing problems until Steps 1 through 11 pass.
+
+At the end verify:
+
+Test-Path ".\Release\LFDashboard-Setup.exe"
+Test-Path ".\Release\README.txt"
+
+Both MUST return True.
+
+Also report the EXE file size.
+
+==================================================
+16. FINAL REPORT
+==================================================
+
+When finished report:
+
+1. Root cause of the WixToolset.Wix/4.0.5 failure.
+2. Which WiX version was selected and why.
+3. Exact WiX CLI version.
+4. Exact WixToolset.Wix SDK version.
+5. Exact versions of UI/IIS/Util/Bal extensions.
+6. Every file modified.
+7. NuGet sources used.
+8. MSI build result.
+9. Exact generated MSI path.
+10. Bundle build result.
+11. Exact generated LFDashboard-Setup.exe path.
+12. File size of the EXE.
+13. Full publish.ps1 result.
+14. Whether Steps 1-11 all passed.
+15. Any remaining warnings.
+16. Any remaining machine-specific hard-coded values.
+17. Runtime prerequisites for customer machines.
+18. Development-only prerequisites.
+19. Confirm customer installation requires NO PowerShell/CMD.
+20. Confirm final customer release contains only:
+
+Release\
+    LFDashboard-Setup.exe
+    README.txt
+
+IMPORTANT:
+Do not tell me it is fixed based only on static inspection.
+
+On this Windows machine, execute the real builds and keep fixing errors until the MSI and Bundle are physically produced.

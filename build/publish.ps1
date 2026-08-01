@@ -159,6 +159,16 @@ if (-not $IsWindowsOS) {
 }
 
 # =============================================================================
+# TOOLCHAIN VERSION PINS  (single source of truth)
+# =============================================================================
+# WiX v4 uses Sdk="WixToolset.Wix/4.0.5" in .wixproj, resolved by the WiX
+# global tool's MSBuild SDK resolver.  WiX 7 uses a different SDK name
+# (WixToolset.Sdk) and a different extension API -- the two generations are
+# NOT interchangeable.  This pin MUST match the Sdk version in the .wixproj files.
+# Never install WiX without this version argument.
+$WixPinnedVersion = "4.0.5"
+
+# =============================================================================
 # PATHS
 # =============================================================================
 # $PSScriptRoot is the build\ folder; repo root is one level up.
@@ -466,27 +476,101 @@ elseif (-not (Test-Path $InstallerProj)) {
 else {
     Write-Stage $Step $TotalStages "Building MSI installer (WiX v4)"
 
-    # Verify WiX v4 global tool is installed; install if missing.
-    # Invoke-NativeCommand is used so $LASTEXITCODE is always defined.
-    $wixCheck = Invoke-NativeCommand -Stage "wix --version check" `
-        -FilePath "dotnet" -Arguments @("wix", "--version") -IgnoreFailure
-    if ($wixCheck -ne 0) {
-        Write-Host "  WiX v4 global tool not found -- installing..." -ForegroundColor Yellow
-        Invoke-NativeCommand -Stage "dotnet tool install --global wix" `
-            -FilePath "dotnet" -Arguments @("tool", "install", "--global", "wix")
-        Write-OK "WiX v4 installed."
+    # -----------------------------------------------------------------------
+    # Ensure WiX $WixPinnedVersion is the active global tool.
+    #
+    # Root cause of the version-mismatch bug this block replaces:
+    #   'dotnet tool install --global wix' without a version pin installs
+    #   whatever is latest (e.g. 7.0.0).  WiX 7 uses Sdk="WixToolset.Sdk"
+    #   while our .wixproj files declare Sdk="WixToolset.Wix/4.0.5".
+    #   The WiX 7 SDK resolver does not know about WixToolset.Wix, and
+    #   that package is not on NuGet as a standalone download either --
+    #   result: "Could not resolve SDK 'WixToolset.Wix'."
+    #
+    # Fix: check the currently installed version via 'dotnet tool list --global'
+    # (reliable, no PATH-dependent executable call needed) and install/update
+    # to exactly $WixPinnedVersion if the version doesn't already match.
+    # -----------------------------------------------------------------------
+    $toolListOutput = @(& dotnet tool list --global 2>&1)
+    $ec = $LASTEXITCODE   # read immediately after native call
+
+    $wixRow = $toolListOutput | Where-Object { $_ -match '^wix\s' }
+    $needsInstall = $true
+    $needsUpdate  = $false
+
+    if ($wixRow -and ($wixRow -match '\s+(\d+\.\d+[\d.]*)\s+')) {
+        $installedVer = $Matches[1]
+        if ($installedVer -eq $WixPinnedVersion) {
+            $needsInstall = $false
+            Write-OK ("WiX {0} already installed." -f $WixPinnedVersion)
+        } else {
+            $needsInstall = $false
+            $needsUpdate  = $true
+            Write-Host ("  WiX {0} found but {1} required -- updating to pinned version..." `
+                -f $installedVer, $WixPinnedVersion) -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host ("  WiX global tool not found -- installing {0}..." `
+            -f $WixPinnedVersion) -ForegroundColor Yellow
     }
 
-    # Ensure required WiX extensions are present.
-    # -IgnoreFailure: non-zero means already installed; that is fine.
+    if ($needsUpdate) {
+        # 'dotnet tool update --version X' supports both upgrades and downgrades.
+        Invoke-NativeCommand `
+            -Stage ("dotnet tool update --global wix to {0}" -f $WixPinnedVersion) `
+            -FilePath "dotnet" `
+            -Arguments @("tool", "update", "--global", "wix", "--version", $WixPinnedVersion)
+        Write-OK ("WiX updated to {0}." -f $WixPinnedVersion)
+    } elseif ($needsInstall) {
+        Invoke-NativeCommand `
+            -Stage ("dotnet tool install --global wix {0}" -f $WixPinnedVersion) `
+            -FilePath "dotnet" `
+            -Arguments @("tool", "install", "--global", "wix", "--version", $WixPinnedVersion)
+        Write-OK ("WiX {0} installed." -f $WixPinnedVersion)
+    }
+
+    # Verify the active 'wix' command is the correct version.
+    # WiX registers as a standalone 'wix' command (not 'dotnet wix').
+    # On a freshly-updated session PATH may not have refreshed yet; if
+    # 'wix --version' fails, prompt the user to reopen their terminal.
+    $wixVerOut = @(& wix --version 2>&1)
+    $wixVerEc  = $LASTEXITCODE
+    if ($wixVerEc -ne 0) {
+        Write-Host ""
+        Write-Host "  [WARN] 'wix --version' failed (exit $wixVerEc)." -ForegroundColor Yellow
+        Write-Host "         If WiX was just installed, close and reopen the terminal to" `
+            -ForegroundColor Yellow
+        Write-Host "         refresh PATH, then re-run .\build\publish.ps1." `
+            -ForegroundColor Yellow
+        Write-Host "         Continuing anyway -- dotnet build may still succeed." `
+            -ForegroundColor Yellow
+    } else {
+        $activeVer = ($wixVerOut -join '').Trim()
+        if ($activeVer -notlike "*$WixPinnedVersion*") {
+            Write-Host ""
+            Write-Host ("  [WARN] 'wix --version' reported '{0}' but {1} is required." `
+                -f $activeVer, $WixPinnedVersion) -ForegroundColor Yellow
+            Write-Host "         Close and reopen the terminal to refresh PATH, then re-run." `
+                -ForegroundColor Yellow
+        } else {
+            Write-OK ("WiX version verified: {0}" -f $activeVer)
+        }
+    }
+
+    # -----------------------------------------------------------------------
+    # Ensure required WiX v4 extensions are present (global).
+    # -IgnoreFailure: non-zero exit means already installed -- that is fine.
+    # Extension versions must match the WiX tool generation (4.x).
+    # IIS extension 4.0.3 is the last available 4.x build for that extension.
+    # -----------------------------------------------------------------------
     $wixExts = @(
-        "WixToolset.UI.wixext/4.0.5",
+        "WixToolset.UI.wixext/$WixPinnedVersion",
         "WixToolset.Iis.wixext/4.0.3",
-        "WixToolset.Util.wixext/4.0.5",
-        "WixToolset.Bal.wixext/4.0.5"
+        "WixToolset.Util.wixext/$WixPinnedVersion",
+        "WixToolset.Bal.wixext/$WixPinnedVersion"
     )
     foreach ($ext in $wixExts) {
-        Invoke-NativeCommand -Stage "wix extension add $ext" `
+        Invoke-NativeCommand -Stage ("wix extension add {0}" -f $ext) `
             -FilePath "wix" -Arguments @("extension", "add", $ext, "--global") `
             -IgnoreFailure | Out-Null
     }
@@ -529,7 +613,7 @@ else {
     # WixToolset.Bal.wixext must be present (may already be from Step 8).
     Invoke-NativeCommand -Stage "wix extension add Bal" `
         -FilePath "wix" `
-        -Arguments @("extension", "add", "WixToolset.Bal.wixext/4.0.5", "--global") `
+        -Arguments @("extension", "add", "WixToolset.Bal.wixext/$WixPinnedVersion", "--global") `
         -IgnoreFailure | Out-Null
 
     Invoke-NativeCommand -Stage "dotnet build (Bundle)" -FilePath "dotnet" -Arguments @(
