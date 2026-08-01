@@ -1,0 +1,216 @@
+We have reached the real Windows WiX 4.0.5 MSI compilation stage.
+
+The current build fails at Step 8 with:
+
+Product.wxs(284) : error WIX0094:
+The identifier 'WixAction:InstallExecuteSequence/ConfigureIIs' could not be found.
+Ensure you have typed the reference correctly and that all the necessary inputs are provided to the linker.
+
+The current build command is successfully using the repository-local WiX:
+
+WiX 4.0.5+b9b2f1b4
+
+The build has already successfully completed:
+
+- .NET restore
+- Dashboard web application publish
+- Desktop Extension build
+- Dashboard.SetupHelper build
+- Dashboard.BA build
+- support-file staging
+- WiX local tool restore
+- WiX extension loading
+- WebApp harvesting: 118 files
+- Extension harvesting: 11 files
+
+So DO NOT redesign the build system again.
+
+The current failure is specifically in the MSI WiX source/linking stage.
+
+TASK:
+
+Fix this WIX0094 error correctly for WiX 4.0.5, then perform a COMPLETE audit of the remaining MSI and Bundle sources so we do not continue fixing one compiler error at a time.
+
+IMPORTANT:
+
+Do not blindly replace "ConfigureIIs" with another guessed action name.
+
+First inspect:
+
+installer/Dashboard.Installer/Product.wxs
+installer/Dashboard.Installer/WebApplication.wxs
+installer/Dashboard.Installer/Configuration.wxs
+installer/Dashboard.Installer/DesktopExtension.wxs
+installer/Dashboard.Installer/Shortcuts.wxs
+installer/Dashboard.Bundle/Bundle.wxs
+build/publish.ps1
+
+Determine exactly why SetAppPoolNoManagedCode is scheduled After="ConfigureIIs".
+
+Verify how WiX 4's IIS extension actually schedules IIS configuration.
+
+If ConfigureIIs is not a public/referenceable InstallExecuteSequence action in WiX 4.0.5, replace the scheduling with a valid deterministic sequence.
+
+The goal is:
+
+1. IIS site and application pool are installed.
+2. Dashboard app pool ends up configured as "No Managed Code".
+3. SetAppPoolNoManagedCode runs at a valid time.
+4. It must not run during uninstall.
+5. It must not break repair or upgrade.
+6. Do not rely on an undefined WiX action identifier.
+
+Prefer standard MSI sequencing when possible.
+
+For example, investigate whether the custom action can safely be scheduled relative to a standard MSI action such as InstallFiles, InstallFinalize, or another valid action.
+
+Do NOT choose one without verifying that the IIS configuration has happened by that point.
+
+Also investigate whether the WiX IIS extension itself can configure the app pool as No Managed Code without requiring appcmd.exe at all. If WiX 4 has a supported native way to do this, prefer that over the custom action.
+
+CRITICAL REQUIREMENT:
+
+After fixing WIX0094, DO NOT STOP.
+
+Run the actual WiX 4.0.5 compiler against the MSI sources and continue fixing ALL remaining WiX compile/link errors until:
+
+Dashboard-1.0.0-Setup.msi
+
+is successfully generated.
+
+Then immediately build the Burn Bundle and continue fixing ALL Bundle compiler/linker errors until:
+
+LFDashboard-Setup.exe
+
+is successfully generated.
+
+Do not report success based only on XML parsing or static inspection.
+
+Actual WiX compilation/linking must succeed.
+
+Also audit the two follow-up issues already identified:
+
+A) Dashboard.BA dependency payloads
+
+The Burn Bundle must include ALL runtime dependencies required by Dashboard.BA.dll.
+
+Do not include only:
+
+Dashboard.BA.dll
+
+Inspect:
+
+installer/Dashboard.BA/bin/Release/net48/
+
+Determine every DLL/runtime file required by the managed bootstrapper.
+
+Ensure the Bundle includes the required BA payloads so LFDashboard-Setup.exe does not launch and immediately crash with FileNotFoundException/FileLoadException.
+
+B) Dashboard port portability
+
+The installer wizard allows DashboardPort to be configured.
+
+Verify that the selected port propagates through the entire chain:
+
+Wizard
+→ Burn variable
+→ MSI property
+→ IIS binding
+→ Dashboard URL
+→ Web Client button URL
+→ extension.config.json / laserfiche.config.json where applicable.
+
+There must be NO hard-coded localhost:5000 dependency that causes the installed application to use the wrong port when a different port is selected.
+
+5000 may remain the DEFAULT only.
+
+PORTABILITY REQUIREMENT:
+
+This installer is intended to be deployable on different Windows/Laserfiche machines.
+
+Audit for machine-specific hard coding such as:
+
+C:\Users\Amjad...
+localhost
+specific repository names
+NewEmployeeTest
+TestEmployee
+developer-machine paths
+fixed Laserfiche Web Client installation paths
+fixed Program Files paths that should be detected
+fixed server names
+fixed IP addresses
+
+Runtime configuration must come from:
+
+- installer detection,
+- installer wizard values,
+- MSI properties,
+- environment/system paths,
+- or %ProgramData%\Dashboard configuration.
+
+Developer/build-time repository paths are acceptable inside publish.ps1 when derived dynamically from $PSScriptRoot / $RepoRoot.
+
+They must NOT appear in the final installed application configuration.
+
+FINAL VALIDATION:
+
+Run:
+
+.\build\publish.ps1
+
+The final build is successful ONLY if it reaches Step 11/11 and verifies:
+
+Release\LFDashboard-Setup.exe
+Release\README.txt
+
+Also verify:
+
+Test-Path ".\Release\LFDashboard-Setup.exe"
+must return True.
+
+Then inspect the Release folder.
+
+Customer-facing Release must contain only:
+
+Release\
+    LFDashboard-Setup.exe
+    README.txt
+
+Do not require PowerShell, CMD, manual JSON editing, Visual Studio, .NET SDK, or WiX on the CUSTOMER machine.
+
+Those are build-machine requirements only.
+
+The customer installation flow must remain:
+
+Right-click LFDashboard-Setup.exe
+→ Run as administrator
+→ follow wizard
+→ Install
+→ Done.
+
+After completing the work, report:
+
+1. Exact root cause of WIX0094.
+2. Exact change made to SetAppPoolNoManagedCode scheduling.
+3. Why the new sequence is correct.
+4. Every additional MSI compiler/linker error discovered.
+5. Every Bundle compiler/linker error discovered.
+6. Every file modified.
+7. MSI build result.
+8. Exact generated MSI path.
+9. Bundle build result.
+10. Exact generated EXE path.
+11. Dashboard.BA payload/dependency verification.
+12. DashboardPort propagation verification.
+13. All hard-coded machine-specific values found and removed.
+14. Final Release folder contents.
+15. Confirmation that Test-Path Release\LFDashboard-Setup.exe returns True.
+16. Any remaining warnings or runtime risks.
+
+Do not create another architecture.
+Do not replace WiX.
+Do not require Docker/Kubernetes.
+Do not return to PowerShell-based customer installation.
+
+Fix and finish the existing professional Windows installer.

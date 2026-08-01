@@ -56,7 +56,24 @@
     -->
     <BootstrapperApplication>
       <bal:WixManagedBootstrapperApplicationHost />
+      <!--
+        Dashboard.BA.dll: the managed wizard UI assembly.
+        The BAL host discovers it by the [BootstrapperApplicationFactory]
+        assembly attribute on this DLL.
+
+        WixToolset.Mba.Core.dll: the managed Burn API that Dashboard.BA.dll
+        references.  It is a NuGet CopyLocal dependency that builds into the
+        BA output directory alongside Dashboard.BA.dll.  The BAL native host
+        does NOT embed it automatically — it must be an explicit Payload or
+        the bundle will crash at startup with a FileNotFoundException when
+        the managed BA assembly tries to load its dependency.
+
+        Both files are copied to artifacts\staging\BA\ by publish.ps1 Step 5.
+        $(var.BAAssembly) and $(var.MbaCoreAssembly) are set by Step 9 as
+        full paths into that staging directory via -d defines in publish.ps1.
+      -->
       <Payload SourceFile="$(var.BAAssembly)" />
+      <Payload SourceFile="$(var.MbaCoreAssembly)" />
     </BootstrapperApplication>
 
     <!--

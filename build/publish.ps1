@@ -858,7 +858,8 @@ else {
     # Push-Location $RepoRoot ensures 'dotnet tool run wix' finds the manifest.
 
     $msiPath        = Join-Path $ArtifactsDir "Dashboard-$Version-Setup.msi"
-    $baAssemblyPath = Join-Path $StagingDir    "BA\Dashboard.BA.dll"
+    $baStagingDir   = Join-Path $StagingDir    "BA"
+    $baAssemblyPath = Join-Path $baStagingDir  "Dashboard.BA.dll"
     $bundleSrcDir   = Join-Path $RepoRoot      "installer\Dashboard.Bundle"
     $prereqDir      = Join-Path $RepoRoot      "installer\prerequisites"
     $bundleIntermDir = Join-Path $ArtifactsDir "obj\Bundle"
@@ -879,6 +880,7 @@ else {
         "-ext",    "WixToolset.Bal.wixext/$WixPinnedVersion",
         "-ext",    "WixToolset.Util.wixext/$WixPinnedVersion",
         "-d",      "BAAssembly=$baAssemblyPath",
+        "-d",      "MbaCoreAssembly=$(Join-Path $baStagingDir 'WixToolset.Mba.Core.dll')",
         "-d",      "MsiPath=$msiPath",
         "-d",      "BundleVersion=$Version",
         "-d",      "PrereqDir=$prereqDir",

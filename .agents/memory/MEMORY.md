@@ -24,3 +24,6 @@
 - [WiX v4 Mba.Core API quirks](wix-mba-core-api.md) — Engine is a class not a property; Command is private protected; net48 traps: GetValueOrDefault, out-on-properties, PlaceholderText.
 - [WiX 4.0.5 schema compat](wix4-schema-compat.md) — All confirmed WiX 3→4 renames/removals: Bitness, AllowAbsent, Secure, Custom Condition attr, NeverOverwrite on Component, appcmd CA for empty ManagedRuntimeVersion, Bundle BA as Payload.
 - [New-HarvestWxs bugs fixed](new-harvest-wxs-bugs.md) — $pid collision (rename to $parentDirId); intermediate dir KeyError (use Get-ChildItem -Directory, not file.DirectoryName); WiX ID must sanitize ALL non-alnum chars.
+- [WiX 4 linker action references](wix4-linker-action-refs.md) — ConfigureIIs is NOT a public WixAction symbol; After="ConfigureIIs" → WIX0094; use Before="InstallFinalize" instead.
+- [WiX 4 IIS port runtime config](wix4-iis-port-runtime.md) — iis:WebAddress/@Port is compile-time only; use appcmd CA + Secure="yes" property for runtime port; Shortcut/@Arguments IS formatted.
+- [WiX 4 managed BA Payload deps](wix4-ba-payload-deps.md) — WixToolset.Mba.Core.dll must be an explicit Payload; pass as -d define not backslash concat in WXS.

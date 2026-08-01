@@ -25,11 +25,19 @@
       <Component Id="CompShortcutOpen"
                  Guid="{D1E2F3A4-B5C6-4789-3456-012345678901}">
 
+        <!--
+          [DASHBOARD_PORT] is an MSI property reference expanded at install time.
+          Shortcut/@Arguments is a "formatted" type — MSI expands property
+          references when writing the .lnk file, so the wizard-selected port
+          is baked into the shortcut at installation time.
+          DASHBOARD_PORT has a default of 5000 so standalone-MSI installs also
+          get a working shortcut.
+        -->
         <Shortcut Id="ShortcutOpenDashboard"
                   Name="Open Dashboard"
                   Description="Open the Dashboard in your web browser"
                   Target="[SystemFolder]cmd.exe"
-                  Arguments='/c start "" "http://localhost:$(DashboardPort)/"'
+                  Arguments='/c start "" "http://localhost:[DASHBOARD_PORT]/"'
                   WorkingDirectory="STARTMENUFOLDER"
                   Show="minimized" />
 

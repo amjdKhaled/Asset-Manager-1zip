@@ -146,7 +146,13 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
     <Property Id="LF_WEB_CLIENT_PATH"     Secure="yes" />
     <Property Id="INSTALL_DESKTOP_BUTTON" Value="1" />
     <Property Id="INSTALL_WEB_BUTTON"     Value="0" />
-    <Property Id="DASHBOARD_PORT"         Value="5000" />
+    <!--
+      DASHBOARD_PORT: the TCP port selected by the wizard (default 5000).
+      Secure="yes": required so the value is passed into the elevated deferred
+      execution context where SetIisBindingPort and SetAppPoolNoManagedCode
+      custom actions reference it via [DASHBOARD_PORT] in ExeCommand.
+    -->
+    <Property Id="DASHBOARD_PORT"         Value="5000" Secure="yes" />
 
     <!-- Custom actions: Desktop Extension registration -->
     <!--
@@ -244,15 +250,40 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
                   Return="ignore" />
 
     <!--
-      SetAppPoolNoManagedCode: sets managedRuntimeVersion="" on the Dashboard
-      app pool via appcmd.exe after the IIS extension's ConfigureIIs action has
-      created the pool.  Run elevated (Impersonate="no") so appcmd can write to
-      IIS configuration.  [SystemFolder] resolves to C:\Windows\System32\ at
-      scheduling time in the elevated execute sequence.
+      SetAppPoolNoManagedCode: sets managedRuntimeVersion="" (No Managed Code)
+      on the Dashboard app pool via appcmd.exe.  This is required for ASP.NET
+      Core / ANCM — the CLR must not be loaded into the IIS worker process.
+      WiX 4's IIS extension rejects an empty-string ManagedRuntimeVersion
+      attribute (WIX0006), so appcmd is used as a post-creation fixup.
+
+      SetIisBindingPort: overwrites the IIS site binding with the wizard-
+      selected port ([DASHBOARD_PORT]).  This is necessary because the
+      iis:WebAddress Port attribute is typed as an integer in the WiX schema —
+      it accepts only a compile-time value ("$(DashboardPort)" = 5000).  The
+      runtime MSI property [DASHBOARD_PORT] cannot be used in that attribute.
+      appcmd sets the final binding to match whatever port the wizard chose.
+      The binding format is  http/*:PORT:  (all IPs, specified port, no SNI).
+
+      Both actions run Before="InstallFinalize":
+        - WiX 4's IIS extension does NOT export ConfigureIIs as a public
+          WixAction symbol; After="ConfigureIIs" causes linker error WIX0094.
+        - All WiX IIS extension work (ConfigureIIs) is scheduled at sequence
+          position ~3700, well before InstallFinalize (~6600), so the app pool
+          and web site are fully created before either appcmd call runs.
+        - Return="ignore": if appcmd is missing (non-IIS machine) or fails,
+          installation still succeeds.  On any proper IIS install, appcmd.exe
+          is always present in [SystemFolder]inetsrv\.
     -->
     <CustomAction Id="SetAppPoolNoManagedCode"
                   Directory="WEBAPPFOLDER"
                   ExeCommand='"[SystemFolder]inetsrv\appcmd.exe" set apppool "$(IisAppPoolName)" /managedRuntimeVersion:""'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="SetIisBindingPort"
+                  Directory="WEBAPPFOLDER"
+                  ExeCommand='"[SystemFolder]inetsrv\appcmd.exe" set site "$(IisSiteName)" /bindings:"http/*:[DASHBOARD_PORT]:"'
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />
@@ -280,9 +311,27 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
       by double-quotes.
     -->
     <InstallExecuteSequence>
-      <!-- Set No Managed Code on the app pool after IIS creates it -->
+      <!--
+        SetAppPoolNoManagedCode + SetIisBindingPort both run Before="InstallFinalize".
+
+        WHY NOT After="ConfigureIIs":
+          In WiX 4.0.5, ConfigureIIs is an internal IIS extension action that is
+          NOT exported as a public WixAction symbol.  Referencing it with
+          After="ConfigureIIs" causes linker error WIX0094 ("identifier
+          'WixAction:InstallExecuteSequence/ConfigureIIs' could not be found").
+
+        WHY Before="InstallFinalize" is correct:
+          InstallFinalize is a standard MSI action (sequence 6600) that is always
+          present and always resolvable.  The WiX IIS extension's ConfigureIIs
+          action runs at sequence ~3700 — the IIS app pool and web site are fully
+          created long before InstallFinalize fires, so both appcmd calls see an
+          already-configured IIS environment.
+      -->
       <Custom Action="SetAppPoolNoManagedCode"
-              After="ConfigureIIs"
+              Before="InstallFinalize"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="SetIisBindingPort"
+              Before="InstallFinalize"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
 
       <!-- Install / Upgrade actions -->
