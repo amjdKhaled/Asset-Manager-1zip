@@ -1,0 +1,402 @@
+Approved.
+
+Proceed with the next development phase:
+
+==================================================
+PHASE 2 — DOCUMENT ARCHIVE BROWSER
+==================================================
+
+The current Analytics Dashboard is COMPLETE, STABLE, and APPROVED.
+
+DO NOT modify, redesign, refactor, or "improve" the Dashboard.
+DO NOT modify its calculations.
+DO NOT modify the working recursive repository scan.
+DO NOT modify the working root-entry logic.
+DO NOT modify any currently working Dashboard API integration.
+
+The objective of this phase is to add a new repository browsing section to LFPortal.
+
+==================================================
+1. NEW ARCHIVE SECTION
+==================================================
+
+Add a new top-level navigation item:
+
+Archive
+
+The main navigation should become approximately:
+
+Status | Dashboard | Archive | Settings
+
+Archive must open a new repository browser page.
+
+Keep the existing LFPortal visual style:
+- Dark theme
+- Same cards
+- Same typography
+- Same spacing
+- Same header/navigation
+- Responsive design
+
+Do NOT redesign the entire portal.
+
+==================================================
+2. REPOSITORY BROWSER
+==================================================
+
+Create a repository browser that allows the user to navigate through
+the actual Laserfiche repository structure.
+
+Start from:
+
+Root Entry ID = 1
+
+This is already confirmed for the current repository.
+
+Use the SAME confirmed folder children endpoint that is currently
+working for the Dashboard.
+
+IMPORTANT:
+Do not invent another children endpoint.
+Do not add unsupported query parameters such as $top unless the
+current working implementation explicitly supports them.
+
+Reuse the existing working implementation.
+
+When Archive opens, show the direct children of Entry ID 1.
+
+Example:
+
+Archive
+-------------------------------------------------
+
+Home /
+
+Name                    Type       Template        Modified
+------------------------------------------------------------
+📁 Incoming             Folder     —               ...
+📁 HR                    Folder     —               ...
+📁 Contracts             Folder     —               ...
+📄 Document 001          Document   Employee        ...
+
+Clicking a folder must navigate into that folder.
+
+==================================================
+3. BREADCRUMB NAVIGATION
+==================================================
+
+At the top show a breadcrumb such as:
+
+Repository / HR / Employee Records / 2026
+
+Every previous folder in the breadcrumb must be clickable.
+
+Do not fake the path.
+
+Use FullPath or actual entry information returned from Laserfiche.
+
+==================================================
+4. ENTRY TABLE
+==================================================
+
+Show entries in a professional table.
+
+Preferred columns:
+
+Name
+Type
+Template
+Created
+Modified
+Created By
+
+If another useful property is already returned by Laserfiche,
+it may be included.
+
+Do NOT make additional API calls for unnecessary information.
+
+Folders should have a folder icon.
+
+Documents should have a document icon.
+
+Visually distinguish folders from documents.
+
+==================================================
+5. FOLDER NAVIGATION
+==================================================
+
+When a user clicks a Folder:
+
+Load:
+
+/Entries/{folderId}/Laserfiche.Repository.Folder/children
+
+using the exact working implementation already used elsewhere.
+
+Do NOT perform a complete recursive repository scan when navigating.
+
+Archive browsing must only retrieve the CURRENT folder's children.
+
+This is important for performance.
+
+Dashboard:
+recursive analytics scan
+
+Archive:
+current-folder browsing
+
+Keep these behaviors separate.
+
+==================================================
+6. DOCUMENT DETAILS
+==================================================
+
+When a user clicks a Document, show a document details panel,
+modal, or dedicated detail page.
+
+Initially display ONLY information already available from confirmed
+or existing API calls:
+
+Document Name
+Entry ID
+Full Path
+Template
+Created Date
+Last Modified Date
+Created By
+Entry Type
+
+If the existing GetEntryFieldsAsync implementation works against the
+live server, also display:
+
+Metadata Fields
+
+as:
+
+Field Name        Value
+------------------------
+Employee Name     ...
+Department        ...
+Request Number    ...
+
+However:
+
+DO NOT assume the fields endpoint works.
+
+First inspect the existing implementation and verify the API URL
+matches the Swagger/API information already available in the project.
+
+If it cannot be confirmed, implement document details without fields
+and clearly report what API endpoint is needed.
+
+==================================================
+7. SEARCH / FILTER INSIDE CURRENT FOLDER
+==================================================
+
+Add a small client-side filter box above the entry table:
+
+"Filter current folder..."
+
+It should filter the entries currently loaded in the browser.
+
+Do NOT call Laserfiche Search API for this feature.
+
+This is only a UI filter for the currently displayed folder.
+
+==================================================
+8. SORTING
+==================================================
+
+Allow sorting by:
+
+Name
+Type
+Template
+Created
+Modified
+
+Default behavior:
+
+Folders first
+Documents second
+
+Then sort alphabetically by name.
+
+==================================================
+9. EMPTY FOLDER HANDLING
+==================================================
+
+If a folder contains no entries, display a clean empty state:
+
+"This folder is empty."
+
+Do not display an error.
+
+==================================================
+10. LOADING AND ERROR STATES
+==================================================
+
+Provide proper states for:
+
+Loading folder contents
+Empty folder
+Laserfiche API error
+Authentication failure
+Repository unavailable
+
+Do not expose stack traces to normal users.
+
+Log technical details server-side.
+
+==================================================
+11. PERFORMANCE REQUIREMENT
+==================================================
+
+This is important.
+
+DO NOT scan the entire repository every time Archive loads.
+
+Only request:
+
+currentFolder -> direct children
+
+When a folder is clicked:
+
+clickedFolder -> direct children
+
+This should behave like Windows Explorer / Laserfiche Client.
+
+The existing Dashboard recursive scan must remain completely separate.
+
+==================================================
+12. DO NOT IMPLEMENT YET
+==================================================
+
+Do NOT implement these features in this phase:
+
+Delete document
+Delete folder
+Rename
+Move
+Copy
+Upload
+Document editing
+Metadata editing
+Permissions editing
+
+These operations require additional API verification and will be
+implemented in a later phase.
+
+Also do not guess API endpoints for them.
+
+==================================================
+13. OPTIONAL DOCUMENT VIEW/DOWNLOAD
+==================================================
+
+The project already contains LaserficheDocumentService with:
+
+StreamEdocAsync
+GetDocumentPagesAsync
+GetPageImageAsync
+GetDocumentMetadataAsync
+
+DO NOT automatically expose these features yet.
+
+First inspect their URLs.
+
+If they exactly match confirmed Laserfiche Swagger endpoints,
+report that they are ready for the next phase.
+
+Otherwise tell me exactly which Swagger endpoint you need.
+
+==================================================
+14. EXPECTED FILE STRUCTURE
+==================================================
+
+Prefer adding:
+
+Controllers/ArchiveController.cs
+
+Views/Archive/Index.cshtml
+
+Views/Archive/Detail.cshtml
+or a partial such as:
+Views/Archive/_EntryDetail.cshtml
+
+and modify:
+
+Views/Shared/_Layout.cshtml
+
+to add the Archive navigation link.
+
+Reuse existing Application/Infrastructure services wherever possible.
+
+Do not duplicate Laserfiche API logic inside the controller.
+
+Controllers should call services.
+
+==================================================
+15. IMPORTANT ARCHITECTURE RULE
+==================================================
+
+Maintain the current architecture:
+
+Web
+↓
+Application Interfaces
+↓
+Infrastructure Services
+↓
+Laserfiche Repository API
+
+Do NOT put HttpClient calls directly inside Razor views.
+
+Do NOT duplicate URL-building logic in ArchiveController.
+
+Reuse LaserficheApiAdapter and existing services.
+
+==================================================
+16. FINAL VERIFICATION
+==================================================
+
+After implementation:
+
+1. Build the entire solution.
+2. Require 0 build errors.
+3. Require 0 warnings if reasonably possible.
+4. Start the application.
+5. Verify Archive loads.
+6. Verify root Entry ID 1 loads.
+7. Verify folders are clickable.
+8. Verify navigation into subfolders.
+9. Verify breadcrumb navigation.
+10. Verify documents are displayed.
+11. Verify document details open.
+12. Verify Dashboard still works exactly as before.
+13. Verify Settings still works.
+14. Verify Status still works.
+
+==================================================
+VERY IMPORTANT
+==================================================
+
+If you encounter a point where the required Laserfiche API endpoint
+is unknown, unsupported, or returns an unexpected response:
+
+STOP trying random URL variations.
+
+Do not guess.
+
+Tell me:
+
+1. The feature you are trying to implement.
+2. The exact API operation you need.
+3. The endpoint you currently tried.
+4. The HTTP response/status.
+5. The exact Swagger section or endpoint information you need from me.
+
+I can provide the correct Laserfiche Swagger endpoint.
+
+Implement Phase 2 now using only confirmed functionality.
+
+Do not modify the approved Analytics Dashboard.

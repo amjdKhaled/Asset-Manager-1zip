@@ -1,0 +1,162 @@
+@model LFPortal.Web.Controllers.ArchiveDetailViewModel
+@using LFPortal.Domain.Entities
+@{
+    Layout = null; // Partial — no layout wrapper
+
+    string FmtDate(DateTimeOffset? d) =>
+        d is null ? "—" : d.Value.LocalDateTime.ToString("MMM d, yyyy HH:mm");
+
+    string FmtSize(long? bytes)
+    {
+        if (bytes is null or 0) return "—";
+        if (bytes < 1024)       return $"{bytes} B";
+        if (bytes < 1048576)    return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / 1048576.0:F1} MB";
+    }
+}
+
+<style>
+.det-close { background:none;border:none;color:var(--a-muted);cursor:pointer;font-size:1.1rem;padding:0 2px;line-height:1; }
+.det-close:hover { color:var(--a-text); }
+.det-section { margin-top:14px; padding-top:14px; border-top:1px solid var(--a-border); }
+.det-section-lbl { font-size:.68rem; font-weight:700; color:var(--a-muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px; }
+.det-row   { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:7px; font-size:.8rem; }
+.det-label { color:var(--a-muted); flex-shrink:0; min-width:100px; }
+.det-value { color:var(--a-text); font-weight:500; text-align:right; word-break:break-word; }
+.det-path  { font-size:.72rem; color:var(--a-muted); font-family:monospace; margin-top:4px; word-break:break-all; }
+.det-tmpl-badge { display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:.68rem;font-weight:700;
+                   background:rgba(139,92,246,.12);color:#a78bfa;border:1px solid rgba(139,92,246,.25); }
+.det-field-tbl { width:100%; border-collapse:collapse; font-size:.77rem; margin-top:6px; }
+.det-field-tbl th { text-align:left; padding:5px 8px; color:var(--a-muted); font-weight:600;
+                     background:rgba(255,255,255,.04); border-bottom:1px solid var(--a-border); }
+.det-field-tbl td { padding:5px 8px; color:var(--a-text); border-bottom:1px solid rgba(51,65,85,.4); }
+.det-field-tbl tr:last-child td { border-bottom:none; }
+.det-warn { background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.2); border-radius:6px;
+             padding:8px 10px; font-size:.73rem; color:#fcd34d; margin-top:8px; line-height:1.4; }
+.det-err  { background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.2); border-radius:6px;
+             padding:8px 10px; font-size:.73rem; color:#fca5a5; margin-top:4px; }
+</style>
+
+@if (!string.IsNullOrWhiteSpace(Model.EntryError))
+{
+    <!-- Entry load failure -->
+    <div class="arc-detail-title">
+        <span>Entry @Model.Entry?.Id</span>
+        <button class="det-close" id="arcCloseDetail" title="Close">✕</button>
+    </div>
+    <div class="det-err">@Model.EntryError</div>
+}
+else if (Model.Entry is {} entry)
+{
+    var isDoc      = entry.EntryType == LFEntryType.Document;
+    var typeLabel  = entry.EntryType switch {
+        LFEntryType.Document => "Document",
+        LFEntryType.Folder   => "Folder",
+        LFEntryType.Shortcut => "Shortcut",
+        _ => "Unknown"
+    };
+
+    <!-- Header -->
+    <div class="arc-detail-title">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px" title="@entry.Name">
+            @if (isDoc)
+            {
+                <svg width="14" height="15" viewBox="0 0 24 24" fill="#3b82f6" stroke="#2563eb" stroke-width="1" style="vertical-align:middle;margin-right:5px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8" fill="none" stroke="#1d4ed8" stroke-width="1.5"/></svg>
+            }
+            @entry.Name
+        </span>
+        <button class="det-close" id="arcCloseDetail" title="Close panel">✕</button>
+    </div>
+
+    <!-- Core fields -->
+    <div class="det-section-lbl" style="margin-top:0">Entry Information</div>
+
+    <div class="det-row">
+        <span class="det-label">Entry ID</span>
+        <span class="det-value" style="font-family:monospace;color:var(--a-accent)">@entry.Id</span>
+    </div>
+    <div class="det-row">
+        <span class="det-label">Type</span>
+        <span class="det-value">@typeLabel</span>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(entry.TemplateName))
+    {
+        <div class="det-row">
+            <span class="det-label">Template</span>
+            <span class="det-value"><span class="det-tmpl-badge">@entry.TemplateName</span></span>
+        </div>
+    }
+    <div class="det-row">
+        <span class="det-label">Created</span>
+        <span class="det-value">@FmtDate(entry.CreationTime)</span>
+    </div>
+    <div class="det-row">
+        <span class="det-label">Modified</span>
+        <span class="det-value">@FmtDate(entry.LastModifiedTime ?? entry.CreationTime)</span>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(entry.Creator))
+    {
+        <div class="det-row">
+            <span class="det-label">Created By</span>
+            <span class="det-value">@entry.Creator</span>
+        </div>
+    }
+    @if (isDoc && entry.PageCount is > 0)
+    {
+        <div class="det-row">
+            <span class="det-label">Pages</span>
+            <span class="det-value">@entry.PageCount</span>
+        </div>
+    }
+    @if (isDoc && entry.FileSizeBytes is > 0)
+    {
+        <div class="det-row">
+            <span class="det-label">File Size</span>
+            <span class="det-value">@FmtSize(entry.FileSizeBytes)</span>
+        </div>
+    }
+
+    <!-- Full path -->
+    @if (!string.IsNullOrWhiteSpace(entry.FullPath))
+    {
+        <div class="det-section">
+            <div class="det-section-lbl">Repository Path</div>
+            <div class="det-path">@entry.FullPath</div>
+        </div>
+    }
+
+    <!-- Metadata fields -->
+    @if (!string.IsNullOrWhiteSpace(entry.TemplateName))
+    {
+        <div class="det-section">
+            <div class="det-section-lbl">Metadata Fields</div>
+
+            @if (!string.IsNullOrWhiteSpace(Model.FieldsError))
+            {
+                <div class="det-warn">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    @Model.FieldsError
+                </div>
+            }
+            else if (Model.Fields.Count == 0)
+            {
+                <div style="font-size:.78rem;color:var(--a-muted)">No field values recorded.</div>
+            }
+            else
+            {
+                <table class="det-field-tbl">
+                    <thead><tr><th>Field</th><th>Value</th></tr></thead>
+                    <tbody>
+                        @foreach (var f in Model.Fields)
+                        {
+                            <tr>
+                                <td style="color:var(--a-muted)">@f.FieldName</td>
+                                <td>@(f.Value ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    }
+}

@@ -1,0 +1,436 @@
+@model LFPortal.Web.Controllers.ArchiveViewModel
+@using LFPortal.Domain.Entities
+@{
+    ViewData["Title"] = "Archive";
+
+    string FmtDate(DateTimeOffset? d) =>
+        d is null ? "—" : d.Value.LocalDateTime.ToString("MMM d, yyyy");
+
+    string FmtAgo(DateTimeOffset? d)
+    {
+        if (d is null) return "—";
+        var diff = DateTimeOffset.UtcNow - d.Value;
+        if (diff.TotalMinutes < 1)  return "Just now";
+        if (diff.TotalHours   < 1)  return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalDays    < 1)  return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays    < 30) return $"{(int)diff.TotalDays}d ago";
+        return d.Value.LocalDateTime.ToString("MMM d, yyyy");
+    }
+
+    // Build the trail string that links INTO a child folder from the current location.
+    // Format: existing trail + "|" + currentEntryId + ":" + Uri.EscapeDataString(currentName)
+    // (leading "|" is trimmed when trail is empty)
+    string BuildChildTrail()
+    {
+        var seg = $"{Model.CurrentEntryId}:{Uri.EscapeDataString(Model.CurrentName)}";
+        return string.IsNullOrEmpty(Model.Trail) ? seg : $"{Model.Trail}|{seg}";
+    }
+
+    var childTrail = BuildChildTrail();
+
+    var folders   = Model.Entries.Where(e => e.EntryType == LFEntryType.Folder).ToList();
+    var documents = Model.Entries.Where(e => e.EntryType != LFEntryType.Folder).ToList();
+}
+
+@section Styles {
+<style>
+/* ── Archive page — dark theme matching dashboard ── */
+body   { background: #0f172a !important; }
+main   { max-width: 1440px !important; padding: 18px 22px !important; }
+footer.site-footer { background: #0a1020 !important; }
+
+:root {
+    --a-bg:      #0f172a;
+    --a-surface: #1e293b;
+    --a-surf2:   #263349;
+    --a-border:  #334155;
+    --a-text:    #f1f5f9;
+    --a-muted:   #94a3b8;
+    --a-accent:  #3b82f6;
+    --a-teal:    #14b8a6;
+    --a-green:   #22c55e;
+    --a-orange:  #f97316;
+    --a-red:     #ef4444;
+    --a-yellow:  #f59e0b;
+}
+
+/* Page title row */
+.arc-header { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:16px; }
+.arc-title  { color:var(--a-text); font-size:1.2rem; font-weight:600; }
+.arc-sub    { color:var(--a-muted); font-size:.78rem; margin-top:2px; }
+
+/* Breadcrumb */
+.arc-crumb  { display:flex; align-items:center; flex-wrap:wrap; gap:4px; font-size:.82rem; margin-bottom:16px;
+               background:var(--a-surface); border:1px solid var(--a-border); border-radius:8px; padding:9px 14px; }
+.arc-crumb a   { color:var(--a-accent); text-decoration:none; }
+.arc-crumb a:hover { text-decoration:underline; }
+.arc-crumb-sep { color:var(--a-muted); padding:0 2px; }
+.arc-crumb-cur { color:var(--a-text); font-weight:600; }
+
+/* Toolbar */
+.arc-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+.arc-filter   { flex:1; min-width:200px; max-width:400px; background:var(--a-surf2);
+                border:1px solid var(--a-border); border-radius:8px; padding:7px 12px;
+                color:var(--a-text); font-size:.83rem; outline:none; }
+.arc-filter::placeholder { color:var(--a-muted); }
+.arc-filter:focus { border-color:var(--a-accent); box-shadow:0 0 0 2px rgba(59,130,246,.2); }
+.arc-count  { color:var(--a-muted); font-size:.78rem; white-space:nowrap; }
+
+/* Main card */
+.arc-card   { background:var(--a-surface); border:1px solid var(--a-border); border-radius:12px;
+               box-shadow:0 1px 3px rgba(0,0,0,.4); overflow:hidden; }
+
+/* Table */
+.arc-tbl    { width:100%; border-collapse:collapse; font-size:.8rem; }
+.arc-tbl th { text-align:left; padding:9px 14px; font-weight:600; color:var(--a-muted);
+               background:rgba(255,255,255,.04); border-bottom:1px solid var(--a-border);
+               white-space:nowrap; cursor:pointer; user-select:none; }
+.arc-tbl th:hover { color:var(--a-text); }
+.arc-tbl th .sort-icon { font-size:.65rem; margin-left:4px; opacity:.5; }
+.arc-tbl th.sorted .sort-icon { opacity:1; color:var(--a-accent); }
+.arc-tbl td { padding:9px 14px; color:var(--a-text); border-bottom:1px solid rgba(51,65,85,.45); vertical-align:middle; }
+.arc-tbl tr:last-child td { border-bottom:none; }
+.arc-tbl tr:hover td { background:rgba(255,255,255,.03); }
+
+/* Entry name cell */
+.arc-name   { display:flex; align-items:center; gap:9px; }
+.arc-name a { color:var(--a-text); text-decoration:none; font-weight:500; }
+.arc-name a:hover { color:var(--a-accent); text-decoration:underline; }
+.arc-name-folder a { color:var(--a-yellow); }
+.arc-name-folder a:hover { color:#fbbf24; }
+
+/* Icons */
+.arc-icon { flex-shrink:0; }
+
+/* Type badge */
+.arc-badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:4px;
+              font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+.arc-badge-folder   { background:rgba(245,158,11,.12); color:#fbbf24; border:1px solid rgba(245,158,11,.2); }
+.arc-badge-document { background:rgba(59,130,246,.12);  color:#60a5fa; border:1px solid rgba(59,130,246,.2); }
+.arc-badge-shortcut { background:rgba(148,163,184,.1);  color:#94a3b8; border:1px solid rgba(148,163,184,.2); }
+.arc-badge-other    { background:rgba(148,163,184,.1);  color:#94a3b8; border:1px solid rgba(148,163,184,.2); }
+
+/* Detail panel */
+.arc-layout { display:grid; grid-template-columns:1fr; gap:16px; }
+.arc-layout.with-detail { grid-template-columns:1fr 360px; }
+.arc-detail { background:var(--a-surface); border:1px solid var(--a-border); border-radius:12px;
+               padding:18px; align-self:start; position:sticky; top:20px; }
+.arc-detail-title { color:var(--a-text); font-size:.9rem; font-weight:600; margin-bottom:14px;
+                     padding-bottom:10px; border-bottom:1px solid var(--a-border);
+                     display:flex; align-items:center; justify-content:space-between; }
+.arc-detail-close { background:none; border:none; color:var(--a-muted); cursor:pointer; font-size:1.1rem; padding:0 2px; }
+.arc-detail-close:hover { color:var(--a-text); }
+
+/* Empty state */
+.arc-empty { display:flex; flex-direction:column; align-items:center; justify-content:center;
+              padding:48px 24px; color:var(--a-muted); gap:10px; text-align:center; }
+.arc-empty-icon { opacity:.3; }
+.arc-empty-text { font-size:.85rem; }
+
+/* Alert */
+.arc-alert { background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.25); border-radius:10px;
+              padding:12px 16px; color:#fca5a5; font-size:.83rem; display:flex; align-items:flex-start; gap:10px; }
+
+/* Loading spinner */
+.arc-loading { display:flex; align-items:center; justify-content:center; padding:48px; color:var(--a-muted); gap:10px; font-size:.83rem; }
+@@keyframes spin { to { transform:rotate(360deg); } }
+.arc-spinner { width:20px; height:20px; border:2px solid var(--a-border); border-top-color:var(--a-accent);
+                border-radius:50%; animation:spin .7s linear infinite; }
+
+@@media(max-width:900px){ .arc-layout.with-detail { grid-template-columns:1fr; } }
+@@media(max-width:600px){ .arc-tbl th:nth-child(n+4), .arc-tbl td:nth-child(n+4) { display:none; } }
+</style>
+}
+
+<div style="color:var(--a-text)">
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<div class="arc-header">
+    <div>
+        <h1 class="arc-title">🗂️ Document Archive</h1>
+        <p class="arc-sub">Browse the Laserfiche repository · live data</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:.75rem;color:var(--a-muted)">
+            @Model.Entries.Count entr@(Model.Entries.Count == 1 ? "y" : "ies") ·
+            @folders.Count folder@(folders.Count == 1 ? "" : "s") ·
+            @documents.Count doc@(documents.Count == 1 ? "" : "s")
+        </span>
+    </div>
+</div>
+
+<!-- ── Connection error ───────────────────────────────────────────────────── -->
+@if (!Model.IsConnected || !string.IsNullOrWhiteSpace(Model.ErrorMessage) && Model.Entries.Count == 0)
+{
+    <div class="arc-alert" style="margin-bottom:16px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>@(Model.ErrorMessage ?? "Not connected to Laserfiche. Please check Settings.")</span>
+    </div>
+}
+
+<!-- ── Breadcrumb ─────────────────────────────────────────────────────────── -->
+<div class="arc-crumb">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--a-muted)" stroke-width="2" style="flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    @for (var i = 0; i < Model.Breadcrumb.Count; i++)
+    {
+        var crumb = Model.Breadcrumb[i];
+        <a href="/Archive?entryId=@crumb.EntryId&trail=@Uri.EscapeDataString(crumb.Trail)">@crumb.Name</a>
+        <span class="arc-crumb-sep">›</span>
+    }
+    <span class="arc-crumb-cur">@Model.CurrentName</span>
+</div>
+
+<!-- ── Layout: table + detail panel ─────────────────────────────────────────── -->
+<div class="arc-layout" id="arcLayout">
+
+    <!-- Entry table -->
+    <div>
+        <!-- Toolbar -->
+        <div class="arc-toolbar">
+            <input id="arcFilter" class="arc-filter" type="text"
+                   placeholder="Filter current folder…" autocomplete="off" />
+            <span class="arc-count" id="arcCount">
+                @Model.Entries.Count entr@(Model.Entries.Count == 1 ? "y" : "ies")
+            </span>
+        </div>
+
+        <!-- Error bar when folder loaded but had a problem -->
+        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage) && Model.Entries.Count > 0)
+        {
+            <div class="arc-alert" style="margin-bottom:12px">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span>@Model.ErrorMessage</span>
+            </div>
+        }
+
+        <div class="arc-card">
+            @if (Model.IsConnected && Model.Entries.Count == 0 && string.IsNullOrWhiteSpace(Model.ErrorMessage))
+            {
+                <div class="arc-empty">
+                    <svg class="arc-empty-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                    <span class="arc-empty-text">This folder is empty.</span>
+                </div>
+            }
+            else if (Model.Entries.Count > 0)
+            {
+                <table class="arc-tbl" id="arcTable">
+                    <thead>
+                        <tr>
+                            <th data-col="name"     class="sorted" style="min-width:220px">Name <span class="sort-icon">▲</span></th>
+                            <th data-col="type"     style="width:100px">Type <span class="sort-icon">⇅</span></th>
+                            <th data-col="template" style="width:160px">Template <span class="sort-icon">⇅</span></th>
+                            <th data-col="created"  style="width:130px">Created <span class="sort-icon">⇅</span></th>
+                            <th data-col="modified" style="width:130px">Modified <span class="sort-icon">⇅</span></th>
+                            <th data-col="creator"  style="width:130px">Created By <span class="sort-icon">⇅</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="arcTbody">
+                        @foreach (var entry in Model.Entries)
+                        {
+                            var isFolder   = entry.EntryType == LFEntryType.Folder;
+                            var typeLabel  = entry.EntryType switch {
+                                LFEntryType.Folder   => "Folder",
+                                LFEntryType.Document => "Document",
+                                LFEntryType.Shortcut => "Shortcut",
+                                _ => "Other"
+                            };
+                            var badgeClass = entry.EntryType switch {
+                                LFEntryType.Folder   => "arc-badge-folder",
+                                LFEntryType.Document => "arc-badge-document",
+                                LFEntryType.Shortcut => "arc-badge-shortcut",
+                                _ => "arc-badge-other"
+                            };
+
+                            <tr data-type="@typeLabel.ToLower()"
+                                data-name="@entry.Name.ToLower()"
+                                data-template="@(entry.TemplateName?.ToLower() ?? "")"
+                                data-creator="@(entry.Creator?.ToLower() ?? "")"
+                                data-created="@(entry.CreationTime?.Ticks ?? 0)"
+                                data-modified="@(entry.LastModifiedTime?.Ticks ?? entry.CreationTime?.Ticks ?? 0)">
+
+                                <!-- Name -->
+                                <td>
+                                    <div class="arc-name @(isFolder ? "arc-name-folder" : "")">
+                                        @if (isFolder)
+                                        {
+                                            <!-- Folder icon -->
+                                            <svg class="arc-icon" width="17" height="17" viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" stroke-width="1"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                                            <a href="/Archive?entryId=@entry.Id&trail=@Uri.EscapeDataString(childTrail)"
+                                               title="Open folder: @entry.Name">@entry.Name</a>
+                                        }
+                                        else
+                                        {
+                                            <!-- Document icon -->
+                                            <svg class="arc-icon" width="15" height="17" viewBox="0 0 24 24" fill="#3b82f6" stroke="#2563eb" stroke-width="1"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8" fill="none" stroke="#1d4ed8" stroke-width="1.5"/></svg>
+                                            <a href="#" class="arc-doc-link" data-entry-id="@entry.Id"
+                                               title="View document details: @entry.Name">@entry.Name</a>
+                                        }
+                                    </div>
+                                </td>
+
+                                <!-- Type -->
+                                <td><span class="arc-badge @badgeClass">@typeLabel</span></td>
+
+                                <!-- Template -->
+                                <td style="color:var(--a-muted)">@(entry.TemplateName ?? "—")</td>
+
+                                <!-- Created -->
+                                <td style="color:var(--a-muted);white-space:nowrap">@FmtDate(entry.CreationTime)</td>
+
+                                <!-- Modified -->
+                                <td style="color:var(--a-muted);white-space:nowrap">@FmtAgo(entry.LastModifiedTime ?? entry.CreationTime)</td>
+
+                                <!-- Created By -->
+                                <td style="color:var(--a-muted)">@(entry.Creator ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+
+    <!-- Detail panel (hidden until a document is clicked) -->
+    <div id="arcDetailPanel" style="display:none">
+        <div class="arc-detail" id="arcDetailInner">
+            <div class="arc-loading">
+                <div class="arc-spinner"></div>
+                Loading…
+            </div>
+        </div>
+    </div>
+
+</div><!-- end arc-layout -->
+</div><!-- end outer -->
+
+@section Scripts {
+<script>
+(function () {
+    // ── Filter ──────────────────────────────────────────────────────────────
+    const filterInput = document.getElementById('arcFilter');
+    const tbody       = document.getElementById('arcTbody');
+    const countEl     = document.getElementById('arcCount');
+
+    function applyFilter() {
+        if (!tbody) return;
+        const q = filterInput.value.trim().toLowerCase();
+        let visible = 0;
+        const rows = tbody.querySelectorAll('tr');
+        rows.forEach(row => {
+            const name     = row.dataset.name     || '';
+            const template = row.dataset.template || '';
+            const creator  = row.dataset.creator  || '';
+            const type     = row.dataset.type     || '';
+            const match = !q ||
+                name.includes(q) || template.includes(q) ||
+                creator.includes(q) || type.includes(q);
+            row.style.display = match ? '' : 'none';
+            if (match) visible++;
+        });
+        if (countEl) countEl.textContent =
+            visible + (visible === 1 ? ' entry' : ' entries') +
+            (q ? ' (filtered)' : '');
+    }
+
+    if (filterInput) filterInput.addEventListener('input', applyFilter);
+
+    // ── Column sort ──────────────────────────────────────────────────────────
+    let sortCol = 'name', sortAsc = true;
+
+    const tbl = document.getElementById('arcTable');
+    if (tbl) {
+        tbl.querySelectorAll('th[data-col]').forEach(th => {
+            th.addEventListener('click', () => {
+                const col = th.dataset.col;
+                if (col === sortCol) {
+                    sortAsc = !sortAsc;
+                } else {
+                    sortCol = col;
+                    sortAsc = true;
+                }
+                // Update header indicators
+                tbl.querySelectorAll('th[data-col]').forEach(h => {
+                    h.classList.remove('sorted');
+                    h.querySelector('.sort-icon').textContent = '⇅';
+                });
+                th.classList.add('sorted');
+                th.querySelector('.sort-icon').textContent = sortAsc ? '▲' : '▼';
+
+                sortTable();
+            });
+        });
+    }
+
+    function sortTable() {
+        if (!tbody) return;
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+            let va, vb;
+            if (sortCol === 'name')     { va = a.dataset.name;     vb = b.dataset.name; }
+            if (sortCol === 'type')     { va = a.dataset.type;     vb = b.dataset.type; }
+            if (sortCol === 'template') { va = a.dataset.template; vb = b.dataset.template; }
+            if (sortCol === 'creator')  { va = a.dataset.creator;  vb = b.dataset.creator; }
+            if (sortCol === 'created')  { va = parseInt(a.dataset.created  || '0'); vb = parseInt(b.dataset.created  || '0'); }
+            if (sortCol === 'modified') { va = parseInt(a.dataset.modified || '0'); vb = parseInt(b.dataset.modified || '0'); }
+
+            let cmp;
+            if (typeof va === 'number') {
+                cmp = va - vb;
+            } else {
+                // Folders always first when sorting by name or type
+                if (sortCol === 'name' || sortCol === 'type') {
+                    const aIsFolder = a.dataset.type === 'folder' ? 0 : 1;
+                    const bIsFolder = b.dataset.type === 'folder' ? 0 : 1;
+                    if (aIsFolder !== bIsFolder) return sortAsc ? aIsFolder - bIsFolder : bIsFolder - aIsFolder;
+                }
+                cmp = (va || '').localeCompare(vb || '', undefined, { sensitivity: 'base' });
+            }
+            return sortAsc ? cmp : -cmp;
+        });
+        rows.forEach(r => tbody.appendChild(r));
+    }
+
+    // ── Document detail panel ────────────────────────────────────────────────
+    const layout      = document.getElementById('arcLayout');
+    const detailPanel = document.getElementById('arcDetailPanel');
+    const detailInner = document.getElementById('arcDetailInner');
+
+    document.addEventListener('click', async function (e) {
+        const link = e.target.closest('.arc-doc-link');
+        if (!link) return;
+        e.preventDefault();
+
+        const entryId = link.dataset.entryId;
+        if (!entryId) return;
+
+        // Show panel with spinner
+        detailPanel.style.display = '';
+        layout.classList.add('with-detail');
+        detailInner.innerHTML =
+            '<div class="arc-loading"><div class="arc-spinner"></div>Loading…</div>';
+
+        try {
+            const resp = await fetch(`/Archive/Detail?entryId=${entryId}`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            detailInner.innerHTML = await resp.text();
+        } catch (err) {
+            detailInner.innerHTML =
+                `<div class="arc-alert" style="margin:0">` +
+                `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>` +
+                `Could not load document details: ${err.message}</div>`;
+        }
+    });
+
+    // Close detail panel
+    document.addEventListener('click', function (e) {
+        if (e.target.closest('#arcCloseDetail')) {
+            detailPanel.style.display = 'none';
+            layout.classList.remove('with-detail');
+        }
+    });
+
+})();
+</script>
+}
