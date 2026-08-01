@@ -27,10 +27,10 @@ namespace Dashboard.SetupHelper
     {
         public static int Execute(Dictionary<string, string> opts)
         {
-            string dashUrl     = opts.GetValueOrDefault("url",          "");
-            string lfApiUrl    = opts.GetValueOrDefault("lf-api",       "");
-            string repoId      = opts.GetValueOrDefault("repo-id",      "");
-            string displayName = opts.GetValueOrDefault("display-name", "");
+            string dashUrl     = Opt(opts, "url");
+            string lfApiUrl    = Opt(opts, "lf-api");
+            string repoId      = Opt(opts, "repo-id");
+            string displayName = Opt(opts, "display-name");
 
             if (string.IsNullOrEmpty(displayName))
                 displayName = repoId;
@@ -182,6 +182,14 @@ namespace Dashboard.SetupHelper
                     end++;
                 return json.Substring(valueStart, end - valueStart).Trim();
             }
+        }
+
+        // Dictionary helper: net48-compatible alternative to GetValueOrDefault
+        // (that method was added in .NET Core 2.0 / .NET Standard 2.1 only).
+        private static string Opt(Dictionary<string, string> d, string key, string def = "")
+        {
+            string v;
+            return d.TryGetValue(key, out v) ? v : def;
         }
 
         // JSON string escaping (no external dependencies).

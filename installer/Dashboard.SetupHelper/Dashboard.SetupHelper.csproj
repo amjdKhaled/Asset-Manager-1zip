@@ -6,10 +6,12 @@
     MSI custom actions via ExeCommand.
 
     WHY A SEPARATE EXE INSTEAD OF A DTF DLL?
-    -----------------------------------------
+    (Note: XML comments forbid double-hyphen sequences, so separator lines
+    use equals signs instead of hyphens throughout this file.)
+
     WiX v4 DTF managed custom action DLLs require a native CLR-hosting shim
     (historically produced by MakeSfxCA.exe) that complicates cross-platform
-    build pipelines and adds architecture constraints.  An EXE called from an
+    build pipelines and adds architecture constraints. An EXE called from an
     ExeCommand custom action avoids all of that:
       - No native shim required.
       - Full access to .NET Framework 4.8 BCL.
@@ -17,16 +19,15 @@
       - Same architecture as the Desktop Extension (net48).
 
     HOW IT IS USED:
-    ---------------
     The MSI harvests this EXE alongside the Desktop Extension files into
-    EXTENSIONFOLDER.  MSI custom actions call it with elevated privileges
+    EXTENSIONFOLDER. MSI custom actions call it with elevated privileges
     (Impersonate="no") from that directory.
 
     IMPORTANT: This project must NOT reference any NuGet packages that require
-    a native DLL alongside the managed DLL.  All functionality is provided by
+    a native DLL alongside the managed DLL. All functionality is provided by
     the .NET Framework 4.8 BCL (System.Xml.Linq, System.IO, Microsoft.Win32).
 
-    BUILD: Windows only.  Part of the build/publish.ps1 pipeline.
+    BUILD: Windows only. Part of the build/publish.ps1 pipeline.
   -->
 
   <PropertyGroup>

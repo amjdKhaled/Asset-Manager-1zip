@@ -4,8 +4,6 @@
 // The [assembly: BootstrapperApplicationFactory] attribute is read by the WiX
 // Burn managed host (WixManagedBootstrapperApplicationHost) to discover and
 // instantiate the bootstrapper application when LFDashboard-Setup.exe starts.
-//
-// One factory class per BA assembly is required by the WiX MBA contract.
 
 using WixToolset.Mba.Core;
 
@@ -19,7 +17,10 @@ namespace Dashboard.BA
             IEngine engine,
             IBootstrapperCommand command)
         {
-            return new DashboardBA();
+            // Pass both engine and command: DashboardBA stores command itself
+            // because the BootstrapperApplication base-class Command property
+            // is private protected in WiX v4 and not accessible from here.
+            return new DashboardBA(engine, command);
         }
     }
 }

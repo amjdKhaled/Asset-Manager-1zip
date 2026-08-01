@@ -489,7 +489,7 @@ namespace Dashboard.BA
             {
                 Size     = new Size(380, 22),
                 Location = new Point(120, 0),
-                PlaceholderText = @"C:\Program Files\Laserfiche\Web Access\Web Files"
+                Text     = ""
             };
             var browseBtn = new Button
             {

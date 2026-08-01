@@ -1,0 +1,277 @@
+We are running the REAL Windows build for Task #23.
+
+The new publish.ps1 fix worked correctly.
+
+REAL WINDOWS BUILD RESULTS SO FAR:
+
+Step 1/11 - Cleaning artifacts
+PASSED
+
+Step 2/11 - NuGet restore
+PASSED
+
+Step 3/11 - Dashboard Web App publish
+PASSED
+
+Step 4/11 - Desktop Extension net48 x64 build
+PASSED
+
+Step 5/11 - Dashboard.SetupHelper build
+FAILED
+
+
+Exact Windows error:
+
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\
+installer\Dashboard.SetupHelper\Dashboard.SetupHelper.csproj(9,5):
+
+error MSB4025:
+The project file could not be loaded.
+An XML comment cannot contain '--',
+and '-' cannot be the last character.
+Line 9, position 5.
+
+
+IMPORTANT:
+Do NOT only fix line 9.
+
+We have already encountered invalid XML comments in earlier WiX files.
+
+Before I run the Windows pipeline again, perform a COMPLETE XML/WiX/MSBuild
+syntax audit of the entire Phase 6 installer tree.
+
+
+============================================================
+1. FIX Dashboard.SetupHelper.csproj
+============================================================
+
+Open:
+
+installer/Dashboard.SetupHelper/Dashboard.SetupHelper.csproj
+
+Inspect line 9 and ALL comments.
+
+XML comments cannot contain:
+
+--
+
+For example this is INVALID:
+
+<!-- -------- Setup Helper -------- -->
+
+Replace decorative XML comments with safe comments such as:
+
+<!-- Setup Helper -->
+
+Do not use repeated hyphens inside XML comments anywhere.
+
+
+============================================================
+2. AUDIT EVERY INSTALLER XML FILE
+============================================================
+
+Recursively inspect:
+
+installer/**/*.csproj
+installer/**/*.wixproj
+installer/**/*.wxs
+installer/**/*.wxi
+installer/**/*.xml
+
+Also inspect relevant root MSBuild files such as:
+
+Directory.Build.props
+Directory.Build.targets
+
+if present.
+
+Find EVERY XML comment containing illegal "--" sequences.
+
+Fix all of them now.
+
+Do not wait for Windows MSBuild/WiX to discover them one at a time.
+
+
+============================================================
+3. ACTUALLY PARSE EVERY XML FILE
+============================================================
+
+After fixing them, programmatically parse every relevant XML/MSBuild/WiX file.
+
+Do not rely only on visual inspection.
+
+Report:
+
+XML files checked: X
+XML parse failures: 0
+
+If any parser rejects a file, fix it before stopping.
+
+
+============================================================
+4. AUDIT THE NEXT WINDOWS BUILD STAGES NOW
+============================================================
+
+The real pipeline has already proven Steps 1-4 work.
+
+Proactively inspect everything required for:
+
+Step 5:
+Dashboard.SetupHelper
+
+Step 6:
+Dashboard.BA
+
+Step 7:
+staging configuration/integration files
+
+Step 8:
+MSI / Dashboard.Installer
+
+Step 9:
+Burn Bundle / Dashboard.Bundle
+
+Step 10:
+Release assembly
+
+Step 11:
+final artifact verification
+
+Check for obvious failures BEFORE I rerun Windows.
+
+
+============================================================
+5. SETUPHELPER PROJECT VALIDATION
+============================================================
+
+Verify Dashboard.SetupHelper.csproj is valid for:
+
+TargetFramework: net48
+PlatformTarget: x64
+Windows PowerShell is irrelevant to this project
+dotnet build on Windows with .NET SDK 9 currently installed
+
+Verify all PackageReference versions actually exist and are appropriate.
+
+Verify all Compile/Content items are valid.
+
+Verify no Linux-only paths exist.
+
+Verify no hard-coded developer path exists.
+
+
+============================================================
+6. DASHBOARD.BA PROJECT VALIDATION
+============================================================
+
+Audit:
+
+installer/Dashboard.BA/Dashboard.BA.csproj
+
+Verify:
+
+net48
+WinForms references
+WiX MBA package references
+correct WixToolset.Mba.Core usage
+correct output type expected by Burn
+all referenced source files included
+no invalid XML comments
+
+Do not claim it builds on Windows unless actually tested there.
+
+
+============================================================
+7. WIX VALIDATION
+============================================================
+
+Audit:
+
+installer/Dashboard.Installer/*.wxs
+installer/Dashboard.Installer/*.wxi
+installer/Dashboard.Installer/*.wixproj
+
+and:
+
+installer/Dashboard.Bundle/*.wxs
+installer/Dashboard.Bundle/*.wixproj
+
+Check specifically for:
+
+invalid XML
+invalid XML comments
+WiX v3 syntax accidentally used in WiX v4
+invalid elements
+invalid attributes
+wrong namespaces
+incorrect extension references
+incorrect BA references
+incorrect payload paths
+incorrect MSI paths
+undefined preprocessor variables
+undefined Bundle variables
+invalid MsiProperty mappings
+invalid ExePackage/MsiPackage syntax
+
+
+============================================================
+8. DO NOT MODIFY WORKING PHASES
+============================================================
+
+Do NOT change:
+
+Dashboard Web App
+Desktop Extension behavior
+repository detection
+WebView2 popup
+login
+blank password support
+Web Client button behavior
+single-tab fix
+
+Steps 1-4 are now proven working on the real Windows machine.
+
+Do not touch them unless absolutely required by installer packaging.
+
+
+============================================================
+9. RUN AVAILABLE BUILDS
+============================================================
+
+After fixes, run every build that the current environment supports.
+
+At minimum attempt:
+
+dotnet build installer/Dashboard.SetupHelper/Dashboard.SetupHelper.csproj --configuration Release
+
+dotnet build installer/Dashboard.BA/Dashboard.BA.csproj --configuration Release
+
+If the environment cannot perform a Windows/net48/WiX build, say so explicitly.
+
+Do not report static inspection as a successful Windows build.
+
+
+============================================================
+10. FINAL REPORT
+============================================================
+
+Report:
+
+1. Exact invalid XML comment found in SetupHelper.csproj.
+2. Every other invalid XML comment found.
+3. Every file modified.
+4. Number of XML files parsed.
+5. XML parse failure count.
+6. SetupHelper validation result.
+7. Dashboard.BA validation result.
+8. MSI static validation result.
+9. Bundle static validation result.
+10. Any additional issue discovered proactively.
+11. Exact command I should run again on Windows.
+
+Do not declare Phase 6 fully complete yet.
+
+The real Windows pipeline has currently reached Step 5/11.
+
+Fix everything you can proactively so the next Windows run can proceed as
+far as possible.

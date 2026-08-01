@@ -18,11 +18,21 @@ namespace Dashboard.BA
         {
             var r = new DetectionResult();
 
-            r.IisInstalled         = DetectIis();
-            r.AspNetCore8Installed = DetectAspNetCore8(out r.AspNetCore8Version);
-            r.WebView2Installed    = DetectWebView2(out r.WebView2Version);
-            r.DesktopClientFound   = DetectDesktopClient(out r.DesktopClientPath);
-            r.WebClientFound       = DetectWebClient(out r.WebClientPath);
+            // Properties cannot be passed as out parameters in C#; use locals then assign.
+            string aspNetVersion = "";
+            string webView2Ver   = "";
+            string desktopPath   = "";
+            string webClientPath = "";
+
+            r.IisInstalled          = DetectIis();
+            r.AspNetCore8Installed  = DetectAspNetCore8(out aspNetVersion);
+            r.AspNetCore8Version    = aspNetVersion;
+            r.WebView2Installed     = DetectWebView2(out webView2Ver);
+            r.WebView2Version       = webView2Ver;
+            r.DesktopClientFound    = DetectDesktopClient(out desktopPath);
+            r.DesktopClientPath     = desktopPath;
+            r.WebClientFound        = DetectWebClient(out webClientPath);
+            r.WebClientPath         = webClientPath;
             r.SuggestedDashboardUrl = BuildSuggestedUrl();
 
             return r;

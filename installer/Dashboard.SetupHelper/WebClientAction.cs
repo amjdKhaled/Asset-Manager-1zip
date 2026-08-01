@@ -41,8 +41,8 @@ namespace Dashboard.SetupHelper
         // ----------------------------------------------------------------
         public static int Deploy(Dictionary<string, string> opts)
         {
-            string dashUrl = opts.GetValueOrDefault("url",  "").TrimEnd('/');
-            string wcPath  = opts.GetValueOrDefault("path", "").TrimEnd('\\', '/');
+            string dashUrl = Opt(opts, "url").TrimEnd('/');
+            string wcPath  = Opt(opts, "path").TrimEnd('\\', '/');
 
             if (string.IsNullOrEmpty(wcPath))
             {
@@ -158,7 +158,7 @@ namespace Dashboard.SetupHelper
         // ----------------------------------------------------------------
         public static int Remove(Dictionary<string, string> opts)
         {
-            string wcPath = opts.GetValueOrDefault("path", "").TrimEnd('\\', '/');
+            string wcPath = Opt(opts, "path").TrimEnd('\\', '/');
 
             if (string.IsNullOrEmpty(wcPath))
             {
@@ -203,7 +203,7 @@ namespace Dashboard.SetupHelper
         // ----------------------------------------------------------------
         public static int Rollback(Dictionary<string, string> opts)
         {
-            string wcPath = opts.GetValueOrDefault("path", "").TrimEnd('\\', '/');
+            string wcPath = Opt(opts, "path").TrimEnd('\\', '/');
 
             if (string.IsNullOrEmpty(wcPath))
             {
@@ -238,6 +238,14 @@ namespace Dashboard.SetupHelper
         // ----------------------------------------------------------------
         // Helpers
         // ----------------------------------------------------------------
+
+        // Dictionary helper: net48-compatible alternative to GetValueOrDefault
+        // (that method was added in .NET Core 2.0 / .NET Standard 2.1 only).
+        private static string Opt(Dictionary<string, string> d, string key, string def = "")
+        {
+            string v;
+            return d.TryGetValue(key, out v) ? v : def;
+        }
 
         // Locate lf-webclient-button.js relative to this EXE.
         // This EXE lives in EXTENSIONFOLDER; WebApp is at ..\WebApp\.
