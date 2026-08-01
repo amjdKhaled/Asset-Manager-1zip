@@ -259,16 +259,31 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
         try
         {
             var entries = ParseEntryList(body);
-            _logger.LogInformation(
-                "GetAllFolderChildrenAsync(entryId={EntryId}): parsed {Count} entries. Sample types: {Types}",
-                entryId, entries.Count,
-                string.Join(", ", entries.Take(5).Select(e => e.EntryType.ToString())));
+
+            if (entries.Count == 0)
+            {
+                // HTTP 200 but zero entries — this is never silently swallowed.
+                // Log the full raw body so the response schema can be inspected.
+                _logger.LogWarning(
+                    "GetAllFolderChildrenAsync(entryId={EntryId}): HTTP 200 but parser produced 0 entries. " +
+                    "The response schema may not match the expected OData envelope {{\"value\":[...]}}. " +
+                    "Raw body: {Body}",
+                    entryId, body.Length > 4000 ? body[..4000] + "…" : body);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "GetAllFolderChildrenAsync(entryId={EntryId}): parsed {Count} entries. Sample types: {Types}",
+                    entryId, entries.Count,
+                    string.Join(", ", entries.Take(5).Select(e => e.EntryType.ToString())));
+            }
+
             return entries.AsReadOnly();
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "GetAllFolderChildrenAsync(entryId={EntryId}): JSON parse failed. Body: {Body}",
-                entryId, body.Length > 400 ? body[..400] + "…" : body);
+            _logger.LogWarning(ex, "GetAllFolderChildrenAsync(entryId={EntryId}): JSON parse failed. Raw body: {Body}",
+                entryId, body.Length > 4000 ? body[..4000] + "…" : body);
             return [];
         }
     }

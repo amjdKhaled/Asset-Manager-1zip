@@ -101,6 +101,19 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             // Separate root-level documents from root-level folders
             var rootDocEntries    = rootChildren.Where(e => e.EntryType == LFEntryType.Document).ToList();
             var rootFolderEntries = rootChildren.Where(e => e.EntryType == LFEntryType.Folder).ToList();
+            var rootOtherEntries  = rootChildren.Where(e => e.EntryType == LFEntryType.Unknown).ToList();
+
+            // ── Pipeline diagnostic checkpoint 1 ────────────────────────────
+            _logger.LogInformation(
+                "DASHBOARD PIPELINE — Root children: total={Total} | folders={Folders} | documents={Docs} | unknown={Other}",
+                rootChildren.Count, rootFolderEntries.Count, rootDocEntries.Count, rootOtherEntries.Count);
+
+            if (rootChildren.Count == 0)
+            {
+                _logger.LogWarning(
+                    "DASHBOARD PIPELINE — Root entry returned 0 children. " +
+                    "All dashboard counts will be zero. Check the RAW FOLDER-CHILDREN RESPONSE log above.");
+            }
 
             // ── 4. Recursive folder scan ─────────────────────────────────────
             var scanStart = Stopwatch.GetTimestamp();
@@ -111,8 +124,10 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             var scanDurationMs = (long)Stopwatch.GetElapsedTime(scanStart).TotalMilliseconds;
 
             _logger.LogInformation(
-                "Dashboard scan complete — {TotalFolders} root folders scanned in {ScanMs}ms.",
-                rootFolderEntries.Count, scanDurationMs);
+                "DASHBOARD PIPELINE — Recursive scan complete in {ScanMs}ms | root folders={RootFolders} | sub-folders={SubFolders} | sub-documents={SubDocs}",
+                scanDurationMs, rootFolderEntries.Count,
+                rootFolderResults.Sum(r => r.Folders),
+                rootFolderResults.Sum(r => r.Documents));
 
             // ── 5. Aggregate totals ──────────────────────────────────────────
             var totalDocuments =
@@ -142,6 +157,13 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 
             var docsWithTemplate    = templateStats.Sum(t => t.Count);
             var docsWithoutTemplate = Math.Max(0, totalDocuments - docsWithTemplate);
+
+            // ── Pipeline diagnostic checkpoint 2 ────────────────────────────
+            _logger.LogInformation(
+                "DASHBOARD PIPELINE — Final counts: totalFolders={TotalFolders} | totalDocuments={TotalDocs} | " +
+                "docsWithTemplate={WithTemplate} | docsWithoutTemplate={WithoutTemplate} | templateNames={Templates}",
+                totalFolders, totalDocuments, docsWithTemplate, docsWithoutTemplate,
+                string.Join(", ", templateStats.Take(5).Select(t => $"{t.Name}({t.Count})")));
 
             // Root-folder distribution (for bar chart)
             var rootFolderStats = rootFolderResults

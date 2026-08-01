@@ -1,0 +1,223 @@
+Good. Do not make any more architectural changes yet.
+
+We have now isolated the problem to:
+
+GET /v1/Repositories/{repoId}/Entries/{entryId}/Laserfiche.Repository.Folder/children
+
+According to the Swagger information I provided, this is the correct documented endpoint for retrieving folder children.
+
+Now I want you to diagnose THIS endpoint only.
+
+==================================================
+1. PUT THE RAW RESPONSE IN /Dashboard/Probe
+==================================================
+
+Do not ask me to search IIS logs.
+
+Add a Probe card specifically for:
+
+GET /v1/Repositories/{repoId}/Entries/{rootEntryId}/Laserfiche.Repository.Folder/children
+
+The rootEntryId must come from the successful ByPath response:
+
+{
+  "entry": {
+    "id": 1,
+    "entryType": "Folder",
+    "fullPath": "\\"
+  }
+}
+
+So for my current repository it should test:
+
+GET /v1/Repositories/TestEmployee/Entries/1/Laserfiche.Repository.Folder/children
+
+The Probe card must display:
+
+- Full absolute request URL
+- HTTP status
+- Content-Type
+- COMPLETE RAW RESPONSE BODY
+- No DTO conversion before displaying it
+
+==================================================
+2. DO NOT PARSE BEFORE CAPTURING RAW JSON
+==================================================
+
+The exact order must be:
+
+HttpResponseMessage response = await ...
+string rawJson = await response.Content.ReadAsStringAsync();
+
+LOG RAW JSON
+
+THEN parse it.
+
+I want to see exactly what Laserfiche returns.
+
+==================================================
+3. DO NOT RETURN ZERO SILENTLY
+==================================================
+
+This is important.
+
+If HTTP 200 is returned but ParseEntryList produces zero entries:
+
+DO NOT simply return [].
+
+Report:
+
+"Folder Children returned HTTP 200 but parser produced 0 entries."
+
+and include the RAW response.
+
+This prevents the dashboard from falsely displaying zero documents when the actual problem is JSON parsing.
+
+==================================================
+4. VERIFY THE RESPONSE SCHEMA
+==================================================
+
+Do not assume the response is:
+
+{
+  "value": [...]
+}
+
+Do not assume it is:
+
+[...]
+
+Do not assume:
+
+{
+  "entries": [...]
+}
+
+Inspect the actual RAW response first.
+
+Then make ParseEntryList match the REAL Laserfiche response exactly.
+
+For example, if Laserfiche actually returns:
+
+{
+  "value": [
+    {
+      "id": 250,
+      "name": "...",
+      "entryType": "Document"
+    }
+  ]
+}
+
+then parse exactly that.
+
+If it returns another wrapper, implement that wrapper instead.
+
+==================================================
+5. VERIFY RECURSION AFTER ENTRY 1
+==================================================
+
+Once Entry 1 returns children:
+
+For every returned child where entryType == Folder:
+
+call:
+
+/Entries/{child.id}/Laserfiche.Repository.Folder/children
+
+Continue recursively.
+
+For every Document:
+
+add it to the dashboard document collection.
+
+Prevent cycles with a HashSet<int> visitedFolderIds.
+
+Do NOT use:
+
+/Entries/{id}/children
+
+Do NOT use:
+
+/Entries/{id}/Folder/Children
+
+Do NOT invent fallback endpoints.
+
+Use only:
+
+/Entries/{id}/Laserfiche.Repository.Folder/children
+
+because this is the Swagger endpoint I provided.
+
+==================================================
+6. IMPORTANT: TEMPLATE COUNT ALREADY PROVES PART OF THE DASHBOARD WORKS
+==================================================
+
+TemplateDefinitions is already returning 20.
+
+Therefore do NOT modify:
+
+- Authentication
+- Repository discovery
+- Token endpoint
+- TemplateDefinitions
+- Settings
+- Dashboard UI
+
+Those are not the current problem.
+
+Focus exclusively on folder enumeration.
+
+==================================================
+7. AFTER FIXING THE PARSER, VERIFY WITH REAL NUMBERS
+==================================================
+
+Do not finish the task merely because the project builds.
+
+I want the dashboard pipeline to produce diagnostics such as:
+
+Root ID: 1
+Root children returned: X
+Folders discovered: X
+Documents discovered: X
+Folders recursively scanned: X
+Documents with template: X
+Documents without template: X
+
+If the result is still zero, show exactly at which folder ID the data becomes zero.
+
+==================================================
+8. IF THE DOCUMENTED FOLDER-CHILDREN ENDPOINT DOES NOT WORK
+==================================================
+
+STOP.
+
+Do not guess another endpoint.
+
+Tell me exactly:
+
+MISSING/FAILING LASERFICHE OPERATION:
+List children of folder
+
+Request URL:
+<exact URL>
+
+HTTP Status:
+<status>
+
+Raw Response:
+<body>
+
+Then I will provide the Swagger/cURL for that operation.
+
+Do not create another workaround.
+
+==================================================
+
+The goal of this step is very narrow:
+
+Make this exact call work and inspect its REAL response:
+
+GET /v1/Repositories/TestEmployee/Entries/1/Laserfiche.Repository.Folder/children
+
+Until that works and returns correctly parsed children, do not modify anything else.

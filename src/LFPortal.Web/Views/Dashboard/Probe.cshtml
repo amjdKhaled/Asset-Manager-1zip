@@ -90,20 +90,17 @@ main { max-width: 1200px !important; padding: 24px !important; }
             <span class="p-elapsed">@p.ElapsedMs ms</span>
         </div>
         <div class="p-url">@p.Url</div>
-        <div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
             <span class="p-status @(p.IsSuccess ? "p-ok-badge" : "p-err-badge")">
-                @if (p.IsSuccess)
-                {
-                    <span>✓</span>
-                }
-                else
-                {
-                    <span>✗</span>
-                }
+                @if (p.IsSuccess) { <span>✓</span> } else { <span>✗</span> }
                 @(p.StatusCode > 0 ? $"HTTP {p.StatusCode} {p.Status}" : p.Status)
             </span>
+            @if (!string.IsNullOrWhiteSpace(p.ContentType))
+            {
+                <span style="font-size:.75rem;color:#94a3b8;font-family:monospace">@p.ContentType</span>
+            }
         </div>
-        <div class="p-label" style="margin-top:8px">Response Body</div>
+        <div class="p-label" style="margin-top:8px">Complete Raw Response Body</div>
         <div class="p-body">@p.Body</div>
     </div>
 }

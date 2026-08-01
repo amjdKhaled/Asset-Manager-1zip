@@ -162,16 +162,19 @@ public sealed class DashboardController : Controller
             {
                 using var response = await client.GetAsync(url, cancellationToken);
                 sw.Stop();
-                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                // Read raw body BEFORE any processing.
+                var body        = await response.Content.ReadAsStringAsync(cancellationToken);
+                var contentType = response.Content.Headers.ContentType?.ToString() ?? "";
                 probes.Add(new ProbeResult
                 {
-                    Label      = label,
-                    Url        = url,
-                    StatusCode = (int)response.StatusCode,
-                    Status     = response.ReasonPhrase ?? response.StatusCode.ToString(),
-                    IsSuccess  = response.IsSuccessStatusCode,
-                    Body       = body.Length > 3000 ? body[..3000] + "\n…[truncated]" : body,
-                    ElapsedMs  = sw.ElapsedMilliseconds
+                    Label       = label,
+                    Url         = url,
+                    StatusCode  = (int)response.StatusCode,
+                    Status      = response.ReasonPhrase ?? response.StatusCode.ToString(),
+                    IsSuccess   = response.IsSuccessStatusCode,
+                    ContentType = contentType,
+                    Body        = body.Length > 6000 ? body[..6000] + "\n…[truncated]" : body,
+                    ElapsedMs   = sw.ElapsedMilliseconds
                 });
             }
             catch (Exception ex)
@@ -229,11 +232,12 @@ public sealed class ProbeViewModel
 /// <summary>Single raw HTTP probe result.</summary>
 public sealed class ProbeResult
 {
-    public string Label      { get; init; } = "";
-    public string Url        { get; init; } = "";
-    public int    StatusCode { get; init; }
-    public string Status     { get; init; } = "";
-    public bool   IsSuccess  { get; init; }
-    public string Body       { get; init; } = "";
-    public long   ElapsedMs  { get; init; }
+    public string Label       { get; init; } = "";
+    public string Url         { get; init; } = "";
+    public int    StatusCode  { get; init; }
+    public string Status      { get; init; } = "";
+    public bool   IsSuccess   { get; init; }
+    public string ContentType { get; init; } = "";
+    public string Body        { get; init; } = "";
+    public long   ElapsedMs   { get; init; }
 }
