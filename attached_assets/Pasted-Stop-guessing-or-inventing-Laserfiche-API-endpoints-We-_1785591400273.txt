@@ -1,0 +1,165 @@
+Stop guessing or inventing Laserfiche API endpoints.
+
+We have spent too much time trying different routes.
+
+From now on, use ONLY Laserfiche Repository API endpoints that I have explicitly provided to you or that already exist in the Swagger/API documentation available to you.
+
+I have confirmed that this endpoint exists:
+
+GET /v1/Repositories/{repoId}/Entries/{entryId}
+
+It returns a single entry object.
+
+We have also confirmed that:
+
+GET /Entries/ByPath?fullPath=\
+
+returns HTTP 200 and its actual response contains:
+
+{
+  "entry": {
+    "id": 1,
+    "entryType": "Folder",
+    "fullPath": "\\"
+  }
+}
+
+Therefore root discovery itself works and the repository root Entry ID is 1.
+
+==================================================
+IMPORTANT RULE
+==================================================
+
+If you now need another Laserfiche API endpoint to continue building the dashboard, and you do NOT know the exact documented endpoint:
+
+STOP.
+
+Do NOT guess it.
+Do NOT create a fallback endpoint.
+Do NOT try random variations.
+Do NOT assume REST conventions.
+Do NOT infer an endpoint from another API version.
+
+Instead, tell me exactly what API operation you need.
+
+For example:
+
+"I need the Laserfiche API endpoint that returns the children of a folder."
+
+or:
+
+"I need the endpoint that returns all template definitions."
+
+or:
+
+"I need the endpoint that returns metadata fields for an entry."
+
+or:
+
+"I need the endpoint that searches/list documents in the repository."
+
+Then tell me exactly what information you need from Swagger:
+
+1. Swagger operation name
+2. HTTP method required
+3. Expected purpose of the endpoint
+4. Parameters you need
+5. What response data you need from it
+
+I will then provide you the exact Swagger endpoint/cURL.
+
+==================================================
+CURRENT PROBLEM
+==================================================
+
+Do not change the dashboard UI.
+
+The current objective is only to make the existing dashboard retrieve real Laserfiche data.
+
+We already have authentication working.
+Repository discovery works.
+Repository TestEmployee is found.
+Root discovery works and returns entry.id = 1.
+
+Now determine what exact Laserfiche API operations are still missing for the dashboard.
+
+The dashboard needs real data for:
+
+- Total folders
+- Total documents
+- Total templates
+- Documents with template
+- Documents without template
+- Documents by folder
+- Template distribution
+- Template statistics
+- Document type distribution
+- Recently created documents
+- Recently modified documents
+- Documents by user activity
+- Repository/system information
+
+Review the current implementation.
+
+For EACH dashboard dataset:
+
+A. If you already have a CONFIRMED working API endpoint, state which endpoint you will use.
+
+B. If the endpoint exists in the Swagger information already provided in this conversation/project, use it.
+
+C. If you do NOT have a confirmed endpoint, DO NOT IMPLEMENT A GUESS.
+
+Instead output:
+
+MISSING LASERFICHE API REQUIRED
+
+Purpose:
+<what data you need>
+
+Swagger operation I need:
+<for example "List children of a folder">
+
+Required input:
+<entryId, repoId, etc.>
+
+Required response information:
+<id, name, entryType, templateName, creator, dates, etc.>
+
+Then STOP that part of the implementation until I provide the API.
+
+==================================================
+NO MORE SILENT FALLBACKS
+==================================================
+
+Remove undocumented fallback routes such as:
+
+/Entries/{id}/children
+/Entries/{id}/Folder/Children
+
+unless they are explicitly documented in my Swagger.
+
+If an API returns:
+
+404
+405
+400
+
+do not silently try invented alternatives.
+
+Log the exact URL and response and report which documented API operation is required.
+
+==================================================
+IMPORTANT
+==================================================
+
+Do not tell me "the API probably doesn't support it."
+
+Do not tell me to add another database yet.
+
+First inspect everything I already gave you in this SAME conversation and the original working project.
+
+If something is genuinely missing, ask me for the exact Swagger operation you need.
+
+I have access to the complete Laserfiche Repository API Swagger and can provide the cURL immediately.
+
+The goal now is to identify missing APIs precisely instead of continuing by trial and error.

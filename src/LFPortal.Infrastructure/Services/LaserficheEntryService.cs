@@ -243,6 +243,11 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
             _logger.LogInformation(
                 "GetAllFolderChildrenAsync(entryId={EntryId}): GET {Url} → HTTP {Status}.",
                 entryId, url, (int)response.StatusCode);
+
+            // Log full raw body so response schema can be inspected before any parse attempt.
+            _logger.LogInformation(
+                "===== RAW FOLDER-CHILDREN RESPONSE (entryId={EntryId}) =====\n{Body}\n==========================================================",
+                entryId, body.Length > 4000 ? body[..4000] + "\n…[truncated]" : body);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
