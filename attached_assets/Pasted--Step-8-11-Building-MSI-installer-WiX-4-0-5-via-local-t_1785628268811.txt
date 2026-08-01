@@ -1,0 +1,23 @@
+[Step 8/11] Building MSI installer (WiX 4.0.5 via local tool)
+     [OK] Tool manifest: C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\.config\dotnet-tools.json
+  Restoring local tools ...
+Tool 'wix' (version '4.0.5') was restored. Available commands: wix
+
+Restore was successful.
+     [OK] Local tools restored.
+     [OK] Local WiX: 4.0.5+b9b2f1b4  (global WiX, if any, is ignored)
+     [OK] WiX extensions ready.
+     [OK] Harvested WebApp: 118 files -> C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\staging\Harvest\WebAppComponents.wxs
+     [OK] Harvested Extension: 11 files -> C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\staging\Harvest\ExtensionComponents.wxs
+     [OK] MSI built: C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\Dashboard-1.0.0-Setup.msi  (1,720,682 bytes)
+
+  [Step 9/11] Building Burn Bundle (LFDashboard-Setup.exe)
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\installer\Dashboard.Bundle\Bundle.wxs(58) : error WIX6802: There must be at least one package with bal:PrereqPackage="yes" when using the ManagedBootstrapperApplicationHost.
+This is typically done by using the WixNetFxExtension and referencing one of the NetFxAsPrereq package groups.
+
+  ============================================================
+  [FAILED] wix build (Bundle)
+           Executable : dotnet
+           Arguments  : tool run wix -- build C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\installer\Dashboard.Bundle\Bundle.wxs -ext WixToolset.Bal.wixext/4.0.5 -ext WixToolset.Util.wixext/4.0.5 -d BAAssembly=C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\staging\BA\Dashboard.BA.dll -d MbaCoreAssembly=C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\staging\BA\WixToolset.Mba.Core.dll -d MsiPath=C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\Dashboard-1.0.0-Setup.msi -d BundleVersion=1.0.0 -d PrereqDir=C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\installer\prerequisites -intermediatefolder C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\obj\Bundle -pdbtype none -out C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\LFDashboard-Setup.exe
+           Exit code  : 6802
+  ============================================================
