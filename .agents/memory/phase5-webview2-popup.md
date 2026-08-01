@@ -61,6 +61,17 @@ Three distinct error paths in `OnFormLoad` catch block:
 2. HRESULT `0x80070002`/`0x80070003` or failed `GetAvailableBrowserVersionString()` → runtime missing
 3. Other → generic with HRESULT + link to log
 
+## Portal URL validation
+
+The click handler normalizes `PortalUrl` to a non-null string, rejects blank values,
+then validates an absolute HTTP/HTTPS `Uri` before appending the repository query and
+constructing `DashboardWindow`. This keeps the constructor contract non-nullable and
+prevents malformed or non-web portal destinations from being navigated.
+
+**Why:** Nullable flow warnings appeared when configuration JSON was treated as
+non-null after only an emptiness check; explicit normalization plus `Uri.TryCreate`
+gives both the compiler and the runtime a real validity guarantee.
+
 ## %(DatabaseName) token confirmed correct
 
 Verified in `CustomButtonManager/Readme.txt` (SDK 10.4): explicitly listed as "Current database name".

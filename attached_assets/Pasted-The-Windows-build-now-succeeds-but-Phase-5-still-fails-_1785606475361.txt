@@ -1,0 +1,138 @@
+The Windows build now succeeds, but Phase 5 still fails the required
+zero-warning quality gate.
+
+Current Windows result:
+
+Dashboard.DesktopExtension succeeded with 2 warnings.
+
+Program.cs(143,26):
+warning CS8600:
+Converting null literal or possible null value to non-nullable type.
+
+Program.cs(165,53):
+warning CS8604:
+Possible null reference argument for parameter 'url' in
+DashboardWindow.DashboardWindow(string url).
+
+Build succeeded with 2 warning(s).
+
+==================================================
+TASK
+==================================================
+
+Fix ONLY these nullable-flow warnings correctly.
+
+Do not suppress them.
+
+Do NOT use:
+
+#pragma warning disable
+NoWarn
+!
+(null-forgiving operator)
+
+unless nullability has been logically and explicitly proven and there
+is absolutely no cleaner flow-analysis solution.
+
+Prefer restructuring the code so the compiler can prove that the
+final Dashboard URL is a valid non-null string.
+
+==================================================
+EXPECTED FLOW
+==================================================
+
+The logic should conceptually be:
+
+string? configuredUrl = config.PortalUrl?.Trim();
+
+if (string.IsNullOrWhiteSpace(configuredUrl))
+{
+    ExtensionLogger.Log("Portal URL is missing.");
+    MessageBox.Show(...);
+    return;
+}
+
+if (!Uri.TryCreate(configuredUrl, UriKind.Absolute, out Uri? portalUri))
+{
+    ExtensionLogger.Log("Portal URL is invalid.");
+    MessageBox.Show(...);
+    return;
+}
+
+Then construct the repository-specific URL from the validated URI.
+
+The final variable passed to:
+
+new DashboardWindow(...)
+
+must have compile-time type:
+
+string
+
+NOT:
+
+string?
+
+==================================================
+IMPORTANT
+==================================================
+
+Inspect the ACTUAL code around:
+
+Program.cs line 143
+Program.cs line 165
+
+Do not blindly paste my conceptual example.
+
+Preserve:
+
+%(DatabaseName)
+repository detection
+repository URL parameter
+WebView2 popup
+architecture diagnostics
+extension logging
+toolbar icon
+x64 PlatformTarget
+
+Do not modify DashboardWindow just to accept string?.
+
+DashboardWindow should continue requiring a valid non-null string.
+
+==================================================
+QUALITY GATE
+==================================================
+
+After fixing it, the Windows build must produce:
+
+Build succeeded.
+0 Warning(s)
+0 Error(s)
+
+Do not claim success based only on the Linux build.
+
+Once the code is fixed, tell me to run on Windows:
+
+dotnet restore src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj
+
+dotnet clean src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+dotnet build src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+==================================================
+DO NOT PROCEED YET
+==================================================
+
+Do NOT run or ask me to run:
+
+--remove
+--setup
+
+until the Windows build reaches:
+
+0 errors
+0 warnings.
+
+Do NOT start Phase 6.
+
+Phase 5 remains pending Windows runtime verification.

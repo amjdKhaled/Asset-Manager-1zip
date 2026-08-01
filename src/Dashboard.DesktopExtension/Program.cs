@@ -117,9 +117,12 @@ namespace LFPortal.DesktopExtension
         {
             var config = ExtensionConfig.Load();
 
-            // Validate PortalUrl before doing anything else.
-            string? rawUrl = config.PortalUrl?.Trim();
-            if (string.IsNullOrEmpty(rawUrl))
+            // Normalize and validate PortalUrl before doing anything else.
+            // The explicit fallback keeps the value non-null for the rest of
+            // this method and avoids relying on nullable flow through a
+            // configuration property populated by JSON.
+            string configuredUrl = config.PortalUrl?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(configuredUrl))
             {
                 ExtensionLogger.Log("ERROR: PortalUrl is not configured.");
 
@@ -137,10 +140,33 @@ namespace LFPortal.DesktopExtension
                 return;
             }
 
-            // rawUrl is non-null/non-empty after the guard above.
-            // Assign to a non-nullable local so the compiler knows DashboardWindow
-            // will receive a valid string (fixes CS8604).
-            string url = rawUrl;
+            // Validate the URL before constructing DashboardWindow. Only HTTP(S)
+            // URLs are valid portal destinations; file paths and other schemes
+            // must never be navigated by the extension.
+            if (!Uri.TryCreate(configuredUrl, UriKind.Absolute, out Uri? parsedUri)
+                || parsedUri == null
+                || (parsedUri.Scheme != Uri.UriSchemeHttp
+                    && parsedUri.Scheme != Uri.UriSchemeHttps))
+            {
+                ExtensionLogger.Log($"ERROR: PortalUrl is invalid: {configuredUrl}");
+
+                if (!silent)
+                {
+                    MessageBox.Show(
+                        "The Dashboard portal URL is invalid.\n\n" +
+                        $"Configured URL:\n{configuredUrl}\n\n" +
+                        "Set portalUrl to an absolute HTTP or HTTPS URL and try again.",
+                        "Dashboard Extension — Invalid URL",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+                return;
+            }
+
+            // The null check above proves parsedUri is non-null. Keep a
+            // non-nullable value for the remainder of the URL construction.
+            Uri portalUri = parsedUri;
+            var portalBuilder = new UriBuilder(portalUri);
 
             // Append ?repository=<DatabaseName> so the portal's session middleware
             // activates the same repository that is currently open in the Desktop Client.
@@ -150,10 +176,16 @@ namespace LFPortal.DesktopExtension
             //   3. Configured default — from Settings > Default Repository (Fallback)
             if (!string.IsNullOrWhiteSpace(databaseName))
             {
-                string separator = url.Contains('?') ? "&" : "?";
-                url = $"{url}{separator}repository={Uri.EscapeDataString(databaseName)}";
+                string existingQuery = portalBuilder.Query.TrimStart('?');
+                string repositoryQuery =
+                    $"repository={Uri.EscapeDataString(databaseName)}";
+
+                portalBuilder.Query = string.IsNullOrEmpty(existingQuery)
+                    ? repositoryQuery
+                    : $"{existingQuery}&{repositoryQuery}";
             }
 
+            string url = portalBuilder.Uri.AbsoluteUri;
             ExtensionLogger.Log($"PortalUrl (from config): {config.PortalUrl}");
             ExtensionLogger.Log($"Final URL: {url}");
 
