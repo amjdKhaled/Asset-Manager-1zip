@@ -78,91 +78,35 @@ public sealed class DashboardController : Controller
 
         var probes = new List<ProbeResult>();
 
-        // ── Step 0: Discover the actual repository root entry ID ──────────────
-        // Use the Swagger-documented ByPath endpoint. Backslash (\) is the LF root path.
-        int discoveredRootId = 0;
-        string rootDiscoveryNote = "";
-        var byPathUrl = adapter.BuildEntryByPathUrl(repoId, @"\");
-        {
-            var sw0 = Stopwatch.StartNew();
-            try
-            {
-                using var r = await client.GetAsync(byPathUrl, cancellationToken);
-                sw0.Stop();
-                var body = await r.Content.ReadAsStringAsync(cancellationToken);
-                probes.Add(new ProbeResult
-                {
-                    Label      = "GET /Entries/ByPath?fullPath=\\ (root discovery)",
-                    Url        = byPathUrl,
-                    StatusCode = (int)r.StatusCode,
-                    Status     = r.ReasonPhrase ?? r.StatusCode.ToString(),
-                    IsSuccess  = r.IsSuccessStatusCode,
-                    Body       = body.Length > 3000 ? body[..3000] + "\n…[truncated]" : body,
-                    ElapsedMs  = sw0.ElapsedMilliseconds
-                });
-                if (r.IsSuccessStatusCode)
-                {
-                    using var doc = System.Text.Json.JsonDocument.Parse(body);
-                    if (doc.RootElement.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out int rid) && rid > 0)
-                    {
-                        discoveredRootId = rid;
-                        rootDiscoveryNote = $"Discovered via ByPath (\\): ID={rid}";
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                sw0.Stop();
-                probes.Add(new ProbeResult
-                {
-                    Label      = "GET /Entries/ByPath?fullPath=\\ (root discovery)",
-                    Url        = byPathUrl,
-                    StatusCode = 0,
-                    Status     = "Exception",
-                    IsSuccess  = false,
-                    Body       = ex.ToString(),
-                    ElapsedMs  = sw0.ElapsedMilliseconds
-                });
-            }
-        }
+        // ── Root entry ID — use configured value directly (no ByPath network call needed) ──
+        // RootEntryId defaults to 1 in LaserficheOptions and can be overridden in appsettings.json.
+        int rootId = adapter.GetConfiguredRootEntryId();
+        string rootDiscoveryNote = $"From configuration (RootEntryId={rootId})";
 
-        // If root discovery failed, stop here — do NOT construct /Entries/0/... URLs.
-        if (discoveredRootId <= 0)
-        {
-            rootDiscoveryNote = "Root not resolved — ByPath probe failed. Check credentials and server URL.";
-            return View("Probe", new ProbeViewModel
-            {
-                ServerUrl         = repo.ServerUrl,
-                RepositoryId      = repoId,
-                Username          = username,
-                CredError         = credError,
-                Probes            = probes,
-                RootEntryId       = 0,
-                RootDiscoveryNote = rootDiscoveryNote
-            });
-        }
+        // ── Probe list ────────────────────────────────────────────────────────
+        // The folder-children probe body is NOT truncated — we need the complete raw response.
+        var folderChildrenUrl = adapter.BuildFolderChildrenUrl(repoId, rootId);
 
-        // Root is known — build remaining probes using full absolute URLs from the adapter.
-        var urls = new (string Label, string Url)[]
+        var urls = new (string Label, string Url, bool NoTruncate)[]
         {
             ("GET /Repositories",
-                adapter.BuildRepositoriesUrl()),
-            ($"GET /Entries/{discoveredRootId} (root entry details)",
-                adapter.BuildEntryUrl(repoId, discoveredRootId, EntryResource.Details)),
-            ($"GET /Entries/{discoveredRootId}/Laserfiche.Repository.Folder/children?$top=20",
-                adapter.BuildFolderChildrenUrl(repoId, discoveredRootId).Replace("$top=1000", "$top=20")),
+                adapter.BuildRepositoriesUrl(), false),
+            ($"GET /Entries/{rootId} (root entry details)",
+                adapter.BuildEntryUrl(repoId, rootId, EntryResource.Details), false),
+            ($"GET /Entries/{rootId}/Laserfiche.Repository.Folder/children [COMPLETE RAW]",
+                folderChildrenUrl, true),
             ("GET /TemplateDefinitions",
-                adapter.BuildTemplateDefinitionsUrl(repoId)),
+                adapter.BuildTemplateDefinitionsUrl(repoId), false),
         };
 
-        foreach (var (label, url) in urls)
+        foreach (var (label, url, noTruncate) in urls)
         {
             var sw = Stopwatch.StartNew();
             try
             {
                 using var response = await client.GetAsync(url, cancellationToken);
                 sw.Stop();
-                // Read raw body BEFORE any processing.
+                // Read raw body BEFORE any processing — no DTO conversion.
                 var body        = await response.Content.ReadAsStringAsync(cancellationToken);
                 var contentType = response.Content.Headers.ContentType?.ToString() ?? "";
                 probes.Add(new ProbeResult
@@ -173,7 +117,8 @@ public sealed class DashboardController : Controller
                     Status      = response.ReasonPhrase ?? response.StatusCode.ToString(),
                     IsSuccess   = response.IsSuccessStatusCode,
                     ContentType = contentType,
-                    Body        = body.Length > 6000 ? body[..6000] + "\n…[truncated]" : body,
+                    // noTruncate = true means show the complete raw body (used for folder-children).
+                    Body        = noTruncate ? body : (body.Length > 3000 ? body[..3000] + "\n…[truncated]" : body),
                     ElapsedMs   = sw.ElapsedMilliseconds
                 });
             }
@@ -195,15 +140,13 @@ public sealed class DashboardController : Controller
 
         var vm = new ProbeViewModel
         {
-            ServerUrl    = repo.ServerUrl,
-            RepositoryId = repoId,
-            Username     = username,
-            CredError    = credError,
-            Probes       = probes,
-            RootEntryId  = discoveredRootId,
-            RootDiscoveryNote = string.IsNullOrEmpty(rootDiscoveryNote)
-                ? $"Defaulting to ID={discoveredRootId} (discovery inconclusive)"
-                : rootDiscoveryNote
+            ServerUrl         = repo.ServerUrl,
+            RepositoryId      = repoId,
+            Username          = username,
+            CredError         = credError,
+            Probes            = probes,
+            RootEntryId       = rootId,
+            RootDiscoveryNote = rootDiscoveryNote
         };
 
         return View("Probe", vm);

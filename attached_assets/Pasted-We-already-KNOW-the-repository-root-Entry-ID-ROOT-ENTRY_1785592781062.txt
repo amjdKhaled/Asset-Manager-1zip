@@ -1,0 +1,146 @@
+We already KNOW the repository root Entry ID.
+
+ROOT ENTRY ID = 1
+
+Stop blocking the dashboard and Probe because ByPath root discovery is failing.
+
+The previous RAW Laserfiche response already proved:
+
+{
+  "entry": {
+    "id": 1,
+    "parentId": 0,
+    "entryType": "Folder",
+    "fullPath": "\\"
+  }
+}
+
+Therefore:
+
+ROOT ENTRY ID = 1
+
+==================================================
+CHANGE THIS NOW
+==================================================
+
+For the current TestEmployee repository, use:
+
+rootEntryId = 1
+
+Do NOT use:
+
+rootEntryId = 0
+
+Do NOT display:
+
+"Root not resolved"
+
+Do NOT prevent the folder-children request from running because ByPath discovery failed.
+
+We have already independently confirmed the root ID from the actual Laserfiche response.
+
+==================================================
+PROBE
+==================================================
+
+The Probe must now execute this exact documented API:
+
+GET
+/v1/Repositories/TestEmployee/Entries/1/Laserfiche.Repository.Folder/children
+
+Full URL:
+
+https://localhost/LFRepositoryAPI/v1/Repositories/TestEmployee/Entries/1/Laserfiche.Repository.Folder/children
+
+Use the authenticated admin credentials/token already working in the portal.
+
+Display:
+
+- Request URL
+- HTTP Status
+- Content-Type
+- COMPLETE raw response body
+
+Do not parse it before displaying the raw response.
+
+==================================================
+DASHBOARD
+==================================================
+
+The dashboard scan must also start from:
+
+rootEntryId = 1
+
+Then:
+
+1. Get children of Entry 1 using:
+
+/Entries/1/Laserfiche.Repository.Folder/children
+
+2. For every returned Folder:
+
+/Entries/{folderId}/Laserfiche.Repository.Folder/children
+
+3. Continue recursively.
+
+4. Collect every Document returned.
+
+Use HashSet<int> visitedFolderIds to prevent cycles.
+
+==================================================
+IMPORTANT
+==================================================
+
+Do NOT invent or use:
+
+/Entries/1/children
+
+/Entries/1/Folder/Children
+
+/Entries/0/...
+
+Those endpoints are not part of this implementation.
+
+Use ONLY the Swagger-confirmed endpoint:
+
+/Entries/{entryId}/Laserfiche.Repository.Folder/children
+
+==================================================
+ROOT DISCOVERY
+==================================================
+
+You can fix automatic ByPath root discovery separately later.
+
+It must NOT block us now.
+
+For TestEmployee:
+
+ROOT ENTRY ID = 1
+
+Use it directly.
+
+If you want this configurable instead of hardcoded globally, add:
+
+RootEntryId = 1
+
+to the repository configuration/settings.
+
+But right now I want the Probe and dashboard to use 1 and continue.
+
+==================================================
+NEXT RESULT I NEED
+==================================================
+
+After this change, do not make additional API changes.
+
+Run:
+
+GET /Entries/1/Laserfiche.Repository.Folder/children
+
+and show me its COMPLETE RAW RESPONSE.
+
+If it succeeds, parse that exact response schema and continue the recursive scan.
+
+If it fails, show me the exact HTTP status and raw response and STOP.
+
+Do not guess another endpoint.

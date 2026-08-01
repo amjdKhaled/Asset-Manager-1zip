@@ -164,6 +164,18 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
             return cached;
         }
 
+        // If the administrator has explicitly configured a root entry ID, use it directly.
+        // This is the fast path and avoids a ByPath network call on every dashboard load.
+        var configuredRootId = _adapter.GetConfiguredRootEntryId();
+        if (configuredRootId > 0)
+        {
+            _logger.LogInformation(
+                "Using configured root entry ID={Id} for repository '{RepoId}' (set in appsettings/settings).",
+                configuredRootId, repo.RepositoryId);
+            s_rootIdCache[repo.RepositoryId] = configuredRootId;
+            return configuredRootId;
+        }
+
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
 
         // Resolve the repository root via the Swagger-documented ByPath endpoint.

@@ -117,6 +117,10 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
     public string BuildEntryByPathUrl(string repositoryId, string fullPath) =>
         $"{RepoBase(repositoryId)}/Entries/ByPath?fullPath={Uri.EscapeDataString(fullPath)}";
 
+    /// <inheritdoc />
+    public int GetConfiguredRootEntryId() =>
+        _optionsMonitor.CurrentValue.RootEntryId;
+
     /// <summary>
     /// Combines a server URL with the configured API base path and version.
     /// ServerUrl is normally scheme plus host, but older saved settings and

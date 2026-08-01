@@ -93,4 +93,11 @@ public interface ILaserficheApiAdapter
     /// Pass <c>%5C</c> (backslash) as the path to resolve the repository root.
     /// </summary>
     string BuildEntryByPathUrl(string repositoryId, string fullPath);
+
+    /// <summary>
+    /// Returns the administrator-configured root entry ID from <c>appsettings.json</c>
+    /// (defaults to <c>1</c>). When greater than zero, this value is used directly
+    /// and ByPath auto-discovery is skipped.
+    /// </summary>
+    int GetConfiguredRootEntryId();
 }

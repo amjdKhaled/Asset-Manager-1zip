@@ -85,6 +85,15 @@ public sealed class LaserficheOptions
             : CredentialProviderType.Environment;
 
     /// <summary>
+    /// The entry ID of the repository root folder. Defaults to <c>1</c>.
+    /// Override in <c>appsettings.json</c> or via the Settings page if the root
+    /// entry on your server is not ID 1 (e.g. set to 250 for some installations).
+    /// When set, this value is used directly and automatic ByPath root discovery
+    /// is skipped.
+    /// </summary>
+    public int RootEntryId { get; set; } = 1;
+
+    /// <summary>
     /// Returns <see cref="DisplayName"/> when set; otherwise falls back to <see cref="RepositoryId"/>.
     /// </summary>
     public string EffectiveDisplayName =>
