@@ -96,6 +96,10 @@
             background: rgba(59,130,246,.2);
             border-color: rgba(59,130,246,.4);
         }
+        .repo-badge--webclient {
+            background: rgba(16,163,74,.18);
+            border-color: rgba(16,163,74,.4);
+        }
         .repo-badge__dot {
             width: 6px;
             height: 6px;
@@ -103,7 +107,8 @@
             background: rgba(255,255,255,.5);
             flex-shrink: 0;
         }
-        .repo-badge__dot--desktop { background: #60a5fa; }
+        .repo-badge__dot--desktop   { background: #60a5fa; }
+        .repo-badge__dot--webclient { background: #4ade80; }
         .repo-badge__name {
             overflow: hidden;
             text-overflow: ellipsis;
@@ -119,6 +124,9 @@
             padding: 1px 5px;
             border-radius: 3px;
             flex-shrink: 0;
+        }
+        .repo-badge--webclient .repo-badge__src {
+            background: rgba(16,163,74,.7);
         }
 
         /* ── Main content ── */
@@ -318,6 +326,8 @@
         var _sessionRepoSource = Context.Session.GetString("ActiveRepositorySource");
         var _displayRepoId     = _sessionRepoId ?? _lfOpts.Value.RepositoryId;
         var _isDesktop         = _sessionRepoSource == "Laserfiche Desktop Client";
+        var _isWebClient       = _sessionRepoSource == "Laserfiche Web Client";
+        var _isLaunched        = _isDesktop || _isWebClient;   // any non-direct source
     }
     <header class="site-header">
         <a class="site-header__logo" asp-controller="Dashboard" asp-action="Index">
@@ -327,13 +337,24 @@
         @* ── Active repository badge ── *@
         @if (!string.IsNullOrWhiteSpace(_displayRepoId))
         {
-            <div class="repo-badge @(_isDesktop ? "repo-badge--desktop" : "")"
-                 title="Active repository: @_displayRepoId (@(_isDesktop ? "Laserfiche Desktop Client" : "Default Configuration"))">
-                <span class="repo-badge__dot @(_isDesktop ? "repo-badge__dot--desktop" : "")"></span>
+            var _badgeClass =
+                _isDesktop    ? "repo-badge repo-badge--desktop"    :
+                _isWebClient  ? "repo-badge repo-badge--webclient"  :
+                                "repo-badge";
+            var _dotClass =
+                _isDesktop    ? "repo-badge__dot repo-badge__dot--desktop"    :
+                _isWebClient  ? "repo-badge__dot repo-badge__dot--webclient"  :
+                                "repo-badge__dot";
+            var _srcLabel = _isDesktop ? "DESKTOP" : _isWebClient ? "WEB CLIENT" : null;
+            var _titleSrc = _isDesktop ? "Laserfiche Desktop Client" :
+                            _isWebClient ? "Laserfiche Web Client" :
+                            "Default Configuration";
+            <div class="@_badgeClass" title="Active repository: @_displayRepoId (@_titleSrc)">
+                <span class="@_dotClass"></span>
                 <span class="repo-badge__name">@_displayRepoId</span>
-                @if (_isDesktop)
+                @if (_srcLabel is not null)
                 {
-                    <span class="repo-badge__src">Desktop</span>
+                    <span class="repo-badge__src">@_srcLabel</span>
                 }
             </div>
         }
@@ -342,7 +363,7 @@
             <a asp-controller="Dashboard" asp-action="Index" class="@(_ctrl == "Dashboard" ? "active" : "")">Dashboard</a>
             <a asp-controller="Archive"   asp-action="Index" class="@(_ctrl == "Archive"   ? "active" : "")">Archive</a>
             <a asp-controller="Settings"  asp-action="Index" class="@(_ctrl == "Settings"  ? "active" : "")">Settings</a>
-            @if (_isDesktop)
+            @if (_isLaunched)
             {
                 <a href="/Login/SignOut"
                    title="Sign in as a different Laserfiche account for this repository"

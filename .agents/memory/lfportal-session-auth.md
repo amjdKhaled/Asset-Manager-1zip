@@ -40,5 +40,15 @@ Accepts explicit username/password (bypasses ICredentialProvider), warms token c
 ## Change Account
 `GET /Login/SignOut` — clears `AuthenticatedRepositoryId` + session credentials, keeps `ActiveRepositoryId`. Redirects to `/Login`. Does NOT clear disk credentials.
 
+## Web Client source
+
+`?repository=<repo>&source=webclient` → `RepositorySessionMiddleware` stamps session with `"Laserfiche Web Client"`.
+`?repository=<repo>` (no source, backward-compat Desktop) → stamps `"Laserfiche Desktop Client"`.
+
+`SessionAuthGuardMiddleware.GuardedSources` contains both strings. Direct browser access (no `?repository=`) is unguarded.
+
 ## How to apply
-Any time a new controller is added that should be protected for Desktop Client sessions, the `SessionAuthGuardMiddleware` already covers it automatically (only `/Login`, `/Settings`, `/health`, `/Home` are excluded). No per-controller attribute needed.
+Any time a new controller is added that should be protected for Desktop/Web Client sessions, the `SessionAuthGuardMiddleware` covers it automatically (only `/Login`, `/Settings`, `/health`, `/Home` are excluded). No per-controller attribute needed.
+
+## Web Client JS button
+`wwwroot/js/lf-webclient-button.js` — self-contained IIFE with no dependencies. Deploy to the Laserfiche Web Client server and set `DASHBOARD_BASE_URL`. Uses 5-strategy repo detection (URL params, hash, path, JS globals, DOM). See `docs/WebClientIntegration.md` for installation steps.

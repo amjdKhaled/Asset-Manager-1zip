@@ -123,15 +123,19 @@ else
                 <span class="status-item__value">@Model.ConnectionStatus.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
             </div>
             <div class="status-item">
-                <span class="status-item__label">Repository Source</span>
+                <span class="status-item__label">Launch Source</span>
                 <span class="status-item__value">
                     @if (Model.EffectiveRepositorySource == "Laserfiche Desktop Client")
                     {
-                        <span class="badge badge--blue" style="font-size:.75rem;">&#128187; Desktop Client</span>
+                        <span class="badge badge--blue" style="font-size:.75rem;">&#128187; Laserfiche Desktop Client</span>
+                    }
+                    else if (Model.EffectiveRepositorySource == "Laserfiche Web Client")
+                    {
+                        <span class="badge badge--green" style="font-size:.75rem;">&#127760; Laserfiche Web Client</span>
                     }
                     else
                     {
-                        <span class="badge badge--gray" style="font-size:.75rem;">&#9881; Default Configuration</span>
+                        <span class="badge badge--gray" style="font-size:.75rem;">&#9881; Default / Direct</span>
                     }
                 </span>
             </div>

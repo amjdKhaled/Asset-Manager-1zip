@@ -2,30 +2,39 @@ namespace LFPortal.Web.Middleware;
 
 /// <summary>
 /// Intercepts incoming HTTP requests to capture the active Laserfiche repository
-/// when the portal is opened via the Dashboard Desktop Client toolbar button.
+/// when the portal is opened via the Dashboard toolbar button — either from the
+/// Desktop Client or from the Laserfiche Web Client.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The Desktop Client button command appends <c>?repository=&lt;DatabaseName&gt;</c>
-/// to the portal URL. This middleware reads that parameter, validates it, and stores
-/// it in the ASP.NET Core session so that <c>SessionAwareRepositoryContext</c>
-/// can serve it on every subsequent request in the same browser session.
+/// <b>Desktop Client:</b> The Dashboard Desktop Extension appends
+/// <c>?repository=&lt;DatabaseName&gt;</c> to the portal URL (no <c>source</c> parameter).
+/// This middleware records the source as <c>"Laserfiche Desktop Client"</c>.
 /// </para>
 /// <para>
-/// A companion session key (<c>ActiveRepositorySource</c>) is set to
-/// <c>"Laserfiche Desktop Client"</c> so that the Settings page can show users
-/// where the active repository is coming from.
+/// <b>Web Client:</b> The Web Client button script appends
+/// <c>?repository=&lt;repo&gt;&amp;source=webclient</c>.
+/// This middleware records the source as <c>"Laserfiche Web Client"</c>.
 /// </para>
 /// <para>
-/// If the parameter is absent the session is left unchanged, preserving any
+/// A companion session key (<c>ActiveRepositorySource</c>) carries the validated
+/// source label so the Settings page, header badge, and auth guard can all branch
+/// on launch context without re-parsing the URL.
+/// </para>
+/// <para>
+/// If <c>?repository=</c> is absent the session is left unchanged, preserving any
 /// previously stored value or falling back to the configured default.
 /// </para>
 /// </remarks>
 public sealed class RepositorySessionMiddleware
 {
-    private const string QueryParam             = "repository";
-    private const string SessionKeyRepositoryId = "ActiveRepositoryId";
-    private const string SessionKeySource       = "ActiveRepositorySource";
+    internal const string QueryParamRepository  = "repository";
+    internal const string QueryParamSource      = "source";
+    internal const string SessionKeyRepositoryId = "ActiveRepositoryId";
+    internal const string SessionKeySource       = "ActiveRepositorySource";
+
+    internal const string SourceDesktop   = "Laserfiche Desktop Client";
+    internal const string SourceWebClient = "Laserfiche Web Client";
 
     private readonly RequestDelegate _next;
     private readonly ILogger<RepositorySessionMiddleware> _logger;
@@ -39,26 +48,35 @@ public sealed class RepositorySessionMiddleware
         _logger = logger;
     }
 
-    /// <summary>Processes the request, capturing any <c>?repository=</c> parameter.</summary>
+    /// <summary>
+    /// Processes the request, capturing any <c>?repository=</c> and <c>?source=</c>
+    /// parameters and writing validated values into the ASP.NET Core session.
+    /// </summary>
     public async Task InvokeAsync(HttpContext context)
     {
-        var repoParam = context.Request.Query[QueryParam].FirstOrDefault();
+        var repoParam = context.Request.Query[QueryParamRepository].FirstOrDefault();
 
         if (!string.IsNullOrWhiteSpace(repoParam) && IsValidRepositoryId(repoParam))
         {
             var trimmed = repoParam.Trim();
 
-            // Desktop Client parameter always wins — overwrite any previously
-            // stored repository (e.g. from an earlier click on a different repo).
-            // Priority enforced here:
-            //   1. This parameter (Desktop Client active repository)  ← always wins
-            //   2. Existing session value                             ← overwritten
-            //   3. Configured default (LaserficheOptions.RepositoryId) ← never reached
+            // Determine the launch source from the optional ?source= parameter.
+            // "webclient" → Laserfiche Web Client; anything else (including absent) →
+            // Laserfiche Desktop Client for full backward-compatibility with the existing
+            // Desktop Extension which does not send a source parameter.
+            var sourceParam = context.Request.Query[QueryParamSource].FirstOrDefault() ?? string.Empty;
+            var source      = sourceParam.Equals("webclient", StringComparison.OrdinalIgnoreCase)
+                ? SourceWebClient
+                : SourceDesktop;
+
+            // The incoming ?repository= always overrides a previously stored value so
+            // that repository-switching (e.g. the user opens a new popup for a different
+            // repository) takes effect immediately.
             context.Session.SetString(SessionKeyRepositoryId, trimmed);
-            context.Session.SetString(SessionKeySource, "Laserfiche Desktop Client");
+            context.Session.SetString(SessionKeySource,       source);
 
             _logger.LogInformation(
-                "Active repository set from Laserfiche Desktop Client: {RepositoryId}", trimmed);
+                "Active repository set from {Source}: {RepositoryId}", source, trimmed);
         }
 
         await _next(context);
