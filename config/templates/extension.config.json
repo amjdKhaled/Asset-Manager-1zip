@@ -1,5 +1,5 @@
 {
-  "portalUrl": "http://localhost:5000",
+  "portalUrl": "http://YOUR-DASHBOARD-SERVER:5000",
   "buttonLabel": "Dashboard",
   "iconPath": ""
 }

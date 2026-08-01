@@ -66,8 +66,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # ---------- Platform detection -----------------------------------------------
+# $IsWindows is only available in PowerShell 6+.  Windows PowerShell 5.1 does
+# not have this automatic variable.  Use $env:OS which equals 'Windows_NT' on
+# every Windows version and every PowerShell version (5.1 and 7+).
 
-$IsWindowsOS = $IsWindows -or ($PSVersionTable.PSVersion.Major -le 5)
+$IsWindowsOS = ($env:OS -eq 'Windows_NT')
 
 if (-not $IsWindowsOS) {
     Write-Host "Non-Windows platform detected. MSI and Desktop Extension builds will be skipped." `
@@ -215,6 +218,22 @@ else {
     New-Item -ItemType Directory -Path (Join-Path $StagingDir "Extension") -Force | Out-Null
 }
 
+# ---------- Stage Tools (Configure-Dashboard.ps1) ----------------------------
+
+Invoke-Cmd "Staging configuration tools" {
+    $toolsDir = Join-Path $ArtifactsDir "Tools"
+    New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+
+    $configurePs1 = Join-Path $RepoRoot "installer\Configure-Dashboard.ps1"
+    if (Test-Path $configurePs1) {
+        Copy-Item $configurePs1 -Destination $toolsDir -Force
+        Write-OK "Configure-Dashboard.ps1 staged in Tools\"
+    }
+    else {
+        Write-Host "  [WARN] Configure-Dashboard.ps1 not found: $configurePs1" -ForegroundColor Yellow
+    }
+}
+
 # ---------- Stage configuration templates ------------------------------------
 
 Invoke-Cmd "Staging configuration templates" {
@@ -330,6 +349,12 @@ Invoke-Cmd "Assembling release artifacts" {
     $cfgSrc = Join-Path $StagingDir "ConfigTemplate\*"
     if (Test-Path (Join-Path $StagingDir "ConfigTemplate")) {
         Copy-Item $cfgSrc -Destination $cfgDst -Force
+    }
+
+    # Tools
+    $toolsSrc = Join-Path $ArtifactsDir "Tools"
+    if ((Test-Path $toolsSrc) -and (Get-ChildItem $toolsSrc).Count -eq 0) {
+        # Already staged above
     }
 
     # Docs

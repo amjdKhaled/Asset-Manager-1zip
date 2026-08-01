@@ -39,6 +39,15 @@ Web Client button (`Deploy-WebClientButton.ps1`) is deployed separately from the
 ## Build platform note
 Desktop Extension and MSI build require Windows. The Linux CI job runs `dotnet publish` only (SkipMsi=true). A separate Windows build agent or developer machine produces the final MSI.
 
+## PS 5.1 platform detection
+Use `$env:OS -eq 'Windows_NT'` — NOT `$IsWindows`. `$IsWindows` is only available in PowerShell 6+. On Windows (all PS versions) $env:OS is always 'Windows_NT'. The derived variable must be named something other than `$IsWindows` (e.g. `$IsWindowsOS`) to avoid any confusion.
+
+## Portability pattern: Deploy-WebClientButton.ps1
+The `-DashboardUrl` parameter patches `DASHBOARD_BASE_URL` inside the deployed JS using a regex replace. The registry-based discovery checks HKLM:\SOFTWARE\Laserfiche\WebAccess and related keys before falling back to known paths. Never hardcode the LF Web Client path.
+
+## Portability pattern: Configure-Dashboard.ps1
+Single-file configuration script that updates both `extension.config.json` (portalUrl) and `laserfiche.config.json` (ServerUrl, RepositoryId, DisplayName). Uses `[System.Environment]::GetFolderPath(CommonApplicationData)` — never `C:\ProgramData` literally.
+
 ## XML comments in WiX files
 Never use `--` anywhere inside XML comments (`<!-- ... -->`). The XML spec forbids the double-hyphen sequence inside comment bodies. All `--` in WiX wxs/wixproj comments must use single-dash notation. Also, `-->` inside a comment body closes the comment early.
 

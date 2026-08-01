@@ -1,0 +1,810 @@
+IMPORTANT CHANGE TO PHASE 6 DEPLOYMENT UX
+
+The portability architecture from the previous task is correct, but I do NOT
+want the administrator/end user to interact with PowerShell scripts, command
+prompts, JSON files, or manual configuration during normal installation.
+
+The final product must feel like a professional Windows application installer.
+
+============================================================
+PRIMARY REQUIREMENT
+============================================================
+
+The normal installation experience should be:
+
+1. Administrator receives ONE installer.
+2. Double-clicks it.
+3. Windows installation wizard opens.
+4. Click Next.
+5. Installer automatically detects as much as possible.
+6. Administrator enters only environment-specific values that cannot be
+   discovered automatically.
+7. Click Install.
+8. Installer configures everything.
+9. Installation finishes.
+10. Laserfiche Dashboard works.
+
+NO normal-use PowerShell commands.
+
+NO CMD commands.
+
+NO manually editing JSON.
+
+NO manually copying JavaScript files.
+
+NO manually editing Browse.aspx.
+
+NO manually registering the Desktop extension.
+
+NO manually creating IIS sites.
+
+NO source-code modifications.
+
+NO rebuild on the destination machine.
+
+PowerShell scripts may exist internally for development/build automation if
+absolutely necessary, but they must NOT be part of the normal administrator
+installation workflow.
+
+============================================================
+1. CREATE A PROFESSIONAL BOOTSTRAPPER / SETUP EXE
+============================================================
+
+Instead of expecting the administrator to directly manage MSI configuration,
+create a proper Windows setup experience.
+
+Preferred final deliverable:
+
+LFDashboard-Setup.exe
+
+The EXE should bootstrap/install the required MSI/components.
+
+Use an appropriate Windows installer technology compatible with the existing
+WiX v4 work.
+
+Investigate whether WiX Burn / WiX Bundle is appropriate.
+
+The installer should provide a graphical wizard.
+
+Do not create a custom installer framework unnecessarily if WiX already
+supports the required behavior.
+
+============================================================
+2. SETUP WIZARD
+============================================================
+
+Create a simple configuration wizard.
+
+Suggested pages:
+
+Page 1:
+Welcome
+
+Laserfiche Dashboard Setup
+
+[Next]
+
+Page 2:
+Environment Detection
+
+Automatically detect:
+
+- Windows architecture
+- IIS
+- ASP.NET Core Hosting Bundle
+- WebView2 Runtime
+- Laserfiche Desktop Client
+- Laserfiche Web Client / Web Access
+- Laserfiche Web Client physical path
+- Laserfiche SDK/runtime dependencies where required
+
+Show simple statuses:
+
+IIS                         Detected
+Laserfiche Desktop Client  Detected
+Laserfiche Web Client      Detected
+WebView2 Runtime           Detected
+
+Do NOT expose unnecessary technical details to normal users.
+
+Page 3:
+Dashboard Configuration
+
+Fields such as:
+
+Dashboard Public URL:
+[ http://SERVERNAME:5000 ]
+
+Port:
+[ 5000 ]
+
+Laserfiche API URL:
+[ https://SERVERNAME/LFRepositoryAPI ]
+
+Use HTTPS:
+[ ]
+
+The actual fields must be based on the project's real configuration model.
+
+Do not invent duplicate configuration settings.
+
+Page 4:
+Laserfiche Integration
+
+Checkboxes:
+
+[x] Install Dashboard Web Application
+
+[x] Add Dashboard button to Laserfiche Desktop Client
+
+[x] Add Dashboard button to Laserfiche Web Client
+
+Only show/enable integrations that are available on the machine.
+
+If Web Client is detected, display:
+
+Laserfiche Web Client:
+Detected
+
+Location:
+C:\...\Web Files
+
+Allow Browse/Change only if necessary.
+
+Page 5:
+Ready to Install
+
+Display a short summary.
+
+[Install]
+
+Page 6:
+Installation Complete
+
+Dashboard installed successfully.
+
+Optionally:
+
+[Open Dashboard]
+
+[Finish]
+
+============================================================
+3. AUTOMATIC CONFIGURATION
+============================================================
+
+The installer must internally create/update:
+
+%ProgramData%\Dashboard\laserfiche.config.json
+
+%ProgramData%\Dashboard\extension.config.json
+
+using the values entered in the wizard.
+
+The administrator should NOT have to open these files.
+
+Preserve existing files during upgrades unless the administrator explicitly
+changes configuration through the installer.
+
+============================================================
+4. AUTOMATIC IIS CONFIGURATION
+============================================================
+
+The installer should automatically:
+
+- install/copy the Dashboard application
+- create the IIS Application Pool
+- create/configure the IIS site/application
+- configure physical path
+- configure port/binding
+- configure permissions
+- configure ASP.NET Core hosting
+- start the site
+- verify the application starts
+
+Do not require IIS Manager for normal installation.
+
+============================================================
+5. AUTOMATIC DESKTOP CLIENT INTEGRATION
+============================================================
+
+If Laserfiche Desktop Client is detected and the administrator selects:
+
+"Add Dashboard button to Laserfiche Desktop Client"
+
+the installer should automatically perform the equivalent of the current:
+
+Dashboard.DesktopExtension.exe --setup
+
+internally.
+
+The user must NOT run this command manually.
+
+Configure:
+
+extension.config.json
+
+with the Dashboard URL entered in the setup wizard.
+
+After installation the Laserfiche Desktop Client should show the Dashboard
+button after restart.
+
+============================================================
+6. AUTOMATIC WEB CLIENT INTEGRATION
+============================================================
+
+This is extremely important.
+
+Currently Web Client deployment requires:
+
+Deploy-WebClientButton.ps1
+copying lf-dashboard-button.js
+editing Browse.aspx
+
+I DO NOT want the administrator doing any of this manually.
+
+Move this behavior behind the installer.
+
+If Laserfiche Web Client is detected and the administrator selects:
+
+"Add Dashboard button to Laserfiche Web Client"
+
+the installer must:
+
+1. Detect the correct Web Client installation.
+2. Locate Web Files.
+3. Locate Browse.aspx.
+4. Locate assets/custom.
+5. Back up Browse.aspx safely.
+6. Install lf-dashboard-button.js.
+7. Configure the Dashboard URL automatically.
+8. Add the required script tag to Browse.aspx idempotently.
+9. Ensure the script tag exists exactly once.
+10. Verify the installed JavaScript file exists.
+11. Preserve the currently working repository detection:
+    WebAccessRepositoryName.
+12. Preserve the current single-tab behavior.
+13. Preserve the Angular-safe DOM implementation.
+
+The administrator should never manually modify Browse.aspx.
+
+IMPORTANT:
+
+Before modifying a vendor Laserfiche file, create a backup.
+
+Example:
+
+Browse.aspx.lfdashboard.backup
+
+The integration must be idempotent.
+
+Running Repair or Upgrade must NOT add:
+
+<script ...>
+
+multiple times.
+
+============================================================
+7. SAFE WEB CLIENT UPGRADE HANDLING
+============================================================
+
+Laserfiche upgrades may replace Browse.aspx.
+
+Design for this.
+
+The installer should be able to Repair the Web Client integration.
+
+For example:
+
+Apps & Features
+    ->
+Laserfiche Dashboard
+    ->
+Modify / Repair
+
+or rerunning:
+
+LFDashboard-Setup.exe
+
+should detect:
+
+Dashboard Web Client integration missing
+
+and restore it safely.
+
+Do not require PowerShell.
+
+============================================================
+8. AUTOMATIC PREREQUISITE HANDLING
+============================================================
+
+Do not simply crash when a prerequisite is missing.
+
+Detect:
+
+ASP.NET Core 8 Hosting Bundle
+WebView2 Runtime
+IIS requirements
+
+Where legally and technically appropriate, the bootstrapper may install
+required redistributables automatically.
+
+Otherwise provide a clear wizard message.
+
+Example:
+
+Microsoft Edge WebView2 Runtime is required.
+
+[Install]
+
+rather than requiring the administrator to search for it manually.
+
+============================================================
+9. NO DEVELOPMENT TOOLS ON TARGET MACHINE
+============================================================
+
+The destination machine must NOT require:
+
+Visual Studio
+VS Code
+Replit
+Git
+Node.js
+npm
+.NET SDK
+WiX SDK
+Laserfiche SDK development package
+source code
+
+Runtime components are acceptable.
+
+The release must contain everything needed to run the application except
+supported external prerequisites.
+
+============================================================
+10. CONFIGURATION WITHOUT HARD-CODING
+============================================================
+
+Keep the portability work from the previous task.
+
+Do NOT solve easy installation by reintroducing hard-coded values.
+
+The installer must dynamically generate machine-specific configuration.
+
+For example:
+
+Development machine:
+
+Dashboard:
+http://localhost:5000
+
+Production machine:
+
+Dashboard:
+https://dashboard.company.local
+
+Another customer:
+
+Dashboard:
+http://192.168.10.25:8080
+
+THE SAME INSTALLER must support all three.
+
+No rebuild.
+
+============================================================
+11. SERVER NAME AUTO-SUGGESTION
+============================================================
+
+Where appropriate, automatically suggest the current machine name.
+
+For example if:
+
+$env:COMPUTERNAME = LF-SERVER-02
+
+the wizard could suggest:
+
+http://LF-SERVER-02:5000
+
+But the administrator must be able to change it.
+
+This is a suggestion only.
+
+Do not permanently hard-code the machine name.
+
+============================================================
+12. VALIDATION INSIDE THE WIZARD
+============================================================
+
+Validate values before installation.
+
+Dashboard URL:
+must be valid HTTP/HTTPS URL.
+
+Port:
+must be valid TCP port.
+
+Laserfiche API URL:
+must be valid HTTP/HTTPS URL.
+
+Paths:
+must exist when required.
+
+Web Client:
+Browse.aspx must be found before enabling integration.
+
+Do not wait until installation fails halfway through.
+
+============================================================
+13. CONNECTION TEST
+============================================================
+
+If feasible, add:
+
+[Test Connection]
+
+next to the Laserfiche API configuration.
+
+This should test basic reachability/configuration without storing credentials
+in insecure installer logs.
+
+If credentials are required for a meaningful test, skip authentication during
+installation rather than embedding credentials.
+
+============================================================
+14. INSTALL LOG
+============================================================
+
+The installer should automatically create a diagnostic installation log.
+
+Example:
+
+%ProgramData%\Dashboard\logs\install.log
+
+Log:
+
+detected components
+installation paths
+IIS operations
+integration results
+errors
+
+NEVER log:
+
+passwords
+authentication tokens
+DPAPI credential content
+
+============================================================
+15. ROLLBACK
+============================================================
+
+Installation must be transactional/safe where possible.
+
+If installation fails:
+
+do not leave a half-configured IIS site and corrupted Browse.aspx.
+
+Web Client modification must have a backup/rollback strategy.
+
+============================================================
+16. UNINSTALL
+============================================================
+
+Apps & Features should show:
+
+Laserfiche Dashboard
+
+Uninstall should:
+
+remove Dashboard binaries
+remove IIS configuration created by Dashboard
+remove Desktop Client registration
+remove Dashboard Web Client JavaScript
+remove ONLY the Dashboard script reference from Browse.aspx
+
+DO NOT remove unrelated Laserfiche customizations.
+
+DO NOT delete user configuration/credentials by default.
+
+Keep:
+
+%ProgramData%\Dashboard\
+
+unless the administrator explicitly chooses:
+
+"Remove configuration and data"
+
+if implementing such an option.
+
+============================================================
+17. UPGRADE
+============================================================
+
+Installing a newer version should feel like:
+
+Double-click new LFDashboard-Setup.exe
+        |
+        v
+Upgrade detected
+        |
+        v
+Next
+        |
+        v
+Install
+        |
+        v
+Done
+
+Preserve:
+
+configuration
+credentials
+Dashboard URL
+Laserfiche configuration
+integration choices
+
+Update binaries automatically.
+
+============================================================
+18. REPAIR
+============================================================
+
+Support repair/reconfiguration if practical.
+
+The administrator should be able to rerun the setup to fix:
+
+missing Desktop button
+missing Web Client JS
+Browse.aspx changed by Laserfiche upgrade
+IIS configuration damage
+
+without PowerShell.
+
+============================================================
+19. BUILD-TIME VS INSTALL-TIME
+============================================================
+
+Clearly separate:
+
+DEVELOPER BUILD TIME
+
+It is acceptable for the developer/build machine to run:
+
+build\publish.ps1
+
+WiX commands
+
+dotnet publish
+
+etc.
+
+NORMAL CUSTOMER/ADMIN INSTALLATION
+
+Must require ONLY:
+
+LFDashboard-Setup.exe
+
+Do not confuse these workflows in the documentation.
+
+I am fine with PowerShell existing internally for developers.
+
+I am NOT fine with telling the customer/admin:
+
+"Open PowerShell as Administrator and run..."
+
+for normal installation.
+
+============================================================
+20. FINAL RELEASE STRUCTURE
+============================================================
+
+Prefer the final customer-facing release to be extremely simple:
+
+Release\
+    LFDashboard-Setup.exe
+    README.txt
+
+Potentially the MSI can be embedded inside the bootstrapper.
+
+Do not make the customer choose between:
+
+MSI
+PS1
+JSON
+JS
+configuration templates
+
+Those are implementation details.
+
+============================================================
+21. README
+============================================================
+
+README should be extremely simple.
+
+Example:
+
+LASERFICHE DASHBOARD
+
+Installation:
+
+1. Right-click LFDashboard-Setup.exe
+2. Select Run as administrator.
+3. Follow the setup wizard.
+4. Restart Laserfiche Desktop Client if requested.
+
+That's it.
+
+Advanced troubleshooting can remain in docs.
+
+============================================================
+22. ACCEPTANCE TEST - CLEAN MACHINE
+============================================================
+
+Simulate a completely different machine:
+
+Computer:
+LF-SERVER-02
+
+IP:
+192.168.10.25
+
+Dashboard Port:
+8080
+
+Laserfiche API:
+https://lf-server-02/LFRepositoryAPI
+
+Repository:
+ProductionRepository
+
+Laserfiche Web Client:
+D:\Laserfiche\Web Access\Web Files
+
+Administrator has:
+
+NO source code
+NO Git
+NO Visual Studio
+NO Node.js
+NO WiX
+NO .NET SDK
+
+Administrator receives only:
+
+LFDashboard-Setup.exe
+
+Expected:
+
+Run installer
+    ->
+installer detects environment
+    ->
+administrator enters URLs/settings
+    ->
+Install
+    ->
+IIS configured
+    ->
+Dashboard installed
+    ->
+Desktop button registered
+    ->
+Web Client button installed
+    ->
+configuration generated
+    ->
+installation complete
+
+Then:
+
+Laserfiche Desktop Client
+    ->
+Dashboard
+    ->
+Login
+    ->
+Dashboard works
+
+and:
+
+Laserfiche Web Client
+    ->
+Dashboard
+    ->
+Login
+    ->
+Dashboard works
+
+NO SOURCE EDITING.
+
+NO REBUILD.
+
+NO POWERSHELL.
+
+NO CMD.
+
+============================================================
+23. IMPORTANT - DO NOT REMOVE THE PORTABILITY WORK
+============================================================
+
+The previous portability task remains mandatory.
+
+The easy installer is a UI ON TOP of the portable architecture.
+
+Do not replace configuration with hard-coded installer values.
+
+The architecture must remain:
+
+Application binaries
+        +
+Machine-specific external configuration
+        +
+Installer-generated settings
+
+NOT:
+
+different compiled binaries for every machine.
+
+============================================================
+24. IMPLEMENT, DO NOT ONLY PLAN
+============================================================
+
+Audit the existing Phase 6 installer implementation first.
+
+Then implement the improved installer.
+
+Do not merely write a proposal.
+
+Where the current environment cannot compile/test Windows-specific WiX
+components, implement them and clearly identify what still requires Windows
+verification.
+
+Do not claim Windows installer tests passed unless they actually ran.
+
+============================================================
+FINAL REPORT
+============================================================
+
+Report:
+
+1. Final installer architecture.
+2. Whether MSI or WiX Burn Bundle is used and why.
+3. Customer-facing files.
+4. Setup wizard pages.
+5. Automatic detection performed.
+6. Configuration generated.
+7. IIS configuration process.
+8. Desktop Client integration process.
+9. Web Client integration process.
+10. Browse.aspx backup/rollback process.
+11. Upgrade behavior.
+12. Repair behavior.
+13. Uninstall behavior.
+14. Prerequisite handling.
+15. Hard-coded values removed.
+16. Security protections.
+17. Build results.
+18. Installer build result.
+19. Clean-machine simulation result.
+20. Exact final file I give to another administrator.
+
+THE MOST IMPORTANT ACCEPTANCE CRITERION:
+
+A normal administrator on another machine should NEVER need to open
+PowerShell, CMD, Visual Studio, source code, JavaScript, or JSON to install
+and configure this product.
+
+The expected experience is:
+
+LFDashboard-Setup.exe
+        ->
+Next
+        ->
+Configure
+        ->
+Install
+        ->
+Finish

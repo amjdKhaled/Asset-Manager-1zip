@@ -1,0 +1,256 @@
+The Phase 6 publish script still fails on the actual Windows machine.
+
+DO NOT just patch this one line. Fix the script for full Windows PowerShell 5.1 compatibility and audit the entire script for any other PowerShell 6/7-only features.
+
+============================================================
+CURRENT REAL WINDOWS ERROR
+============================================================
+
+From:
+
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip
+
+I ran:
+
+& ".\build\publish.ps1" -Version "1.0.0"
+
+The parser error is now fixed, but execution immediately fails with:
+
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\build\publish.ps1 :
+The variable '$IsWindows' cannot be retrieved because it has not been set.
+
+FullyQualifiedErrorId:
+VariableIsUndefined,publish.ps1
+
+============================================================
+ROOT CAUSE TO VERIFY
+============================================================
+
+The script is being executed by Windows PowerShell 5.1.
+
+$IsWindows is a PowerShell Core / PowerShell 6+ automatic variable and is not available in Windows PowerShell 5.1.
+
+Because the script uses strict variable checking, accessing $IsWindows immediately throws VariableIsUndefined.
+
+The Phase 6 build script MUST support the standard Windows PowerShell 5.1 environment on this Windows machine.
+
+Do NOT require me to install PowerShell 7 just to run the release script unless there is an unavoidable technical reason.
+
+============================================================
+FIX
+============================================================
+
+Remove the direct dependency on the automatic $IsWindows variable.
+
+Use a Windows PowerShell 5.1-compatible platform detection mechanism.
+
+For example, derive it safely from:
+
+$env:OS -eq 'Windows_NT'
+
+or another implementation that works in BOTH:
+
+Windows PowerShell 5.1
+PowerShell 7+
+
+Do not access an undefined automatic variable under Set-StrictMode.
+
+============================================================
+FULL POWERSHELL 5.1 COMPATIBILITY AUDIT
+============================================================
+
+After fixing $IsWindows, inspect the ENTIRE:
+
+build/publish.ps1
+
+and:
+
+installer/Deploy-WebClientButton.ps1
+
+for PowerShell features that are unavailable or behave differently in Windows PowerShell 5.1.
+
+Check especially for:
+
+$IsWindows
+$IsLinux
+$IsMacOS
+
+?? null-coalescing operator
+??=
+?. null-conditional syntax
+ternary operator ? :
+ForEach-Object -Parallel
+pipeline chain operators && and ||
+pwsh-only parameters
+PowerShell 7-only cmdlets
+PowerShell 7-only .NET APIs
+unsupported argument syntax
+unsupported native command invocation
+unsupported encoding names/options
+ConvertFrom-Json / ConvertTo-Json compatibility differences
+Join-Path parameters introduced after PowerShell 5.1
+
+Also check all variables under Set-StrictMode so that no variable is read before being initialized.
+
+============================================================
+IMPORTANT: DO NOT REMOVE STRICT MODE JUST TO HIDE THE BUG
+============================================================
+
+If Set-StrictMode is currently enabled, keep it.
+
+Do not solve this by disabling StrictMode.
+
+StrictMode is useful because it is exposing real bugs.
+
+Initialize variables correctly and make the script genuinely compatible.
+
+============================================================
+RUN A STATIC UNINITIALIZED-VARIABLE AUDIT
+============================================================
+
+Inspect all variables used by publish.ps1.
+
+Pay particular attention to:
+
+$IsWindows
+$Version
+$RepoRoot
+$ArtifactsDir
+$WebPublishDir
+$ExtensionOutputDir
+$InstallerOutput
+$Configuration
+$LASTEXITCODE
+
+Make sure every custom variable has a valid value before use.
+
+Do not blindly initialize variables to null merely to silence StrictMode.
+
+============================================================
+PLATFORM BEHAVIOR
+============================================================
+
+This release pipeline is primarily intended to run on Windows.
+
+On Windows:
+
+- Web project must build/publish
+- Desktop Extension must build
+- WiX MSI must build
+- artifacts must be assembled
+
+Do NOT silently skip Desktop Extension or MSI generation on Windows.
+
+If a required Windows prerequisite is missing, fail with a clear message.
+
+On non-Windows environments:
+
+It is acceptable to skip Windows-only Desktop Extension/MSI execution for validation purposes, but this must not affect the actual Windows path.
+
+============================================================
+WIX DETECTION
+============================================================
+
+Also verify the WiX v4 detection/install logic works from Windows PowerShell 5.1.
+
+If the script expects the `wix` global .NET tool:
+
+Check it safely.
+
+If WiX is missing, either:
+
+1. install it with the intended dotnet tool command, or
+2. fail with an exact actionable instruction.
+
+Do not continue and claim the MSI succeeded when WiX did not run.
+
+============================================================
+ERROR HANDLING
+============================================================
+
+Keep:
+
+$ErrorActionPreference = 'Stop'
+
+and StrictMode.
+
+Every required external command must have its exit code checked.
+
+Examples:
+
+dotnet restore
+dotnet build
+dotnet publish
+dotnet tool
+wix
+
+A non-zero exit code must stop the release pipeline.
+
+============================================================
+VALIDATION REQUIRED
+============================================================
+
+After the fix:
+
+1. Parse validate publish.ps1.
+2. Parse validate Deploy-WebClientButton.ps1.
+3. Confirm both are Windows PowerShell 5.1-compatible.
+4. Search the scripts for remaining:
+   $IsWindows
+   $IsLinux
+   $IsMacOS
+5. Audit for other PowerShell 7-only syntax.
+6. Run the main .NET Release build.
+7. Validate JSON.
+8. Validate WiX XML.
+9. Validate lf-webclient-button.js.
+10. If your environment has PowerShell 5.1, ACTUALLY execute the script.
+11. If not, explicitly state that runtime validation on Windows PowerShell 5.1 is still pending.
+
+Do not claim the Windows execution passed unless it was actually executed on Windows PowerShell 5.1.
+
+============================================================
+DO NOT REGRESS EXISTING FUNCTIONALITY
+============================================================
+
+Do not change the working:
+
+- Dashboard
+- Archive
+- Settings
+- Login flow
+- blank password support
+- repository session handling
+- Desktop Client dynamic repository detection
+- WebView2 popup
+- Desktop Dashboard toolbar button
+- Web Client Dashboard button
+- Web Client repository detection
+- single-tab Web Client fix
+
+This task is ONLY release/build pipeline stabilization.
+
+============================================================
+FINAL REPORT
+============================================================
+
+When done tell me:
+
+1. Where $IsWindows was being used.
+2. Exactly how it was replaced.
+3. Whether any other PowerShell 7-only features were found.
+4. Every file modified.
+5. Whether StrictMode remains enabled.
+6. Whether both PS1 files are PowerShell 5.1 compatible.
+7. Whether parser validation passes.
+8. Main .NET Release build result.
+9. Desktop Extension build status.
+10. WiX/MSI build status.
+11. What was actually executed vs only statically validated.
+12. Exact command I should run next on Windows.
+
+The final Windows command should remain:
+
+& ".\build\publish.ps1" -Version "1.0.0"
+
+Do not make me manually execute the individual Phase 6 build stages unless necessary for debugging.

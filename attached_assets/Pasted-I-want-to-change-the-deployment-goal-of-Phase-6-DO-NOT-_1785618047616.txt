@@ -1,0 +1,865 @@
+I want to change the deployment goal of Phase 6.
+
+DO NOT add Docker.
+DO NOT add Kubernetes.
+DO NOT redesign the project as a hybrid deployment architecture.
+
+What I actually want is PORTABILITY.
+
+I want this entire project to be installable and runnable on another
+Windows machine/server with different settings without requiring source-code
+changes.
+
+The concept I want is similar to the portability benefit of containers,
+but WITHOUT Docker or Kubernetes.
+
+============================================================
+MAIN GOAL
+============================================================
+
+Make the entire LF Dashboard project environment-independent.
+
+Right now development has been performed on one machine, and there may be
+hard-coded assumptions such as:
+
+- localhost
+- port 5000
+- machine names
+- absolute paths
+- repository names
+- Laserfiche API URLs
+- Laserfiche server names
+- Web Client installation paths
+- Desktop Client installation paths
+- Program Files paths
+- ProgramData paths
+- usernames
+- passwords
+- development project paths
+- URLs pointing to this development machine
+
+I want all environment-specific configuration removed from source code.
+
+After this work, I should be able to install the project on another
+Windows machine and configure that environment without recompiling or
+editing C#/JavaScript source code.
+
+============================================================
+1. FIRST: FULL PORTABILITY AUDIT
+============================================================
+
+Before modifying anything, recursively audit the entire repository.
+
+Search ALL relevant files for environment-specific assumptions.
+
+Search for at least:
+
+localhost
+127.0.0.1
+5000
+http://
+https://
+C:\
+Program Files
+ProgramData
+Amjad
+Asset-Manager
+TestEmployee
+NewEmployeeTest
+LFNewRepoWF
+computer names
+server names
+repository names
+absolute paths
+hard-coded ports
+hard-coded Dashboard URLs
+hard-coded Laserfiche URLs
+
+Audit:
+
+*.cs
+*.cshtml
+*.json
+*.js
+*.ps1
+*.wxs
+*.wixproj
+*.config
+*.props
+*.targets
+*.md
+
+Classify every result as:
+
+A. Development-only and harmless
+B. Intentional default
+C. Environment-specific and must be externalized
+D. Secret/security problem
+E. Documentation example only
+
+Do not blindly replace strings.
+
+Understand how each value is used first.
+
+============================================================
+2. CENTRAL CONFIGURATION DESIGN
+============================================================
+
+Create one clear configuration strategy for the application.
+
+Environment-specific values must come from configuration instead of
+source code.
+
+Prefer the project's existing configuration system rather than creating
+multiple competing systems.
+
+The deployed system should primarily use:
+
+%ProgramData%\Dashboard\
+
+for machine-specific configuration.
+
+For example:
+
+%ProgramData%\Dashboard\
+    laserfiche.config.json
+    extension.config.json
+    credentials\
+    logs\
+
+Use Environment.GetFolderPath(
+    Environment.SpecialFolder.CommonApplicationData
+)
+
+where appropriate instead of hard-coding:
+
+C:\ProgramData
+
+============================================================
+3. LASERFICHE CONFIGURATION
+============================================================
+
+Review laserfiche.config.json.
+
+All Laserfiche connection information that varies between environments
+must be configurable.
+
+Examples may include:
+
+API server URL
+Laserfiche server
+default repository
+connection settings
+certificate validation settings
+timeouts
+
+Use the ACTUAL properties already present in this project.
+
+Do not invent duplicate settings unnecessarily.
+
+The Dashboard should load the configuration from the deployed machine.
+
+============================================================
+4. DASHBOARD PUBLIC URL
+============================================================
+
+The Dashboard URL must NEVER be permanently hard-coded to:
+
+http://localhost:5000
+
+Create/use a configurable Dashboard public/base URL.
+
+Examples:
+
+Development:
+http://localhost:5000
+
+Server A:
+http://10.0.0.50:5000
+
+Server B:
+https://dashboard.company.local
+
+The application and integrations must obtain this from configuration.
+
+============================================================
+5. DESKTOP EXTENSION
+============================================================
+
+The Desktop Extension must NOT contain a hard-coded Dashboard URL.
+
+It should read:
+
+%ProgramData%\Dashboard\extension.config.json
+
+Example:
+
+{
+  "PortalUrl": "http://10.0.0.50:5000"
+}
+
+or:
+
+{
+  "PortalUrl": "https://dashboard.company.local"
+}
+
+Preserve the current dynamic repository behavior:
+
+Laserfiche Desktop Client
+    ->
+Dashboard button
+    ->
+%(DatabaseName)
+    ->
+Dashboard.DesktopExtension
+    ->
+PortalUrl from configuration
+    ->
+?repository=<repository>
+    ->
+Login
+    ->
+Dashboard
+
+Do not break WebView2.
+
+Do not break repository detection.
+
+Do not break the isolated WebView2 session behavior.
+
+============================================================
+6. WEB CLIENT BUTTON
+============================================================
+
+The Laserfiche Web Client Dashboard button must also be portable.
+
+The JavaScript must NOT permanently contain:
+
+var DASHBOARD_BASE_URL = 'http://localhost:5000';
+
+or any equivalent hard-coded deployment URL.
+
+Modify:
+
+Deploy-WebClientButton.ps1
+
+so the administrator can deploy it using something similar to:
+
+.\Deploy-WebClientButton.ps1 `
+    -DashboardUrl "http://10.0.0.50:5000"
+
+or:
+
+.\Deploy-WebClientButton.ps1 `
+    -DashboardUrl "https://dashboard.company.local"
+
+The deployment script should safely configure the JavaScript during
+deployment.
+
+Do not require manually editing the JavaScript source.
+
+Preserve the current working Web Client behavior:
+
+- Dashboard button appears in rightNavbar
+- repository comes from WebAccessRepositoryName
+- URL contains:
+  ?repository=<repository>&source=webclient
+- button remains clickable
+- exactly ONE tab opens
+- do NOT reintroduce the previous window.open + fallback bug
+- preserve the singleton initialization protection
+- preserve Angular-safe DOM handling
+
+============================================================
+7. AUTOMATIC PATH DISCOVERY
+============================================================
+
+Do not assume Laserfiche Web Client is always installed at:
+
+C:\Program Files\Laserfiche\Web Access\Web Files
+
+The deployment script should attempt to discover the installation.
+
+Use reliable mechanisms where available, such as:
+
+- registry installation information
+- IIS configuration
+- known Laserfiche installation locations
+- existing Browse.aspx location
+
+If automatic detection succeeds, use it.
+
+If multiple installations are found, clearly ask/select or require an
+explicit parameter.
+
+Support an explicit override such as:
+
+-WebClientPath "D:\Laserfiche\Web Access\Web Files"
+
+Do not recursively modify arbitrary Browse.aspx files.
+
+============================================================
+8. PORT CONFIGURATION
+============================================================
+
+Port 5000 must not be scattered throughout the project.
+
+If the Dashboard port is configurable, define it in one appropriate place.
+
+The installer should allow configuring the Dashboard endpoint.
+
+Examples:
+
+5000
+8080
+443 through IIS
+
+All generated integration configuration should use the resulting public
+Dashboard URL.
+
+============================================================
+9. IIS PORTABILITY
+============================================================
+
+The installer must configure IIS without assuming that another machine has
+the same IIS configuration as the development machine.
+
+Audit:
+
+Application Pool
+Site name
+physical path
+binding
+port
+hostname
+HTTPS configuration
+
+Make appropriate deployment settings configurable.
+
+Avoid hard-coded development-machine values.
+
+============================================================
+10. INSTALLATION PATH
+============================================================
+
+Do not hard-code the development project path:
+
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip
+
+anywhere in production code or installer logic.
+
+MSI should use proper Windows Installer directories such as:
+
+ProgramFilesFolder
+CommonAppDataFolder
+
+or their correct WiX equivalents.
+
+PowerShell scripts should determine the repository/release root relative
+to:
+
+$PSScriptRoot
+
+where appropriate.
+
+============================================================
+11. LASERFICHE SDK DISCOVERY
+============================================================
+
+The build process currently requires Laserfiche SDK assemblies.
+
+Do not assume they exist only at one developer-machine absolute path.
+
+Implement a clear resolution strategy.
+
+For example:
+
+1. Check repository vendor directory.
+2. Check configured SDK path.
+3. Check known Laserfiche installation/SDK locations.
+4. Fail with a clear actionable message.
+
+Do not silently select random DLL versions.
+
+============================================================
+12. WEBVIEW2
+============================================================
+
+Keep the proven Desktop Extension architecture:
+
+net48
+x64
+WebView2
+
+Do not introduce RuntimeIdentifier=win-x64 if it is unnecessary.
+
+Preserve the architecture fix that eliminated:
+
+0x8007000B
+ERROR_BAD_FORMAT
+BadImageFormatException
+
+Add/keep prerequisite detection for WebView2 Runtime.
+
+The installer should detect/report the missing runtime clearly.
+
+============================================================
+13. POWERSHELL 5.1 COMPATIBILITY
+============================================================
+
+Fix the current publish.ps1 problem first.
+
+Current error:
+
+The variable '$IsWindows' cannot be retrieved because it has not been set.
+
+Reason:
+
+$IsWindows exists in modern PowerShell but is not available in Windows
+PowerShell 5.1.
+
+publish.ps1 MUST support Windows PowerShell 5.1.
+
+Do not rely on:
+
+$IsWindows
+$IsLinux
+$IsMacOS
+
+unless you explicitly define compatibility logic.
+
+Use a compatible OS detection method such as:
+
+$env:OS -eq 'Windows_NT'
+
+or an equivalent reliable approach.
+
+Then audit the ENTIRE script for other PowerShell 7-only functionality.
+
+The target is:
+
+Windows PowerShell 5.1
+AND
+PowerShell 7+
+
+where practical.
+
+============================================================
+14. POWERSHELL ENCODING
+============================================================
+
+Preserve the previous fix for Windows PowerShell 5.1 parsing.
+
+Do not reintroduce unsafe UTF-8-without-BOM Unicode characters that caused:
+
+The string is missing the terminator: "
+
+Keep deployment/build PowerShell scripts compatible with Windows PowerShell
+5.1 encoding behavior.
+
+ASCII output/messages are acceptable.
+
+============================================================
+15. CONFIGURATION VALIDATION
+============================================================
+
+Create startup validation for important configuration.
+
+Do NOT allow the Dashboard to silently start with obviously invalid settings
+and then show zeros everywhere.
+
+Validate things such as:
+
+Laserfiche API URL
+Dashboard configuration
+required directories
+repository context where applicable
+
+Errors should say WHAT is wrong.
+
+Example:
+
+"Laserfiche API URL is not configured.
+Configure ApiServerUrl in:
+C:\ProgramData\Dashboard\laserfiche.config.json"
+
+instead of:
+
+"Connection failed."
+
+Do not expose passwords in errors.
+
+============================================================
+16. FIRST-RUN CONFIGURATION
+============================================================
+
+Make deployment friendly for a completely new machine.
+
+On first install:
+
+If configuration does not exist:
+
+create templates/default files.
+
+If configuration already exists:
+
+DO NOT overwrite it.
+
+This must remain upgrade-safe.
+
+Example:
+
+Machine A installs version 1.0.0
+Administrator configures Laserfiche.
+
+Later installs 1.1.0.
+
+The installer must preserve Machine A's configuration.
+
+============================================================
+17. NO HARDCODED CREDENTIALS
+============================================================
+
+Audit the repository for:
+
+username
+password
+tokens
+API keys
+connection strings containing credentials
+
+No real credentials should exist in:
+
+source code
+JavaScript
+MSI source
+documentation
+default JSON templates
+logs
+
+Preserve the existing secure credential mechanism.
+
+============================================================
+18. REPOSITORY PORTABILITY
+============================================================
+
+Do NOT hard-code repositories such as:
+
+TestEmployee
+NewEmployeeTest
+LFNewRepoWF
+
+These are development/test repositories.
+
+Repository selection must remain dynamic.
+
+Desktop:
+
+%(DatabaseName)
+
+Web Client:
+
+WebAccessRepositoryName
+
+Dashboard:
+
+ActiveRepositoryId/session
+
+This behavior must work for ANY repository name on another Laserfiche
+installation.
+
+============================================================
+19. LOGGING PORTABILITY
+============================================================
+
+Logs should use a machine-independent location such as:
+
+%ProgramData%\Dashboard\logs\
+
+Do not write logs into:
+
+developer project directories
+Desktop
+Documents
+C:\Users\<developer>
+
+Ensure directories are created automatically.
+
+============================================================
+20. MSI PORTABILITY
+============================================================
+
+The MSI should be designed so I can copy it to another Windows machine and
+install it there.
+
+It should not depend on:
+
+Visual Studio
+Replit
+source code
+developer project path
+Node.js
+Git
+developer machine hostname
+
+Runtime prerequisites should be detected and reported clearly.
+
+The installed machine may have different:
+
+hostname
+IP
+Laserfiche repository
+Laserfiche server
+Web Client location
+IIS configuration
+
+The deployment must account for these differences.
+
+============================================================
+21. CONFIGURATION EXPERIENCE
+============================================================
+
+Make installation/configuration simple.
+
+Ideal workflow:
+
+1. Copy MSI to new server.
+2. Install Dashboard.
+3. Configure machine-specific Laserfiche settings.
+4. Configure Dashboard public URL.
+5. Desktop Extension uses that URL.
+6. Run Web Client deployment script with that URL if Web Client integration
+   is required.
+7. Start Dashboard.
+8. Open Laserfiche.
+9. Everything works.
+
+Avoid requiring source-code edits.
+
+============================================================
+22. OPTIONAL CONFIGURATION SCRIPT
+============================================================
+
+If useful, create:
+
+installer/Configure-Dashboard.ps1
+
+Example usage:
+
+.\Configure-Dashboard.ps1 `
+    -DashboardUrl "http://10.0.0.50:5000" `
+    -LaserficheApiUrl "https://laserfiche-server/LFRepositoryAPI"
+
+It should update the correct ProgramData configuration safely.
+
+Do not store passwords directly unless the existing secure credential
+mechanism explicitly handles them.
+
+The script should validate URLs before saving.
+
+============================================================
+23. UPDATE publish.ps1
+============================================================
+
+publish.ps1 should produce a complete portable Windows release.
+
+Example:
+
+artifacts\
+    Dashboard-1.0.0-Setup.msi
+
+    WebApp\
+
+    Extension\
+
+    WebClientButton\
+        lf-dashboard-button.js
+        Deploy-WebClientButton.ps1
+
+    ConfigTemplate\
+        laserfiche.config.json
+        extension.config.json
+
+    Tools\
+        Configure-Dashboard.ps1
+
+    docs\
+        InstallationGuide.md
+        UpgradeGuide.md
+        ReleaseNotes.md
+
+No developer-specific paths.
+
+============================================================
+24. DOCUMENT NEW-MACHINE DEPLOYMENT
+============================================================
+
+Update InstallationGuide.md with a section:
+
+"Installing on a New Machine"
+
+Explain the exact workflow.
+
+Include examples for:
+
+Machine A:
+Dashboard = http://localhost:5000
+
+Machine B:
+Dashboard = http://192.168.1.50:5000
+
+Production:
+Dashboard = https://dashboard.company.local
+
+Explain which config values change and which binaries remain identical.
+
+============================================================
+25. DO NOT BREAK CURRENT FEATURES
+============================================================
+
+Regression-test the existing features:
+
+Dashboard live statistics
+Archive
+Settings
+Laserfiche API connection
+repository switching
+Desktop Dashboard button
+Desktop Login
+blank-password accounts
+WebView2 popup
+Web Client Dashboard button
+Web Client Login
+Web Client repository switching
+single-tab behavior
+Change Account
+session isolation
+toolbar icon
+logging
+
+Do not redesign working features unnecessarily.
+
+============================================================
+26. PORTABILITY TEST
+============================================================
+
+Perform a conceptual "second machine" test.
+
+Pretend deployment machine has:
+
+Computer name:
+LF-SERVER-02
+
+Dashboard IP:
+192.168.10.25
+
+Dashboard port:
+8080
+
+Laserfiche API:
+https://lf-server-02/LFRepositoryAPI
+
+Repository:
+ProductionRepository
+
+Web Client path:
+D:\Laserfiche\Web Access\Web Files
+
+The project should require configuration changes ONLY.
+
+There should be ZERO C# recompilation and ZERO JavaScript source editing.
+
+Document exactly what would need to be configured.
+
+If source code must be changed for this scenario, portability is incomplete.
+
+============================================================
+27. FINAL HARD-CODE AUDIT
+============================================================
+
+After implementation, rerun the repository-wide hard-code search.
+
+Report every remaining occurrence of:
+
+localhost
+127.0.0.1
+5000
+C:\
+Amjad
+Asset-Manager
+TestEmployee
+NewEmployeeTest
+LFNewRepoWF
+
+For each remaining occurrence explain why it is acceptable.
+
+Production code must contain no developer-machine-specific values.
+
+Documentation/example/default values may contain localhost only when clearly
+identified as examples/defaults.
+
+============================================================
+28. VALIDATION
+============================================================
+
+Actually perform everything supported by the current environment.
+
+Required:
+
+dotnet restore
+dotnet build --configuration Release
+dotnet publish
+JSON parsing
+JavaScript syntax validation
+PowerShell parser validation
+WiX XML validation
+
+On Windows also attempt:
+
+Desktop Extension Release build
+WiX/MSI build
+publish.ps1
+
+Do NOT report "passed" for anything that was only statically inspected.
+
+============================================================
+FINAL REPORT
+============================================================
+
+At the end report:
+
+1. Every hard-coded/environment-specific value discovered.
+2. Which ones were removed.
+3. Which ones remain and why.
+4. Files created.
+5. Files modified.
+6. Final configuration architecture.
+7. laserfiche.config.json behavior.
+8. extension.config.json behavior.
+9. Dashboard URL configuration.
+10. Desktop Extension configuration.
+11. Web Client button configuration.
+12. Automatic Laserfiche Web Client path discovery.
+13. IIS portability.
+14. Logging portability.
+15. Credential/security audit.
+16. PowerShell 5.1 compatibility.
+17. New-machine installation procedure.
+18. Upgrade behavior.
+19. Release build result.
+20. Desktop Extension build result.
+21. MSI build result.
+22. publish.ps1 execution result.
+23. Second-machine simulation result.
+24. Exact commands I should run next on my Windows machine.
+
+MOST IMPORTANT ACCEPTANCE TEST:
+
+I must be able to take the generated release to another Windows machine
+with different IPs, paths, repository names and Laserfiche settings,
+configure that machine, and run the system WITHOUT modifying C#, Razor,
+JavaScript or rebuilding the application.
+
+Do not stop after fixing only $IsWindows.
+Perform the full portability audit and implementation.

@@ -17,7 +17,8 @@
 8. [Blank Password Behavior](#8-blank-password-behavior)
 9. [Log Locations](#9-log-locations)
 10. [Verification Checklist](#10-verification-checklist)
-11. [Troubleshooting](#11-troubleshooting)
+11. [Installing on a New Machine](#11-installing-on-a-new-machine)
+12. [Troubleshooting](#12-troubleshooting)
 
 ---
 
@@ -41,8 +42,8 @@ Install each prerequisite **before** running the Dashboard installer.
 Install-WindowsFeature -Name Web-Server, Web-Asp-Net45, Web-Mgmt-Console -IncludeManagementTools
 
 # Windows 10/11:
-# Control Panel → Programs → Turn Windows features on/off
-# Check: Internet Information Services → World Wide Web Services → Application Development Features → ASP.NET 4.8
+# Control Panel -> Programs -> Turn Windows features on/off
+# Check: Internet Information Services -> World Wide Web Services -> Application Development Features -> ASP.NET 4.8
 ```
 
 ### Install ASP.NET Core 8 Hosting Bundle
@@ -95,9 +96,9 @@ msiexec /i Dashboard-1.0.0-Setup.msi DASHBOARD_PORT=80
 
 After installation, verify in IIS Manager:
 
-1. Open **IIS Manager** → Application Pools → confirm `Dashboard` exists, `.NET CLR Version = No Managed Code`, `Managed Pipeline Mode = Integrated`
-2. Open **Sites** → confirm `Dashboard` site exists, bound to port 5000
-3. Open a browser on the server: `http://localhost:5000/` → should show the Dashboard
+1. Open **IIS Manager** -> Application Pools -> confirm `Dashboard` exists, `.NET CLR Version = No Managed Code`, `Managed Pipeline Mode = Integrated`
+2. Open **Sites** -> confirm `Dashboard` site exists, bound to port 5000
+3. Open a browser on the server: `http://localhost:5000/` -> should show the Dashboard
 
 **If you see "HTTP Error 500.30":**  
 The ASP.NET Core Hosting Bundle may not be installed correctly. Re-run the Hosting Bundle installer and restart IIS (`iisreset`).
@@ -111,6 +112,8 @@ IIS cannot find the `dotnet` runtime. Re-run the Hosting Bundle installer.
 
 The Dashboard ships with placeholder configuration. Before the Dashboard will display data, you must configure the Laserfiche connection.
 
+### Option A — Settings Page (recommended)
+
 1. Browse to `http://localhost:5000/Settings` (or `http://YOUR-SERVER:5000/Settings`)
 2. Enter:
    - **API Server URL**: the URL of your Laserfiche Server's Repository API endpoint  
@@ -119,6 +122,20 @@ The Dashboard ships with placeholder configuration. Before the Dashboard will di
    - **Username** and **Password**: a Laserfiche service account with read access
 3. Click **Test Connection** to verify
 4. Click **Save** — credentials are encrypted with Windows DPAPI and stored in `%ProgramData%\Dashboard\credentials\`
+
+### Option B — Configure-Dashboard.ps1
+
+For scripted or automated deployment:
+
+```powershell
+.\Tools\Configure-Dashboard.ps1 `
+    -DashboardUrl "http://192.168.1.50:5000" `
+    -LaserficheApiUrl "https://lf-server/LFRepositoryAPI" `
+    -RepositoryId "Documents" `
+    -DisplayName "Documents Repository"
+```
+
+Then enter credentials via the Settings page (credentials are never stored in JSON files).
 
 > **Configuration file location:**  
 > `%ProgramData%\Dashboard\laserfiche.config.json` is created by the installer with placeholder values.  
@@ -149,17 +166,25 @@ Run as Administrator:
 
 ### Configure the extension
 
-Edit `%ProgramData%\Dashboard\extension.config.json`:
+The extension reads `%ProgramData%\Dashboard\extension.config.json` for the Dashboard URL.
+
+Edit the file directly:
 
 ```json
 {
-  "portalUrl": "http://YOUR-SERVER:5000",
+  "portalUrl": "http://YOUR-DASHBOARD-SERVER:5000",
   "buttonLabel": "Dashboard",
   "iconPath": ""
 }
 ```
 
-After editing, re-register:
+Or use the configure script:
+
+```powershell
+.\Tools\Configure-Dashboard.ps1 -DashboardUrl "http://192.168.1.50:5000"
+```
+
+After changing the URL, re-register:
 ```cmd
 "C:\Program Files\Dashboard\Extension\Dashboard.DesktopExtension.exe" --setup --silent
 ```
@@ -180,33 +205,27 @@ The Web Client button is **not** deployed by the MSI because Laserfiche upgrade 
 
 ### Deploy the button
 
-1. Copy `artifacts\WebClientButton\lf-dashboard-button.js` to the Laserfiche Web Access server
-2. Run as Administrator on the Laserfiche server:
+Run as Administrator on the Laserfiche Web Client server.  
+**Always specify your Dashboard URL** so the button points to the correct server:
 
 ```powershell
-.\Deploy-WebClientButton.ps1
+.\Deploy-WebClientButton.ps1 -DashboardUrl "http://192.168.1.50:5000"
 ```
 
-or with an explicit Laserfiche path:
+The script automatically discovers the Laserfiche Web Client installation path from the registry and IIS. If auto-detection fails, specify the path explicitly:
 
 ```powershell
-.\Deploy-WebClientButton.ps1 -LFWebPath "C:\Program Files\Laserfiche\Web Access\Web Files"
+.\Deploy-WebClientButton.ps1 `
+    -DashboardUrl "http://192.168.1.50:5000" `
+    -WebClientPath "D:\Laserfiche\Web Access\Web Files"
 ```
 
 The script:
+- Discovers the Laserfiche Web Access installation path
 - Backs up `Browse.aspx` to `Browse.aspx.bak-<timestamp>`
 - Copies `lf-dashboard-button.js` to `assets\custom\`
+- Patches `DASHBOARD_BASE_URL` in the deployed script to your Dashboard URL
 - Adds one `<script>` tag to Browse.aspx (idempotent — won't duplicate)
-
-### Set the Dashboard URL
-
-Edit `C:\Program Files\Laserfiche\Web Access\Web Files\assets\custom\lf-dashboard-button.js` and set:
-
-```javascript
-var DASHBOARD_BASE_URL = 'http://YOUR-DASHBOARD-SERVER:5000';
-```
-
-> **Important:** This URL is evaluated in the user's **browser**, not on the Laserfiche server. It must be a hostname/IP that client machines can reach.
 
 ### Verify
 
@@ -220,7 +239,7 @@ var DASHBOARD_BASE_URL = 'http://YOUR-DASHBOARD-SERVER:5000';
 Laserfiche upgrades overwrite `Browse.aspx`. Re-run the deployment script:
 
 ```powershell
-.\Deploy-WebClientButton.ps1
+.\Deploy-WebClientButton.ps1 -DashboardUrl "http://192.168.1.50:5000"
 ```
 
 The `lf-dashboard-button.js` file in `assets\custom\` is NOT overwritten by Laserfiche upgrades.
@@ -273,18 +292,120 @@ After installation, confirm each item:
 
 - [ ] `http://localhost:5000/health` returns `{"status":"Healthy"}` (or Degraded if Laserfiche not yet configured)
 - [ ] `http://localhost:5000/Settings` loads the configuration form
-- [ ] Settings page: Test Connection shows ✓ with server version and repo name
+- [ ] Settings page: Test Connection shows a check mark with server version and repo name
 - [ ] `http://localhost:5000/` shows Dashboard with live data
 - [ ] `http://localhost:5000/Archive` shows the folder browser
 - [ ] Desktop Client: Dashboard toolbar button appears after Laserfiche restart
-- [ ] Desktop Client: clicking Dashboard opens a WebView2 popup → Login page
+- [ ] Desktop Client: clicking Dashboard opens a WebView2 popup -> Login page
 - [ ] Desktop Client: after login, Dashboard shows data for the active repository
 - [ ] Web Client (if deployed): Dashboard button appears in navbar
-- [ ] Web Client: clicking Dashboard opens a new tab → Login page → Dashboard
+- [ ] Web Client: clicking Dashboard opens a new tab -> Login page -> Dashboard
 
 ---
 
-## 11. Troubleshooting
+## 11. Installing on a New Machine
+
+Dashboard is fully portable. The MSI, once built, can be copied to any Windows machine and configured for that environment without recompiling or editing source code.
+
+### What changes per machine
+
+| Setting | Where to configure | Value example |
+|---|---|---|
+| Dashboard public URL | `extension.config.json` / Configure-Dashboard.ps1 | `http://192.168.10.25:8080` |
+| Laserfiche API URL | Settings page / Configure-Dashboard.ps1 | `https://lf-server-02/LFRepositoryAPI` |
+| Repository name | Settings page / Configure-Dashboard.ps1 | `ProductionRepository` |
+| Laserfiche credentials | Settings page only (DPAPI-encrypted) | — |
+| Web Client button URL | Deploy-WebClientButton.ps1 `-DashboardUrl` | `http://192.168.10.25:8080` |
+| Dashboard port (MSI time) | `msiexec ... DASHBOARD_PORT=8080` | `8080` |
+
+### What stays identical
+
+- The compiled MSI file
+- All C#, Razor, and JavaScript source binaries
+- The Dashboard web application DLLs
+- The Desktop Extension EXE
+
+### Step-by-step: new machine deployment
+
+**Scenario:** The new server has:
+- Computer name: `LF-SERVER-02`
+- Dashboard IP/port: `http://192.168.10.25:8080`
+- Laserfiche API: `https://lf-server-02/LFRepositoryAPI`
+- Repository: `ProductionRepository`
+- Web Client path: `D:\Laserfiche\Web Access\Web Files`
+
+**Step 1 — Install prerequisites** (see Section 1)
+
+**Step 2 — Install the MSI with the correct port**
+
+```cmd
+msiexec /i Dashboard-1.0.0-Setup.msi DASHBOARD_PORT=8080
+```
+
+Or double-click the MSI and accept defaults if port 5000 is acceptable.
+
+**Step 3 — Configure the Laserfiche connection**
+
+```powershell
+.\Tools\Configure-Dashboard.ps1 `
+    -DashboardUrl "http://192.168.10.25:8080" `
+    -LaserficheApiUrl "https://lf-server-02/LFRepositoryAPI" `
+    -RepositoryId "ProductionRepository" `
+    -DisplayName "Production Repository"
+```
+
+**Step 4 — Enter credentials**
+
+Open `http://192.168.10.25:8080/Settings`, enter a Laserfiche service account username and password, and click **Save**.
+
+**Step 5 — Desktop Extension**
+
+The extension was registered during MSI installation. Verify the `portalUrl` in `%ProgramData%\Dashboard\extension.config.json` was set correctly by Configure-Dashboard.ps1 (Step 3 already updated it). Open the Laserfiche Desktop Client to confirm the toolbar button appears.
+
+If the Laserfiche Desktop Client is on a **different machine**, copy the Extension binaries from `artifacts\Extension\` to that machine, then run:
+```cmd
+Dashboard.DesktopExtension.exe --setup --silent
+```
+After first configuring `%ProgramData%\Dashboard\extension.config.json` with the correct `portalUrl`.
+
+**Step 6 — Deploy the Web Client button**
+
+On the Laserfiche Web Client server (may be a different machine):
+
+```powershell
+.\Deploy-WebClientButton.ps1 `
+    -DashboardUrl "http://192.168.10.25:8080" `
+    -WebClientPath "D:\Laserfiche\Web Access\Web Files"
+```
+
+**Step 7 — Verify**
+
+Open `http://192.168.10.25:8080/health` — should return `{"status":"Healthy"}` or `{"status":"Degraded"}` (Degraded means the app is running but Laserfiche credentials need to be saved).
+
+### Machine A vs Machine B vs Production — comparison
+
+| | Machine A (development) | Machine B (test server) | Production |
+|---|---|---|---|
+| Dashboard URL | `http://localhost:5000` | `http://192.168.1.50:5000` | `https://dashboard.company.local` |
+| Laserfiche API | `https://dev-lf/LFRepositoryAPI` | `https://test-lf/LFRepositoryAPI` | `https://prod-lf/LFRepositoryAPI` |
+| MSI | Same file | Same file | Same file |
+| C# source rebuild | No | No | No |
+| JS edit | No | No | No |
+| Configure-Dashboard.ps1 | Yes (different params) | Yes (different params) | Yes (different params) |
+
+### Zero-source-change portability: confirmed
+
+The following are NOT required when moving to a new machine:
+- Editing any `.cs`, `.cshtml`, or `.js` file
+- Rebuilding the solution
+- Modifying any WiX source files
+- Changing any checked-in configuration file
+
+Only the machine-specific runtime configuration in `%ProgramData%\Dashboard\` and the Web Client button URL need to be set for the new environment.
+
+---
+
+## 12. Troubleshooting
 
 | Symptom | Likely Cause | Fix |
 |---|---|---|
@@ -293,7 +414,9 @@ After installation, confirm each item:
 | Dashboard loads but shows "Laserfiche unavailable" | Credentials not configured | Open Settings; enter and save credentials |
 | Desktop Extension: button missing | Registration failed | Run `Dashboard.DesktopExtension.exe --setup` as Admin |
 | Desktop Extension: WebView2 error | WebView2 not installed | Install Edge WebView2 Runtime |
-| Web Client: button missing | Browse.aspx not modified | Run `Deploy-WebClientButton.ps1` as Admin |
-| Web Client: button visible, click opens nothing | DASHBOARD_BASE_URL wrong | Edit `lf-dashboard-button.js`; set correct server URL |
+| Desktop Extension: opens wrong repository | portalUrl points to wrong server | Run `Configure-Dashboard.ps1 -DashboardUrl <url>` |
+| Web Client: button missing | Browse.aspx not modified | Run `Deploy-WebClientButton.ps1 -DashboardUrl <url>` as Admin |
+| Web Client: button visible, click opens wrong server | DASHBOARD_BASE_URL not updated | Re-run `Deploy-WebClientButton.ps1 -DashboardUrl <url>` |
 | Login fails with blank password | `[Required]` added to Password | Remove `[Required]` from `LoginInputModel.Password` |
 | Credentials "not stored" after upgrade | DPAPI keys changed | Re-enter credentials in Settings page |
+| Configure-Dashboard.ps1: "Invalid URL" | Missing http:// or https:// | Include the scheme: `http://192.168.1.50:5000` |
