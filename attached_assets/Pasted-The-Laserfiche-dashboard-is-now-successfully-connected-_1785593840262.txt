@@ -1,0 +1,307 @@
+The Laserfiche dashboard is now successfully connected and displaying REAL repository data.
+
+Do NOT change the working Laserfiche connection, recursive folder traversal, root entry logic, authentication, or the working Folder/children API implementation.
+
+The data connection is working now.
+
+I only want UI/dashboard improvements.
+
+============================================================
+1. REMOVE SEARCH ANALYTICS
+============================================================
+
+Completely remove these two sections from the dashboard:
+
+- Search Activity
+- Top Searched Queries
+
+Also remove any visual text related to:
+
+- Portal audit log
+- Last 7 days search count
+- Search history
+- Top queries
+
+These sections are not useful for this dashboard because this dashboard should focus on DOCUMENT / REPOSITORY analytics.
+
+Do not replace them with fake or hardcoded data.
+
+============================================================
+2. REPLACE THEM WITH USEFUL DOCUMENT ANALYTICS
+============================================================
+
+Replace those two sections with TWO useful panels based entirely on REAL Laserfiche repository data that we are already retrieving.
+
+PANEL A:
+"Document Activity"
+
+This should show document activity over time using REAL document timestamps.
+
+Use the documents already discovered by the recursive repository scan.
+
+Create a compact chart showing:
+
+- Documents Created
+- Documents Modified
+
+Group them by date.
+
+Prefer the last 7 days if there is enough data.
+
+If there is no activity in the last 7 days, automatically use a useful wider range such as:
+
+- Last 30 days
+
+or derive a sensible range from the available documents.
+
+DO NOT display an empty chart simply because there was no activity in the last 7 days.
+
+The chart must be based on:
+
+creationTime
+lastModifiedTime
+
+from real Laserfiche entries.
+
+Example:
+
+Date          Created    Modified
+Jul 7            4          1
+Jul 8            1          3
+Jul 14           0          2
+Jul 19           2          5
+
+Use two datasets in the same compact line/bar chart.
+
+============================================================
+PANEL B:
+"Recent Document Activity"
+
+Instead of Top Searched Queries, show useful recent document information.
+
+Display approximately the latest 5-8 documents.
+
+Columns:
+
+Document Name
+Folder
+Template
+Created
+Last Modified
+Created By / Owner if available
+
+Sort primarily by Last Modified descending.
+
+If some fields are unavailable from the current API response, do NOT invent them.
+
+Show only values actually returned by Laserfiche.
+
+This panel should allow an administrator to immediately see which documents were recently created or changed.
+
+============================================================
+3. MAKE ALL CHARTS MUCH SMALLER
+============================================================
+
+The current charts are WAY TOO LARGE.
+
+Especially:
+
+- Documents by Folder
+- Template Distribution
+
+They currently consume too much vertical space.
+
+Reduce their size significantly.
+
+Target approximately:
+
+Documents by Folder:
+height: 280px to 320px maximum
+
+Template Distribution:
+height: 280px to 320px maximum
+
+Document Activity:
+height: approximately 260px to 300px
+
+Do not allow Chart.js to stretch the canvas vertically.
+
+Use an explicit chart wrapper such as:
+
+.chart-container {
+    position: relative;
+    height: 280px;
+    width: 100%;
+}
+
+and configure Chart.js:
+
+responsive: true
+maintainAspectRatio: false
+
+============================================================
+4. SHRINK THE DONUT CHART
+============================================================
+
+The Template Distribution donut is currently enormous.
+
+Make the actual donut substantially smaller.
+
+It should NOT occupy nearly the entire card.
+
+Give the donut a reasonable maximum size, approximately:
+
+220px - 260px
+
+Center it inside the card.
+
+Keep the legend readable underneath or beside it.
+
+If there are many templates, allow the legend to wrap cleanly instead of enlarging the chart.
+
+============================================================
+5. MAKE DOCUMENTS BY FOLDER MORE COMPACT
+============================================================
+
+The Documents by Folder chart currently has huge empty areas and oversized bars.
+
+Make it more compact.
+
+Requirements:
+
+- smaller bar width
+- smaller chart height
+- readable Arabic folder names
+- no excessive whitespace
+- responsive layout
+- keep actual document counts
+- keep real folder names from Laserfiche
+
+The current real folder data such as:
+
+الطلبات المتأخرة
+الطلبات المرفوضة
+الطلبات المقبولة
+الوارد
+انشاء الطلبات
+
+must continue to come dynamically from Laserfiche.
+
+Do NOT hardcode those names.
+
+============================================================
+6. REDUCE CARD/PANEL HEIGHTS AND PADDING
+============================================================
+
+The dashboard cards currently have excessive internal spacing.
+
+Reduce:
+
+padding
+vertical margins
+chart container height
+empty space between title and chart
+empty space below charts
+
+Aim for a professional enterprise administration dashboard where more information fits on one screen.
+
+For normal analytics cards use roughly:
+
+padding: 18px to 22px
+
+instead of oversized spacing.
+
+============================================================
+7. IMPROVE DASHBOARD DENSITY
+============================================================
+
+The desired layout should approximately be:
+
+--------------------------------------------------
+ KPI CARDS
+--------------------------------------------------
+
+ Documents by Folder     | Template Distribution
+--------------------------------------------------
+
+ Document Activity       | Recent Document Activity
+--------------------------------------------------
+
+ Template Statistics / Document Types
+--------------------------------------------------
+
+ Recent Documents / Recently Modified
+--------------------------------------------------
+
+ System Health / Repository Information
+--------------------------------------------------
+
+The user should NOT need to scroll through huge charts just to reach the next section.
+
+============================================================
+8. DO NOT BREAK THE WORKING DATA PIPELINE
+============================================================
+
+VERY IMPORTANT:
+
+The Laserfiche integration is now WORKING.
+
+Do NOT rewrite:
+
+- authentication
+- repository connection
+- root entry ID
+- recursive folder traversal
+- Folder/children endpoint
+- credential handling
+- repository configuration
+- API adapter unless absolutely necessary
+
+Do not reintroduce:
+
+?$top=1000
+
+to the Folder/children endpoint.
+
+The working endpoint remains:
+
+/Entries/{entryId}/Laserfiche.Repository.Folder/children
+
+with NO unsupported query parameters.
+
+============================================================
+9. EVERYTHING MUST REMAIN LIVE
+============================================================
+
+Every number, chart, folder, template and document displayed on this dashboard must continue to come from the connected Laserfiche repository.
+
+NO:
+
+mock data
+demo data
+hardcoded counts
+hardcoded folder names
+hardcoded template names
+random generated chart values
+
+If there is no data for a particular metric, display a proper empty state.
+
+============================================================
+10. FINAL VERIFICATION
+============================================================
+
+After implementing:
+
+1. Build the project.
+2. Confirm 0 build errors.
+3. Run the application.
+4. Verify the dashboard loads.
+5. Verify Documents by Folder still shows real Laserfiche data.
+6. Verify Template Distribution still shows real Laserfiche templates.
+7. Verify the new Document Activity uses real creationTime / lastModifiedTime.
+8. Verify Recent Document Activity uses real repository documents.
+9. Verify Search Activity is completely removed.
+10. Verify Top Searched Queries is completely removed.
+11. Verify all charts are significantly smaller and more compact.
+
+Do NOT tell me it is complete until the dashboard has been visually checked after the changes.
