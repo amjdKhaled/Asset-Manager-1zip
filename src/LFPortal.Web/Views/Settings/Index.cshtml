@@ -28,14 +28,27 @@
     </div>
 }
 
+@* ── Desktop Client login-flow notice ─────────────────────────────────── *@
+<div class="alert alert--info" style="margin-bottom:16px;">
+    <span>&#128187;</span>
+    <div>
+        <strong>Desktop Client sessions use the Login screen.</strong>
+        When Dashboard is opened from the Laserfiche Desktop Client, users are prompted to
+        sign in on the <strong>Login page</strong> for each repository.
+        No Settings credentials are required for that flow.
+        The credentials below are <strong>fallback / admin credentials</strong> — they are used only
+        when Dashboard is opened directly in a browser (without the Desktop Client).
+    </div>
+</div>
+
 @* ── Credential status banner ──────────────────────────────────────────── *@
 @if (Model.HasSavedCredentials)
 {
     <div class="alert alert--info" style="margin-bottom:16px;">
         <span>&#128274;</span>
         <div>
-            <strong>Saved credentials found.</strong>
-            Credentials are stored securely. Leave Username and Password blank to keep them unchanged.
+            <strong>Fallback credentials saved.</strong>
+            These are used for direct browser access only. Leave Username and Password blank to keep them unchanged.
         </div>
     </div>
 }
@@ -44,8 +57,8 @@ else if (Model.HasEnvironmentVariableCredentials)
     <div class="alert alert--amber" style="margin-bottom:16px;">
         <span>&#8505;</span>
         <div>
-            <strong>Using environment variable credentials</strong> (<code>LF_USERNAME</code> / <code>LF_PASSWORD</code>).
-            Save credentials here to switch to persistent secure storage.
+            <strong>Using environment variable fallback credentials</strong> (<code>LF_USERNAME</code> / <code>LF_PASSWORD</code>).
+            Save credentials here to switch to persistent secure storage (used for direct browser access only).
         </div>
     </div>
 }
@@ -54,8 +67,9 @@ else
     <div class="alert alert--error" style="margin-bottom:16px;">
         <span>&#9888;</span>
         <div>
-            <strong>No credentials configured.</strong>
-            Enter a username and password below and click Save Settings.
+            <strong>No fallback credentials configured.</strong>
+            Enter a username and password below to enable direct browser access.
+            Desktop Client sessions use the Login page and do not require these credentials.
         </div>
     </div>
 }

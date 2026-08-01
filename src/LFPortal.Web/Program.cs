@@ -93,6 +93,9 @@ try
     // ── Repository session middleware — captures ?repository= from Desktop Client ──
     app.UseMiddleware<RepositorySessionMiddleware>();
 
+    // ── Session auth guard — redirects unauthenticated Desktop Client sessions to /Login ──
+    app.UseMiddleware<SessionAuthGuardMiddleware>();
+
     // ── Health check endpoint ─────────────────────────────────────────────────
     app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {

@@ -1,0 +1,515 @@
+NEW REQUIREMENT — LASERFICHE WEB CLIENT INTEGRATION
+
+After completing the current Desktop Client Login Flow task, extend the SAME Dashboard project so it can also be launched from Laserfiche Web Client.
+
+IMPORTANT:
+Do not create a second Dashboard application.
+Do not duplicate the Dashboard backend.
+Do not create a separate analytics implementation.
+Do not break the existing Laserfiche Desktop Client integration.
+Do not start Phase 6.
+
+We want ONE Dashboard application supporting:
+
+1. Laserfiche Desktop Client
+2. Laserfiche Web Client
+
+==================================================
+TARGET ARCHITECTURE
+==================================================
+
+Desktop Client:
+
+Laserfiche Desktop Client
+    ↓
+Dashboard toolbar button
+    ↓
+Detect active repository
+    ↓
+Dashboard popup
+    ↓
+Login
+    ↓
+Dashboard
+
+Web Client:
+
+Laserfiche Web Client
+    ↓
+Dashboard button
+    ↓
+Detect the repository currently being used
+    ↓
+Open the SAME Dashboard application
+    ↓
+Login
+    ↓
+Dashboard
+
+Both must ultimately use the existing:
+
+Dashboard
+Archive
+Settings
+Document Viewer
+Laserfiche API infrastructure
+
+Do not duplicate any of these modules.
+
+==================================================
+1. FIRST AUDIT THE EXISTING WEB CLIENT CUSTOMIZATION
+==================================================
+
+Before modifying anything, inspect the repository for all existing Laserfiche Web Client customization files.
+
+Search for:
+
+- Browse.aspx
+- existing custom buttons
+- JavaScript injected into Laserfiche Web Client
+- custom CSS
+- Forms button customization
+- existing Web Client integrations
+- repository/session information available in the Web Client
+- existing code that determines the logged-in repository
+- existing code that launches external/internal applications
+
+We previously customized the Laserfiche Web Client, so reuse the existing customization mechanism if it is still present.
+
+DO NOT invent a new integration mechanism before auditing the existing implementation.
+
+Report what mechanism currently exists before modifying it.
+
+==================================================
+2. ADD A DASHBOARD BUTTON TO LASERFICHE WEB CLIENT
+==================================================
+
+Add a Dashboard button to the Laserfiche Web Client UI.
+
+The button should use the same Dashboard/bar-chart visual identity as the Desktop Client Dashboard button.
+
+Button:
+
+Dashboard
+
+Use the existing Dashboard icon asset if technically possible.
+
+Do not generate another unrelated logo.
+
+==================================================
+3. PASS THE ACTIVE REPOSITORY
+==================================================
+
+This is critical.
+
+When the Dashboard button is clicked in Laserfiche Web Client, determine the repository currently being used by that Web Client session.
+
+For example:
+
+User is browsing:
+
+TestEmployee
+
+Click Dashboard.
+
+Dashboard must receive:
+
+repository=TestEmployee
+
+If browsing:
+
+LFNewRepoWF
+
+Dashboard must receive:
+
+repository=LFNewRepoWF
+
+Do NOT use the default repository from Settings when the Web Client can provide the actual active repository.
+
+==================================================
+4. DO NOT ASSUME THE DESKTOP TOKEN EXISTS IN WEB CLIENT
+==================================================
+
+%(DatabaseName) is a Laserfiche Desktop Client toolbar token.
+
+Do NOT assume it works in Laserfiche Web Client.
+
+Determine the repository using the actual Web Client environment.
+
+Inspect the existing Web Client page/scripts and determine the safest available source for repository identity.
+
+Possible sources should only be used if confirmed in the current Web Client implementation, such as:
+
+- existing JavaScript application state
+- repository identifier already present in page data
+- current URL/router information
+- server-rendered Web Client variables
+- existing custom integration code
+
+Do not hard-code:
+
+TestEmployee
+LFNewRepoWF
+or any repository name.
+
+==================================================
+5. USE THE SAME REPOSITORY SESSION PIPELINE
+==================================================
+
+Once the Web Client determines the repository, send it into the SAME existing Dashboard repository context pipeline.
+
+Conceptually:
+
+Laserfiche Web Client
+        ↓
+active repository
+        ↓
+Dashboard URL
+        ↓
+?repository=<repository>
+        ↓
+RepositorySessionMiddleware
+        ↓
+IRepositoryContext
+
+Do not create a separate IRepositoryContext implementation for Web Client unless absolutely necessary.
+
+Extend the current mechanism instead.
+
+==================================================
+6. IDENTIFY THE LAUNCH SOURCE
+==================================================
+
+The Dashboard should know whether it was launched from:
+
+Desktop Client
+
+or:
+
+Web Client
+
+Extend the launch context safely.
+
+For example, conceptually:
+
+?repository=TestEmployee&source=webclient
+
+and Desktop:
+
+?repository=TestEmployee&source=desktop
+
+But only use a query parameter for NON-SENSITIVE context.
+
+Never send credentials in the URL.
+
+Store the validated source in session.
+
+Suggested values:
+
+Desktop Client
+Web Client
+Default / Direct
+
+==================================================
+7. LOGIN FLOW MUST ALSO APPLY TO WEB CLIENT
+==================================================
+
+The Login flow currently being implemented for Desktop Client must be reusable for Web Client.
+
+Web Client behavior:
+
+Click Dashboard
+    ↓
+Repository detected
+    ↓
+Dashboard application opens
+    ↓
+If repository session is not authenticated
+    ↓
+Login page
+    ↓
+Username
+Password (OPTIONAL / MAY BE EMPTY)
+    ↓
+Authenticate against that repository
+    ↓
+Dashboard
+
+Do NOT require the user to go into Settings first.
+
+==================================================
+8. EMPTY PASSWORD SUPPORT APPLIES HERE TOO
+==================================================
+
+Same rule as Desktop Client:
+
+Password may legitimately be empty.
+
+Username:
+ADMIN
+
+Password:
+""
+
+must be sent to Laserfiche as a real authentication attempt.
+
+Password must NOT have [Required].
+
+Do not replace blank password with Settings credentials.
+
+==================================================
+9. WEB CLIENT DISPLAY MODE
+==================================================
+
+For Laserfiche Web Client, first investigate what is technically safest with the existing customization.
+
+Preferred behavior:
+
+Click Dashboard
+→ open Dashboard in a separate application-style window/tab appropriate for the Web Client environment.
+
+Do NOT attempt to use the Desktop WebView2 executable from the browser.
+
+The Desktop Client continues using WebView2.
+
+The Web Client should use normal web navigation/window behavior.
+
+If the existing Web Client customization supports a popup window safely, use it.
+
+Otherwise open the Dashboard in a new browser tab.
+
+Do not break Laserfiche Web Client navigation.
+
+==================================================
+10. SOURCE BADGE
+==================================================
+
+The Dashboard header currently identifies Desktop sessions.
+
+Extend it so the source is visible.
+
+Examples:
+
+TestEmployee   DESKTOP
+
+TestEmployee   WEB CLIENT
+
+LFNewRepoWF   WEB CLIENT
+
+Direct browser access may show:
+
+LFNewRepoWF   DEFAULT
+
+Reuse the existing repository badge styling.
+
+==================================================
+11. SESSION ISOLATION
+==================================================
+
+Authentication must remain repository-aware.
+
+A successful login to:
+
+TestEmployee
+
+must not automatically authorize:
+
+LFNewRepoWF.
+
+Maintain:
+
+AuthenticatedRepository == ActiveRepository
+
+before allowing repository operations.
+
+If they differ:
+
+redirect to Login.
+
+==================================================
+12. CHANGE ACCOUNT
+==================================================
+
+The Change Account feature must work from both launch sources.
+
+It should:
+
+- clear current session authentication
+- keep active repository
+- keep launch source
+- redirect to Login
+
+It must NOT remove global Settings fallback credentials.
+
+==================================================
+13. SETTINGS
+==================================================
+
+Settings should clearly show:
+
+Active Repository
+Launch Source
+
+Examples:
+
+Active Repository:
+TestEmployee
+
+Source:
+Laserfiche Web Client
+
+or:
+
+Source:
+Laserfiche Desktop Client
+
+The Default Repository remains only a fallback for direct access.
+
+==================================================
+14. SECURITY
+==================================================
+
+Never pass:
+
+username
+password
+Bearer token
+Laserfiche access token
+
+from Laserfiche Web Client to Dashboard through the URL.
+
+Only non-sensitive launch context may be passed:
+
+repository
+source
+
+Credentials must be entered into the Dashboard Login page via POST.
+
+==================================================
+15. DO NOT IMPLEMENT AUTOMATIC SSO YET
+==================================================
+
+For this task, do NOT attempt to steal, reuse, extract, forward, or inspect the Laserfiche Web Client user's authentication token/cookie.
+
+Do not expose Laserfiche session cookies.
+
+Do not copy bearer tokens from the Web Client.
+
+The initial supported flow is:
+
+Web Client
+→ Dashboard button
+→ Login page
+→ repository credentials
+→ Dashboard
+
+SSO can be evaluated separately later if there is an officially supported safe mechanism.
+
+==================================================
+16. REQUIRED TESTS
+==================================================
+
+TEST A — WEB CLIENT / TESTEMPLOYEE
+
+Open Laserfiche Web Client.
+
+Enter repository:
+
+TestEmployee
+
+Click Dashboard.
+
+Expected:
+
+Dashboard opens
+→ Login page
+
+Repository:
+TestEmployee
+
+Source:
+Web Client
+
+Login successfully.
+
+Expected:
+
+Dashboard displays TestEmployee data.
+
+==================================================
+
+TEST B — WEB CLIENT / LFNEWREPOWF
+
+Switch Web Client to:
+
+LFNewRepoWF
+
+Click Dashboard.
+
+Expected:
+
+Repository:
+LFNewRepoWF
+
+Source:
+Web Client
+
+After login:
+
+LFNewRepoWF Dashboard data appears.
+
+==================================================
+
+TEST C — DESKTOP REGRESSION
+
+Open Laserfiche Desktop Client.
+
+Repository:
+TestEmployee
+
+Click Dashboard.
+
+Expected:
+
+Native WebView2 popup still works.
+
+Source:
+Desktop
+
+Desktop integration must not be broken by the Web Client work.
+
+==================================================
+17. IMPLEMENTATION ORDER
+==================================================
+
+Do this in this order:
+
+1. Finish the current Desktop Login Flow task first.
+2. Build and verify it.
+3. Audit existing Web Client customization.
+4. Report how the active repository can be obtained.
+5. Implement the Web Client Dashboard button.
+6. Pass repository + source to the existing Dashboard application.
+7. Reuse the Login/session authentication architecture.
+8. Test Web Client repository switching.
+9. Regression-test Desktop Client.
+10. Build with 0 errors and 0 warnings.
+
+==================================================
+18. COMPLETION REPORT
+==================================================
+
+At completion report:
+
+1. Which Laserfiche Web Client files were modified.
+2. Where the Dashboard button was added.
+3. How the Web Client determines the active repository.
+4. Exact URL/context passed to Dashboard.
+5. How Web Client vs Desktop Client source is stored.
+6. How Login is shared between Desktop and Web Client.
+7. How repository isolation is enforced.
+8. Whether Dashboard opens as popup or new tab and why.
+9. Desktop Client regression result.
+10. Build result.
+
+Do not start Phase 6.

@@ -18,3 +18,4 @@
 - [Desktop extension confirmed net48](desktop-extension-net48.md) — ADR-003 finalized: net48, SDK 10.4 ClientAutomation.dll, external-EXE button pattern; project excluded from LFPortal.sln.
 - [Phase 5 dynamic repository context](phase5-dynamic-repo-context.md) — %(DatabaseName) token → ?repository= URL → session middleware → SessionAwareRepositoryContext singleton; Settings shows source badge.
 - [Phase 5 WebView2 popup](phase5-webview2-popup.md) — DashboardWindow with isolated user-data folder per click; why browser was replaced; %(DatabaseName) confirmed correct.
+- [LFPortal session auth](lfportal-session-auth.md) — Desktop Client login flow: session keys, credential stack, guard middleware, TryAuthenticateAsync, Change Account.

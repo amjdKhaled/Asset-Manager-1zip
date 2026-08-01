@@ -87,19 +87,22 @@ public static class ServiceCollectionExtensions
     // ──────────────────────────── Private helpers ─────────────────────────────
 
     /// <summary>
-    /// Registers a <see cref="CredentialChainProvider"/> that always tries the
-    /// secure writable store first (DPAPI on Windows, ASP.NET Core Data Protection
-    /// on non-Windows), then falls back to environment variables for reads.
-    /// Environment variables are never used as the write target — they are always
-    /// a read-only fallback so that dev machines can still override without a UI.
-    /// The <c>CredentialProvider</c> option has no effect on this behaviour; it is
-    /// retained for future extension (e.g. Azure Key Vault).
+    /// Registers a three-layer credential stack:
+    /// <list type="number">
+    ///   <item><b>Session credentials</b> — established by the Desktop Client Login page
+    ///     (<see cref="SessionCredentialStore"/>).</item>
+    ///   <item><b>Disk store</b> — DPAPI (Windows) or Data Protection (non-Windows).</item>
+    ///   <item><b>Environment variables</b> — read-only fallback for dev machines.</item>
+    /// </list>
+    /// The outer <see cref="SessionAwareCredentialProvider"/> is registered as
+    /// <see cref="ICredentialProvider"/> so the token service always checks the session first.
+    /// Writes (Settings page) always go to the disk store and are not session-scoped.
     /// </summary>
     private static void RegisterCredentialProvider(IServiceCollection services)
     {
-        services.AddSingleton<ICredentialProvider>(sp =>
+        // ── Disk chain: writable secure store + read-only env-var fallback ────
+        services.AddSingleton<CredentialChainProvider>(sp =>
         {
-            // Always build the chain: writable secure store + read-only env-var fallback.
             ICredentialProvider primary = OperatingSystem.IsWindows()
                 ? ActivatorUtilities.CreateInstance<DpapiCredentialProvider>(sp)
                 : ActivatorUtilities.CreateInstance<DataProtectionCredentialProvider>(sp);
@@ -109,6 +112,15 @@ public static class ServiceCollectionExtensions
 
             return new CredentialChainProvider(primary, fallback, logger);
         });
+
+        // ── Session credential store — singleton; safe because it uses IHttpContextAccessor ──
+        services.AddSingleton<ISessionCredentialStore, SessionCredentialStore>();
+
+        // ── Composite provider: session-first, disk-chain fallback ────────────
+        services.AddSingleton<ICredentialProvider>(sp => new SessionAwareCredentialProvider(
+            sp.GetRequiredService<ISessionCredentialStore>(),
+            sp.GetRequiredService<CredentialChainProvider>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SessionAwareCredentialProvider>>()));
     }
 
     /// <summary>

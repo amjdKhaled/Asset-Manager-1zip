@@ -106,6 +106,52 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
+    public async Task<bool> TryAuthenticateAsync(
+        RepositoryDescriptor repository,
+        string username,
+        string password,
+        CancellationToken cancellationToken = default)
+    {
+        var tokenUrl = _adapter.BuildTokenUrl(repository.RepositoryId);
+
+        // Log the attempt WITHOUT logging the password.
+        _logger.LogInformation(
+            "→ POST {TokenUrl} (login attempt for repository {RepoId}, user {Username})",
+            tokenUrl,
+            repository.RepositoryId,
+            username);
+
+        try
+        {
+            var tokenResponse = await RequestTokenAsync(tokenUrl, username, password, cancellationToken)
+                .ConfigureAwait(false);
+
+            // Warm the token cache so subsequent GetTokenAsync calls skip re-authentication.
+            var cacheKey      = $"{CacheKeyPrefix}{repository.Key}";
+            var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
+            _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
+
+            _logger.LogInformation(
+                "Login succeeded for repository {RepoId}. Token cached for {CacheSeconds}s.",
+                repository.RepositoryId,
+                expirySeconds);
+
+            return true;
+        }
+        catch (Domain.Exceptions.LaserficheException ex)
+            when (ex.StatusCode is >= 400 and < 500)
+        {
+            // Credential or repository error — return false; do not propagate.
+            _logger.LogInformation(
+                "Login failed for repository {RepoId}: HTTP {StatusCode}.",
+                repository.RepositoryId,
+                ex.StatusCode);
+            return false;
+        }
+        // Network failures and 5xx errors propagate to the caller.
+    }
+
     /// <summary>
     /// Posts a password-grant token request to the Laserfiche <c>/Token</c> endpoint
     /// and deserialises the response.

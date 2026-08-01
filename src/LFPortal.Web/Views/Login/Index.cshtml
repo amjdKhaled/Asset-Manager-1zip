@@ -1,0 +1,243 @@
+@model LFPortal.Web.Controllers.LoginViewModel
+@{
+    Layout = null;   // Standalone page — no nav/header shell
+    ViewData["Title"] = "Sign In";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>Sign In — Dashboard</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --lfp-navy:   #1a2744;
+            --lfp-blue:   #1e3a8a;
+            --lfp-accent: #3b82f6;
+            --lfp-red:    #dc2626;
+            --lfp-bg:     #f0f4fa;
+            --lfp-card:   #ffffff;
+            --lfp-border: #d1d9e6;
+            --lfp-text:   #1e293b;
+            --lfp-muted:  #64748b;
+            --radius:     8px;
+            --shadow:     0 4px 24px rgba(26,39,68,.18), 0 1px 4px rgba(26,39,68,.08);
+        }
+
+        body {
+            font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, var(--lfp-navy) 0%, #0f1e42 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        /* ── Login card ── */
+        .login-card {
+            background: var(--lfp-card);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            width: 100%;
+            max-width: 400px;
+            overflow: hidden;
+        }
+
+        .login-header {
+            background: var(--lfp-navy);
+            padding: 28px 32px 24px;
+            text-align: center;
+        }
+        .login-header__logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: .02em;
+        }
+        .login-header__logo span { color: var(--lfp-accent); }
+        .login-header__subtitle {
+            margin-top: 6px;
+            font-size: .875rem;
+            color: rgba(255,255,255,.65);
+            font-weight: 400;
+        }
+
+        .login-body { padding: 28px 32px 32px; }
+
+        /* ── Repository badge ── */
+        .repo-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 6px;
+            padding: 10px 14px;
+            margin-bottom: 24px;
+        }
+        .repo-row__icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--lfp-accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: .9rem;
+        }
+        .repo-row__label {
+            font-size: .6875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--lfp-muted);
+            line-height: 1.2;
+        }
+        .repo-row__name {
+            font-size: .9375rem;
+            font-weight: 600;
+            color: var(--lfp-navy);
+            line-height: 1.3;
+            word-break: break-word;
+        }
+
+        /* ── Form fields ── */
+        .field { margin-bottom: 18px; }
+        .field label {
+            display: block;
+            font-size: .8125rem;
+            font-weight: 600;
+            color: var(--lfp-text);
+            margin-bottom: 6px;
+        }
+        .field input {
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid var(--lfp-border);
+            border-radius: 6px;
+            font-size: .9375rem;
+            color: var(--lfp-text);
+            background: #fff;
+            transition: border-color .15s, box-shadow .15s;
+            outline: none;
+        }
+        .field input:focus {
+            border-color: var(--lfp-accent);
+            box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+        }
+        .field input::placeholder { color: #a0aec0; }
+
+        /* ── Error message ── */
+        .login-error {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            padding: 10px 14px;
+            margin-bottom: 18px;
+            font-size: .875rem;
+            color: var(--lfp-red);
+            font-weight: 500;
+        }
+        .login-error__icon { flex-shrink: 0; margin-top: 1px; }
+
+        /* ── Validation error ── */
+        .field-error {
+            font-size: .8125rem;
+            color: var(--lfp-red);
+            margin-top: 4px;
+        }
+
+        /* ── Sign-in button ── */
+        .btn-signin {
+            width: 100%;
+            padding: 11px 16px;
+            background: var(--lfp-accent);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: .9375rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background .15s, opacity .15s;
+            margin-top: 4px;
+        }
+        .btn-signin:hover  { background: #2563eb; }
+        .btn-signin:active { opacity: .9; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+
+        <div class="login-header">
+            <div class="login-header__logo"><span>LF</span>Dashboard</div>
+            <div class="login-header__subtitle">Sign in to Laserfiche</div>
+        </div>
+
+        <div class="login-body">
+
+            @* ── Active repository (read-only) ── *@
+            <div class="repo-row" aria-label="Active repository: @Model.ActiveRepository">
+                <div class="repo-row__icon">&#128193;</div>
+                <div>
+                    <div class="repo-row__label">Repository</div>
+                    <div class="repo-row__name">@Model.ActiveRepository</div>
+                </div>
+            </div>
+
+            @* ── Error banner ── *@
+            @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+            {
+                <div class="login-error" role="alert">
+                    <span class="login-error__icon">&#9888;&#65039;</span>
+                    <span>@Model.ErrorMessage</span>
+                </div>
+            }
+
+            @* ── Credentials form ── *@
+            <form method="post" asp-controller="Login" asp-action="Index" novalidate>
+                @Html.AntiForgeryToken()
+
+                <div class="field">
+                    <label for="Username">Username</label>
+                    <input type="text"
+                           id="Username"
+                           name="Username"
+                           autocomplete="username"
+                           placeholder="e.g. ADMIN"
+                           value="@Html.Encode(Model.SubmittedUsername)"
+                           required />
+                    @if (ViewData.ModelState["Username"]?.Errors.Count > 0)
+                    {
+                        <div class="field-error">
+                            @ViewData.ModelState["Username"]!.Errors[0].ErrorMessage
+                        </div>
+                    }
+                </div>
+
+                <div class="field">
+                    <label for="Password">Password <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
+                    <input type="password"
+                           id="Password"
+                           name="Password"
+                           autocomplete="current-password"
+                           placeholder="Leave blank if no password" />
+                    @*  Password is intentionally NOT marked required.
+                        Some Laserfiche accounts have an empty password.
+                        No client-side required validation is added here. *@
+                </div>
+
+                <button type="submit" class="btn-signin">Sign In</button>
+            </form>
+
+        </div>
+    </div>
+</body>
+</html>

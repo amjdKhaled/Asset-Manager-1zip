@@ -37,4 +37,34 @@ public interface ILaserficheAuthService
     /// </summary>
     /// <param name="repository">The repository whose cached token should be discarded.</param>
     Task InvalidateTokenAsync(RepositoryDescriptor repository);
+
+    /// <summary>
+    /// Attempts to authenticate against the specified repository using the supplied
+    /// credentials without consulting <see cref="ICredentialProvider"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// On success the acquired Bearer token is written to the memory cache under the same
+    /// key used by <see cref="GetTokenAsync"/>, so subsequent domain-service calls will
+    /// find a warm cache without prompting for credentials again.
+    /// </para>
+    /// <para>
+    /// Returns <c>false</c> for credential failures (HTTP 4xx).
+    /// Infrastructure errors (network failures, HTTP 5xx) are propagated as exceptions.
+    /// The password is never logged.
+    /// </para>
+    /// </remarks>
+    /// <param name="repository">The repository to authenticate against.</param>
+    /// <param name="username">Laserfiche username.</param>
+    /// <param name="password">Plain-text password (may be an empty string).</param>
+    /// <param name="cancellationToken">Propagated cancellation token.</param>
+    /// <returns>
+    /// <c>true</c> when the Laserfiche API accepted the credentials;
+    /// <c>false</c> when it rejected them.
+    /// </returns>
+    Task<bool> TryAuthenticateAsync(
+        RepositoryDescriptor repository,
+        string username,
+        string password,
+        CancellationToken cancellationToken = default);
 }
