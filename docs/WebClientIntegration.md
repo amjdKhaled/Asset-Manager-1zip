@@ -1,142 +1,170 @@
-# Laserfiche Web Client Integration
+# Laserfiche Web Client Integration — Deployment Guide
 
-This document describes how to add the **Dashboard button** to the Laserfiche Web Client so users can open the Analytics Dashboard directly from the Web Client toolbar.
+**Confirmed installation details:**
+- Web Client type: Laserfiche Web Access (on-premises, AngularJS, non-CloudMode)
+- Physical path: `C:\Program Files\Laserfiche\Web Access\Web Files\`
+- Web Client URL: `https://localhost/laserfiche/Browse.aspx`
+- Dashboard URL: `http://localhost:5000`
 
 ---
 
 ## How it works
 
 ```
-Laserfiche Web Client
-       ↓  click Dashboard button
-lf-webclient-button.js (running inside Web Client page)
-       ↓  detects active repository from page context
+User is inside TestEmployee in Laserfiche Web Client
+       ↓  click Dashboard button (injected into rightNavbar)
+lf-dashboard-button.js reads:
+   document.getElementById('WebAccessRepositoryName').value  → "TestEmployee"
        ↓  opens new browser tab
-Dashboard URL: https://dashboard.corp.local/?repository=TestEmployee&source=webclient
+http://localhost:5000/?repository=TestEmployee&source=webclient
        ↓
 RepositorySessionMiddleware stores repository + source in session
        ↓
-SessionAuthGuardMiddleware redirects to /Login (session not yet authenticated)
+SessionAuthGuardMiddleware → redirects to /Login (not yet authenticated)
        ↓
-User enters Laserfiche username + password (password may be empty)
+User enters Laserfiche username + password on Dashboard Login page
        ↓
-Dashboard
+Dashboard shows TestEmployee data
 ```
 
-No credentials, tokens, or cookies are passed from the Web Client to the Dashboard. Only the repository name and the source identifier `webclient` travel through the URL.
+---
+
+## Deployment steps
+
+### Step 1 — Copy the button script to the Web Client
+
+Open Command Prompt as Administrator and run:
+
+```
+copy /Y "C:\path\to\Dashboard\wwwroot\js\lf-webclient-button.js" "C:\Program Files\Laserfiche\Web Access\Web Files\assets\custom\lf-dashboard-button.js"
+```
+
+Or manually copy the file — the **destination** must be exactly:
+```
+C:\Program Files\Laserfiche\Web Access\Web Files\assets\custom\lf-dashboard-button.js
+```
+
+> The `assets\custom\` folder already exists — Laserfiche Web Access loads
+> `browse-custom.css` from it, confirming it is the official on-premises
+> customization directory.
 
 ---
 
-## Files
+### Step 2 — Add one line to Browse.aspx
 
-| File | Purpose |
-|---|---|
-| `src/LFPortal.Web/wwwroot/js/lf-webclient-button.js` | Self-contained button script to deploy on the Web Client server |
-| `src/LFPortal.Web/Middleware/RepositorySessionMiddleware.cs` | Reads `?repository=` and `?source=` from the URL |
-| `src/LFPortal.Web/Middleware/SessionAuthGuardMiddleware.cs` | Enforces login before access for Web Client sessions |
+Open `C:\Program Files\Laserfiche\Web Access\Web Files\Browse.aspx` in a
+text editor **as Administrator** (e.g. Notepad run as Administrator).
+
+Find this block (around line 37):
+
+```aspx
+    <% if (!CloudMode) { %>
+    <link rel="stylesheet" href="assets/custom/browse-custom.css" />
+    <% } %>
+```
+
+Change it to:
+
+```aspx
+    <% if (!CloudMode) { %>
+    <link rel="stylesheet" href="assets/custom/browse-custom.css" />
+    <script src="assets/custom/lf-dashboard-button.js"></script>
+    <% } %>
+```
+
+That is the **only** change to Browse.aspx. Save the file.
 
 ---
 
-## Installation
+### Step 3 — Confirm the Dashboard URL in the script
 
-### Step 1 — Configure the Dashboard URL in the script
-
-Open `lf-webclient-button.js` and set the `DASHBOARD_BASE_URL` constant at the top of the file:
+Open `lf-dashboard-button.js` in the `assets\custom\` folder and verify the
+top of the file shows:
 
 ```javascript
-var DASHBOARD_BASE_URL = 'https://dashboard.corp.local:5000';
+var DASHBOARD_BASE_URL = 'http://localhost:5000';
 ```
 
-Use the URL that users' browsers can reach — it does **not** need to be on the same server as the Web Client.
+If the Dashboard is on a **different server or port**, change this value to
+match. The URL must be reachable from the user's browser (not from the IIS
+server itself).
 
-### Step 2 — Copy the script to your Web Client server
+---
 
-The file must be served from the Laserfiche Web Client web application so it can run in the browser alongside the Web Client pages.
+### Step 4 — No IIS restart required
 
-#### Classic Laserfiche Web Access (10.x / 11.x)
+Because `Browse.aspx` is an ASP.NET page (not a compiled DLL) and the JS
+file is a static asset, a browser reload is sufficient. IIS does not need
+to be restarted.
 
-1. Locate your Laserfiche Web Access installation directory (typically `C:\Program Files\Laserfiche\Web Access\`).
-2. Copy `lf-webclient-button.js` into the directory.
-3. Open `Browse.aspx` (or your custom version) in a text editor.
-4. Add a script reference before the closing `</body>` tag:
+---
+
+## Verification
+
+1. Open the Laserfiche Web Client: `https://localhost/laserfiche/Browse.aspx`
+2. Log in and open repository **TestEmployee**.
+3. Open browser DevTools (F12) → Console. You should see:
+   ```
+   [LFDashboard] Dashboard button injected into rightNavbar.
+   ```
+4. A **Dashboard** button (bar-chart icon) should appear in the top navbar,
+   to the left of the repository picker.
+5. Click it. A new tab opens:
+   ```
+   http://localhost:5000/?repository=TestEmployee&source=webclient
+   ```
+6. The Dashboard Login page appears with "TestEmployee" shown read-only.
+7. Enter your Laserfiche credentials and click **Sign In**.
+8. Dashboard loads showing TestEmployee data.
+
+Repeat with **LFNewRepoWF** to confirm repository switching works.
+
+---
+
+## Repository detection — how it works
+
+The script reads the server-rendered hidden field that Browse.aspx always
+emits:
 
 ```html
-<script src="lf-webclient-button.js"></script>
+<input type="hidden" id="WebAccessRepositoryName" value="TestEmployee"/>
 ```
 
-#### Laserfiche Web Client (12.x / Cloud)
-
-Consult Laserfiche documentation for your version's custom JavaScript injection mechanism. The file is a plain self-contained IIFE and has no dependencies.
-
-### Step 3 — Identify the toolbar selector for your version
-
-The script tries a list of common Laserfiche Web Client toolbar CSS selectors. If the button does not appear:
-
-1. Open the Web Client in your browser.
-2. Open Developer Tools (F12) → Elements panel.
-3. Locate the toolbar element that holds other buttons.
-4. Copy its CSS selector.
-5. Add it to the `selectors` array in the `findToolbar()` function in `lf-webclient-button.js`.
-
-### Step 4 — Test
-
-1. Open the Laserfiche Web Client and navigate to a repository (e.g. **TestEmployee**).
-2. The **Dashboard** button should appear in the toolbar.
-3. Click it — a new browser tab opens at:
-   ```
-   https://dashboard.corp.local:5000/?repository=TestEmployee&source=webclient
-   ```
-4. The Dashboard Login page appears with the repository name shown read-only.
-5. Enter your Laserfiche username and password (password may be empty) and click **Sign In**.
-6. The Dashboard loads showing data for **TestEmployee**.
+This is set by the ASP.NET code-behind (`RepositoryName` property) before
+Angular boots, so it is always present and always correct — regardless of
+URL format, navigation state, or Angular routing. No URL parsing is
+involved as the primary mechanism.
 
 ---
 
-## Repository detection — how the script finds the active repository
+## Troubleshooting
 
-The script tries the following strategies in order, stopping at the first success:
-
-| Priority | Strategy | Description |
+| Symptom | Cause | Fix |
 |---|---|---|
-| 1 | URL query parameter | `?repo=`, `?repository=`, `?db=`, `?RepoID=` in the page URL |
-| 2 | URL hash parameter | Same parameters in the hash fragment (SPA routing) |
-| 3 | URL path segment | `/repository/<Name>/` or `/repo/<Name>/` in the path |
-| 4 | Laserfiche JS globals | `LaserficheWebClient.repository`, `Laserfiche.app.repositoryId`, `LFRepositoryName` |
-| 5 | DOM elements | Known CSS selectors / `data-repository` attributes in the rendered page |
-
-If no strategy succeeds the user sees a prompt asking them to navigate into a repository first.
+| Button does not appear | `rightNavbar` not found | Check browser console for `[LFDashboard]` warning; confirm the Browse.aspx `<script>` tag was saved |
+| "Could not detect repository" alert | `WebAccessRepositoryName` field missing | Verify you are logged in and viewing a repository, not the login page |
+| New tab opens but redirected to wrong repo | Old session in Dashboard | Click Change Account in Dashboard to clear the session |
+| `http://localhost:5000` refused to connect | Dashboard not running | Start the Dashboard with `dotnet run --project src/LFPortal.Web/LFPortal.Web.csproj --urls http://0.0.0.0:5000` |
+| Mixed content warning in browser | Web Client is HTTPS, Dashboard is HTTP | Either run Dashboard behind HTTPS or use the browser exception for localhost |
 
 ---
 
-## Session isolation
+## Required tests
 
-A login to **TestEmployee** does **not** authenticate **LFNewRepoWF**.
+**TEST A — Web Client / TestEmployee**
+1. Open Web Client → log in → navigate to TestEmployee
+2. Click Dashboard button
+3. Expected: Login page with "Repository: TestEmployee", "Source: WEB CLIENT"
+4. Sign in → Dashboard shows TestEmployee data ✓
 
-The guard compares `AuthenticatedRepositoryId` (set on successful login) with `ActiveRepositoryId` (set from `?repository=`). When a user opens the Dashboard for a different repository, the guard redirects to `/Login` for that repository.
+**TEST B — Web Client / LFNewRepoWF**
+1. Switch Web Client to LFNewRepoWF (use repository picker)
+2. Click Dashboard button
+3. Expected: Login page with "Repository: LFNewRepoWF"
+4. Sign in → Dashboard shows LFNewRepoWF data ✓
 
----
-
-## Launch source badge
-
-When the Dashboard is opened from the Web Client, the header shows a green **WEB CLIENT** badge:
-
-```
-LFDashboard  [● TestEmployee  WEB CLIENT]   Dashboard  Archive  Settings  Change Account
-```
-
-Compare with a Desktop Client launch (blue **DESKTOP** badge) and direct browser access (no badge).
-
----
-
-## Change Account
-
-The **Change Account** link in the Dashboard header clears the session authentication and redirects to `/Login`, keeping the active repository and source. The user must re-enter their Laserfiche credentials without leaving the Dashboard.
-
----
-
-## Security notes
-
-- Only `?repository=` and `?source=webclient` travel through the URL — non-sensitive metadata only.
-- Credentials are entered on the Dashboard Login page via HTTPS POST.
-- No Laserfiche Web Client session cookies are accessed, copied, or forwarded.
-- The SSO path (reusing the Web Client's existing Laserfiche token) is deliberately **not** implemented. SSO can be evaluated later against an officially supported mechanism.
+**TEST C — Desktop Client regression**
+1. Open Laserfiche Desktop Client → TestEmployee
+2. Click Dashboard toolbar button (existing Desktop Extension)
+3. Expected: WebView2 popup → Login page with "Source: DESKTOP"
+4. Sign in → Dashboard works as before ✓

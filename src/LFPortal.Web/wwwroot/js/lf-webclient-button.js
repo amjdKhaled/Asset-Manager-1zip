@@ -1,33 +1,30 @@
 /**
- * lf-webclient-button.js
+ * lf-webclient-button.js  (deploy as: lf-dashboard-button.js)
  * ──────────────────────────────────────────────────────────────────────────
- * Laserfiche Web Client customization script that adds a "Dashboard" button
- * to the Web Client toolbar.
+ * Adds a Dashboard button to the Laserfiche Web Access (Browse.aspx) toolbar.
  *
- * INSTALLATION
- * ─────────────
- * 1. Copy this file to your Laserfiche Web Client customization directory.
- *    Classic Web Access: place it in your custom JavaScript include location
- *    (e.g. CustomJs.js, or referenced from Browse.aspx).
- * 2. Set DASHBOARD_BASE_URL (below) to the URL of your Dashboard application,
- *    e.g. "https://dashboard.corp.local" or "https://dashboard.corp.local:5000".
- * 3. Reload the Laserfiche Web Client.
+ * CONFIRMED for: Laserfiche Web Access on-premises (non-CloudMode, AngularJS)
+ * Physical install: C:\Program Files\Laserfiche\Web Access\Web Files\
  *
- * HOW IT WORKS
+ * HOW TO DEPLOY
  * ─────────────
- * When the button is clicked the script:
- *  1. Detects the active repository using multiple strategies (URL params,
- *     path segments, Laserfiche JS globals, DOM text).
- *  2. Opens the Dashboard application in a new browser tab with:
- *        ?repository=<repositoryName>&source=webclient
- *  3. The Dashboard RepositorySessionMiddleware reads these parameters and
- *     stores the repository + source in the ASP.NET Core session, then the
- *     auth guard redirects to /Login if the session is not yet authenticated.
+ * 1. Set DASHBOARD_BASE_URL below to the URL users use to reach the Dashboard.
+ * 2. Copy THIS FILE to:
+ *      C:\Program Files\Laserfiche\Web Access\Web Files\assets\custom\lf-dashboard-button.js
+ * 3. Add ONE LINE to Browse.aspx right after the browse-custom.css include
+ *    (see deployment instructions in docs/WebClientIntegration.md).
+ *
+ * REPOSITORY DETECTION
+ * ─────────────────────
+ * Uses the server-rendered hidden input:
+ *   <input type="hidden" id="WebAccessRepositoryName" value="TestEmployee"/>
+ * This is set by the ASP.NET code-behind before Angular boots — it is always
+ * present and always correct. URL parameter parsing is a fallback only.
  *
  * SECURITY
  * ─────────
  * Only the repository name and the literal string "webclient" are sent via
- * the URL — no credentials, tokens, or session cookies.
+ * the URL. No credentials, tokens, or session cookies leave the Web Client.
  * ──────────────────────────────────────────────────────────────────────────
  */
 
@@ -35,113 +32,41 @@
     'use strict';
 
     // ── CONFIGURATION ────────────────────────────────────────────────────
-    // Set this to the base URL of your Dashboard application.
-    // No trailing slash. Protocol + host (+ optional port) only.
-    // Example: "https://dashboard.corp.local:5000"
-    var DASHBOARD_BASE_URL = '';
+    // The base URL of the Dashboard application.
+    // No trailing slash. Example: "http://localhost:5000"
+    var DASHBOARD_BASE_URL = 'http://localhost:5000';
 
-    // Display label on the button
-    var BUTTON_LABEL = 'Dashboard';
-
-    // Tooltip shown on hover
-    var BUTTON_TITLE = 'Open Laserfiche Analytics Dashboard';
-
-    // CSS class added to the injected button element (for custom styling)
-    var BUTTON_CSS_CLASS = 'lf-dashboard-btn';
-
-    // How often (ms) to retry finding the toolbar while the SPA loads
-    var POLL_INTERVAL_MS = 500;
-
-    // How long (ms) to keep retrying before giving up
-    var POLL_TIMEOUT_MS = 15000;
+    // How long (ms) to keep polling for the rightNavbar before giving up.
+    var POLL_TIMEOUT_MS = 12000;
     // ─────────────────────────────────────────────────────────────────────
 
     /**
-     * Detects the active Laserfiche repository name from the current page.
-     * Tries multiple strategies in order; returns null if none succeed.
+     * Returns the active Laserfiche repository name.
      *
-     * @returns {string|null} Repository name, or null if it cannot be determined.
+     * PRIMARY: reads the server-rendered hidden input that Browse.aspx
+     * always emits:
+     *   <input type="hidden" id="WebAccessRepositoryName" value="..." />
+     *
+     * FALLBACK: URL query parameters (?repo= or ?db=) for edge cases where
+     * the page context is read before the hidden field is available.
+     *
+     * @returns {string|null}
      */
-    function detectRepository() {
-        // ── Strategy 1: URL query parameters ─────────────────────────────
-        // Classic Web Access appends ?repo=Name or ?repository=Name.
+    function getRepository() {
+        // Primary — server-rendered; always present and correct once the
+        // ASP.NET page has rendered.
+        var el = document.getElementById('WebAccessRepositoryName');
+        if (el && el.value && el.value.length > 0) {
+            return el.value;
+        }
+
+        // Fallback — URL query string (Browse.aspx uses ?repo= in some
+        // configurations and ?db= in others per the official docs).
         try {
             var params = new URLSearchParams(window.location.search);
-            var fromQuery = params.get('repo') ||
-                            params.get('repository') ||
-                            params.get('db') ||
-                            params.get('RepoID');
+            var fromQuery = params.get('repo') || params.get('db') || params.get('repository');
             if (fromQuery && fromQuery.length > 0) return fromQuery;
-        } catch (e) { /* continue */ }
-
-        // ── Strategy 2: Hash-based routing ───────────────────────────────
-        // Newer Laserfiche Web App uses SPA-style hash routing, e.g.
-        //   #!/Documents?repo=TestEmployee
-        try {
-            var hash = window.location.hash || '';
-            var hashQuery = hash.replace(/^#\/?[^?]*/, '');
-            if (hashQuery.length > 1) {
-                var hashParams = new URLSearchParams(hashQuery);
-                var fromHash = hashParams.get('repo') ||
-                               hashParams.get('repository') ||
-                               hashParams.get('db');
-                if (fromHash && fromHash.length > 0) return fromHash;
-            }
-        } catch (e) { /* continue */ }
-
-        // ── Strategy 3: URL path segment /repository/Name/ ───────────────
-        // Some Laserfiche configurations embed the repo in the path.
-        try {
-            var pathMatch = window.location.pathname.match(
-                /\/(?:repo(?:sitory)?|db)\/([^\/\?#]+)/i
-            );
-            if (pathMatch && pathMatch[1]) return decodeURIComponent(pathMatch[1]);
-        } catch (e) { /* continue */ }
-
-        // ── Strategy 4: Laserfiche JavaScript globals ─────────────────────
-        // The Laserfiche Web App exposes repository information through
-        // various global objects depending on the version installed.
-        try {
-            // Laserfiche 10.x / 11.x Web Access
-            if (window.LaserficheWebClient && window.LaserficheWebClient.repository) {
-                return window.LaserficheWebClient.repository;
-            }
-            // Laserfiche Cloud / newer Web App
-            if (window.Laserfiche && window.Laserfiche.app && window.Laserfiche.app.repositoryId) {
-                return window.Laserfiche.app.repositoryId;
-            }
-            // Some versions expose it on the document
-            if (typeof LFRepositoryName !== 'undefined' && LFRepositoryName) {
-                return LFRepositoryName;
-            }
-            if (typeof repositoryName !== 'undefined' && repositoryName) {
-                return repositoryName;
-            }
-        } catch (e) { /* continue */ }
-
-        // ── Strategy 5: Angular / Ember / React app state ─────────────────
-        // Last-resort: look for a data attribute or text element that holds
-        // the repository name in the rendered DOM.  Selectors here are best
-        // guesses for Laserfiche 10.3+ Web App; adjust for your environment.
-        try {
-            var candidates = [
-                '[data-repository]',
-                '[data-repo]',
-                '#repositoryName',
-                '.lf-repository-name',
-                '.repo-name',
-                'span[ng-bind="vm.repoDisplayName"]',
-            ];
-            for (var i = 0; i < candidates.length; i++) {
-                var el = document.querySelector(candidates[i]);
-                if (el) {
-                    var val = (el.getAttribute('data-repository') ||
-                               el.getAttribute('data-repo') ||
-                               el.textContent || '').trim();
-                    if (val.length > 0) return val;
-                }
-            }
-        } catch (e) { /* continue */ }
+        } catch (e) { /* URLSearchParams not available — very old browser */ }
 
         return null;
     }
@@ -149,34 +74,34 @@
     /**
      * Builds the Dashboard URL for the given repository.
      *
-     * @param {string} repository  Repository name (already validated non-empty).
-     * @returns {string}           Full URL including query parameters.
+     * @param {string} repo  Validated non-empty repository name.
+     * @returns {string}     Full URL including query parameters.
      */
-    function buildDashboardUrl(repository) {
-        var base = DASHBOARD_BASE_URL.replace(/\/+$/, '');
-        return base +
-               '/?repository=' + encodeURIComponent(repository) +
+    function buildDashboardUrl(repo) {
+        return DASHBOARD_BASE_URL.replace(/\/+$/, '') +
+               '/?repository=' + encodeURIComponent(repo) +
                '&source=webclient';
     }
 
     /**
-     * Handles the Dashboard button click.
-     * Detects the repository, builds the URL, and opens Dashboard in a new tab.
+     * Click handler — reads the repository at click-time (not at inject-time)
+     * so that repository switches within the same session are captured.
      */
-    function onButtonClick() {
+    function onDashboardClick() {
         if (!DASHBOARD_BASE_URL) {
             alert(
                 'Dashboard URL is not configured.\n' +
-                'Set DASHBOARD_BASE_URL in lf-webclient-button.js.'
+                'Set DASHBOARD_BASE_URL in lf-dashboard-button.js.'
             );
             return;
         }
 
-        var repo = detectRepository();
+        var repo = getRepository();
         if (!repo) {
             alert(
                 'Could not detect the active Laserfiche repository.\n\n' +
-                'Please navigate into a repository and try again.'
+                'Please reload the page and try again. If the problem persists,\n' +
+                'check the browser console for lf-dashboard-button.js errors.'
             );
             return;
         }
@@ -186,136 +111,130 @@
     }
 
     /**
-     * Creates and returns the Dashboard button DOM element.
+     * Creates the Dashboard button element, styled to match the existing
+     * Laserfiche Web Access navbar buttons (browseNavButton class).
      *
      * @returns {HTMLButtonElement}
      */
     function createButton() {
         var btn = document.createElement('button');
-        btn.type        = 'button';
-        btn.textContent = BUTTON_LABEL;
-        btn.title       = BUTTON_TITLE;
-        btn.className   = BUTTON_CSS_CLASS;
+        btn.type      = 'button';
+        btn.id        = 'lf-dashboard-btn';
+        btn.title     = 'Open Analytics Dashboard';
+        btn.className = 'btn browseNavButton lf-dashboard-btn';
 
-        // Inline styles keep the button self-contained — no separate CSS file
-        // required for a minimal install.  Override via .lf-dashboard-btn in
-        // your own stylesheet if you prefer.
+        // Inline overrides — keep the button visually consistent with the
+        // Laserfiche navbar without requiring a separate CSS rule.
         btn.style.cssText = [
             'display:inline-flex',
             'align-items:center',
-            'gap:6px',
-            'padding:5px 12px',
-            'background:#1e3a8a',
-            'color:#fff',
+            'gap:5px',
+            'padding:6px 10px',
+            'color:#ffffff',
+            'background:transparent',
             'border:none',
-            'border-radius:4px',
-            'font-size:13px',
-            'font-weight:600',
+            'font-size:14px',
+            'font-weight:500',
             'cursor:pointer',
             'white-space:nowrap',
             'font-family:inherit',
-            'line-height:1.4',
+            'line-height:1',
+            'border-radius:4px',
             'transition:background .15s',
         ].join(';');
 
         btn.addEventListener('mouseover', function () {
-            btn.style.background = '#1d4ed8';
+            btn.style.background = 'rgba(255,255,255,0.15)';
         });
         btn.addEventListener('mouseout', function () {
-            btn.style.background = '#1e3a8a';
+            btn.style.background = 'transparent';
         });
 
-        // Bar-chart icon (inline SVG — no external asset needed)
+        // Bar-chart icon — inline SVG, no external asset dependency.
+        // Uses the same waicon24 sizing class the Web Client uses for toolbar icons.
         var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('width',   '14');
-        svg.setAttribute('height',  '14');
+        svg.setAttribute('width',   '20');
+        svg.setAttribute('height',  '20');
         svg.setAttribute('viewBox', '0 0 24 24');
         svg.setAttribute('fill',    'currentColor');
         svg.setAttribute('aria-hidden', 'true');
+        svg.style.cssText = 'flex-shrink:0;vertical-align:middle;';
         svg.innerHTML =
             '<rect x="2"  y="10" width="4" height="11" rx="1"/>' +
             '<rect x="10" y="4"  width="4" height="17" rx="1"/>' +
             '<rect x="18" y="7"  width="4" height="14" rx="1"/>';
-        btn.insertBefore(svg, btn.firstChild);
+        btn.appendChild(svg);
 
-        btn.addEventListener('click', onButtonClick);
+        var label = document.createElement('span');
+        label.textContent = 'Dashboard';
+        btn.appendChild(label);
+
+        btn.addEventListener('click', onDashboardClick);
         return btn;
     }
 
     /**
-     * Candidate toolbar selectors for various Laserfiche Web Client versions.
-     * The script tries each in order and injects the button into the first match.
-     * Add selectors here when you identify the correct one for your version.
+     * Attempts to inject the Dashboard button into the Web Client toolbar.
      *
-     * @returns {Element|null}
-     */
-    function findToolbar() {
-        var selectors = [
-            // Classic Web Access 10.x toolbar
-            '#lfToolbar',
-            '#toolbar',
-            '.lf-toolbar',
-            '.toolbar',
-            // Laserfiche 11.x / Web App toolbar
-            '[data-id="toolbar"]',
-            '[role="toolbar"]',
-            // Generic fallback areas
-            '#header-toolbar',
-            '.header-toolbar',
-            '#app-toolbar',
-            'nav[aria-label]',
-        ];
-        for (var i = 0; i < selectors.length; i++) {
-            var el = document.querySelector(selectors[i]);
-            if (el) return el;
-        }
-        return null;
-    }
-
-    /**
-     * Tries to inject the Dashboard button into the toolbar.
-     * Returns true on success.
+     * Target: id="rightNavbar" — the right side of the top action bar,
+     * confirmed in Browse.aspx. Holds the repository picker and user menu.
+     * The button is inserted as the FIRST item so it appears to the left of
+     * the repository picker.
      *
-     * @returns {boolean}
+     * @returns {boolean}  true when the button was successfully injected.
      */
-    function tryInjectButton() {
-        // Do not inject more than once
-        if (document.querySelector('.' + BUTTON_CSS_CLASS)) return true;
+    function tryInject() {
+        if (document.getElementById('lf-dashboard-btn')) return true; // already present
 
-        var toolbar = findToolbar();
-        if (!toolbar) return false;
+        var rightNavbar = document.getElementById('rightNavbar');
+        if (!rightNavbar) return false;
 
-        var btn = createButton();
-        toolbar.appendChild(btn);
+        // Wrap in <ul><li> to match the existing .rightNavbar children.
+        var li  = document.createElement('li');
+        li.appendChild(createButton());
+
+        var ul  = document.createElement('ul');
+        ul.className  = 'nav navbar-nav lf-dashboard-nav';
+        ul.style.cssText = 'margin:0;';
+        ul.appendChild(li);
+
+        // Insert before any existing children (repo picker, user menu).
+        rightNavbar.insertBefore(ul, rightNavbar.firstChild);
+
+        console.info('[LFDashboard] Dashboard button injected into rightNavbar.');
         return true;
     }
 
     /**
-     * Entry point — polls for the toolbar until it appears, then injects the button.
-     * Uses polling because Laserfiche Web Client is often a SPA that renders
-     * the toolbar asynchronously after the initial page load.
+     * Entry point.
+     *
+     * Tries immediately; if the Angular-rendered rightNavbar is not yet in
+     * the DOM, polls every 250 ms up to POLL_TIMEOUT_MS.
+     *
+     * Angular finishes rendering the toolbar well within 3-5 seconds on a
+     * typical LAN, so the button appears before the user can click it.
      */
     function init() {
-        // Try immediately first
-        if (tryInjectButton()) return;
+        if (tryInject()) return;
 
-        var elapsed = 0;
+        var elapsed  = 0;
         var interval = setInterval(function () {
-            elapsed += POLL_INTERVAL_MS;
-            if (tryInjectButton() || elapsed >= POLL_TIMEOUT_MS) {
+            elapsed += 250;
+            if (tryInject() || elapsed >= POLL_TIMEOUT_MS) {
                 clearInterval(interval);
-                if (elapsed >= POLL_TIMEOUT_MS && !document.querySelector('.' + BUTTON_CSS_CLASS)) {
+                if (elapsed >= POLL_TIMEOUT_MS && !document.getElementById('lf-dashboard-btn')) {
                     console.warn(
-                        '[LFDashboard] Could not find a Laserfiche Web Client toolbar ' +
-                        'to inject the Dashboard button into after ' + (POLL_TIMEOUT_MS / 1000) + 's. ' +
-                        'Check the toolbar selectors in lf-webclient-button.js.'
+                        '[LFDashboard] Could not inject the Dashboard button: ' +
+                        'id="rightNavbar" was not found after ' + (POLL_TIMEOUT_MS / 1000) + 's. ' +
+                        'Check that Browse.aspx still contains id="rightNavbar".'
                     );
                 }
             }
-        }, POLL_INTERVAL_MS);
+        }, 250);
     }
 
-    // Run after DOM is ready
+    // Run after DOM is ready (Browse.aspx loads the script in the <head>,
+    // so DOMContentLoaded fires before Angular bootstraps the navbar).
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
