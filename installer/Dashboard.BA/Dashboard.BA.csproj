@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+
+  <!--
+    Dashboard.BA.csproj: Managed Bootstrapper Application for the LFDashboard-Setup.exe Bundle.
+
+    This project builds the DLL that WiX Burn loads to show the setup wizard.
+    It must target net48 because:
+      1. WiX Burn's managed BA host requires .NET Framework (not .NET Core/5+).
+      2. The Extension project also targets net48, keeping the toolchain consistent.
+      3. net48 is available on every supported Windows Server version without
+         installing an additional runtime.
+
+    The output (Dashboard.BA.dll) is referenced by Dashboard.Bundle.wixproj
+    via the BAAssembly DefineConstant and embedded in LFDashboard-Setup.exe.
+
+    BUILD: Windows only. Part of the build/publish.ps1 pipeline.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <OutputType>Library</OutputType>
+    <AssemblyName>Dashboard.BA</AssemblyName>
+    <RootNamespace>Dashboard.BA</RootNamespace>
+    <Nullable>enable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- AnyCPU: WiX Burn bootstrapper (x86) hosts the BA DLL; AnyCPU
+         lets the CLR decide the correct architecture at load time. -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WiX v4 Managed Bootstrapper Application Core API -->
+    <PackageReference Include="WixToolset.Mba.Core" Version="4.0.5" />
+  </ItemGroup>
+
+</Project>

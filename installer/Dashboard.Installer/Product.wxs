@@ -119,20 +119,31 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
     <WixVariable Id="WixUIBannerBmp"  Value="Banner.bmp"  Overridable="yes" />
     <WixVariable Id="WixUIDialogBmp"  Value="Dialog.bmp"  Overridable="yes" />
 
+    <!--
+      MSI Properties set by the Burn Bundle wizard (via MsiProperty in Bundle.wxs).
+      When the MSI is run standalone (no Bundle), these are empty; the operator
+      must supply them via the command line or run the Bundle instead.
+    -->
+    <Property Id="DASHBOARD_URL"          Value="" />
+    <Property Id="LF_API_URL"             Value="" />
+    <Property Id="LF_REPO_ID"             Value="" />
+    <Property Id="LF_DISPLAY_NAME"        Value="" />
+    <Property Id="LF_WEB_CLIENT_PATH"     Value="" />
+    <Property Id="INSTALL_DESKTOP_BUTTON" Value="1" />
+    <Property Id="INSTALL_WEB_BUTTON"     Value="0" />
+    <Property Id="DASHBOARD_PORT"         Value="5000" />
+
     <!-- Custom actions: Desktop Extension registration -->
     <!--
-      RegisterExtension: runs Dashboard.DesktopExtension.exe with the -setup -silent
+      RegisterExtension: runs Dashboard.DesktopExtension.exe with the --setup --silent
       arguments after files are installed (fresh install or upgrade).
         Execute="deferred" + Impersonate="no": runs elevated so ClientAutomation
         SDK has write access to the Laserfiche toolbar registry.
         Return="ignore": if Laserfiche Desktop Client is not installed the EXE
         exits non-zero but the MSI install still succeeds.
 
-      UnregisterExtension: runs with -remove -silent before files are removed.
+      UnregisterExtension: runs with --remove --silent before files are removed.
       Scheduled Before="RemoveFiles" so the EXE is still on disk when it runs.
-
-      Note: the ExeCommand attributes below use the correct double-dash CLI syntax
-      required by the extension. Comments use single-dash for XML compatibility.
     -->
     <CustomAction Id="RegisterExtension"
                   Directory="EXTENSIONFOLDER"
@@ -149,18 +160,92 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
                   Return="ignore" />
 
     <!--
-      Sequence custom actions.
+      Custom actions: SetupHelper EXE operations.
 
-      RegisterExtension:   After="InstallFiles" when NOT uninstalling.
-                           Covers fresh install and upgrade. MajorUpgrade removes
-                           old binaries then runs InstallFiles for new ones, so
-                           re-running setup updates the command path.
+      WriteConfig:
+        Writes extension.config.json and laserfiche.config.json to %ProgramData%\Dashboard\.
+        Must run AFTER InstallFiles (so Dashboard.SetupHelper.exe is on disk).
+        Execute=deferred + Impersonate=no: elevated write access to %ProgramData%.
+        Return=check: config is required; failure aborts installation cleanly.
 
-      UnregisterExtension: Before="RemoveFiles" on full uninstall only.
+      DeployWebClient:
+        Copies lf-dashboard-button.js and patches Browse.aspx.
+        Return=ignore: web client integration is optional; failure is non-fatal.
+        Condition: only when INSTALL_WEB_BUTTON=1 and a path is provided.
+
+      RollbackWebClient (rollback):
+        Restores Browse.aspx from the most recent .bak file.
+        Fires automatically if DeployWebClient ran and a later CA fails.
+        Return=ignore: best-effort rollback.
+
+      RemoveWebClient:
+        Removes the Dashboard script tag from Browse.aspx on uninstall.
+        Return=ignore: optional cleanup; if Browse.aspx was already removed, skip.
+
+      SECURITY NOTE: LF_WEB_CLIENT_PATH comes from the wizard (no user input
+      during install); it is persisted in the Bundle DB and re-used on uninstall.
+      No passwords or credentials are passed to any SetupHelper command.
+    -->
+
+    <CustomAction Id="WriteConfig"
+                  Directory="EXTENSIONFOLDER"
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --repo-id "[LF_REPO_ID]" --display-name "[LF_DISPLAY_NAME]"'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check" />
+
+    <CustomAction Id="DeployWebClient"
+                  Directory="EXTENSIONFOLDER"
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --deploy-webclient --url "[DASHBOARD_URL]" --path "[LF_WEB_CLIENT_PATH]"'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="RollbackWebClient"
+                  Directory="EXTENSIONFOLDER"
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --rollback-webclient --path "[LF_WEB_CLIENT_PATH]"'
+                  Execute="rollback"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="RemoveWebClient"
+                  Directory="EXTENSIONFOLDER"
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --remove-webclient --path "[LF_WEB_CLIENT_PATH]"'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!--
+      Install execute sequence.
+
+      On install / upgrade (NOT REMOVE):
+        InstallFiles              (MSI built-in: copies all harvested files)
+        WriteConfig               (writes %ProgramData%\Dashboard\ config files)
+        RegisterExtension         (registers the Desktop Client toolbar button)
+        RollbackWebClient         (rollback CA: restores Browse.aspx if later step fails)
+        DeployWebClient           (patches Browse.aspx -- conditioned on wizard choice)
+
+      On uninstall (REMOVE="ALL"):
+        RemoveWebClient           (strips Dashboard tag from Browse.aspx)
+        UnregisterExtension       (removes toolbar button registration)
+        RemoveFiles               (MSI built-in: deletes installed files)
     -->
     <InstallExecuteSequence>
-      <Custom Action="RegisterExtension"   After="InstallFiles">NOT REMOVE~="ALL"</Custom>
-      <Custom Action="UnregisterExtension" Before="RemoveFiles">REMOVE~="ALL"</Custom>
+      <!-- Install / Upgrade actions -->
+      <Custom Action="WriteConfig"
+              After="InstallFiles">NOT REMOVE~="ALL"</Custom>
+      <Custom Action="RegisterExtension"
+              After="WriteConfig">NOT REMOVE~="ALL"</Custom>
+      <Custom Action="RollbackWebClient"
+              After="RegisterExtension">NOT REMOVE~="ALL"</Custom>
+      <Custom Action="DeployWebClient"
+              After="RollbackWebClient">NOT REMOVE~="ALL" AND INSTALL_WEB_BUTTON="1" AND LF_WEB_CLIENT_PATH&lt;&gt;""</Custom>
+
+      <!-- Uninstall actions -->
+      <Custom Action="RemoveWebClient"
+              Before="UnregisterExtension">REMOVE~="ALL" AND LF_WEB_CLIENT_PATH&lt;&gt;""</Custom>
+      <Custom Action="UnregisterExtension"
+              Before="RemoveFiles">REMOVE~="ALL"</Custom>
     </InstallExecuteSequence>
 
   </Package>

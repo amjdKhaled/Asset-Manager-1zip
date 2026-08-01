@@ -1,0 +1,75 @@
+<Project Sdk="WixToolset.Wix/4.0.5">
+
+  <!--
+    Dashboard.Bundle.wixproj: Produces LFDashboard-Setup.exe (WiX Burn Bundle).
+
+    BUILD PREREQUISITES (Windows only):
+      1. .NET 8 SDK
+      2. WiX v4 global tool:      dotnet tool install -global wix
+      3. WiX extensions:
+           wix extension add WixToolset.Bal.wixext/4.0.5
+           wix extension add WixToolset.Util.wixext/4.0.5
+      4. All inputs staged by build\publish.ps1:
+           artifacts\staging\BA\Dashboard.BA.dll
+           artifacts\Dashboard-$(ProductVersion)-Setup.msi
+           prerequisites\dotnet-hosting-8.0-win.exe  (optional; downloaded by user if missing)
+
+    OUTPUT:
+      artifacts\LFDashboard-Setup.exe
+
+    USAGE (recommended):
+      .\build\publish.ps1
+
+    DIRECT BUILD (after staging):
+      dotnet build installer\Dashboard.Bundle\Dashboard.Bundle.wixproj
+
+    Do NOT build this project on Linux.
+  -->
+
+  <PropertyGroup>
+    <OutputName>LFDashboard-Setup</OutputName>
+    <OutputType>Bundle</OutputType>
+    <OutputPath>..\..\artifacts\</OutputPath>
+    <IntermediateOutputPath>obj\</IntermediateOutputPath>
+  </PropertyGroup>
+
+  <!-- Build-time overrides -->
+  <PropertyGroup>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
+  </PropertyGroup>
+
+  <!--
+    Input file paths.
+    Each path points to the output of a prior build step run by publish.ps1.
+    Keeping each on its own line avoids embedded whitespace in values.
+  -->
+  <PropertyGroup>
+    <BAStagingDir>$(MSBuildThisFileDirectory)..\..\artifacts\staging\BA</BAStagingDir>
+    <MsiStagingDir>$(MSBuildThisFileDirectory)..\..\artifacts</MsiStagingDir>
+    <PrereqDir>$(MSBuildThisFileDirectory)..\..\installer\prerequisites</PrereqDir>
+  </PropertyGroup>
+
+  <!--
+    WiX preprocessor variables (passed via DefineConstants).
+    Note: DefineConstants values must NOT have embedded spaces or leading/trailing
+    whitespace.  Each assignment is on its own line for safety.
+  -->
+  <PropertyGroup>
+    <DefineConstants>BAAssembly=$(BAStagingDir)\Dashboard.BA.dll</DefineConstants>
+    <DefineConstants>$(DefineConstants);MsiPath=$(MsiStagingDir)\Dashboard-$(ProductVersion)-Setup.msi</DefineConstants>
+    <DefineConstants>$(DefineConstants);BundleVersion=$(ProductVersion)</DefineConstants>
+    <DefineConstants>$(DefineConstants);PrereqDir=$(PrereqDir)</DefineConstants>
+  </PropertyGroup>
+
+  <!-- WiX extensions -->
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Bal.wixext"  Version="4.0.5" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="4.0.5" />
+  </ItemGroup>
+
+  <!-- WiX source files -->
+  <ItemGroup>
+    <Compile Include="Bundle.wxs" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,418 @@
+Task #23 is approved. Proceed with implementation.
+
+IMPORTANT: Do not stop after creating the Bundle, Bootstrapper Application,
+Custom Actions, or WiX source files.
+
+The final objective is a REAL, BUILDABLE and RUNNABLE:
+
+Release\LFDashboard-Setup.exe
+
+============================================================
+MANDATORY BUILD / VALIDATION GATE
+============================================================
+
+After implementing Task #23, perform the deepest validation possible.
+
+On Windows, actually execute the complete build pipeline.
+
+Do not consider Phase 6 complete merely because:
+
+- the C# source looks correct
+- the WiX XML is well-formed
+- the projects were created
+- the architecture is theoretically correct
+
+Actually build the installer.
+
+Fix every error encountered until the complete installer builds.
+
+Required final Windows build target:
+
+Release\
+    LFDashboard-Setup.exe
+    README.txt
+
+============================================================
+VERIFY THE COMPLETE INSTALLATION CHAIN
+============================================================
+
+Verify the complete relationship:
+
+LFDashboard-Setup.exe
+        |
+        v
+WiX Burn Bundle
+        |
+        +--> Dashboard.BA
+        |
+        +--> Prerequisite detection
+        |
+        v
+Dashboard MSI
+        |
+        +--> Web Application
+        +--> IIS
+        +--> ProgramData configuration
+        +--> Desktop Extension
+        +--> Web Client integration
+        |
+        v
+Installation Complete
+
+Make sure the Bundle variables are correctly transferred into MSI properties.
+
+Do not assume this works merely because both projects compile.
+
+============================================================
+VERY IMPORTANT: CONFIGURATION MUST HAVE ONE SOURCE OF TRUTH
+============================================================
+
+Do not create competing configuration systems.
+
+The wizard collects machine-specific configuration.
+
+The installer writes that configuration to:
+
+%ProgramData%\Dashboard\
+
+The applications then read it from there.
+
+The same values must flow consistently through:
+
+Wizard
+  ->
+Burn variables
+  ->
+MSI properties
+  ->
+CustomActionData
+  ->
+ProgramData configuration
+  ->
+Web application / Desktop extension / Web Client integration
+
+Avoid duplicating the same configuration in multiple unrelated places.
+
+============================================================
+DO NOT REINTRODUCE HARD-CODED VALUES
+============================================================
+
+Task #23 sits ON TOP of the portability work.
+
+Do not reintroduce:
+
+localhost
+port 5000
+TestEmployee
+NewEmployeeTest
+LFNewRepoWF
+developer usernames
+developer paths
+fixed Web Client paths
+fixed Laserfiche server names
+
+The wizard may SUGGEST:
+
+http://COMPUTERNAME:5000
+
+but that is only a generated default.
+
+It must remain editable.
+
+============================================================
+DESKTOP EXTENSION
+============================================================
+
+Preserve the working architecture exactly:
+
+net48
+x64
+WebView2
+%(DatabaseName)
+dynamic repository detection
+Login before Dashboard
+blank password support
+isolated WebView2 session
+Dashboard toolbar icon
+
+The installer must configure:
+
+%ProgramData%\Dashboard\extension.config.json
+
+and automatically register the extension.
+
+The administrator must not run:
+
+--setup
+
+manually.
+
+============================================================
+WEB CLIENT
+============================================================
+
+Preserve ALL fixes already made to the working Web Client button.
+
+Do not rewrite the integration from scratch unless necessary.
+
+Preserve:
+
+WebAccessRepositoryName repository detection
+rightNavbar injection
+real browser DOM handling
+capture-phase delegated click handling
+window singleton initialization guard
+MutationObserver reinjection
+single navigation mechanism
+NO live window.open fallback
+exactly ONE Dashboard tab per physical click
+
+The installer should automate deployment of the already-working integration.
+
+Do not reintroduce the previous double-tab bug.
+
+============================================================
+WEB CLIENT PATCH SAFETY
+============================================================
+
+Before modifying Browse.aspx:
+
+1. Verify Browse.aspx exists.
+2. Create backup.
+3. Verify assets/custom exists or safely create it.
+4. Copy the Dashboard JavaScript.
+5. Configure Dashboard URL.
+6. Insert script reference exactly once.
+7. Verify the resulting Browse.aspx is still readable.
+8. Log success.
+
+Repair must be idempotent.
+
+If the tag already exists:
+
+DO NOT add another one.
+
+Uninstall must remove ONLY the Dashboard integration.
+
+Never remove unrelated Laserfiche customization.
+
+============================================================
+CUSTOM ACTION SAFETY
+============================================================
+
+Be extremely careful with deferred MSI Custom Actions.
+
+Remember:
+
+Deferred Custom Actions cannot freely read MSI Session properties.
+
+Use CustomActionData correctly.
+
+Do not put passwords or secrets into MSI properties or installer logs.
+
+Validate escaping because values may contain:
+
+spaces
+:
+/
+\
+&
+=
+;
+
+Do not use a fragile semicolon-delimited parser if values can legally contain
+those characters.
+
+Prefer a robust serialized/encoded CustomActionData representation.
+
+============================================================
+ROLLBACK
+============================================================
+
+Do not only implement install/uninstall.
+
+Implement rollback where external files are modified.
+
+Especially Browse.aspx.
+
+If installation fails after Browse.aspx was modified, restore the previous
+state where possible.
+
+============================================================
+UPGRADE TEST
+============================================================
+
+Validate conceptually and, where possible, practically:
+
+Install 1.0.0
+        ->
+configure Dashboard
+        ->
+upgrade to newer version
+        ->
+configuration preserved
+        ->
+credentials preserved
+        ->
+Desktop button remains functional
+        ->
+Web Client integration remains exactly once
+
+No duplicate script tags.
+
+No duplicate toolbar registrations.
+
+============================================================
+REPAIR TEST
+============================================================
+
+Simulate:
+
+Laserfiche upgrade replaced Browse.aspx.
+
+Then run Repair.
+
+Expected:
+
+Dashboard installer detects missing Web Client integration
+        ->
+restores JavaScript
+        ->
+patches Browse.aspx exactly once
+        ->
+Dashboard button works again.
+
+============================================================
+UNINSTALL TEST
+============================================================
+
+Expected:
+
+Remove Dashboard binaries
+Remove IIS objects created by Dashboard
+Unregister Desktop extension
+Remove Dashboard Web Client JS
+Remove Dashboard script reference from Browse.aspx
+
+Preserve:
+
+%ProgramData%\Dashboard\ configuration
+credentials
+logs/data where appropriate
+
+Never damage Laserfiche itself.
+
+============================================================
+CUSTOMER EXPERIENCE
+============================================================
+
+The final administrator workflow MUST remain:
+
+LFDashboard-Setup.exe
+        ->
+Run as administrator
+        ->
+Next
+        ->
+environment automatically detected
+        ->
+enter/change required settings
+        ->
+Install
+        ->
+Finish
+
+Do NOT expose:
+
+PowerShell
+CMD
+JSON
+WiX
+MSI properties
+CustomActionData
+source paths
+
+to the normal administrator.
+
+============================================================
+FINAL HARD-CODE AUDIT
+============================================================
+
+Before declaring completion, search the production repository again for:
+
+localhost
+127.0.0.1
+5000
+Amjad
+Asset-Manager
+TestEmployee
+NewEmployeeTest
+LFNewRepoWF
+C:\Users\
+
+Classify every remaining occurrence.
+
+Development documentation/examples are acceptable when clearly intentional.
+
+Production deployment logic must not depend on them.
+
+============================================================
+FINAL REPORT
+============================================================
+
+At completion report:
+
+1. Bundle project build result
+2. MBA build result
+3. Custom Actions build result
+4. Desktop Extension build result
+5. MSI build result
+6. LFDashboard-Setup.exe build result
+7. Exact path and size of LFDashboard-Setup.exe
+8. Setup wizard pages implemented
+9. Components automatically detected
+10. Bundle variable -> MSI property mapping
+11. MSI property -> CustomActionData mapping
+12. ProgramData files generated
+13. IIS configuration result
+14. Desktop integration behavior
+15. Web Client integration behavior
+16. Browse.aspx backup behavior
+17. Rollback behavior
+18. Repair behavior
+19. Upgrade behavior
+20. Uninstall behavior
+21. Remaining hard-coded values and justification
+22. Security audit result
+23. Clean-machine deployment simulation
+24. Anything that could NOT actually be tested
+
+Do not report a Windows-specific test as passed if it was only statically
+inspected.
+
+============================================================
+FINAL ACCEPTANCE CRITERION
+============================================================
+
+I should ultimately be able to copy:
+
+LFDashboard-Setup.exe
+
+to another Windows Server and install the complete system without:
+
+PowerShell
+CMD
+source code
+Visual Studio
+Git
+Node.js
+WiX
+.NET SDK
+manual JSON editing
+manual Browse.aspx editing
+manual IIS configuration
+manual extension registration
+
+Task #23 is approved.
+
+Exit Plan mode and IMPLEMENT it now.

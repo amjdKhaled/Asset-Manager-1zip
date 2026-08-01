@@ -86,10 +86,13 @@ $RepoRoot      = Split-Path $PSScriptRoot -Parent
 $ArtifactsDir  = Join-Path $RepoRoot "artifacts"
 $StagingDir    = Join-Path $ArtifactsDir "staging"
 
-$WebProjPath   = Join-Path $RepoRoot "src\LFPortal.Web\LFPortal.Web.csproj"
-$ExtProjPath   = Join-Path $RepoRoot "src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj"
-$InstallerProj = Join-Path $RepoRoot "installer\Dashboard.Installer\Dashboard.Installer.wixproj"
-$DbPropsPath   = Join-Path $RepoRoot "Directory.Build.props"
+$WebProjPath     = Join-Path $RepoRoot "src\LFPortal.Web\LFPortal.Web.csproj"
+$ExtProjPath     = Join-Path $RepoRoot "src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj"
+$InstallerProj   = Join-Path $RepoRoot "installer\Dashboard.Installer\Dashboard.Installer.wixproj"
+$BAProjPath      = Join-Path $RepoRoot "installer\Dashboard.BA\Dashboard.BA.csproj"
+$SetupHelperProj = Join-Path $RepoRoot "installer\Dashboard.SetupHelper\Dashboard.SetupHelper.csproj"
+$BundleProj      = Join-Path $RepoRoot "installer\Dashboard.Bundle\Dashboard.Bundle.wixproj"
+$DbPropsPath     = Join-Path $RepoRoot "Directory.Build.props"
 
 # ---------- Validate required source files exist ----------------------------
 
@@ -160,6 +163,7 @@ Invoke-Cmd "Cleaning previous artifacts" {
     New-Item -ItemType Directory -Path (Join-Path $StagingDir "WebApp")         -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $StagingDir "Extension")      -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $StagingDir "ConfigTemplate") -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $StagingDir "BA")             -Force | Out-Null
     Write-OK "artifacts\staging\ created."
 }
 
@@ -210,12 +214,68 @@ if (-not $SkipExtension) {
             }
         }
     }
+
+    # ---- Build Dashboard.SetupHelper (net48, x64) ---------------------------
+    # SetupHelper.exe must be staged into the Extension staging folder so it is
+    # harvested by HarvestDirectory into the MSI alongside the Desktop Extension.
+    # This makes it available from EXTENSIONFOLDER for ExeCommand custom actions.
+    if (Test-Path $SetupHelperProj) {
+        Invoke-Cmd "Building Dashboard.SetupHelper (net48, x64, Release)" {
+            & dotnet build $SetupHelperProj `
+                --configuration Release `
+                --verbosity minimal `
+                -p:Version=$Version
+
+            $helperOut = Join-Path $RepoRoot "installer\Dashboard.SetupHelper\bin\Release\net48"
+            if (Test-Path $helperOut) {
+                $extStaging = Join-Path $StagingDir "Extension"
+                New-Item -ItemType Directory -Path $extStaging -Force | Out-Null
+                Copy-Item "$helperOut\Dashboard.SetupHelper.exe" `
+                    -Destination $extStaging -Force
+                Write-OK "Dashboard.SetupHelper.exe staged to Extension folder."
+            }
+            else {
+                Write-Host "  [WARN] SetupHelper build output not found at: $helperOut" -ForegroundColor Yellow
+            }
+        }
+    }
+    else {
+        Write-Host "  [WARN] Dashboard.SetupHelper project not found: $SetupHelperProj" -ForegroundColor Yellow
+    }
 }
 else {
     Write-Host ""
     Write-Host "  -- Desktop Extension build skipped." -ForegroundColor DarkGray
     # Ensure the staging directory exists so the MSI build has a target.
     New-Item -ItemType Directory -Path (Join-Path $StagingDir "Extension") -Force | Out-Null
+}
+
+# ---------- Build Dashboard.BA (managed bootstrapper, Windows only) -----------
+
+if (-not $SkipMsi) {
+    if (Test-Path $BAProjPath) {
+        Invoke-Cmd "Building Dashboard.BA (managed bootstrapper DLL, net48)" {
+            & dotnet build $BAProjPath `
+                --configuration Release `
+                --verbosity minimal `
+                -p:Version=$Version
+
+            $baOut     = Join-Path $RepoRoot "installer\Dashboard.BA\bin\Release\net48"
+            $baStaging = Join-Path $StagingDir "BA"
+            New-Item -ItemType Directory -Path $baStaging -Force | Out-Null
+
+            if (Test-Path $baOut) {
+                Copy-Item "$baOut\*" -Destination $baStaging -Recurse -Force
+                Write-OK "Dashboard.BA staged to: $baStaging"
+            }
+            else {
+                Write-Host "  [WARN] Dashboard.BA output not found at: $baOut" -ForegroundColor Yellow
+            }
+        }
+    }
+    else {
+        Write-Host "  [WARN] Dashboard.BA project not found: $BAProjPath" -ForegroundColor Yellow
+    }
 }
 
 # ---------- Stage Tools (Configure-Dashboard.ps1) ----------------------------
@@ -299,7 +359,8 @@ if (-not $SkipMsi) {
             $extensions = @(
                 "WixToolset.UI.wixext/4.0.5",
                 "WixToolset.Iis.wixext/4.0.3",
-                "WixToolset.Util.wixext/4.0.5"
+                "WixToolset.Util.wixext/4.0.5",
+                "WixToolset.Bal.wixext/4.0.5"
             )
             foreach ($ext in $extensions) {
                 $out = & wix extension add $ext --global 2>&1
@@ -325,6 +386,103 @@ if (-not $SkipMsi) {
 else {
     Write-Host ""
     Write-Host "  -- MSI build skipped." -ForegroundColor DarkGray
+}
+
+# ---------- Build Bundle / Setup EXE (Windows only) --------------------------
+#
+# Produces artifacts\LFDashboard-Setup.exe from Dashboard.Bundle.wixproj.
+# Requires:
+#   - artifacts\staging\BA\Dashboard.BA.dll            (built above)
+#   - artifacts\Dashboard-{version}-Setup.msi          (built above)
+# Optional:
+#   - installer\prerequisites\*.exe                    (user-supplied prereqs)
+#
+# When SkipMsi is set (e.g. on Linux) the Bundle build is also skipped because
+# its inputs (the MSI and BA DLL) are unavailable.
+
+if (-not $SkipMsi) {
+    if (-not (Test-Path $BundleProj)) {
+        Write-Host "  [WARN] Bundle project not found: $BundleProj" -ForegroundColor Yellow
+        Write-Host "         Skipping bundle (LFDashboard-Setup.exe) build." -ForegroundColor Yellow
+    }
+    else {
+        Invoke-Cmd "Building Burn Bundle (LFDashboard-Setup.exe)" {
+
+            # Ensure WixToolset.Bal.wixext is available (may already be installed from MSI step).
+            $null = & wix extension add WixToolset.Bal.wixext/4.0.5 --global 2>&1
+
+            & dotnet build $BundleProj `
+                --configuration Release `
+                --verbosity minimal `
+                -p:ProductVersion=$Version
+
+            $bundleExe = Join-Path $ArtifactsDir "LFDashboard-Setup.exe"
+            if (Test-Path $bundleExe) {
+                Write-OK "Bundle built: $bundleExe"
+            }
+            else {
+                Write-Host "  [WARN] Bundle EXE not found at expected path: $bundleExe" -ForegroundColor Yellow
+                # Try alternate: wixproj may output to obj\
+                $altExe = Get-ChildItem $RepoRoot -Recurse -Filter "LFDashboard-Setup.exe" `
+                              -ErrorAction SilentlyContinue |
+                          Select-Object -First 1
+                if ($altExe) {
+                    Copy-Item $altExe.FullName -Destination $ArtifactsDir -Force
+                    Write-OK "Bundle EXE located and copied from: $($altExe.FullName)"
+                }
+                else {
+                    Write-Host "  [WARN] Bundle EXE not found anywhere. Check WiX build output." `
+                        -ForegroundColor Yellow
+                }
+            }
+        }
+    }
+}
+else {
+    Write-Host ""
+    Write-Host "  -- Bundle build skipped (SkipMsi is set)." -ForegroundColor DarkGray
+}
+
+# ---------- Assemble final Release\ folder -----------------------------------
+#
+# Produces the deliverable that an admin receives:
+#   Release\LFDashboard-Setup.exe   -- the one EXE to double-click
+#   Release\README.txt              -- 12-line plain text guide
+#
+# The Release\ folder intentionally contains ONLY these two files.
+# Everything else lives in artifacts\ for internal use.
+
+Invoke-Cmd "Assembling Release folder" {
+
+    $releaseDir = Join-Path $RepoRoot "Release"
+    New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+
+    # Copy the bundle EXE
+    $bundleExe = Join-Path $ArtifactsDir "LFDashboard-Setup.exe"
+    if (Test-Path $bundleExe) {
+        Copy-Item $bundleExe -Destination $releaseDir -Force
+        Write-OK "Release\LFDashboard-Setup.exe ready."
+    }
+    elseif ($SkipMsi) {
+        Write-Host "  [INFO] Bundle EXE skipped on non-Windows build; Release\ contains README only." `
+            -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "  [WARN] LFDashboard-Setup.exe not found; Release\ will be incomplete." `
+            -ForegroundColor Yellow
+    }
+
+    # Copy README.txt
+    $readmeSrc = Join-Path $RepoRoot "Release\README.txt"
+    if (Test-Path $readmeSrc) {
+        # Already in place (source-controlled in Release\)
+        Write-OK "Release\README.txt present."
+    }
+    else {
+        Write-Host "  [WARN] Release\README.txt not found." -ForegroundColor Yellow
+    }
+
+    Write-OK "Release folder: $releaseDir"
 }
 
 # ---------- Assemble final artifacts folder ----------------------------------
@@ -383,15 +541,27 @@ Get-ChildItem $ArtifactsDir -Depth 0 | ForEach-Object {
 Write-Host ""
 
 if ($SkipMsi) {
-    Write-Host "  MSI was skipped. To build the MSI on Windows:" -ForegroundColor Yellow
+    Write-Host "  MSI and Bundle were skipped. To build on Windows:" -ForegroundColor Yellow
     Write-Host "    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force" -ForegroundColor Gray
     Write-Host "    .\build\publish.ps1 -Version $Version" -ForegroundColor Gray
     Write-Host ""
 }
 else {
-    $msi = Get-ChildItem $ArtifactsDir -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($msi) {
-        Write-Host "  MSI installer: $($msi.FullName)" -ForegroundColor Green
+    $bundleExe = Join-Path $RepoRoot "Release\LFDashboard-Setup.exe"
+    if (Test-Path $bundleExe) {
+        Write-Host "  Deliverable: Release\LFDashboard-Setup.exe" -ForegroundColor Green
+        Write-Host "               Release\README.txt" -ForegroundColor Green
         Write-Host ""
+        Write-Host "  To distribute: give the admin the Release\ folder." -ForegroundColor White
+        Write-Host "  They double-click LFDashboard-Setup.exe and follow the wizard." -ForegroundColor Gray
+        Write-Host ""
+    }
+    else {
+        $msi = Get-ChildItem $ArtifactsDir -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($msi) {
+            Write-Host "  MSI installer: $($msi.FullName)" -ForegroundColor Green
+            Write-Host "  (Bundle EXE not found; Bundle build may have failed.)" -ForegroundColor Yellow
+            Write-Host ""
+        }
     }
 }

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Bundle.wxs: WiX Burn bootstrapper definition for LFDashboard-Setup.exe.
+
+  This outer EXE:
+    1. Loads Dashboard.BA.dll (the managed wizard UI).
+    2. Chains the Dashboard MSI (with wizard-collected settings).
+    3. Persists wizard settings across repair and uninstall.
+
+  PREREQ HANDLING:
+    ASP.NET Core 8 Hosting Bundle and WebView2 Runtime are detected by
+    the wizard's DetectionService.  If missing the wizard warns the admin
+    and shows download links.  Automatic download is out of scope for v1.0;
+    the admin must install prerequisites before running this setup.
+
+  BUNDLE VARIABLES (Persisted="yes"):
+    All installer-collected values are stored as persisted Bundle Variables.
+    On repair or uninstall, Burn reads these back and re-passes them to the
+    MSI as MsiProperty elements, ensuring correct operation without re-entering
+    the wizard.
+
+  BUILD:
+    See Dashboard.Bundle.wixproj and build\publish.ps1.
+    Windows only; requires WiX v4 global tool + WixToolset.Bal.wixext.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+
+  <Bundle Name="Laserfiche Dashboard"
+          Version="$(BundleVersion)"
+          Manufacturer="Dashboard"
+          UpgradeCode="{B8E4D3C2-A5F6-4782-0BCD-E23456789012}"
+          Copyright="Copyright (c) 2026 Dashboard">
+
+    <!--
+      Managed Bootstrapper Application.
+      Dashboard.BA.dll implements the 7-page setup wizard.
+      BAFactoryAssembly: the DLL built from installer\Dashboard.BA\.
+      BAConnectionTimeout: how long (ms) Burn waits for the BA to connect.
+    -->
+    <BootstrapperApplication>
+      <bal:WixManagedBootstrapperApplicationHost
+          BAFactoryAssembly="$(var.BAAssembly)"
+          BAConnectionTimeout="10000" />
+    </BootstrapperApplication>
+
+    <!--
+      Bundle Variables.
+      Persisted="yes": values survive repair and uninstall so the MSI
+      always receives the same settings without re-running the wizard.
+
+      These are written by DashboardBA.StartInstall() from the wizard pages
+      and passed to the MSI via MsiProperty elements on the MsiPackage below.
+    -->
+
+    <!-- Dashboard web application settings -->
+    <Variable Name="DashboardUrl"         Type="string"  Value=""     Persisted="yes" />
+    <Variable Name="DashboardPort"        Type="string"  Value="5000" Persisted="yes" />
+
+    <!-- Laserfiche connection settings -->
+    <Variable Name="LaserficheApiUrl"     Type="string"  Value=""     Persisted="yes" />
+    <Variable Name="RepositoryId"         Type="string"  Value=""     Persisted="yes" />
+    <Variable Name="DisplayName"          Type="string"  Value=""     Persisted="yes" />
+
+    <!-- Integration options -->
+    <Variable Name="LFWebClientPath"      Type="string"  Value=""     Persisted="yes" />
+    <Variable Name="InstallDesktopButton" Type="numeric" Value="1"    Persisted="yes" />
+    <Variable Name="InstallWebButton"     Type="numeric" Value="0"    Persisted="yes" />
+
+    <!--
+      Package chain.
+      Only the Dashboard MSI.
+      DisplayInternalUI="no": suppress the MSI wizard; the Bundle wizard is used.
+      ForcePerMachine="yes": ensures per-machine install regardless of context.
+
+      MsiProperty elements map each Bundle Variable to an MSI property.
+      The MSI's ExeCommand custom actions then use those properties via
+      their ExeCommand attribute (expanded at CA scheduling time).
+    -->
+    <Chain>
+
+      <MsiPackage
+          Id="DashboardMsi"
+          SourceFile="$(var.MsiPath)"
+          DisplayInternalUI="no"
+          Vital="yes"
+          ForcePerMachine="yes">
+
+        <!-- Wizard-collected values passed through to MSI custom actions -->
+        <MsiProperty Name="DASHBOARD_URL"          Value="[DashboardUrl]" />
+        <MsiProperty Name="LF_API_URL"             Value="[LaserficheApiUrl]" />
+        <MsiProperty Name="LF_REPO_ID"             Value="[RepositoryId]" />
+        <MsiProperty Name="LF_DISPLAY_NAME"        Value="[DisplayName]" />
+        <MsiProperty Name="LF_WEB_CLIENT_PATH"     Value="[LFWebClientPath]" />
+        <MsiProperty Name="INSTALL_DESKTOP_BUTTON" Value="[InstallDesktopButton]" />
+        <MsiProperty Name="INSTALL_WEB_BUTTON"     Value="[InstallWebButton]" />
+        <MsiProperty Name="DASHBOARD_PORT"         Value="[DashboardPort]" />
+
+      </MsiPackage>
+
+    </Chain>
+  </Bundle>
+</Wix>
