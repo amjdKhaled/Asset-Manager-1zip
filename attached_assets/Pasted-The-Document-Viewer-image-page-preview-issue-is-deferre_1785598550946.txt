@@ -1,0 +1,67 @@
+The Document Viewer image/page preview issue is deferred.
+
+Do NOT spend any more time on:
+- Laserfiche page image rendering
+- page image APIs
+- PDF/image preview troubleshooting
+- Swagger investigation for document pages
+- application/json edoc preview behavior
+
+Keep the current Document Viewer implementation as-is.
+We will return to this issue in a later phase.
+
+The following phases are now considered sufficiently complete for us to continue:
+
+1. Core LFPortal architecture and authentication
+2. Settings / repository connection
+3. Analytics Dashboard
+4. Document Archive Browser
+5. Metadata fields and FieldDefinitions integration
+6. Basic Document Viewer and Download infrastructure
+
+Now move to the NEXT DEVELOPMENT PHASE.
+
+Before writing code, audit the current project and determine the most logical next phase based on what is already implemented.
+
+From the previous project assessment, likely remaining major features include:
+
+- Search UI
+- Advanced Search
+- Search by Template
+- Search by Metadata Field
+- Search audit/history
+- Document management actions
+- Upload/import documents
+- Create folders
+- Rename/move entries
+- Delete entries
+- Deployment / IIS packaging
+- Desktop Client Extension
+- Any other originally planned LFPortal functionality that is still missing
+
+IMPORTANT:
+
+Do not start implementing immediately.
+
+First give me a NEXT PHASE ASSESSMENT containing:
+
+1. What functionality is already implemented and reusable.
+2. What functionality is still missing.
+3. Which feature should be developed next and WHY.
+4. Exact Laserfiche APIs that feature requires.
+5. Which required APIs are already confirmed.
+6. Which APIs are NOT confirmed and require Swagger screenshots from me.
+7. Exact files/classes that would need to be created or modified.
+8. A clear scope for the next phase.
+9. What should explicitly remain out of scope.
+10. The development phases remaining after this next phase.
+
+Do not guess Laserfiche API routes.
+
+If an API endpoint is required and its exact route is not confirmed from the current project or provided Swagger evidence, STOP and tell me exactly which Swagger endpoint you need.
+
+Do not modify the completed Dashboard or Archive functionality.
+
+Do not revisit the Document Viewer image-preview issue.
+
+After the assessment, WAIT FOR MY APPROVAL before writing code.

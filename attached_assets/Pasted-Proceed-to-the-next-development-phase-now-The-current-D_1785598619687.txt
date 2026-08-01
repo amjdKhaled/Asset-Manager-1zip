@@ -1,0 +1,134 @@
+Proceed to the next development phase now.
+
+The current Document Viewer preview/image issue is DEFERRED.
+Do not investigate it further and do not spend more time on it.
+
+Keep everything currently implemented as-is and move forward.
+
+The next phase should be:
+
+PHASE: REPOSITORY SEARCH
+
+The goal is to make the existing Laserfiche search backend actually usable from the LFPortal UI.
+
+Implement the Search phase using the existing project architecture and existing LaserficheSearchService wherever possible.
+
+Required functionality:
+
+1. Add a "Search" item to the main LFPortal navigation.
+
+2. Create a Search page consistent with the existing dark LFPortal design.
+
+3. Support:
+   - Simple repository search
+   - Advanced search
+   - Search by Template
+   - Search by Metadata Field
+   - Pagination of results
+
+4. Search results should display useful Laserfiche information such as:
+   - Document Name
+   - Folder / Path
+   - Template
+   - Created Date
+   - Modified Date
+   - Created By
+   - Entry ID
+
+5. Clicking a search result should integrate with the existing Archive/Document functionality.
+
+For a Document:
+   - View Document
+   - Open its details
+   - Download Original where currently supported
+
+For a Folder:
+   - Open the folder in the existing Archive Browser
+
+6. Connect the existing InMemorySearchAuditLog.
+
+Every successful user search should call RecordSearchAsync so the portal can track:
+   - Search query
+   - Search type
+   - Timestamp
+   - User where available
+
+This should make the existing search analytics/audit functionality useful.
+
+7. Provide clean states for:
+   - No results
+   - Empty query
+   - Laserfiche API failure
+   - Authentication failure
+   - Search still processing/polling
+
+8. Reuse the existing services.
+
+Before creating duplicate functionality, inspect:
+   - LaserficheSearchService
+   - ILaserficheSearchService
+   - InMemorySearchAuditLog
+   - ISearchAuditLog
+   - LaserficheApiAdapter
+   - Repository context
+   - Existing Archive routes
+   - Existing Document routes
+
+Do not rewrite working backend functionality unnecessarily.
+
+IMPORTANT API RULE:
+
+Do NOT guess any Laserfiche API endpoint.
+
+Inspect the existing search service first.
+
+If SimpleSearchAsync, AdvancedSearchAsync, SearchByTemplateAsync, or SearchByFieldAsync use an API route that has not been confirmed against this Laserfiche server, tell me EXACTLY which Swagger endpoint you need me to provide.
+
+If an endpoint fails during implementation, do not create random fallback URLs.
+
+Show me:
+- Method
+- Current URL
+- HTTP status
+- Response body
+- Exact Swagger operation you need
+
+Then continue with everything else that does not depend on that endpoint.
+
+DO NOT TOUCH:
+
+- Dashboard calculations
+- Dashboard layout
+- Archive Browser functionality
+- Metadata field parsing
+- FieldDefinitions implementation
+- Settings
+- Authentication architecture
+- Repository discovery
+- Existing working folder-children API
+- Document Viewer image/page preview issue
+
+The Document Viewer image preview will be fixed later.
+
+IMPLEMENTATION ORDER:
+
+1. Audit existing search code.
+2. Identify confirmed/unconfirmed APIs.
+3. Reuse working search services.
+4. Create SearchController.
+5. Create Search UI.
+6. Add navigation.
+7. Connect search audit logging.
+8. Integrate results with Archive/Document Viewer.
+9. Add pagination.
+10. Handle errors and empty states.
+11. Build the complete solution.
+12. Fix all compilation/runtime errors.
+13. Restart the application.
+14. Verify existing Dashboard and Archive still work.
+
+Do not stop merely because the Document Viewer preview is incomplete.
+
+Proceed with the Search phase now.
+
+If a required Laserfiche Search API is missing or unconfirmed, ask me specifically for that Swagger endpoint and continue implementing all portions that are not blocked.
