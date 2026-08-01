@@ -107,6 +107,25 @@ public sealed class DocumentController : Controller
             });
         }
 
+        // When no electronic file is present, attempt to load Laserfiche image pages
+        // so the viewer can render them via the server-side PageImage proxy.
+        if (!model.HasElectronicDocument && model.HasLaserfichePages)
+        {
+            try
+            {
+                var pages = await _documentService
+                    .GetDocumentPagesAsync(entryId, cancellationToken)
+                    .ConfigureAwait(false);
+
+                model = model with { Pages = pages };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Document/View: page list unavailable for entry {EntryId}.", entryId);
+            }
+        }
+
         return View("View", model);
     }
 
@@ -153,6 +172,40 @@ public sealed class DocumentController : Controller
             edoc?.Dispose();
             _logger.LogError(ex, "Document/Content: failed for entry {EntryId}.", entryId);
             return ProxyError(ex, "retrieve the electronic document");
+        }
+    }
+
+    // GET /Document/PageImage/{entryId}/{pageNumber}
+    public async Task<IActionResult> PageImage(
+        int entryId,
+        int pageNumber,
+        CancellationToken cancellationToken = default)
+    {
+        if (entryId <= 0 || pageNumber <= 0)
+            return BadRequest("Invalid entry ID or page number.");
+
+        LaserficheEdocStream? image = null;
+        try
+        {
+            image = await _documentService
+                .GetPageImageAsync(entryId, pageNumber, cancellationToken)
+                .ConfigureAwait(false);
+
+            Response.Headers.CacheControl = "private, max-age=300";
+            return File(image.Content, image.ContentType, enableRangeProcessing: false);
+        }
+        catch (LaserficheException ex) when (ex.StatusCode == (int)HttpStatusCode.NotFound)
+        {
+            image?.Dispose();
+            return NotFound("Page image not found.");
+        }
+        catch (Exception ex)
+        {
+            image?.Dispose();
+            _logger.LogError(ex,
+                "Document/PageImage: failed for entry {EntryId} page {PageNumber}.",
+                entryId, pageNumber);
+            return ProxyError(ex, "retrieve the page image");
         }
     }
 

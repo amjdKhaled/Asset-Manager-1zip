@@ -136,7 +136,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
     }
 
     /// <inheritdoc />
-    public async Task<Stream> GetPageImageAsync(
+    public async Task<LaserficheEdocStream> GetPageImageAsync(
         int entryId,
         int pageNumber,
         CancellationToken cancellationToken = default)
@@ -147,8 +147,8 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
 
         var url = _adapter.BuildPageImageUrl(repo.RepositoryId, entryId, pageNumber);
 
+        // Do NOT use `using` — the response must stay open while the caller streams the body.
         var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
-
         var response = await client
             .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
@@ -162,8 +162,29 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 (int)response.StatusCode);
         }
 
-        // Return the response content stream; caller is responsible for disposal.
-        return await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var contentStream = await response.Content
+                .ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            var contentType = response.Content.Headers.ContentType?.MediaType
+                ?? "image/jpeg";
+
+            return new LaserficheEdocStream(
+                contentStream,
+                contentType,
+                contentDisposition: null,
+                fileName: null,
+                extension: null,
+                contentLength: response.Content.Headers.ContentLength,
+                owner: response);
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
     }
 
     /// <inheritdoc />

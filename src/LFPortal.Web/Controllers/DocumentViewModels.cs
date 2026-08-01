@@ -13,7 +13,19 @@ public sealed record DocumentViewModel
     public string? ElectronicDocumentContentType { get; init; }
     public string? ElectronicDocumentFileName { get; init; }
     public string? ElectronicDocumentExtension { get; init; }
+
+    /// <summary>
+    /// Page metadata returned by the Laserfiche pages endpoint. Populated only when
+    /// the document has Laserfiche image pages and no electronic file.
+    /// </summary>
+    public IReadOnlyList<LFDocumentPage> Pages { get; init; } = [];
+
+    /// <summary>
+    /// True when the entry reports a positive page count, regardless of whether
+    /// the pages list has been loaded yet.
+    /// </summary>
     public bool HasLaserfichePages => Entry?.PageCount is > 0;
+
     public string? ErrorMessage { get; init; }
 
     public bool IsInlineElectronicDocument =>

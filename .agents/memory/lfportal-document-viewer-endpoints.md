@@ -3,8 +3,13 @@ name: LFPortal document viewer endpoints
 description: Confirmed Repository API v1 edoc route and the deliberate boundary around unconfirmed image-page routes.
 ---
 
-The Repository API v1 electronic-document route is `/Entries/{id}/Laserfiche.Repository.Document/edoc`. Proxy it server-side with response-header preservation and streaming; a 404 from this route means the valid entry may simply have no electronic document.
+The Repository API v1 routes:
+- Electronic document: `GET /Entries/{id}/Laserfiche.Repository.Document/edoc` — a 404 means the valid entry has no edoc.
+- Page list: `GET /Entries/{id}/pages` — returns OData `{ value: [{ pageNumber, width, height, mimeType }] }`.
+- Page image: `GET /Entries/{id}/pages/{pageNumber}/image` — returns the raw image with content-type header.
 
-**Why:** The live Swagger evidence confirms the typed edoc route, but the exact Laserfiche page-list and page-image routes are not confirmed and must not be inferred from older code.
+All three are proxied server-side in `DocumentController`. `GetPageImageAsync` returns `LaserficheEdocStream` so the content type is preserved through the proxy. Page navigation uses JavaScript prev/next buttons updating a single `<img>` tag's `src`.
 
-**How to apply:** Keep PDF and browser-supported edoc preview/download independent from page rendering. Add page navigation only after receiving Swagger evidence for the exact page endpoint and response shape.
+**Why:** Credentials must never be exposed to the browser; all three routes require a bearer token.
+
+**How to apply:** Keep edoc preview independent from page rendering. The `Pages` collection on `DocumentViewModel` is only populated when `HasElectronicDocument` is false and `HasLaserfichePages` is true.

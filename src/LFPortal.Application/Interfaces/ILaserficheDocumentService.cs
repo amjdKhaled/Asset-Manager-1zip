@@ -33,13 +33,14 @@ public interface ILaserficheDocumentService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retrieves the rendered image for a single page as a readable stream.
-    /// The caller is responsible for disposing the returned stream.
+    /// Retrieves the rendered image for a single page as a proxied stream that
+    /// carries the Laserfiche-supplied content type. The returned object owns the
+    /// upstream response; callers must dispose it after streaming the response.
     /// </summary>
     /// <param name="entryId">Laserfiche Entry ID of the document.</param>
     /// <param name="pageNumber">1-based page number.</param>
     /// <param name="cancellationToken">Propagated cancellation token.</param>
-    Task<Stream> GetPageImageAsync(
+    Task<LaserficheEdocStream> GetPageImageAsync(
         int entryId,
         int pageNumber,
         CancellationToken cancellationToken = default);
