@@ -8,10 +8,12 @@
 // COMMAND SYNTAX (all arguments are required unless documented as optional):
 //
 //   --write-config
-//       --url   <dashboard-url>
-//       --lf-api <laserfiche-api-url>
-//       --repo-id <repository-id>
-//       --display-name <display-name>     (optional; defaults to repo-id)
+//       --url          <dashboard-url>
+//       --lf-api       <laserfiche-api-url>
+//       --repo-id      <repository-id>
+//       --display-name <display-name>         (optional; defaults to repo-id)
+//       --port         <tcp-port>             (optional; default 5000)
+//       --webapp-path  <webappfolder-path>    (optional; patches appsettings.json Urls)
 //
 //   --deploy-webclient
 //       --url   <dashboard-url>

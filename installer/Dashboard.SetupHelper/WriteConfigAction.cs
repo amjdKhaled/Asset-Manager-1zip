@@ -3,15 +3,23 @@
 //
 // Called by the MSI WriteConfig custom action as:
 //   Dashboard.SetupHelper.exe --write-config
-//       --url   <dashboard-url>
-//       --lf-api <laserfiche-api-url>
-//       --repo-id <repository-id>
+//       --url          <dashboard-url>
+//       --lf-api       <laserfiche-api-url>
+//       --repo-id      <repository-id>
 //       --display-name <display-name>
+//       --port         <tcp-port>          (optional; default 5000)
+//       --webapp-path  <path-to-webappfolder>  (optional; required to write Urls)
 //
-// Both files are always written (overwriting any existing content).
+// Both ProgramData files are always written (overwriting any existing content).
 // This is intentional: the wizard-entered values are the single source of truth.
 // NeverOverwrite in Configuration.wxs places the initial template files;
 // this action then writes the admin-specified values on top of them.
+//
+// When --webapp-path is supplied the action also patches the "Urls" key in
+// <webappfolder>\appsettings.json so the ASP.NET Core app binds to the
+// correct port when started outside IIS (e.g. via dotnet run or a service
+// wrapper).  Under IIS/ANCM the Urls value is overridden by IIS and is
+// therefore harmless but useful as a human-readable record of the chosen port.
 //
 // Credentials are NEVER handled here (entered via Dashboard Settings page,
 // encrypted with Windows DPAPI, stored in %ProgramData%\Dashboard\credentials\).
@@ -31,9 +39,19 @@ namespace Dashboard.SetupHelper
             string lfApiUrl    = Opt(opts, "lf-api");
             string repoId      = Opt(opts, "repo-id");
             string displayName = Opt(opts, "display-name");
+            string portStr     = Opt(opts, "port", "5000");
+            string webAppPath  = Opt(opts, "webapp-path");
 
             if (string.IsNullOrEmpty(displayName))
                 displayName = repoId;
+
+            // Validate port: must be a positive integer in the valid TCP range.
+            int port;
+            if (!int.TryParse(portStr, out port) || port < 1 || port > 65535)
+            {
+                Console.Error.WriteLine($"[SetupHelper] Warning: invalid --port value '{portStr}'; defaulting to 5000.");
+                port = 5000;
+            }
 
             // Resolve %ProgramData%\Dashboard\ without hard-coding C:\ProgramData
             string programData  = Environment.GetFolderPath(
@@ -42,6 +60,7 @@ namespace Dashboard.SetupHelper
             Directory.CreateDirectory(dashboardDir);
 
             Console.WriteLine($"[SetupHelper] Config directory: {dashboardDir}");
+            Console.WriteLine($"[SetupHelper] Port: {port}");
 
             int rc = 0;
 
@@ -76,6 +95,42 @@ namespace Dashboard.SetupHelper
             else
             {
                 Console.WriteLine("[SetupHelper] Warning: no Laserfiche parameters provided; laserfiche.config.json not updated.");
+            }
+
+            // -- appsettings.json Urls (port binding for the ASP.NET Core app) -
+            // Writes "Urls": "http://0.0.0.0:<port>" so the app binds the correct
+            // port when started outside IIS (e.g. via dotnet run or a service
+            // wrapper).  Under IIS/ANCM the value is overridden by IIS and is
+            // therefore harmless but serves as a human-readable record of the
+            // chosen port.
+            if (!string.IsNullOrEmpty(webAppPath))
+            {
+                string appSettingsPath = Path.Combine(webAppPath, "appsettings.json");
+                if (File.Exists(appSettingsPath))
+                {
+                    try
+                    {
+                        string updated = SetJsonStringField(
+                            File.ReadAllText(appSettingsPath, Encoding.UTF8),
+                            "Urls",
+                            $"http://0.0.0.0:{port}");
+                        File.WriteAllText(appSettingsPath, updated, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                        Console.WriteLine($"[SetupHelper] Patched Urls in: {appSettingsPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[SetupHelper] Warning: could not patch {appSettingsPath}: {ex.Message}");
+                        // Non-fatal: IIS binding is the authoritative port source.
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"[SetupHelper] Warning: {appSettingsPath} not found; Urls not written.");
+                }
+            }
+            else
+            {
+                Console.WriteLine("[SetupHelper] Note: --webapp-path not provided; appsettings.json Urls not updated.");
             }
 
             return rc;
@@ -190,6 +245,59 @@ namespace Dashboard.SetupHelper
         {
             string v;
             return d.TryGetValue(key, out v) ? v : def;
+        }
+
+        // Sets (or adds) a top-level JSON string field in a JSON document.
+        // Uses simple string scanning — avoids any JSON library dependency.
+        //
+        // If the field already exists its value is replaced in-place.
+        // If it does not exist it is inserted before the closing '}' of the
+        // outermost object.
+        //
+        // Limitations: works correctly only for top-level string fields in a
+        // well-formed JSON object.  The appsettings.json written by the SDK
+        // publish always satisfies this constraint.
+        private static string SetJsonStringField(string json, string fieldName, string value)
+        {
+            string escapedValue = EscJson(value);
+            string fieldKey     = $"\"{fieldName}\"";
+
+            int idx = json.IndexOf(fieldKey, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+            {
+                // Field exists — find the colon, then the opening quote of the value,
+                // then the closing quote, and replace just the value portion.
+                int colon = json.IndexOf(':', idx + fieldKey.Length);
+                if (colon >= 0)
+                {
+                    int openQuote = json.IndexOf('"', colon + 1);
+                    if (openQuote >= 0)
+                    {
+                        int closeQuote = json.IndexOf('"', openQuote + 1);
+                        if (closeQuote >= 0)
+                        {
+                            return json.Substring(0, openQuote + 1)
+                                 + escapedValue
+                                 + json.Substring(closeQuote);
+                        }
+                    }
+                }
+            }
+
+            // Field not present — insert before the last closing brace.
+            int lastBrace = json.LastIndexOf('}');
+            if (lastBrace < 0)
+                return json; // malformed; leave unchanged
+
+            // Determine whether a trailing comma is needed (i.e. there is
+            // already at least one field in the object).
+            string before = json.Substring(0, lastBrace).TrimEnd();
+            string insert  = $",\r\n  {fieldKey}: \"{escapedValue}\"\r\n";
+            // If the object is empty (just '{' + optional whitespace) use no comma.
+            if (before.EndsWith("{"))
+                insert = $"\r\n  {fieldKey}: \"{escapedValue}\"\r\n";
+
+            return before + insert + json.Substring(lastBrace);
         }
 
         // JSON string escaping (no external dependencies).

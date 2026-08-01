@@ -188,6 +188,8 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
 
       WriteConfig:
         Writes extension.config.json and laserfiche.config.json to %ProgramData%\Dashboard\.
+        Also patches "Urls" in [WEBAPPFOLDER]\appsettings.json so the ASP.NET Core
+        app binds the wizard-selected port when started outside IIS.
         Must run AFTER InstallFiles (so Dashboard.SetupHelper.exe is on disk).
         Execute=deferred + Impersonate=no: elevated write access to %ProgramData%.
         Return=check: config is required; failure aborts installation cleanly.
@@ -223,7 +225,7 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
 
     <CustomAction Id="WriteConfig"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --repo-id "[LF_REPO_ID]" --display-name "[LF_DISPLAY_NAME]"'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --repo-id "[LF_REPO_ID]" --display-name "[LF_DISPLAY_NAME]" --port "[DASHBOARD_PORT]" --webapp-path "[WEBAPPFOLDER]"'
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />
