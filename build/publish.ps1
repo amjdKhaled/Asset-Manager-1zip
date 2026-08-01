@@ -3,56 +3,61 @@
     Builds and packages the complete Dashboard release.
 
 .DESCRIPTION
-    Orchestrates the full release build:
+    Orchestrates the full release build on Windows:
 
-      1. Clean and restore
-      2. dotnet publish  - Dashboard web application (net8.0, Release, framework-dependent)
-      3. dotnet build   - Desktop Extension (net48, x64, Release) [Windows only]
-      4. Stage all artifacts under artifacts\staging\
-      5. dotnet build   - WiX installer project -> Dashboard-{version}-Setup.msi [Windows only]
-      6. Assemble final artifacts\ release folder
+      Step 1  Clean previous artifacts
+      Step 2  Restore NuGet packages
+      Step 3  Publish Dashboard web application (net8.0, Release, framework-dependent)
+      Step 4  Build Desktop Extension (net48, x64, Release)          [Windows only]
+      Step 5  Build Dashboard.SetupHelper (net48, x64, Release)      [Windows only]
+      Step 6  Build Dashboard.BA managed bootstrapper (net48)        [Windows only]
+      Step 7  Stage support files (tools, templates, Web Client JS)
+      Step 8  Build MSI (WiX v4)                                     [Windows only]
+      Step 9  Build Burn Bundle -> LFDashboard-Setup.exe             [Windows only]
+      Step 10 Assemble Release\ folder
+      Step 11 Verify deliverables and print BUILD SUCCESSFUL
 
-    OUTPUT:
+    OUTPUT (Windows full build):
+      Release\
+        LFDashboard-Setup.exe    <-- admin runs this
+        README.txt
       artifacts\
         Dashboard-{version}-Setup.msi
-        WebApp\              (dotnet publish output -- deploy to IIS)
-        Extension\           (Desktop Extension EXE + dependencies)
-        WebClientButton\     (lf-dashboard-button.js -- deploy to LF Web Client)
+        WebApp\
+        Extension\
+        WebClientButton\
         ConfigTemplate\
-          laserfiche.config.json
-          extension.config.json
         docs\
-          InstallationGuide.md
-          UpgradeGuide.md
-          ReleaseNotes.md
 
 .PARAMETER Version
     Product version to embed in the MSI and output filename.
-    Defaults to the version in Directory.Build.props.
+    Defaults to the <Version> in Directory.Build.props.
 
 .PARAMETER SkipMsi
-    Skip the WiX MSI build.  Useful on Linux/CI when only the publish
-    artifacts are needed and the MSI will be built in a separate Windows step.
+    Skip the WiX MSI and Bundle builds.
+    Implied automatically on non-Windows platforms.
 
 .PARAMETER SkipExtension
-    Skip the Desktop Extension build.  Set automatically on non-Windows platforms.
+    Skip the Desktop Extension, SetupHelper, and BA builds.
+    Implied automatically on non-Windows platforms.
 
 .EXAMPLE
     # Standard Windows release build (run from the repository root):
     .\build\publish.ps1
 
 .EXAMPLE
-    # Build with explicit version:
+    # Build with an explicit version:
     .\build\publish.ps1 -Version "1.2.3"
 
 .EXAMPLE
-    # Build without MSI (for Linux CI):
+    # Skip MSI (Linux CI -- web app only):
     .\build\publish.ps1 -SkipMsi
 
 .NOTES
-    Run from the repository root directory.
-    On Windows: run in a Developer PowerShell or any terminal with .NET 8 SDK on PATH.
-    On Linux/macOS: -SkipMsi and -SkipExtension are implied automatically.
+    Requires: .NET 8 SDK, WiX v4 global tool (dotnet tool install -global wix),
+              .NET Framework 4.8 targeting pack (for net48 projects).
+    Compatible with: Windows PowerShell 5.1 and PowerShell 7+.
+    Run from the REPOSITORY ROOT directory, not from build\.
 #>
 
 [CmdletBinding()]
@@ -65,26 +70,103 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ---------- Platform detection -----------------------------------------------
-# $IsWindows is only available in PowerShell 6+.  Windows PowerShell 5.1 does
-# not have this automatic variable.  Use $env:OS which equals 'Windows_NT' on
-# every Windows version and every PowerShell version (5.1 and 7+).
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+# Write-Stage: prints a numbered step header.
+# Usage: Write-Stage 1 11 "Cleaning artifacts"
+function Write-Stage {
+    param(
+        [int]   $Num,
+        [int]   $Total,
+        [string]$Msg
+    )
+    Write-Host ""
+    Write-Host ("  [Step {0}/{1}] {2}" -f $Num, $Total, $Msg) -ForegroundColor Cyan
+}
+
+function Write-OK {
+    param([string]$Msg)
+    Write-Host ("     [OK] {0}" -f $Msg) -ForegroundColor Green
+}
+
+function Write-Warn {
+    param([string]$Msg)
+    Write-Host ("  [WARN] {0}" -f $Msg) -ForegroundColor Yellow
+}
+
+# Invoke-NativeCommand: runs a native executable and captures the exit code
+# IMMEDIATELY after the call -- never reads a stale or undefined $LASTEXITCODE.
+#
+# WHY THIS EXISTS:
+#   Under Set-StrictMode -Version Latest, reading $LASTEXITCODE before any native
+#   executable has ever run in the session throws "VariableIsUndefined".
+#   This function guarantees that $LASTEXITCODE is read only on the very next line
+#   after the native call -- making it safe and defined.
+#
+# Parameters:
+#   -Stage          Human-readable stage name for error messages.
+#   -FilePath       Executable path or name on PATH (e.g. "dotnet").
+#   -Arguments      Array of arguments to pass to the executable.
+#   -IgnoreFailure  When set, non-zero exit codes are allowed (e.g. "already installed").
+#
+# Returns: the exit code (int).
+function Invoke-NativeCommand {
+    param(
+        [string]  $Stage,
+        [string]  $FilePath,
+        [string[]]$Arguments     = @(),
+        [switch]  $IgnoreFailure
+    )
+
+    # Execute the native command.
+    & $FilePath @Arguments
+
+    # Read exit code IMMEDIATELY on the next line -- this is always defined
+    # because a native executable just ran above.
+    $ec = $LASTEXITCODE
+
+    if ((-not $IgnoreFailure) -and ($ec -ne 0)) {
+        $argDisplay = $Arguments -join ' '
+        Write-Host "" 
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [FAILED] $Stage" -ForegroundColor Red
+        Write-Host "           Executable : $FilePath" -ForegroundColor Red
+        Write-Host "           Arguments  : $argDisplay" -ForegroundColor Red
+        Write-Host "           Exit code  : $ec" -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit $ec
+    }
+
+    return $ec
+}
+
+# =============================================================================
+# PLATFORM DETECTION
+# =============================================================================
+# $IsWindows is only available in PowerShell 6+.
+# Use $env:OS which equals 'Windows_NT' on every Windows version and
+# every PowerShell version (5.1 and 7+).
 
 $IsWindowsOS = ($env:OS -eq 'Windows_NT')
 
 if (-not $IsWindowsOS) {
-    Write-Host "Non-Windows platform detected. MSI and Desktop Extension builds will be skipped." `
+    Write-Host "Non-Windows platform detected -- MSI, Bundle, and Extension builds will be skipped." `
         -ForegroundColor Yellow
-    $SkipMsi       = $true
-    $SkipExtension = $true
+    $SkipMsi       = [switch]$true
+    $SkipExtension = [switch]$true
 }
 
-# ---------- Paths ------------------------------------------------------------
+# =============================================================================
+# PATHS
+# =============================================================================
 # $PSScriptRoot is the build\ folder; repo root is one level up.
 
 $RepoRoot      = Split-Path $PSScriptRoot -Parent
 $ArtifactsDir  = Join-Path $RepoRoot "artifacts"
 $StagingDir    = Join-Path $ArtifactsDir "staging"
+$ReleaseDir    = Join-Path $RepoRoot "Release"
 
 $WebProjPath     = Join-Path $RepoRoot "src\LFPortal.Web\LFPortal.Web.csproj"
 $ExtProjPath     = Join-Path $RepoRoot "src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj"
@@ -94,474 +176,530 @@ $SetupHelperProj = Join-Path $RepoRoot "installer\Dashboard.SetupHelper\Dashboar
 $BundleProj      = Join-Path $RepoRoot "installer\Dashboard.Bundle\Dashboard.Bundle.wixproj"
 $DbPropsPath     = Join-Path $RepoRoot "Directory.Build.props"
 
-# ---------- Validate required source files exist ----------------------------
+# =============================================================================
+# VALIDATE REQUIRED SOURCE FILES
+# =============================================================================
 
 foreach ($required in @($WebProjPath, $DbPropsPath)) {
     if (-not (Test-Path $required)) {
-        Write-Host "[ERROR] Required file not found: $required" -ForegroundColor Red
-        Write-Host "        Run this script from the repository root." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "  [ERROR] Required file not found: $required" -ForegroundColor Red
+        Write-Host "          Make sure you are running this script from the repository root." -ForegroundColor Red
+        Write-Host "          Example: .\build\publish.ps1" -ForegroundColor Gray
         exit 1
     }
 }
 
-# ---------- Resolve version --------------------------------------------------
+# =============================================================================
+# RESOLVE VERSION
+# =============================================================================
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
     if (Test-Path $DbPropsPath) {
         [xml]$dbProps = Get-Content $DbPropsPath -Encoding UTF8
-        $versionNode  = $dbProps.Project.PropertyGroup |
-                        ForEach-Object { $_.Version } |
-                        Where-Object { $_ }
-        $Version = ($versionNode | Select-Object -First 1) -replace '\s', ''
+        # PropertyGroup may be a single object or an array; ForEach-Object handles both.
+        $versionNode = $dbProps.Project.PropertyGroup |
+                       ForEach-Object { $_.Version }   |
+                       Where-Object   { $_ }
+        $resolvedVer = ($versionNode | Select-Object -First 1)
+        if ($resolvedVer) {
+            $Version = ($resolvedVer -replace '\s', '')
+        }
     }
     if ([string]::IsNullOrWhiteSpace($Version)) {
         $Version = "1.0.0"
     }
 }
 
-# ---------- Helpers ----------------------------------------------------------
+# Total stages -- fixed at 11.
+$TotalStages = 11
+$Step        = 0
 
-function Write-Step([string]$msg) {
-    Write-Host ""
-    Write-Host "  -- $msg" -ForegroundColor Cyan
-}
-
-function Write-OK([string]$msg) {
-    Write-Host "     [OK] $msg" -ForegroundColor Green
-}
-
-function Invoke-Cmd {
-    <#
-    .SYNOPSIS Runs a command, captures exit code, and stops the script on failure.
-    #>
-    param([string]$Label, [scriptblock]$Block)
-
-    Write-Step $Label
-    & $Block
-    $code = $LASTEXITCODE
-    if ($code -ne $null -and $code -ne 0) {
-        Write-Host "  [FAILED] '$Label' exited with code $code" -ForegroundColor Red
-        exit $code
-    }
-}
-
-# ---------- Header -----------------------------------------------------------
+# =============================================================================
+# HEADER
+# =============================================================================
 
 Write-Host ""
+Write-Host "  ============================================================" -ForegroundColor DarkGray
 Write-Host "  Dashboard Release Build" -ForegroundColor White
-Write-Host "  Version  : $Version" -ForegroundColor Gray
-Write-Host "  Platform : $(if ($IsWindowsOS) { 'Windows' } else { 'Linux/macOS (MSI/Extension skipped)' })" `
+Write-Host ("  Version  : {0}" -f $Version) -ForegroundColor Gray
+Write-Host ("  Platform : {0}" -f $(if ($IsWindowsOS) { 'Windows' } else { 'Linux/macOS (MSI/Extension skipped)' })) `
     -ForegroundColor Gray
-Write-Host "  Output   : $ArtifactsDir" -ForegroundColor Gray
+Write-Host ("  Output   : {0}" -f $ArtifactsDir) -ForegroundColor Gray
+Write-Host "  ============================================================" -ForegroundColor DarkGray
 
-# ---------- Clean artifacts --------------------------------------------------
+# =============================================================================
+# STEP 1 -- Clean previous artifacts
+# =============================================================================
 
-Invoke-Cmd "Cleaning previous artifacts" {
-    if (Test-Path $ArtifactsDir) {
-        Remove-Item $ArtifactsDir -Recurse -Force
-    }
-    New-Item -ItemType Directory -Path (Join-Path $StagingDir "WebApp")         -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $StagingDir "Extension")      -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $StagingDir "ConfigTemplate") -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $StagingDir "BA")             -Force | Out-Null
-    Write-OK "artifacts\staging\ created."
+$Step++
+Write-Stage $Step $TotalStages "Cleaning previous artifacts"
+
+if (Test-Path $ArtifactsDir) {
+    Remove-Item $ArtifactsDir -Recurse -Force
 }
+# Create all staging subdirectories (no native exe -- pure PS cmdlets, no $LASTEXITCODE).
+$null = New-Item -ItemType Directory -Path (Join-Path $StagingDir "WebApp")         -Force
+$null = New-Item -ItemType Directory -Path (Join-Path $StagingDir "Extension")      -Force
+$null = New-Item -ItemType Directory -Path (Join-Path $StagingDir "ConfigTemplate") -Force
+$null = New-Item -ItemType Directory -Path (Join-Path $StagingDir "BA")             -Force
+$null = New-Item -ItemType Directory -Path $ReleaseDir                              -Force
 
-# ---------- Restore ----------------------------------------------------------
+Write-OK "artifacts\staging\ created."
 
-Invoke-Cmd "Restoring NuGet packages" {
-    $slnPath = Join-Path $RepoRoot "LFPortal.sln"
-    & dotnet restore $slnPath --verbosity minimal
-}
+# =============================================================================
+# STEP 2 -- Restore NuGet packages
+# =============================================================================
 
-# ---------- Publish web application ------------------------------------------
+$Step++
+Write-Stage $Step $TotalStages "Restoring NuGet packages"
 
-Invoke-Cmd "Publishing Dashboard web application (net8.0, Release, framework-dependent)" {
-    $webAppOut = Join-Path $StagingDir "WebApp"
-    & dotnet publish $WebProjPath `
-        --configuration Release `
-        --output $webAppOut `
-        --verbosity minimal `
-        -p:Version=$Version
-    Write-OK "Published to: $webAppOut"
-}
-
-# ---------- Build Desktop Extension (Windows only) ---------------------------
-
-if (-not $SkipExtension) {
-    if (-not (Test-Path $ExtProjPath)) {
-        Write-Host "  [WARN] Desktop Extension project not found: $ExtProjPath" -ForegroundColor Yellow
-        Write-Host "         Skipping extension build." -ForegroundColor Yellow
-    }
-    else {
-        Invoke-Cmd "Building Desktop Extension (net48, x64, Release)" {
-            # Requires: Laserfiche SDK 10.4 DLLs in vendor\LaserficheSdk\bin\10.4\net-4.0\
-            # Target: net48, PlatformTarget=x64, Prefer32Bit=false, no RuntimeIdentifier.
-            & dotnet build $ExtProjPath `
-                --configuration Release `
-                --verbosity minimal `
-                -p:Version=$Version
-
-            $extOut = Join-Path $RepoRoot "src\Dashboard.DesktopExtension\bin\Release\net48"
-            if (Test-Path $extOut) {
-                $extStaging = Join-Path $StagingDir "Extension"
-                Copy-Item "$extOut\*" -Destination $extStaging -Recurse -Force
-                Write-OK "Extension staged to: $extStaging"
-            }
-            else {
-                Write-Host "  [WARN] Extension build output not found at: $extOut" -ForegroundColor Yellow
-                Write-Host "         The MSI will be built without extension binaries." -ForegroundColor Yellow
-            }
-        }
-    }
-
-    # ---- Build Dashboard.SetupHelper (net48, x64) ---------------------------
-    # SetupHelper.exe must be staged into the Extension staging folder so it is
-    # harvested by HarvestDirectory into the MSI alongside the Desktop Extension.
-    # This makes it available from EXTENSIONFOLDER for ExeCommand custom actions.
-    if (Test-Path $SetupHelperProj) {
-        Invoke-Cmd "Building Dashboard.SetupHelper (net48, x64, Release)" {
-            & dotnet build $SetupHelperProj `
-                --configuration Release `
-                --verbosity minimal `
-                -p:Version=$Version
-
-            $helperOut = Join-Path $RepoRoot "installer\Dashboard.SetupHelper\bin\Release\net48"
-            if (Test-Path $helperOut) {
-                $extStaging = Join-Path $StagingDir "Extension"
-                New-Item -ItemType Directory -Path $extStaging -Force | Out-Null
-                Copy-Item "$helperOut\Dashboard.SetupHelper.exe" `
-                    -Destination $extStaging -Force
-                Write-OK "Dashboard.SetupHelper.exe staged to Extension folder."
-            }
-            else {
-                Write-Host "  [WARN] SetupHelper build output not found at: $helperOut" -ForegroundColor Yellow
-            }
-        }
-    }
-    else {
-        Write-Host "  [WARN] Dashboard.SetupHelper project not found: $SetupHelperProj" -ForegroundColor Yellow
-    }
+$slnPath = Join-Path $RepoRoot "LFPortal.sln"
+if (Test-Path $slnPath) {
+    Invoke-NativeCommand -Stage "NuGet restore" -FilePath "dotnet" `
+        -Arguments @("restore", $slnPath, "--verbosity", "minimal")
 }
 else {
-    Write-Host ""
-    Write-Host "  -- Desktop Extension build skipped." -ForegroundColor DarkGray
-    # Ensure the staging directory exists so the MSI build has a target.
-    New-Item -ItemType Directory -Path (Join-Path $StagingDir "Extension") -Force | Out-Null
+    Write-Warn "LFPortal.sln not found at: $slnPath -- running restore on web project instead."
+    Invoke-NativeCommand -Stage "NuGet restore (web project)" -FilePath "dotnet" `
+        -Arguments @("restore", $WebProjPath, "--verbosity", "minimal")
 }
+Write-OK "NuGet packages restored."
 
-# ---------- Build Dashboard.BA (managed bootstrapper, Windows only) -----------
+# =============================================================================
+# STEP 3 -- Publish web application
+# =============================================================================
 
-if (-not $SkipMsi) {
-    if (Test-Path $BAProjPath) {
-        Invoke-Cmd "Building Dashboard.BA (managed bootstrapper DLL, net48)" {
-            & dotnet build $BAProjPath `
-                --configuration Release `
-                --verbosity minimal `
-                -p:Version=$Version
+$Step++
+Write-Stage $Step $TotalStages "Publishing Dashboard web application (net8.0, Release)"
 
-            $baOut     = Join-Path $RepoRoot "installer\Dashboard.BA\bin\Release\net48"
-            $baStaging = Join-Path $StagingDir "BA"
-            New-Item -ItemType Directory -Path $baStaging -Force | Out-Null
+$webAppOut = Join-Path $StagingDir "WebApp"
 
-            if (Test-Path $baOut) {
-                Copy-Item "$baOut\*" -Destination $baStaging -Recurse -Force
-                Write-OK "Dashboard.BA staged to: $baStaging"
-            }
-            else {
-                Write-Host "  [WARN] Dashboard.BA output not found at: $baOut" -ForegroundColor Yellow
-            }
-        }
-    }
-    else {
-        Write-Host "  [WARN] Dashboard.BA project not found: $BAProjPath" -ForegroundColor Yellow
-    }
+Invoke-NativeCommand -Stage "dotnet publish (web app)" -FilePath "dotnet" -Arguments @(
+    "publish", $WebProjPath,
+    "--configuration", "Release",
+    "--output",        $webAppOut,
+    "--verbosity",     "minimal",
+    "-p:Version=$Version"
+)
+
+Write-OK "Web app published to: $webAppOut"
+
+# =============================================================================
+# STEP 4 -- Build Desktop Extension (Windows only)
+# =============================================================================
+
+$Step++
+
+if ($SkipExtension) {
+    Write-Stage $Step $TotalStages "Building Desktop Extension [SKIPPED on non-Windows]"
+    Write-Host "  (Skipped)" -ForegroundColor DarkGray
 }
-
-# ---------- Stage Tools (Configure-Dashboard.ps1) ----------------------------
-
-Invoke-Cmd "Staging configuration tools" {
-    $toolsDir = Join-Path $ArtifactsDir "Tools"
-    New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
-
-    $configurePs1 = Join-Path $RepoRoot "installer\Configure-Dashboard.ps1"
-    if (Test-Path $configurePs1) {
-        Copy-Item $configurePs1 -Destination $toolsDir -Force
-        Write-OK "Configure-Dashboard.ps1 staged in Tools\"
-    }
-    else {
-        Write-Host "  [WARN] Configure-Dashboard.ps1 not found: $configurePs1" -ForegroundColor Yellow
-    }
-}
-
-# ---------- Stage configuration templates ------------------------------------
-
-Invoke-Cmd "Staging configuration templates" {
-    $templateSrc = Join-Path $RepoRoot "config\templates"
-    if (-not (Test-Path $templateSrc)) {
-        Write-Host "  [WARN] config\templates\ not found at: $templateSrc" -ForegroundColor Yellow
-    }
-    else {
-        $templateDst = Join-Path $StagingDir "ConfigTemplate"
-        Copy-Item "$templateSrc\*" -Destination $templateDst -Force
-        Write-OK "Config templates staged."
-    }
-}
-
-# ---------- Stage Web Client button script -----------------------------------
-
-Invoke-Cmd "Staging Web Client button script" {
-    $wcbDir    = Join-Path $ArtifactsDir "WebClientButton"
-    New-Item -ItemType Directory -Path $wcbDir -Force | Out-Null
-
-    $srcJs     = Join-Path $RepoRoot "src\LFPortal.Web\wwwroot\js\lf-webclient-button.js"
-    $deployPs1 = Join-Path $RepoRoot "installer\Deploy-WebClientButton.ps1"
-
-    if (Test-Path $srcJs) {
-        Copy-Item $srcJs -Destination (Join-Path $wcbDir "lf-dashboard-button.js") -Force
-        Write-OK "lf-dashboard-button.js staged."
-    }
-    else {
-        Write-Host "  [WARN] Source JS not found: $srcJs" -ForegroundColor Yellow
-    }
-
-    if (Test-Path $deployPs1) {
-        Copy-Item $deployPs1 -Destination $wcbDir -Force
-        Write-OK "Deploy-WebClientButton.ps1 staged."
-    }
-
-    Write-OK "Web Client artifacts in: $wcbDir"
-}
-
-# ---------- Build MSI (Windows only) -----------------------------------------
-
-if (-not $SkipMsi) {
-    if (-not (Test-Path $InstallerProj)) {
-        Write-Host "  [WARN] WiX project not found: $InstallerProj" -ForegroundColor Yellow
-        Write-Host "         Skipping MSI build." -ForegroundColor Yellow
-    }
-    else {
-        Invoke-Cmd "Building MSI installer (WiX v4)" {
-
-            # Verify WiX v4 global tool is installed.
-            $null = & dotnet wix --version 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "  WiX v4 global tool not found. Installing..." -ForegroundColor Yellow
-                & dotnet tool install --global wix
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host "  [ERROR] Failed to install WiX. Install manually:" -ForegroundColor Red
-                    Write-Host "          dotnet tool install --global wix" -ForegroundColor Gray
-                    exit 1
-                }
-            }
-
-            # Ensure required WiX extensions are present.
-            $extensions = @(
-                "WixToolset.UI.wixext/4.0.5",
-                "WixToolset.Iis.wixext/4.0.3",
-                "WixToolset.Util.wixext/4.0.5",
-                "WixToolset.Bal.wixext/4.0.5"
-            )
-            foreach ($ext in $extensions) {
-                $out = & wix extension add $ext --global 2>&1
-                # Non-zero exit here means already installed or minor error; continue.
-            }
-
-            & dotnet build $InstallerProj `
-                --configuration Release `
-                --verbosity minimal `
-                -p:ProductVersion=$Version
-
-            $msiPath = Join-Path $ArtifactsDir "Dashboard-$Version-Setup.msi"
-            if (Test-Path $msiPath) {
-                Write-OK "MSI built: $msiPath"
-            }
-            else {
-                Write-Host "  [WARN] MSI not found at expected path: $msiPath" -ForegroundColor Yellow
-                Write-Host "         Check the WiX build output for the actual output path." -ForegroundColor Yellow
-            }
-        }
-    }
+elseif (-not (Test-Path $ExtProjPath)) {
+    Write-Stage $Step $TotalStages "Building Desktop Extension [SKIPPED - project not found]"
+    Write-Warn "Desktop Extension project not found: $ExtProjPath"
+    Write-Warn "The MSI will be built without the extension binaries."
 }
 else {
-    Write-Host ""
-    Write-Host "  -- MSI build skipped." -ForegroundColor DarkGray
-}
+    Write-Stage $Step $TotalStages "Building Desktop Extension (net48, x64, Release)"
 
-# ---------- Build Bundle / Setup EXE (Windows only) --------------------------
-#
-# Produces artifacts\LFDashboard-Setup.exe from Dashboard.Bundle.wixproj.
-# Requires:
-#   - artifacts\staging\BA\Dashboard.BA.dll            (built above)
-#   - artifacts\Dashboard-{version}-Setup.msi          (built above)
-# Optional:
-#   - installer\prerequisites\*.exe                    (user-supplied prereqs)
-#
-# When SkipMsi is set (e.g. on Linux) the Bundle build is also skipped because
-# its inputs (the MSI and BA DLL) are unavailable.
+    # Requires Laserfiche SDK DLLs in vendor\LaserficheSdk\bin\10.4\net-4.0\
+    Invoke-NativeCommand -Stage "dotnet build (Desktop Extension)" -FilePath "dotnet" -Arguments @(
+        "build", $ExtProjPath,
+        "--configuration", "Release",
+        "--verbosity",     "minimal",
+        "-p:Version=$Version"
+    )
 
-if (-not $SkipMsi) {
-    if (-not (Test-Path $BundleProj)) {
-        Write-Host "  [WARN] Bundle project not found: $BundleProj" -ForegroundColor Yellow
-        Write-Host "         Skipping bundle (LFDashboard-Setup.exe) build." -ForegroundColor Yellow
+    $extOut = Join-Path $RepoRoot "src\Dashboard.DesktopExtension\bin\Release\net48"
+    if (Test-Path $extOut) {
+        $extStaging = Join-Path $StagingDir "Extension"
+        Copy-Item (Join-Path $extOut "*") -Destination $extStaging -Recurse -Force
+        Write-OK "Extension binaries staged to: $extStaging"
     }
     else {
-        Invoke-Cmd "Building Burn Bundle (LFDashboard-Setup.exe)" {
-
-            # Ensure WixToolset.Bal.wixext is available (may already be installed from MSI step).
-            $null = & wix extension add WixToolset.Bal.wixext/4.0.5 --global 2>&1
-
-            & dotnet build $BundleProj `
-                --configuration Release `
-                --verbosity minimal `
-                -p:ProductVersion=$Version
-
-            $bundleExe = Join-Path $ArtifactsDir "LFDashboard-Setup.exe"
-            if (Test-Path $bundleExe) {
-                Write-OK "Bundle built: $bundleExe"
-            }
-            else {
-                Write-Host "  [WARN] Bundle EXE not found at expected path: $bundleExe" -ForegroundColor Yellow
-                # Try alternate: wixproj may output to obj\
-                $altExe = Get-ChildItem $RepoRoot -Recurse -Filter "LFDashboard-Setup.exe" `
-                              -ErrorAction SilentlyContinue |
-                          Select-Object -First 1
-                if ($altExe) {
-                    Copy-Item $altExe.FullName -Destination $ArtifactsDir -Force
-                    Write-OK "Bundle EXE located and copied from: $($altExe.FullName)"
-                }
-                else {
-                    Write-Host "  [WARN] Bundle EXE not found anywhere. Check WiX build output." `
-                        -ForegroundColor Yellow
-                }
-            }
-        }
+        Write-Warn "Extension build output not found at: $extOut"
+        Write-Warn "The MSI will be built without the extension binaries."
     }
 }
+
+# =============================================================================
+# STEP 5 -- Build Dashboard.SetupHelper (Windows only)
+# =============================================================================
+
+$Step++
+
+if ($SkipExtension) {
+    Write-Stage $Step $TotalStages "Building Dashboard.SetupHelper [SKIPPED on non-Windows]"
+    Write-Host "  (Skipped)" -ForegroundColor DarkGray
+}
+elseif (-not (Test-Path $SetupHelperProj)) {
+    Write-Stage $Step $TotalStages "Building Dashboard.SetupHelper [SKIPPED - project not found]"
+    Write-Warn "SetupHelper project not found: $SetupHelperProj"
+}
 else {
-    Write-Host ""
-    Write-Host "  -- Bundle build skipped (SkipMsi is set)." -ForegroundColor DarkGray
+    Write-Stage $Step $TotalStages "Building Dashboard.SetupHelper (net48, x64, Release)"
+
+    Invoke-NativeCommand -Stage "dotnet build (SetupHelper)" -FilePath "dotnet" -Arguments @(
+        "build", $SetupHelperProj,
+        "--configuration", "Release",
+        "--verbosity",     "minimal",
+        "-p:Version=$Version"
+    )
+
+    $helperOut = Join-Path $RepoRoot "installer\Dashboard.SetupHelper\bin\Release\net48"
+    if (Test-Path $helperOut) {
+        $extStaging = Join-Path $StagingDir "Extension"
+        $null = New-Item -ItemType Directory -Path $extStaging -Force
+        # Copy only the EXE (dependencies are BCL-only; no extra DLLs needed).
+        Copy-Item (Join-Path $helperOut "Dashboard.SetupHelper.exe") `
+            -Destination $extStaging -Force
+        Write-OK "Dashboard.SetupHelper.exe staged to Extension folder."
+    }
+    else {
+        Write-Warn "SetupHelper build output not found at: $helperOut"
+    }
 }
 
-# ---------- Assemble final Release\ folder -----------------------------------
-#
-# Produces the deliverable that an admin receives:
-#   Release\LFDashboard-Setup.exe   -- the one EXE to double-click
-#   Release\README.txt              -- 12-line plain text guide
-#
-# The Release\ folder intentionally contains ONLY these two files.
-# Everything else lives in artifacts\ for internal use.
+# =============================================================================
+# STEP 6 -- Build Dashboard.BA managed bootstrapper (Windows only)
+# =============================================================================
 
-Invoke-Cmd "Assembling Release folder" {
+$Step++
 
-    $releaseDir = Join-Path $RepoRoot "Release"
-    New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+if ($SkipMsi) {
+    Write-Stage $Step $TotalStages "Building Dashboard.BA [SKIPPED on non-Windows]"
+    Write-Host "  (Skipped)" -ForegroundColor DarkGray
+}
+elseif (-not (Test-Path $BAProjPath)) {
+    Write-Stage $Step $TotalStages "Building Dashboard.BA [SKIPPED - project not found]"
+    Write-Warn "Dashboard.BA project not found: $BAProjPath"
+}
+else {
+    Write-Stage $Step $TotalStages "Building Dashboard.BA managed bootstrapper (net48)"
 
-    # Copy the bundle EXE
+    Invoke-NativeCommand -Stage "dotnet build (Dashboard.BA)" -FilePath "dotnet" -Arguments @(
+        "build", $BAProjPath,
+        "--configuration", "Release",
+        "--verbosity",     "minimal",
+        "-p:Version=$Version"
+    )
+
+    $baOut     = Join-Path $RepoRoot "installer\Dashboard.BA\bin\Release\net48"
+    $baStaging = Join-Path $StagingDir "BA"
+    $null = New-Item -ItemType Directory -Path $baStaging -Force
+
+    if (Test-Path $baOut) {
+        Copy-Item (Join-Path $baOut "*") -Destination $baStaging -Recurse -Force
+        Write-OK "Dashboard.BA staged to: $baStaging"
+    }
+    else {
+        Write-Warn "Dashboard.BA output not found at: $baOut"
+    }
+}
+
+# =============================================================================
+# STEP 7 -- Stage support files (tools, config templates, Web Client JS)
+# =============================================================================
+
+$Step++
+Write-Stage $Step $TotalStages "Staging support files"
+
+# Tools (Configure-Dashboard.ps1)
+$toolsDir     = Join-Path $ArtifactsDir "Tools"
+$null = New-Item -ItemType Directory -Path $toolsDir -Force
+$configurePs1 = Join-Path $RepoRoot "installer\Configure-Dashboard.ps1"
+if (Test-Path $configurePs1) {
+    Copy-Item $configurePs1 -Destination $toolsDir -Force
+    Write-OK "Configure-Dashboard.ps1 staged."
+}
+else {
+    Write-Warn "Configure-Dashboard.ps1 not found: $configurePs1"
+}
+
+# Config templates
+$templateSrc = Join-Path $RepoRoot "config\templates"
+if (Test-Path $templateSrc) {
+    $templateDst = Join-Path $StagingDir "ConfigTemplate"
+    Copy-Item (Join-Path $templateSrc "*") -Destination $templateDst -Force
+    Write-OK "Config templates staged."
+}
+else {
+    Write-Warn "config\templates\ not found at: $templateSrc"
+}
+
+# Web Client button script
+$wcbDir    = Join-Path $ArtifactsDir "WebClientButton"
+$null = New-Item -ItemType Directory -Path $wcbDir -Force
+$srcJs     = Join-Path $RepoRoot "src\LFPortal.Web\wwwroot\js\lf-webclient-button.js"
+$deployPs1 = Join-Path $RepoRoot "installer\Deploy-WebClientButton.ps1"
+
+if (Test-Path $srcJs) {
+    Copy-Item $srcJs -Destination (Join-Path $wcbDir "lf-dashboard-button.js") -Force
+    Write-OK "lf-dashboard-button.js staged."
+}
+else {
+    Write-Warn "Source JS not found: $srcJs"
+}
+
+if (Test-Path $deployPs1) {
+    Copy-Item $deployPs1 -Destination $wcbDir -Force
+    Write-OK "Deploy-WebClientButton.ps1 staged."
+}
+
+Write-OK "Support files staged."
+
+# =============================================================================
+# STEP 8 -- Build MSI (Windows only)
+# =============================================================================
+
+$Step++
+
+if ($SkipMsi) {
+    Write-Stage $Step $TotalStages "Building MSI [SKIPPED on non-Windows]"
+    Write-Host "  (Skipped)" -ForegroundColor DarkGray
+}
+elseif (-not (Test-Path $InstallerProj)) {
+    Write-Stage $Step $TotalStages "Building MSI [SKIPPED - project not found]"
+    Write-Warn "WiX installer project not found: $InstallerProj"
+}
+else {
+    Write-Stage $Step $TotalStages "Building MSI installer (WiX v4)"
+
+    # Verify WiX v4 global tool is installed; install if missing.
+    # Invoke-NativeCommand is used so $LASTEXITCODE is always defined.
+    $wixCheck = Invoke-NativeCommand -Stage "wix --version check" `
+        -FilePath "dotnet" -Arguments @("wix", "--version") -IgnoreFailure
+    if ($wixCheck -ne 0) {
+        Write-Host "  WiX v4 global tool not found -- installing..." -ForegroundColor Yellow
+        Invoke-NativeCommand -Stage "dotnet tool install --global wix" `
+            -FilePath "dotnet" -Arguments @("tool", "install", "--global", "wix")
+        Write-OK "WiX v4 installed."
+    }
+
+    # Ensure required WiX extensions are present.
+    # -IgnoreFailure: non-zero means already installed; that is fine.
+    $wixExts = @(
+        "WixToolset.UI.wixext/4.0.5",
+        "WixToolset.Iis.wixext/4.0.3",
+        "WixToolset.Util.wixext/4.0.5",
+        "WixToolset.Bal.wixext/4.0.5"
+    )
+    foreach ($ext in $wixExts) {
+        Invoke-NativeCommand -Stage "wix extension add $ext" `
+            -FilePath "wix" -Arguments @("extension", "add", $ext, "--global") `
+            -IgnoreFailure | Out-Null
+    }
+
+    # Build the MSI.
+    Invoke-NativeCommand -Stage "dotnet build (MSI)" -FilePath "dotnet" -Arguments @(
+        "build", $InstallerProj,
+        "--configuration", "Release",
+        "--verbosity",     "minimal",
+        "-p:ProductVersion=$Version"
+    )
+
+    $msiPath = Join-Path $ArtifactsDir "Dashboard-$Version-Setup.msi"
+    if (Test-Path $msiPath) {
+        Write-OK "MSI built: $msiPath"
+    }
+    else {
+        Write-Warn "MSI not found at expected path: $msiPath"
+        Write-Warn "Check the WiX build output for the actual output path."
+    }
+}
+
+# =============================================================================
+# STEP 9 -- Build Burn Bundle / LFDashboard-Setup.exe (Windows only)
+# =============================================================================
+
+$Step++
+
+if ($SkipMsi) {
+    Write-Stage $Step $TotalStages "Building Bundle [SKIPPED on non-Windows]"
+    Write-Host "  (Skipped)" -ForegroundColor DarkGray
+}
+elseif (-not (Test-Path $BundleProj)) {
+    Write-Stage $Step $TotalStages "Building Bundle [SKIPPED - project not found]"
+    Write-Warn "Bundle project not found: $BundleProj"
+}
+else {
+    Write-Stage $Step $TotalStages "Building Burn Bundle (LFDashboard-Setup.exe)"
+
+    # WixToolset.Bal.wixext must be present (may already be from Step 8).
+    Invoke-NativeCommand -Stage "wix extension add Bal" `
+        -FilePath "wix" `
+        -Arguments @("extension", "add", "WixToolset.Bal.wixext/4.0.5", "--global") `
+        -IgnoreFailure | Out-Null
+
+    Invoke-NativeCommand -Stage "dotnet build (Bundle)" -FilePath "dotnet" -Arguments @(
+        "build", $BundleProj,
+        "--configuration", "Release",
+        "--verbosity",     "minimal",
+        "-p:ProductVersion=$Version"
+    )
+
+    # Expected output path (set by Dashboard.Bundle.wixproj OutputPath).
     $bundleExe = Join-Path $ArtifactsDir "LFDashboard-Setup.exe"
-    if (Test-Path $bundleExe) {
-        Copy-Item $bundleExe -Destination $releaseDir -Force
-        Write-OK "Release\LFDashboard-Setup.exe ready."
-    }
-    elseif ($SkipMsi) {
-        Write-Host "  [INFO] Bundle EXE skipped on non-Windows build; Release\ contains README only." `
-            -ForegroundColor DarkGray
-    }
-    else {
-        Write-Host "  [WARN] LFDashboard-Setup.exe not found; Release\ will be incomplete." `
-            -ForegroundColor Yellow
-    }
 
-    # Copy README.txt
-    $readmeSrc = Join-Path $RepoRoot "Release\README.txt"
-    if (Test-Path $readmeSrc) {
-        # Already in place (source-controlled in Release\)
-        Write-OK "Release\README.txt present."
-    }
-    else {
-        Write-Host "  [WARN] Release\README.txt not found." -ForegroundColor Yellow
-    }
-
-    Write-OK "Release folder: $releaseDir"
-}
-
-# ---------- Assemble final artifacts folder ----------------------------------
-
-Invoke-Cmd "Assembling release artifacts" {
-
-    # WebApp
-    $webAppDst = Join-Path $ArtifactsDir "WebApp"
-    if (-not (Test-Path $webAppDst)) {
-        Copy-Item (Join-Path $StagingDir "WebApp") -Destination $webAppDst -Recurse -Force
-    }
-
-    # Extension
-    $extDst = Join-Path $ArtifactsDir "Extension"
-    if (-not (Test-Path $extDst)) {
-        Copy-Item (Join-Path $StagingDir "Extension") -Destination $extDst -Recurse -Force
-    }
-
-    # ConfigTemplate
-    $cfgDst = Join-Path $ArtifactsDir "ConfigTemplate"
-    New-Item -ItemType Directory -Path $cfgDst -Force | Out-Null
-    $cfgSrc = Join-Path $StagingDir "ConfigTemplate\*"
-    if (Test-Path (Join-Path $StagingDir "ConfigTemplate")) {
-        Copy-Item $cfgSrc -Destination $cfgDst -Force
-    }
-
-    # Tools
-    $toolsSrc = Join-Path $ArtifactsDir "Tools"
-    if ((Test-Path $toolsSrc) -and (Get-ChildItem $toolsSrc).Count -eq 0) {
-        # Already staged above
-    }
-
-    # Docs
-    $docsDst = Join-Path $ArtifactsDir "docs"
-    New-Item -ItemType Directory -Path $docsDst -Force | Out-Null
-    foreach ($doc in @("InstallationGuide.md", "UpgradeGuide.md", "ReleaseNotes.md")) {
-        $docSrc = Join-Path $RepoRoot "docs\$doc"
-        if (Test-Path $docSrc) {
-            Copy-Item $docSrc -Destination $docsDst -Force
+    if (-not (Test-Path $bundleExe)) {
+        # Fallback: WiX may have placed it elsewhere; scan the repo.
+        $found = Get-ChildItem $RepoRoot -Recurse -Filter "LFDashboard-Setup.exe" `
+                     -ErrorAction SilentlyContinue |
+                 Select-Object -First 1
+        if ($found) {
+            Copy-Item $found.FullName -Destination $ArtifactsDir -Force
+            Write-Warn "Bundle EXE found at alternate path: $($found.FullName)"
+            Write-OK   "Bundle EXE copied to: $bundleExe"
+        }
+        else {
+            Write-Host ""
+            Write-Host "  [FAILED] Bundle build completed but LFDashboard-Setup.exe was not found." `
+                -ForegroundColor Red
+            Write-Host "           Expected: $bundleExe" -ForegroundColor Red
+            Write-Host "           Check the WiX build output above for errors." -ForegroundColor Red
+            exit 1
         }
     }
-
-    Write-OK "Release artifacts assembled in: $ArtifactsDir"
+    else {
+        Write-OK "Bundle built: $bundleExe"
+    }
 }
 
-# ---------- Final summary ----------------------------------------------------
+# =============================================================================
+# STEP 10 -- Assemble Release\ and artifacts\ folders
+# =============================================================================
+
+$Step++
+Write-Stage $Step $TotalStages "Assembling Release\ and artifacts\ folders"
+
+# -- Release\ (the admin-facing deliverable) --
+$null = New-Item -ItemType Directory -Path $ReleaseDir -Force
+
+$bundleExeSrc = Join-Path $ArtifactsDir "LFDashboard-Setup.exe"
+if (Test-Path $bundleExeSrc) {
+    Copy-Item $bundleExeSrc -Destination $ReleaseDir -Force
+    Write-OK "Release\LFDashboard-Setup.exe copied."
+}
+elseif (-not $SkipMsi) {
+    # Windows build, but EXE is missing -- Step 9 should have caught this.
+    # Being defensive here; Step 11 verification will also catch it.
+    Write-Warn "LFDashboard-Setup.exe not found -- Release\ will be incomplete."
+}
+
+# README.txt is source-controlled in Release\ -- nothing to copy.
+$readmePath = Join-Path $ReleaseDir "README.txt"
+if (Test-Path $readmePath) {
+    Write-OK "Release\README.txt present."
+}
+else {
+    Write-Warn "Release\README.txt not found at: $readmePath"
+}
+
+# -- artifacts\ (internal build outputs) --
+
+# WebApp (staging -> artifacts\WebApp\)
+$webAppDst = Join-Path $ArtifactsDir "WebApp"
+if (-not (Test-Path $webAppDst)) {
+    $webAppSrc = Join-Path $StagingDir "WebApp"
+    if (Test-Path $webAppSrc) {
+        Copy-Item $webAppSrc -Destination $webAppDst -Recurse -Force
+    }
+}
+
+# Extension (staging -> artifacts\Extension\)
+$extDst = Join-Path $ArtifactsDir "Extension"
+if (-not (Test-Path $extDst)) {
+    $extSrc = Join-Path $StagingDir "Extension"
+    if (Test-Path $extSrc) {
+        Copy-Item $extSrc -Destination $extDst -Recurse -Force
+    }
+}
+
+# ConfigTemplate
+$cfgDst = Join-Path $ArtifactsDir "ConfigTemplate"
+$null = New-Item -ItemType Directory -Path $cfgDst -Force
+$cfgSrc = Join-Path $StagingDir "ConfigTemplate"
+if (Test-Path $cfgSrc) {
+    Copy-Item (Join-Path $cfgSrc "*") -Destination $cfgDst -Force
+}
+
+# Docs
+$docsDst = Join-Path $ArtifactsDir "docs"
+$null = New-Item -ItemType Directory -Path $docsDst -Force
+foreach ($doc in @("InstallationGuide.md", "UpgradeGuide.md", "ReleaseNotes.md")) {
+    $docSrc = Join-Path $RepoRoot "docs\$doc"
+    if (Test-Path $docSrc) {
+        Copy-Item $docSrc -Destination $docsDst -Force
+    }
+}
+
+Write-OK "Artifacts assembled."
+
+# =============================================================================
+# STEP 11 -- Verify deliverables
+# =============================================================================
+
+$Step++
+Write-Stage $Step $TotalStages "Verifying deliverables"
+
+$buildFailed = $false
+
+if (-not $SkipMsi) {
+    # On a Windows build the EXE MUST be present for the build to be considered successful.
+    $exeDest = Join-Path $ReleaseDir "LFDashboard-Setup.exe"
+    if (Test-Path $exeDest) {
+        Write-OK "VERIFIED: Release\LFDashboard-Setup.exe"
+    }
+    else {
+        Write-Host "  [FAILED] Release\LFDashboard-Setup.exe NOT FOUND." -ForegroundColor Red
+        $buildFailed = $true
+    }
+}
+
+$readmeDest = Join-Path $ReleaseDir "README.txt"
+if (Test-Path $readmeDest) {
+    Write-OK "VERIFIED: Release\README.txt"
+}
+else {
+    Write-Host "  [FAILED] Release\README.txt NOT FOUND." -ForegroundColor Red
+    $buildFailed = $true
+}
+
+if ($buildFailed) {
+    Write-Host ""
+    Write-Host "  BUILD FAILED -- one or more deliverables are missing." -ForegroundColor Red
+    Write-Host "  Review the output above for errors and re-run the build." -ForegroundColor Red
+    exit 1
+}
+
+# =============================================================================
+# SUMMARY
+# =============================================================================
 
 Write-Host ""
-Write-Host "  ==========================================================" -ForegroundColor DarkGray
-Write-Host "  Build complete -- Dashboard $Version" -ForegroundColor Green
+Write-Host "  ============================================================" -ForegroundColor DarkGray
+Write-Host ("  BUILD SUCCESSFUL -- Dashboard {0}" -f $Version) -ForegroundColor Green
+Write-Host "  ============================================================" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  Artifacts:" -ForegroundColor White
-Get-ChildItem $ArtifactsDir -Depth 0 | ForEach-Object {
-    Write-Host "    $($_.Name)" -ForegroundColor Gray
+Get-ChildItem $ArtifactsDir -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host ("    {0}" -f $_.Name) -ForegroundColor Gray
 }
 Write-Host ""
 
 if ($SkipMsi) {
-    Write-Host "  MSI and Bundle were skipped. To build on Windows:" -ForegroundColor Yellow
-    Write-Host "    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force" -ForegroundColor Gray
-    Write-Host "    .\build\publish.ps1 -Version $Version" -ForegroundColor Gray
+    Write-Host "  MSI and Bundle were skipped (non-Windows build)." -ForegroundColor Yellow
+    Write-Host "  To produce LFDashboard-Setup.exe, run on Windows:" -ForegroundColor Yellow
+    Write-Host ("    .\\build\\publish.ps1 -Version {0}" -f $Version) -ForegroundColor Gray
     Write-Host ""
 }
 else {
-    $bundleExe = Join-Path $RepoRoot "Release\LFDashboard-Setup.exe"
-    if (Test-Path $bundleExe) {
-        Write-Host "  Deliverable: Release\LFDashboard-Setup.exe" -ForegroundColor Green
-        Write-Host "               Release\README.txt" -ForegroundColor Green
-        Write-Host ""
-        Write-Host "  To distribute: give the admin the Release\ folder." -ForegroundColor White
-        Write-Host "  They double-click LFDashboard-Setup.exe and follow the wizard." -ForegroundColor Gray
-        Write-Host ""
-    }
-    else {
-        $msi = Get-ChildItem $ArtifactsDir -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($msi) {
-            Write-Host "  MSI installer: $($msi.FullName)" -ForegroundColor Green
-            Write-Host "  (Bundle EXE not found; Bundle build may have failed.)" -ForegroundColor Yellow
-            Write-Host ""
-        }
-    }
+    Write-Host "  Deliverable for distribution:" -ForegroundColor White
+    Write-Host "    Release\LFDashboard-Setup.exe" -ForegroundColor Green
+    Write-Host "    Release\README.txt" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  Give the admin the Release\ folder." -ForegroundColor Gray
+    Write-Host "  They double-click LFDashboard-Setup.exe and follow the wizard." -ForegroundColor Gray
+    Write-Host ""
 }
