@@ -142,6 +142,111 @@ function Invoke-NativeCommand {
     return $ec
 }
 
+# New-HarvestWxs: generates a WiX 4 fragment file containing a ComponentGroup
+# for every file found (recursively) in SourceDir.
+#
+# This replaces the HarvestDirectory MSBuild item, which only works when the
+# WiX SDK resolver is registered by a globally installed WiX tool.  Because
+# this project uses a repository-local tool (dotnet tool restore) to avoid
+# depending on whatever WiX version the developer has globally, we use
+# 'dotnet tool run wix -- build' instead of 'dotnet build <wixproj>'.  That
+# CLI path does not support HarvestDirectory, so we pre-generate the harvest
+# file here.
+function New-HarvestWxs {
+    param(
+        [string]$SourceDir,
+        [string]$ComponentGroupName,
+        [string]$DirectoryRefId,
+        [string]$OutputWxs
+    )
+
+    $emptyXml = @"
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <ComponentGroup Id="$ComponentGroupName" />
+  </Fragment>
+</Wix>
+"@
+
+    if (-not (Test-Path $SourceDir)) {
+        $emptyXml | Set-Content -Path $OutputWxs -Encoding UTF8
+        return
+    }
+
+    $SourceDir = (Resolve-Path $SourceDir).Path.TrimEnd([char[]]@('\', '/'))
+    $allFiles  = @(Get-ChildItem -Path $SourceDir -Recurse -File | Sort-Object FullName)
+
+    if ($allFiles.Count -eq 0) {
+        $emptyXml | Set-Content -Path $OutputWxs -Encoding UTF8
+        return
+    }
+
+    # Map every directory encountered to a WiX-safe ID.
+    # Root directory uses the caller-supplied DirectoryRefId.
+    $dirId = @{}
+    $dirId[$SourceDir] = $DirectoryRefId
+    $idx = 0
+    $allFiles |
+        ForEach-Object { $_.DirectoryName } |
+        Select-Object -Unique |
+        Sort-Object |
+        ForEach-Object {
+            if (-not $dirId.ContainsKey($_)) {
+                $idx++
+                $rel = $_.Substring($SourceDir.Length + 1) -replace '[^A-Za-z0-9]', '_'
+                if ($rel -match '^[0-9]') { $rel = "d_$rel" }
+                if ($rel.Length -gt 50)   { $rel = $rel.Substring(0, 50) }
+                $dirId[$_] = ("dir_{0}_{1}_{2}" -f $ComponentGroupName, $idx, $rel)
+            }
+        }
+
+    # Build parent-to-immediate-children map for all directories.
+    $childMap = @{}
+    foreach ($d in ($dirId.Keys | Sort-Object Length)) {
+        if ($d -ne $SourceDir) {
+            $parent = (Split-Path $d -Parent).TrimEnd([char[]]@('\', '/'))
+            if (-not $childMap.ContainsKey($parent)) {
+                $childMap[$parent] = [System.Collections.Generic.List[string]]::new()
+            }
+            $childMap[$parent].Add($d)
+        }
+    }
+
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add('<?xml version="1.0" encoding="utf-8"?>')
+    $lines.Add('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">')
+    $lines.Add('  <Fragment>')
+
+    # One <DirectoryRef> block per parent that has sub-directories.
+    foreach ($parent in ($childMap.Keys | Sort-Object Length)) {
+        $pid = $dirId[$parent]
+        $lines.Add("    <DirectoryRef Id=`"$pid`">")
+        foreach ($child in ($childMap[$parent] | Sort-Object)) {
+            $cid   = $dirId[$child]
+            $cname = Split-Path $child -Leaf
+            $lines.Add("      <Directory Id=`"$cid`" Name=`"$cname`" />")
+        }
+        $lines.Add("    </DirectoryRef>")
+    }
+
+    # One <Component> per file inside <ComponentGroup>.
+    $lines.Add("    <ComponentGroup Id=`"$ComponentGroupName`">")
+    $ci = 0
+    foreach ($file in $allFiles) {
+        $ci++
+        $pid = $dirId[$file.DirectoryName]
+        $lines.Add("      <Component Id=`"Comp_${ComponentGroupName}_${ci}`" Directory=`"$pid`" Guid=`"*`">")
+        $lines.Add("        <File Source=`"$($file.FullName)`" />")
+        $lines.Add("      </Component>")
+    }
+    $lines.Add("    </ComponentGroup>")
+    $lines.Add('  </Fragment>')
+    $lines.Add('</Wix>')
+
+    ($lines -join "`r`n") | Set-Content -Path $OutputWxs -Encoding UTF8
+}
+
 # =============================================================================
 # PLATFORM DETECTION
 # =============================================================================
@@ -474,95 +579,62 @@ elseif (-not (Test-Path $InstallerProj)) {
     Write-Warn "WiX installer project not found: $InstallerProj"
 }
 else {
-    Write-Stage $Step $TotalStages "Building MSI installer (WiX v4)"
+    Write-Stage $Step $TotalStages ("Building MSI installer (WiX {0} via local tool)" -f $WixPinnedVersion)
 
     # -----------------------------------------------------------------------
-    # Ensure WiX $WixPinnedVersion is the active global tool.
+    # ARCHITECTURE: repository-local WiX toolchain
     #
-    # Root cause of the version-mismatch bug this block replaces:
-    #   'dotnet tool install --global wix' without a version pin installs
-    #   whatever is latest (e.g. 7.0.0).  WiX 7 uses Sdk="WixToolset.Sdk"
-    #   while our .wixproj files declare Sdk="WixToolset.Wix/4.0.5".
-    #   The WiX 7 SDK resolver does not know about WixToolset.Wix, and
-    #   that package is not on NuGet as a standalone download either --
-    #   result: "Could not resolve SDK 'WixToolset.Wix'."
+    # WHY NOT GLOBAL TOOL:
+    #   'dotnet tool update --global wix --version 4.0.5' cannot downgrade an
+    #   already-installed newer version (e.g. 7.0.0 -> 4.0.5).  A developer may
+    #   need WiX 7 for another project; we must not modify their global install.
     #
-    # Fix: check the currently installed version via 'dotnet tool list --global'
-    # (reliable, no PATH-dependent executable call needed) and install/update
-    # to exactly $WixPinnedVersion if the version doesn't already match.
+    # WHY NOT 'dotnet build <wixproj>':
+    #   Sdk="WixToolset.Wix/4.0.5" requires the WiX 4 MSBuild SDK resolver,
+    #   which is only registered when WiX 4 is installed as a GLOBAL tool.
+    #   A local tool restore does not register that resolver, so dotnet build
+    #   fails with "Could not resolve SDK 'WixToolset.Wix'."
+    #
+    # HOW WE BUILD:
+    #   1. dotnet tool restore  -> installs WiX 4.0.5 from .config/dotnet-tools.json
+    #   2. New-HarvestWxs       -> pre-generates ComponentGroup .wxs files from
+    #      staging dirs (replaces the HarvestDirectory MSBuild feature)
+    #   3. dotnet tool run wix -- build <sources> -ext ... -d ...
+    #      This invokes the local WiX CLI directly; no MSBuild SDK resolver needed.
+    #
+    # GLOBAL WiX (any version): completely ignored; no modification made to it.
     # -----------------------------------------------------------------------
-    $toolListOutput = @(& dotnet tool list --global 2>&1)
-    $ec = $LASTEXITCODE   # read immediately after native call
 
-    $wixRow = $toolListOutput | Where-Object { $_ -match '^wix\s' }
-    $needsInstall = $true
-    $needsUpdate  = $false
+    # 8a -- Restore the repository-local WiX tool.
+    Write-Host "  Restoring local tools from .config/dotnet-tools.json ..." -ForegroundColor Gray
+    Invoke-NativeCommand -Stage "dotnet tool restore" -FilePath "dotnet" `
+        -Arguments @("tool", "restore")
+    Write-OK "Local tools restored."
 
-    if ($wixRow -and ($wixRow -match '\s+(\d+\.\d+[\d.]*)\s+')) {
-        $installedVer = $Matches[1]
-        if ($installedVer -eq $WixPinnedVersion) {
-            $needsInstall = $false
-            Write-OK ("WiX {0} already installed." -f $WixPinnedVersion)
-        } else {
-            $needsInstall = $false
-            $needsUpdate  = $true
-            Write-Host ("  WiX {0} found but {1} required -- updating to pinned version..." `
-                -f $installedVer, $WixPinnedVersion) -ForegroundColor Yellow
-        }
-    } else {
-        Write-Host ("  WiX global tool not found -- installing {0}..." `
-            -f $WixPinnedVersion) -ForegroundColor Yellow
+    # 8b -- Verify the local WiX version matches our pin.
+    $localWixOut = @(& dotnet tool run wix -- --version 2>&1)
+    $localWixEc  = $LASTEXITCODE
+    if ($localWixEc -ne 0) {
+        Write-Host "  [FAILED] 'dotnet tool run wix -- --version' returned exit $localWixEc." `
+            -ForegroundColor Red
+        Write-Host "           Ensure .config/dotnet-tools.json pins wix to $WixPinnedVersion." `
+            -ForegroundColor Red
+        exit 1
     }
-
-    if ($needsUpdate) {
-        # 'dotnet tool update --version X' supports both upgrades and downgrades.
-        Invoke-NativeCommand `
-            -Stage ("dotnet tool update --global wix to {0}" -f $WixPinnedVersion) `
-            -FilePath "dotnet" `
-            -Arguments @("tool", "update", "--global", "wix", "--version", $WixPinnedVersion)
-        Write-OK ("WiX updated to {0}." -f $WixPinnedVersion)
-    } elseif ($needsInstall) {
-        Invoke-NativeCommand `
-            -Stage ("dotnet tool install --global wix {0}" -f $WixPinnedVersion) `
-            -FilePath "dotnet" `
-            -Arguments @("tool", "install", "--global", "wix", "--version", $WixPinnedVersion)
-        Write-OK ("WiX {0} installed." -f $WixPinnedVersion)
+    $localVer = ($localWixOut | Where-Object { $_ -match '\d+\.\d+' } |
+                 Select-Object -First 1).Trim()
+    if ($localVer -notlike "*$WixPinnedVersion*") {
+        Write-Host "  [FAILED] Local WiX is '$localVer' but '$WixPinnedVersion' required." `
+            -ForegroundColor Red
+        Write-Host "           Update the 'version' in .config/dotnet-tools.json and re-run." `
+            -ForegroundColor Red
+        exit 1
     }
+    Write-OK ("Local WiX version: {0}  (global WiX, if any, is not used)" -f $localVer)
 
-    # Verify the active 'wix' command is the correct version.
-    # WiX registers as a standalone 'wix' command (not 'dotnet wix').
-    # On a freshly-updated session PATH may not have refreshed yet; if
-    # 'wix --version' fails, prompt the user to reopen their terminal.
-    $wixVerOut = @(& wix --version 2>&1)
-    $wixVerEc  = $LASTEXITCODE
-    if ($wixVerEc -ne 0) {
-        Write-Host ""
-        Write-Host "  [WARN] 'wix --version' failed (exit $wixVerEc)." -ForegroundColor Yellow
-        Write-Host "         If WiX was just installed, close and reopen the terminal to" `
-            -ForegroundColor Yellow
-        Write-Host "         refresh PATH, then re-run .\build\publish.ps1." `
-            -ForegroundColor Yellow
-        Write-Host "         Continuing anyway -- dotnet build may still succeed." `
-            -ForegroundColor Yellow
-    } else {
-        $activeVer = ($wixVerOut -join '').Trim()
-        if ($activeVer -notlike "*$WixPinnedVersion*") {
-            Write-Host ""
-            Write-Host ("  [WARN] 'wix --version' reported '{0}' but {1} is required." `
-                -f $activeVer, $WixPinnedVersion) -ForegroundColor Yellow
-            Write-Host "         Close and reopen the terminal to refresh PATH, then re-run." `
-                -ForegroundColor Yellow
-        } else {
-            Write-OK ("WiX version verified: {0}" -f $activeVer)
-        }
-    }
-
-    # -----------------------------------------------------------------------
-    # Ensure required WiX v4 extensions are present (global).
-    # -IgnoreFailure: non-zero exit means already installed -- that is fine.
-    # Extension versions must match the WiX tool generation (4.x).
-    # IIS extension 4.0.3 is the last available 4.x build for that extension.
-    # -----------------------------------------------------------------------
+    # 8c -- Ensure WiX extensions are present in the local cache.
+    # 'extension add' exits non-zero if already cached; -IgnoreFailure handles that.
+    # No --global flag: extensions go into the user-scoped WiX cache for 4.0.5.
     $wixExts = @(
         "WixToolset.UI.wixext/$WixPinnedVersion",
         "WixToolset.Iis.wixext/4.0.3",
@@ -571,26 +643,75 @@ else {
     )
     foreach ($ext in $wixExts) {
         Invoke-NativeCommand -Stage ("wix extension add {0}" -f $ext) `
-            -FilePath "wix" -Arguments @("extension", "add", $ext, "--global") `
+            -FilePath "dotnet" `
+            -Arguments @("tool", "run", "wix", "--", "extension", "add", $ext) `
             -IgnoreFailure | Out-Null
     }
+    Write-OK "WiX extensions ready."
 
-    # Build the MSI.
-    Invoke-NativeCommand -Stage "dotnet build (MSI)" -FilePath "dotnet" -Arguments @(
-        "build", $InstallerProj,
-        "--configuration", "Release",
-        "--verbosity",     "minimal",
-        "-p:ProductVersion=$Version"
+    # 8d -- Pre-harvest staging directories into .wxs ComponentGroup files.
+    #       HarvestDirectory is a WiX MSBuild-only feature; when using 'wix build'
+    #       CLI we generate equivalent .wxs fragments with New-HarvestWxs.
+    $harvestDir      = Join-Path $StagingDir "Harvest"
+    $null = New-Item -ItemType Directory -Path $harvestDir -Force
+    $webAppHarvestWxs = Join-Path $harvestDir "WebAppComponents.wxs"
+    $extHarvestWxs    = Join-Path $harvestDir "ExtensionComponents.wxs"
+
+    New-HarvestWxs `
+        -SourceDir          (Join-Path $StagingDir "WebApp") `
+        -ComponentGroupName "WebAppComponents" `
+        -DirectoryRefId     "WEBAPPFOLDER" `
+        -OutputWxs          $webAppHarvestWxs
+    Write-OK "Harvested WebApp -> $webAppHarvestWxs"
+
+    New-HarvestWxs `
+        -SourceDir          (Join-Path $StagingDir "Extension") `
+        -ComponentGroupName "ExtensionComponents" `
+        -DirectoryRefId     "EXTENSIONFOLDER" `
+        -OutputWxs          $extHarvestWxs
+    Write-OK "Harvested Extension -> $extHarvestWxs"
+
+    # 8e -- Build the MSI.
+    $installerSrcDir = Join-Path $RepoRoot "installer\Dashboard.Installer"
+    $cfgTemplateDir  = Join-Path $StagingDir "ConfigTemplate"
+    $msiIntermDir    = Join-Path $ArtifactsDir "obj\MSI"
+    $msiPath         = Join-Path $ArtifactsDir "Dashboard-$Version-Setup.msi"
+    $null = New-Item -ItemType Directory -Path $msiIntermDir -Force
+
+    $wxsSources = @(
+        (Join-Path $installerSrcDir "Product.wxs"),
+        (Join-Path $installerSrcDir "WebApplication.wxs"),
+        (Join-Path $installerSrcDir "DesktopExtension.wxs"),
+        (Join-Path $installerSrcDir "Configuration.wxs"),
+        (Join-Path $installerSrcDir "Shortcuts.wxs"),
+        $webAppHarvestWxs,
+        $extHarvestWxs
     )
 
-    $msiPath = Join-Path $ArtifactsDir "Dashboard-$Version-Setup.msi"
-    if (Test-Path $msiPath) {
-        Write-OK "MSI built: $msiPath"
+    $wixMsiArgs = @("tool", "run", "wix", "--", "build") +
+                  $wxsSources +
+                  @(
+        "-arch",   "x64",
+        "-ext",    "WixToolset.UI.wixext/$WixPinnedVersion",
+        "-ext",    "WixToolset.Iis.wixext/4.0.3",
+        "-ext",    "WixToolset.Util.wixext/$WixPinnedVersion",
+        "-d",      "ProductVersion=$Version",
+        "-d",      "DashboardPort=5000",
+        "-d",      "ConfigTemplateDir=$cfgTemplateDir",
+        "-b",      $installerSrcDir,
+        "-intermediatefolder", $msiIntermDir,
+        "-pdbtype", "none",
+        "-out",    $msiPath
+    )
+
+    Invoke-NativeCommand -Stage "wix build (MSI)" -FilePath "dotnet" -Arguments $wixMsiArgs
+
+    if (-not (Test-Path $msiPath)) {
+        Write-Host "  [FAILED] MSI not found at expected path: $msiPath" -ForegroundColor Red
+        exit 1
     }
-    else {
-        Write-Warn "MSI not found at expected path: $msiPath"
-        Write-Warn "Check the WiX build output for the actual output path."
-    }
+    $msiBytes = (Get-Item $msiPath).Length
+    Write-OK ("MSI built: {0}  ({1:N0} bytes)" -f $msiPath, $msiBytes)
 }
 
 # =============================================================================
@@ -610,44 +731,50 @@ elseif (-not (Test-Path $BundleProj)) {
 else {
     Write-Stage $Step $TotalStages "Building Burn Bundle (LFDashboard-Setup.exe)"
 
-    # WixToolset.Bal.wixext must be present (may already be from Step 8).
-    Invoke-NativeCommand -Stage "wix extension add Bal" `
-        -FilePath "wix" `
-        -Arguments @("extension", "add", "WixToolset.Bal.wixext/$WixPinnedVersion", "--global") `
-        -IgnoreFailure | Out-Null
+    # Local tool was restored in Step 8; Bal extension was added there too.
+    # Build the Burn bundle using 'dotnet tool run wix -- build' (same pattern
+    # as the MSI -- bypasses MSBuild and the WiX SDK resolver entirely).
 
-    Invoke-NativeCommand -Stage "dotnet build (Bundle)" -FilePath "dotnet" -Arguments @(
-        "build", $BundleProj,
-        "--configuration", "Release",
-        "--verbosity",     "minimal",
-        "-p:ProductVersion=$Version"
+    $msiPath        = Join-Path $ArtifactsDir "Dashboard-$Version-Setup.msi"
+    $baAssemblyPath = Join-Path $StagingDir    "BA\Dashboard.BA.dll"
+    $bundleSrcDir   = Join-Path $RepoRoot      "installer\Dashboard.Bundle"
+    $prereqDir      = Join-Path $RepoRoot      "installer\prerequisites"
+    $bundleIntermDir = Join-Path $ArtifactsDir "obj\Bundle"
+    $bundleExe      = Join-Path $ArtifactsDir  "LFDashboard-Setup.exe"
+    $null = New-Item -ItemType Directory -Path $bundleIntermDir -Force
+
+    # The MSI must exist before the bundle can reference it.
+    if (-not (Test-Path $msiPath)) {
+        Write-Host "  [FAILED] MSI not found at: $msiPath" -ForegroundColor Red
+        Write-Host "           Step 8 must succeed before Step 9 can run." -ForegroundColor Red
+        exit 1
+    }
+
+    $wixBundleArgs = @(
+        "tool", "run", "wix", "--",
+        "build",
+        (Join-Path $bundleSrcDir "Bundle.wxs"),
+        "-ext",    "WixToolset.Bal.wixext/$WixPinnedVersion",
+        "-ext",    "WixToolset.Util.wixext/$WixPinnedVersion",
+        "-d",      "BAAssembly=$baAssemblyPath",
+        "-d",      "MsiPath=$msiPath",
+        "-d",      "BundleVersion=$Version",
+        "-d",      "PrereqDir=$prereqDir",
+        "-intermediatefolder", $bundleIntermDir,
+        "-pdbtype", "none",
+        "-out",    $bundleExe
     )
 
-    # Expected output path (set by Dashboard.Bundle.wixproj OutputPath).
-    $bundleExe = Join-Path $ArtifactsDir "LFDashboard-Setup.exe"
+    Invoke-NativeCommand -Stage "wix build (Bundle)" -FilePath "dotnet" -Arguments $wixBundleArgs
 
     if (-not (Test-Path $bundleExe)) {
-        # Fallback: WiX may have placed it elsewhere; scan the repo.
-        $found = Get-ChildItem $RepoRoot -Recurse -Filter "LFDashboard-Setup.exe" `
-                     -ErrorAction SilentlyContinue |
-                 Select-Object -First 1
-        if ($found) {
-            Copy-Item $found.FullName -Destination $ArtifactsDir -Force
-            Write-Warn "Bundle EXE found at alternate path: $($found.FullName)"
-            Write-OK   "Bundle EXE copied to: $bundleExe"
-        }
-        else {
-            Write-Host ""
-            Write-Host "  [FAILED] Bundle build completed but LFDashboard-Setup.exe was not found." `
-                -ForegroundColor Red
-            Write-Host "           Expected: $bundleExe" -ForegroundColor Red
-            Write-Host "           Check the WiX build output above for errors." -ForegroundColor Red
-            exit 1
-        }
+        Write-Host ""
+        Write-Host "  [FAILED] LFDashboard-Setup.exe was not produced." -ForegroundColor Red
+        Write-Host "           Expected: $bundleExe" -ForegroundColor Red
+        exit 1
     }
-    else {
-        Write-OK "Bundle built: $bundleExe"
-    }
+    $exeBytes = (Get-Item $bundleExe).Length
+    Write-OK ("Bundle built: {0}  ({1:N0} bytes)" -f $bundleExe, $exeBytes)
 }
 
 # =============================================================================

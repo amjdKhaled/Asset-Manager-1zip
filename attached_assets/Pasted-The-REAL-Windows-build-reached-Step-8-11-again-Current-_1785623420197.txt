@@ -1,0 +1,292 @@
+The REAL Windows build reached Step 8/11 again.
+
+Current error:
+
+[Step 8/11] Building MSI installer (WiX v4)
+
+WiX 7.0.0 found but 4.0.5 required -- updating to pinned version...
+
+The requested version 4.0.5 is lower than existing version 7.0.0.
+
+[FAILED] dotnet tool update --global wix to 4.0.5
+Executable : dotnet
+Arguments  : tool update --global wix --version 4.0.5
+Exit code  : 1
+
+
+ROOT CAUSE
+==========
+
+publish.ps1 correctly detects that WiX 7.0.0 is installed while this project
+requires WiX 4.0.5.
+
+However, it incorrectly tries to downgrade the global tool using:
+
+dotnet tool update --global wix --version 4.0.5
+
+dotnet tool update does not support downgrading an installed tool from
+7.0.0 to 4.0.5.
+
+Fix this properly and make the build reproducible on other Windows
+development machines.
+
+
+IMPORTANT ARCHITECTURAL REQUIREMENT
+===================================
+
+Do NOT make the release build depend on whatever global WiX version happens
+to be installed on the developer's machine.
+
+We already created:
+
+.config/dotnet-tools.json
+
+with WiX 4.0.5 pinned.
+
+USE THE REPOSITORY-LOCAL TOOL MANIFEST AS THE PRIMARY WIX TOOLCHAIN.
+
+The preferred architecture should be:
+
+dotnet tool restore
+
+then invoke the repository-local WiX tool using:
+
+dotnet tool run wix
+
+or the correct equivalent supported by the manifest.
+
+This isolates this project from globally installed WiX versions.
+
+If the machine has:
+
+WiX 7 globally
+WiX 5 globally
+WiX 4 globally
+or no global WiX
+
+the Dashboard build should still use the repository-pinned WiX 4.0.5.
+
+Do NOT uninstall or modify the user's global WiX installation unless there is
+absolutely no alternative.
+
+A developer may need WiX 7 for another project.
+
+
+STEP 1 - VERIFY THE TOOL MANIFEST
+=================================
+
+Inspect:
+
+.config/dotnet-tools.json
+
+Verify it pins:
+
+wix = 4.0.5
+
+and that the command name is correct.
+
+Run/validate:
+
+dotnet tool restore
+
+from the repository root.
+
+Then verify the local tool version.
+
+Use the manifest-aware invocation.
+
+For example conceptually:
+
+dotnet tool run wix --version
+
+Expected:
+
+4.0.5
+
+Do not use the global:
+
+wix --version
+
+for deciding which version this project builds with.
+
+
+STEP 2 - FIX publish.ps1
+========================
+
+Remove the current logic that does:
+
+dotnet tool update --global wix --version 4.0.5
+
+Do not attempt global upgrades/downgrades.
+
+Instead Step 8 should do something conceptually like:
+
+[Step 8/11] Building MSI installer (WiX 4.0.5)
+
+Restoring repository-local tools...
+dotnet tool restore
+
+Verifying repository-local WiX...
+dotnet tool run wix --version
+
+Verify that the returned version starts with exactly the pinned generation /
+version expected by this repository.
+
+Then use that local toolchain for the MSI and Bundle build.
+
+The project must not care that:
+
+wix --version
+
+globally currently returns 7.0.0.
+
+
+STEP 3 - SINGLE SOURCE OF TRUTH
+===============================
+
+Avoid defining 4.0.5 independently in several unrelated places if possible.
+
+There should be one clear version source.
+
+At minimum ensure these cannot drift:
+
+.config/dotnet-tools.json
+Dashboard.Installer.wixproj
+Dashboard.Bundle.wixproj
+build/publish.ps1
+WiX extension PackageReferences
+
+If the exact extension version must differ, such as:
+
+WixToolset.Iis.wixext = 4.0.3
+
+document why and keep that intentional.
+
+Do not silently update it to an incompatible version.
+
+
+STEP 4 - IMPORTANT: VERIFY WIX 4 SDK RESOLUTION
+===============================================
+
+The previous Windows failure was:
+
+Could not resolve SDK "WixToolset.Wix/4.0.5"
+
+Do not assume that merely restoring the local tool automatically fixes the
+MSBuild SDK resolver.
+
+Test this for REAL.
+
+After:
+
+dotnet tool restore
+
+run the actual MSI build:
+
+dotnet build installer\Dashboard.Installer\Dashboard.Installer.wixproj --configuration Release
+
+If Sdk="WixToolset.Wix/4.0.5" still cannot resolve, investigate the correct
+WiX 4 project SDK architecture.
+
+Do not guess.
+
+Determine whether the project should instead use the supported WiX SDK
+PackageReference / SDK syntax for WiX 4.
+
+The important result is that a clean Windows machine can restore and build
+the .wixproj reproducibly.
+
+
+STEP 5 - DO NOT STOP AT TOOL RESTORE
+====================================
+
+Continue the real Windows pipeline.
+
+We have already proven:
+
+Steps 1-7 PASS.
+
+After fixing the WiX tool isolation, actually test:
+
+Step 8 - MSI
+Step 9 - Burn Bundle
+Step 10 - Release assembly
+Step 11 - Final verification
+
+Keep fixing real errors until possible.
+
+
+STEP 6 - PORTABILITY
+====================
+
+This is directly related to our portability requirement.
+
+The project should NOT depend on:
+
+- globally installed WiX version
+- Amjad's user profile
+- C:\Users\Amjad...
+- specific Visual Studio installation
+- manually changing PATH
+- manually uninstalling WiX 7
+
+Development dependencies should be repository-pinned wherever practical.
+
+Customer installation remains completely separate:
+
+The CUSTOMER must never need WiX, dotnet SDK, PowerShell, NuGet, or source
+code.
+
+They only receive:
+
+Release\
+    LFDashboard-Setup.exe
+    README.txt
+
+
+STEP 7 - POWERSHELL ERROR HANDLING
+==================================
+
+Keep Set-StrictMode.
+
+Use the existing safe native-command helper.
+
+If:
+
+dotnet tool restore
+
+fails, stop with a clear error.
+
+If local WiX version verification fails, stop.
+
+If MSI build fails, stop.
+
+If Bundle build fails, stop.
+
+Never fall back silently to the global WiX installation.
+
+
+STEP 8 - REPORT
+===============
+
+After implementing the fix, report:
+
+1. Why dotnet tool update could not downgrade 7.0.0 to 4.0.5.
+2. Whether global WiX is now completely ignored.
+3. Exact contents/version of .config/dotnet-tools.json.
+4. Exact command used to restore local WiX.
+5. Exact command used to invoke local WiX.
+6. Exact WiX version returned by the local tool.
+7. Whether WixToolset.Wix/4.0.5 SDK resolution was actually tested.
+8. MSI build result.
+9. Bundle build result.
+10. Every file modified.
+11. Whether a developer with global WiX 7 can now build this project without
+    uninstalling WiX 7.
+12. Exact command I should run again on Windows.
+
+Do NOT tell me to manually uninstall WiX 7.
+
+Do NOT modify the working Steps 1-7.
+
+Implement the portable local-tool solution now.
