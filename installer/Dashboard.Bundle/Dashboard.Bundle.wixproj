@@ -56,6 +56,7 @@
   -->
   <PropertyGroup>
     <DefineConstants>BAAssembly=$(BAStagingDir)\Dashboard.BA.dll</DefineConstants>
+    <DefineConstants>$(DefineConstants);MbaCoreAssembly=$(BAStagingDir)\WixToolset.Mba.Core.dll</DefineConstants>
     <DefineConstants>$(DefineConstants);MsiPath=$(MsiStagingDir)\Dashboard-$(ProductVersion)-Setup.msi</DefineConstants>
     <DefineConstants>$(DefineConstants);BundleVersion=$(ProductVersion)</DefineConstants>
     <DefineConstants>$(DefineConstants);PrereqDir=$(PrereqDir)</DefineConstants>
