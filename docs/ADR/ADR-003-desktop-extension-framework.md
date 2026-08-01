@@ -48,6 +48,8 @@ with any `.NET Framework 4.x` host. Targeting `net48` is the safe and tested cho
   default browser via `System.Diagnostics.Process.Start`.
 - Backward-compat fallback to `%ProgramData%\LFPortal\extension.config.json` is
   implemented for existing installations.
+- Runtime approval remains a separate Phase 5 gate: the Dashboard toolbar button
+  must be observed independently of the pre-existing GovSearch AI integration.
 - The project is **not** included in `LFPortal.sln` (it cannot build on Linux/Replit
   where the Laserfiche SDK DLLs are absent). It has its own build instructions in
   `docs/LFDesktopExtension.md`.

@@ -1,0 +1,88 @@
+The Dashboard application successfully opens inside Laserfiche Desktop Client.
+
+However, I cannot approve Phase 5 yet because there is an important issue:
+
+The window/button appears to still be the OLD GovSearch AI Desktop Client integration.
+
+In the screenshot:
+
+- The window title still says "GovSearch AI"
+- It still shows "AI Assistant"
+- Dashboard is loaded inside that old window
+- This GovSearch AI button/integration existed before the new Dashboard.DesktopExtension project
+
+Therefore, do NOT assume that Dashboard.DesktopExtension successfully registered a new Laserfiche button.
+
+I need Phase 5 to be independent from the old GovSearch AI integration.
+
+Please inspect:
+
+- Dashboard.DesktopExtension Program.cs
+- ToolbarRegistrar.cs
+- ExtensionConfig.cs
+- the old GovSearch AI / CustomButtonManager integration
+- any registration IDs/names used by both integrations
+
+Determine whether Dashboard.DesktopExtension is actually registering its own Laserfiche toolbar button or whether we are still launching Dashboard through the old GovSearch AI registration.
+
+The desired final result is:
+
+Laserfiche Desktop Client
+        ↓
+[ Dashboard ] native toolbar button
+        ↓
+Dashboard.DesktopExtension.exe
+        ↓
+Dashboard application
+
+NOT:
+
+Laserfiche
+   ↓
+GovSearch AI
+   ↓
+Dashboard
+
+The new button must have its own identity and must not reuse the old GovSearch AI button registration.
+
+Use:
+
+Button name:
+Dashboard
+
+Application/product:
+Dashboard
+
+Executable:
+Dashboard.DesktopExtension.exe
+
+Configuration:
+%ProgramData%\Dashboard\extension.config.json
+
+Also remove any GovSearch AI / AI Assistant branding from the NEW Dashboard extension.
+
+IMPORTANT:
+
+Do NOT delete or modify the old GovSearch AI integration yet.
+
+I want both integrations to remain distinguishable during testing so we can prove that the new Dashboard button is actually being registered.
+
+Give me the exact command using the compiled:
+
+src\Dashboard.DesktopExtension\bin\Release\net48\Dashboard.DesktopExtension.exe
+
+to register the NEW Dashboard button.
+
+Then tell me exactly what I should see inside Laserfiche after restarting the Desktop Client.
+
+If registration succeeds, I should be able to distinguish:
+
+GovSearch AI  ← old integration
+
+Dashboard     ← new Phase 5 integration
+
+If the current Dashboard.DesktopExtension code cannot register a separate button because of how Laserfiche ClientAutomation works, tell me exactly why and what needs to change.
+
+Do not start Phase 6.
+
+Do not mark Phase 5 complete until the new Dashboard button is independently visible and verified.

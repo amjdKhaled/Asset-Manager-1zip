@@ -1,0 +1,73 @@
+The Windows Phase 5 build has now been successfully verified on my real Windows/Laserfiche machine.
+
+Command executed:
+
+dotnet build src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+Result:
+
+Dashboard.DesktopExtension succeeded
+Build succeeded.
+
+The executable was successfully generated at:
+
+src\Dashboard.DesktopExtension\bin\Release\net48\Dashboard.DesktopExtension.exe
+
+So the following are now confirmed on the real Windows machine:
+
+- .NET Framework 4.8 targeting works
+- ClientAutomation.dll reference resolves
+- System.Windows.Forms resolves
+- Assembly metadata issue is fixed
+- Dashboard.DesktopExtension compiles successfully
+- Laserfiche SDK dependency resolves during compilation
+
+DO NOT start Phase 6 yet.
+
+We now need to perform the FINAL Phase 5 runtime integration test.
+
+Give me the exact commands and steps required to:
+
+1. Configure:
+   %ProgramData%\Dashboard\extension.config.json
+
+2. Set the Dashboard URL.
+
+3. Register/install the Dashboard toolbar button into the Laserfiche Desktop Client using the existing --setup mechanism.
+
+4. Completely restart Laserfiche Desktop Client if required.
+
+5. Verify that a button named:
+   Dashboard
+   appears inside Laserfiche Desktop Client.
+
+6. Click the button and verify that it launches the configured Dashboard URL.
+
+7. Provide the exact command to remove/unregister it using --remove in case testing fails.
+
+IMPORTANT:
+
+Use the implementation that already exists in Dashboard.DesktopExtension.
+
+Do NOT redesign the extension.
+
+Do NOT invent another registration mechanism.
+
+Inspect Program.cs, ToolbarRegistrar.cs and ExtensionConfig.cs and give commands that exactly match the implemented behavior.
+
+If --setup requires Administrator privileges, explicitly tell me.
+
+If Laserfiche Desktop Client must be closed before registration, explicitly tell me.
+
+If the EXE must first be copied to a permanent installation directory, tell me the exact recommended directory and steps.
+
+The test must not depend on Visual Studio or dotnet run.
+
+We are testing the compiled Release EXE directly.
+
+Do not mark Phase 5 complete until I confirm:
+
+1. Dashboard button appears inside Laserfiche Desktop Client.
+2. Clicking Dashboard successfully opens the configured Dashboard application.
+
+Do NOT begin Phase 6.

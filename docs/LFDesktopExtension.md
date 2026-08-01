@@ -114,6 +114,95 @@ dialog explaining where to create it.
 
 ## Deployment
 
+### Independent runtime verification
+
+The repository contains an older, separate `laserfiche-extension` integration for
+GovSearch AI. Do not use its executable or its existing toolbar button for this test.
+The old integration identifies itself with the `GovSearchAIAssistant.exe` executable
+and an AI-related button. The Dashboard extension has its own identity:
+
+| Item | Dashboard Phase 5 value |
+|------|-------------------------|
+| Button label | `Dashboard` |
+| Toolbar name | `Dashboard` |
+| Executable | `Dashboard.DesktopExtension.exe` |
+| Configuration | `%ProgramData%\Dashboard\extension.config.json` |
+| Click command | `Dashboard.DesktopExtension.exe -buttonclick ...` |
+
+The new `ToolbarRegistrar` only removes and recreates the toolbar named `Dashboard`
+and only removes custom buttons whose command references
+`Dashboard.DesktopExtension.exe`. It does not remove or modify the old GovSearch AI
+toolbar.
+
+### First-time runtime test
+
+Use the compiled Release executable directly; Visual Studio and `dotnet run` are not
+required.
+
+1. Close all Dashboard extension windows. The Laserfiche Desktop Client does not have
+   to be closed for the registration API call, but close it before registration for a
+   clean toolbar refresh and then restart it afterward.
+2. Create the configuration directory and file:
+
+   ```powershell
+   New-Item -ItemType Directory -Force `
+       "$env:ProgramData\Dashboard" | Out-Null
+
+   @'
+   {
+     "portalUrl": "https://your-dashboard-host/dashboard",
+     "buttonLabel": "Dashboard",
+     "iconPath": ""
+   }
+   '@ | Set-Content `
+       "$env:ProgramData\Dashboard\extension.config.json" `
+       -Encoding UTF8
+   ```
+
+   Replace the example `portalUrl` with the actual Dashboard URL. Keep
+   `buttonLabel` exactly `Dashboard` for this verification.
+3. Open **PowerShell as Administrator**. The implementation displays an error if
+   registration fails and recommends administrator privileges because the
+   Laserfiche ClientAutomation toolbar store may require elevated access.
+4. From the repository root, register the new button:
+
+   ```powershell
+   & ".\src\Dashboard.DesktopExtension\bin\Release\net48\Dashboard.DesktopExtension.exe" --setup
+   ```
+
+   A successful run displays:
+   `Dashboard toolbar button "Dashboard" added to the Laserfiche Desktop Client.`
+5. Start or restart the Laserfiche Desktop Client completely. If it remains in the
+   notification area, exit it there as well, then launch it again.
+6. Verify that Laserfiche shows a new button labeled **Dashboard**. During this
+   test, the old integration may also remain visible as **GovSearch AI** or
+   **AI Assistant**. That is expected; do not click the old button.
+7. Click the **Dashboard** button. Laserfiche should invoke the command registered
+   by the new executable, and the configured `portalUrl` should open in the default
+   browser.
+
+The result required to approve the Phase 5 runtime gate is:
+
+```text
+Laserfiche Desktop Client
+  ├─ old GovSearch AI / AI Assistant button (unchanged)
+  └─ Dashboard button
+       └─ Dashboard.DesktopExtension.exe
+            └─ configured Dashboard URL
+```
+
+### Remove the new button
+
+To remove only the Dashboard registration, use the same compiled executable:
+
+```powershell
+& ".\src\Dashboard.DesktopExtension\bin\Release\net48\Dashboard.DesktopExtension.exe" --remove
+```
+
+Run that command from an elevated PowerShell window, then completely restart the
+Laserfiche Desktop Client and verify that the **Dashboard** button is gone. This
+does not invoke the old GovSearch AI executable or remove its button.
+
 ### First-time installation
 
 1. Copy `Dashboard.DesktopExtension.exe` to a permanent folder on the machine

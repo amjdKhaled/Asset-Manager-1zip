@@ -34,3 +34,19 @@ machine-independent.
 ## How to apply
 
 When Phase 6 (MSI installer) is implemented, the installer build must happen on Windows and include `Dashboard.DesktopExtension.exe` built from the standalone csproj. The MSI should call `--setup --silent` on install and `--remove --silent` on uninstall.
+
+## Runtime verification boundary
+
+The pre-existing `laserfiche-extension` is a separate GovSearch AI WPF integration.
+Its registration derives a toolbar name from `GovSearchAIAssistant.exe` and uses
+AI-related labels. The Dashboard extension uses toolbar name `Dashboard`, button
+label from `extension.config.json` (set to `Dashboard` for verification), and a
+command pointing to `Dashboard.DesktopExtension.exe`.
+
+**Why:** A Dashboard URL appearing inside the old GovSearch AI window proves only
+that the old integration launched the site; it does not prove the new Phase 5
+registration works.
+
+**How to apply:** Keep the old integration installed during testing. Register the new
+compiled EXE with `--setup`, restart Laserfiche, and verify both identities are
+visible. Use `--remove` only to remove the new Dashboard toolbar.

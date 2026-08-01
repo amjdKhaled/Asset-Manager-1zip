@@ -84,7 +84,7 @@ dotnet publish src/LFPortal.Web/LFPortal.Web.csproj \
 | Phase 2 | Dashboard page (live LF data) | ✅ Complete |
 | Phase 3 | Document Archive browser | 🔲 Not started |
 | Phase 4 | Settings page — credential UI & runtime reconfiguration | ✅ Complete |
-| Phase 5 | Desktop Client Extension | ✅ Complete (build on Windows with Laserfiche SDK) |
+| Phase 5 | Desktop Client Extension | ⏸ Build verified on Windows; independent Dashboard toolbar runtime test pending |
 | Phase 6 | MSI Installer & IIS deployment package | ⏸ Not started |
 
 ## Quality Gates (apply to every phase)
