@@ -1,0 +1,231 @@
+The latest Windows test exposed a BUILD CONFIGURATION regression.
+
+DO NOT proceed to Phase 6.
+DO NOT ask me to run --remove / --setup yet.
+
+Current command:
+
+dotnet clean src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+fails with:
+
+NETSDK1047:
+
+Assets file:
+src\Dashboard.DesktopExtension\obj\project.assets.json
+
+doesn't have a target for:
+
+net48/win-x64
+
+The error also says:
+
+Ensure that restore has run and that you have included 'net48'
+in TargetFrameworks.
+
+You may also need to include 'win-x64' in RuntimeIdentifiers.
+
+==================================================
+IMPORTANT
+==================================================
+
+The previous architecture fix introduced a new mismatch between:
+
+PlatformTarget
+RuntimeIdentifier / RuntimeIdentifiers
+NuGet restore assets
+WebView2 native assets
+
+Fix the PROJECT CONFIGURATION correctly.
+
+Do NOT just tell me to delete obj and retry.
+
+Do NOT blindly add RuntimeIdentifier=win-x64 unless it is actually
+required for this classic .NET Framework 4.8 Desktop Extension.
+
+First inspect the current:
+
+Dashboard.DesktopExtension.csproj
+
+and determine why MSBuild now resolves the project as:
+
+net48/win-x64
+
+when project.assets.json only contains net48.
+
+==================================================
+DESIRED PROJECT MODEL
+==================================================
+
+This is a .NET Framework 4.8 Windows Desktop executable.
+
+We need:
+
+TargetFramework = net48
+
+and an explicit 64-bit PROCESS architecture for the EXE/WebView2:
+
+PlatformTarget = x64
+Prefer32Bit = false
+
+But PlatformTarget=x64 should NOT unnecessarily convert the NuGet
+target framework into net48/win-x64 unless the WebView2 package/build
+actually requires a RuntimeIdentifier.
+
+Inspect whether the project currently contains any of:
+
+<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+<RuntimeIdentifiers>...</RuntimeIdentifiers>
+<Platforms>...</Platforms>
+<Platform>x64</Platform>
+
+or another property causing the runtime-specific restore target.
+
+==================================================
+PREFERRED FIX
+==================================================
+
+If WebView2 supports the normal .NET Framework PlatformTarget model,
+prefer:
+
+<TargetFramework>net48</TargetFramework>
+<PlatformTarget>x64</PlatformTarget>
+<Prefer32Bit>false</Prefer32Bit>
+
+WITHOUT RuntimeIdentifier.
+
+Then ensure Microsoft.Web.WebView2's MSBuild targets copy/promote the
+correct x64 WebView2Loader.dll.
+
+Do not use RuntimeIdentifier merely to select native WebView2 assets
+unless Microsoft's package actually requires it for this project type.
+
+If RuntimeIdentifier IS genuinely required, then configure restore
+consistently so project.assets.json contains net48/win-x64.
+
+Do not leave the project in a mixed state.
+
+==================================================
+CHECK THE WORKING GOVSEARCH PROJECT
+==================================================
+
+This is especially important:
+
+The existing GovSearch AI WebView2 extension ALREADY WORKS on this
+same Windows machine.
+
+Inspect its .csproj and reproduce its architecture strategy exactly
+where applicable.
+
+Compare:
+
+TargetFramework
+PlatformTarget
+Prefer32Bit
+RuntimeIdentifier
+RuntimeIdentifiers
+WebView2 PackageReference
+OutputPath
+WebView2Loader handling
+
+If GovSearch successfully uses:
+
+net48 + PlatformTarget=x64
+
+WITHOUT RuntimeIdentifier,
+
+then Dashboard.DesktopExtension should follow that proven model.
+
+Do not invent a different SDK-style runtime model unnecessarily.
+
+==================================================
+CLEAN STALE RESTORE OUTPUT AFTER FIX
+==================================================
+
+After correcting the csproj, stale restore assets must be removed.
+
+Delete ONLY generated build folders:
+
+src\Dashboard.DesktopExtension\bin
+src\Dashboard.DesktopExtension\obj
+
+Then run explicitly:
+
+dotnet restore src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj
+
+Then:
+
+dotnet clean src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+Then:
+
+dotnet build src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj --configuration Release
+
+Required result:
+
+Build succeeded.
+0 errors.
+0 warnings.
+
+==================================================
+VERIFY OUTPUT
+==================================================
+
+After the successful build inspect:
+
+src\Dashboard.DesktopExtension\bin\Release\net48\
+
+Confirm:
+
+Dashboard.DesktopExtension.exe exists
+Dashboard.ico exists in the expected Resources path
+Microsoft.Web.WebView2.Core.dll exists
+Microsoft.Web.WebView2.WinForms.dll exists
+
+And determine exactly where the x64:
+
+WebView2Loader.dll
+
+is located.
+
+Also verify the resulting EXE is actually x64.
+
+==================================================
+DO NOT CHANGE THESE
+==================================================
+
+Do not change:
+
+%(DatabaseName)
+dynamic repository implementation
+RepositorySessionMiddleware
+SessionAwareRepositoryContext
+Dashboard toolbar icon
+Dashboard web application
+Archive
+Settings
+Dashboard analytics
+
+The toolbar icon is already working.
+
+This task is ONLY to repair the Desktop Extension build/runtime
+architecture configuration.
+
+==================================================
+AFTER SUCCESSFUL BUILD ONLY
+==================================================
+
+Only after Windows produces:
+
+0 errors
+0 warnings
+
+tell me to run:
+
+.\src\Dashboard.DesktopExtension\bin\Release\net48\Dashboard.DesktopExtension.exe --remove
+
+.\src\Dashboard.DesktopExtension\bin\Release\net48\Dashboard.DesktopExtension.exe --setup
+
+Then we will perform the Laserfiche runtime test.
+
+Do NOT mark Phase 5 complete.

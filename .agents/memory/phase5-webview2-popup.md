@@ -22,6 +22,21 @@ Our extension runs as a separate child process (not inside the 32-bit Desktop Cl
 Its architecture is determined by its own PE header, not the parent's. x64 matches the
 only confirmed-working WebView2 extension on this machine.
 
+## .NET Framework restore model
+
+Keep the project as `TargetFramework=net48` with `PlatformTarget=x64` and
+`Prefer32Bit=false`, but **do not add `RuntimeIdentifier=win-x64`**. The WebView2
+managed targets select `runtimes\win-x64\native\WebView2Loader.dll` from
+`PlatformTarget`; a normal restore produces only the `.NETFramework,Version=v4.8`
+assets target. If a Windows build reports a missing `net48/win-x64` assets target,
+some external command/property or stale generated assets introduced a RID; the
+project file itself should not be changed to a mixed RID model without confirming
+that source.
+
+**Why:** The working GovSearch project uses the same net48 + x64 strategy, and the
+WebView2 package's `Common.targets` explicitly maps `PlatformTarget=x64` to the
+architecture-specific loader without requiring a RuntimeIdentifier.
+
 ## WebView2 package version
 
 `Microsoft.Web.WebView2 Version="1.0.2420.47"` — aligned to GovSearch (proven on machine).
