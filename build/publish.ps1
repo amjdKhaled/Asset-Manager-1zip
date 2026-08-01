@@ -57,7 +57,7 @@
     Requires: .NET 8 SDK, WiX v4 global tool (dotnet tool install -global wix),
               .NET Framework 4.8 targeting pack (for net48 projects).
     Compatible with: Windows PowerShell 5.1 and PowerShell 7+.
-    Run from the REPOSITORY ROOT directory, not from build\.
+    Can be run from any directory; all paths are derived from $PSScriptRoot.
 #>
 
 [CmdletBinding()]
@@ -138,8 +138,8 @@ function Invoke-NativeCommand {
         Write-Host "  ============================================================" -ForegroundColor Red
         exit $ec
     }
-
-    return $ec
+    # No return value: callers must not depend on pipeline output from this function.
+    # Use -IgnoreFailure when you need to proceed after a non-zero exit.
 }
 
 # New-HarvestWxs: generates a WiX 4 fragment file containing a ComponentGroup
@@ -290,6 +290,9 @@ $BAProjPath      = Join-Path $RepoRoot "installer\Dashboard.BA\Dashboard.BA.cspr
 $SetupHelperProj = Join-Path $RepoRoot "installer\Dashboard.SetupHelper\Dashboard.SetupHelper.csproj"
 $BundleProj      = Join-Path $RepoRoot "installer\Dashboard.Bundle\Dashboard.Bundle.wixproj"
 $DbPropsPath     = Join-Path $RepoRoot "Directory.Build.props"
+# Single source of truth for the local WiX tool manifest.  Used in Step 8 to
+# pass --tool-manifest explicitly so the restore works regardless of CWD.
+$ToolManifest    = Join-Path $RepoRoot ".config\dotnet-tools.json"
 
 # =============================================================================
 # VALIDATE REQUIRED SOURCE FILES
@@ -596,122 +599,158 @@ else {
     #   fails with "Could not resolve SDK 'WixToolset.Wix'."
     #
     # HOW WE BUILD:
-    #   1. dotnet tool restore  -> installs WiX 4.0.5 from .config/dotnet-tools.json
-    #   2. New-HarvestWxs       -> pre-generates ComponentGroup .wxs files from
-    #      staging dirs (replaces the HarvestDirectory MSBuild feature)
-    #   3. dotnet tool run wix -- build <sources> -ext ... -d ...
-    #      This invokes the local WiX CLI directly; no MSBuild SDK resolver needed.
+    #   1. Verify $ToolManifest exists (absolute path from $RepoRoot)
+    #   2. dotnet tool restore --tool-manifest $ToolManifest
+    #   3. Push-Location $RepoRoot so 'dotnet tool run wix' discovers the manifest
+    #   4. New-HarvestWxs replaces HarvestDirectory (a WiX MSBuild-only feature)
+    #   5. dotnet tool run wix -- build  (bypasses MSBuild SDK resolver entirely)
     #
     # GLOBAL WiX (any version): completely ignored; no modification made to it.
+    # WORKING DIRECTORY: all WiX invocations run inside Push-Location $RepoRoot;
+    #   the script is CWD-independent regardless of how it was launched.
     # -----------------------------------------------------------------------
 
-    # 8a -- Restore the repository-local WiX tool.
-    Write-Host "  Restoring local tools from .config/dotnet-tools.json ..." -ForegroundColor Gray
+    # Guard: manifest must exist at the absolute path derived from $PSScriptRoot.
+    if (-not (Test-Path $ToolManifest)) {
+        Write-Host "" 
+        Write-Host "  [FAILED] Tool manifest not found." -ForegroundColor Red
+        Write-Host "           Expected : $ToolManifest" -ForegroundColor Red
+        Write-Host "           The file .config\dotnet-tools.json must be committed" `
+            -ForegroundColor Red
+        Write-Host "           to the repository root." -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "Tool manifest: $ToolManifest"
+
+    # 8a -- Restore the repository-local WiX tool using the explicit manifest path.
+    #       'dotnet tool restore' exits 0 even when no manifest is found (it only
+    #       warns).  Using --tool-manifest with an absolute path guarantees the
+    #       correct file is used and errors are fatal.
+    Write-Host "  Restoring local tools ..." -ForegroundColor Gray
     Invoke-NativeCommand -Stage "dotnet tool restore" -FilePath "dotnet" `
-        -Arguments @("tool", "restore")
+        -Arguments @("tool", "restore", "--tool-manifest", $ToolManifest)
     Write-OK "Local tools restored."
 
-    # 8b -- Verify the local WiX version matches our pin.
-    $localWixOut = @(& dotnet tool run wix -- --version 2>&1)
-    $localWixEc  = $LASTEXITCODE
-    if ($localWixEc -ne 0) {
-        Write-Host "  [FAILED] 'dotnet tool run wix -- --version' returned exit $localWixEc." `
-            -ForegroundColor Red
-        Write-Host "           Ensure .config/dotnet-tools.json pins wix to $WixPinnedVersion." `
-            -ForegroundColor Red
-        exit 1
+    # All subsequent WiX invocations run from $RepoRoot so that
+    # 'dotnet tool run wix' discovers .config\dotnet-tools.json by its normal
+    # manifest-search algorithm (walks up from CWD).  Push-Location / Pop-Location
+    # in a try/finally block guarantees the original directory is restored even
+    # if a step fails.
+    Push-Location $RepoRoot
+    try {
+        # 8b -- Verify the local WiX version matches the manifest pin.
+        #       Read $LASTEXITCODE immediately after the native call.
+        $localWixOut = @(& dotnet tool run wix -- --version 2>&1)
+        $localWixEc  = $LASTEXITCODE
+        if ($localWixEc -ne 0) {
+            Write-Host "  [FAILED] 'dotnet tool run wix -- --version' failed (exit $localWixEc)." `
+                -ForegroundColor Red
+            Write-Host "           Check that $ToolManifest pins wix to $WixPinnedVersion" `
+                -ForegroundColor Red
+            Write-Host "           and that 'dotnet tool restore' completed without errors." `
+                -ForegroundColor Red
+            exit 1
+        }
+        $localVer = ($localWixOut |
+                     Where-Object { $_ -match '^\d+\.\d+' -or $_ -match 'version\s+\d' } |
+                     Select-Object -First 1)
+        if ($localVer) { $localVer = $localVer.Trim() } else { $localVer = ($localWixOut -join '').Trim() }
+        if ($localVer -notlike "*$WixPinnedVersion*") {
+            Write-Host ("  [FAILED] Local WiX reported '{0}'; expected '{1}'." `
+                -f $localVer, $WixPinnedVersion) -ForegroundColor Red
+            Write-Host "           Update the 'version' field in .config\dotnet-tools.json." `
+                -ForegroundColor Red
+            exit 1
+        }
+        Write-OK ("Local WiX: {0}  (global WiX, if any, is ignored)" -f $localVer)
+
+        # 8c -- Ensure WiX extensions are in the user-scoped local cache.
+        # 'extension add' exits non-zero if the extension is already cached; that
+        # is expected and safe -- -IgnoreFailure suppresses the exit.
+        # No --global: extensions are stored per-version in %LOCALAPPDATA%\WixToolset.
+        $wixExts = @(
+            "WixToolset.UI.wixext/$WixPinnedVersion",
+            "WixToolset.Iis.wixext/4.0.3",
+            "WixToolset.Util.wixext/$WixPinnedVersion",
+            "WixToolset.Bal.wixext/$WixPinnedVersion"
+        )
+        foreach ($ext in $wixExts) {
+            Invoke-NativeCommand -Stage ("wix extension add {0}" -f $ext) `
+                -FilePath "dotnet" `
+                -Arguments @("tool", "run", "wix", "--", "extension", "add", $ext) `
+                -IgnoreFailure | Out-Null
+        }
+        Write-OK "WiX extensions ready."
+
+        # 8d -- Pre-harvest staging directories into .wxs ComponentGroup files.
+        #       HarvestDirectory is a WiX MSBuild-only feature; 'wix build' CLI
+        #       does not support it, so we generate equivalent fragments here.
+        $harvestDir       = Join-Path $StagingDir "Harvest"
+        $null = New-Item -ItemType Directory -Path $harvestDir -Force
+        $webAppHarvestWxs = Join-Path $harvestDir "WebAppComponents.wxs"
+        $extHarvestWxs    = Join-Path $harvestDir "ExtensionComponents.wxs"
+
+        New-HarvestWxs `
+            -SourceDir          (Join-Path $StagingDir "WebApp") `
+            -ComponentGroupName "WebAppComponents" `
+            -DirectoryRefId     "WEBAPPFOLDER" `
+            -OutputWxs          $webAppHarvestWxs
+        Write-OK "Harvested WebApp -> $webAppHarvestWxs"
+
+        New-HarvestWxs `
+            -SourceDir          (Join-Path $StagingDir "Extension") `
+            -ComponentGroupName "ExtensionComponents" `
+            -DirectoryRefId     "EXTENSIONFOLDER" `
+            -OutputWxs          $extHarvestWxs
+        Write-OK "Harvested Extension -> $extHarvestWxs"
+
+        # 8e -- Build the MSI.
+        # All source and output paths are absolute (derived from $RepoRoot /
+        # $ArtifactsDir) so the build is independent of the current directory.
+        $installerSrcDir = Join-Path $RepoRoot "installer\Dashboard.Installer"
+        $cfgTemplateDir  = Join-Path $StagingDir "ConfigTemplate"
+        $msiIntermDir    = Join-Path $ArtifactsDir "obj\MSI"
+        $msiPath         = Join-Path $ArtifactsDir "Dashboard-$Version-Setup.msi"
+        $null = New-Item -ItemType Directory -Path $msiIntermDir -Force
+
+        $wxsSources = @(
+            (Join-Path $installerSrcDir "Product.wxs"),
+            (Join-Path $installerSrcDir "WebApplication.wxs"),
+            (Join-Path $installerSrcDir "DesktopExtension.wxs"),
+            (Join-Path $installerSrcDir "Configuration.wxs"),
+            (Join-Path $installerSrcDir "Shortcuts.wxs"),
+            $webAppHarvestWxs,
+            $extHarvestWxs
+        )
+
+        $wixMsiArgs = @("tool", "run", "wix", "--", "build") +
+                      $wxsSources +
+                      @(
+            "-arch",   "x64",
+            "-ext",    "WixToolset.UI.wixext/$WixPinnedVersion",
+            "-ext",    "WixToolset.Iis.wixext/4.0.3",
+            "-ext",    "WixToolset.Util.wixext/$WixPinnedVersion",
+            "-d",      "ProductVersion=$Version",
+            "-d",      "DashboardPort=5000",
+            "-d",      "ConfigTemplateDir=$cfgTemplateDir",
+            "-b",      $installerSrcDir,
+            "-intermediatefolder", $msiIntermDir,
+            "-pdbtype", "none",
+            "-out",    $msiPath
+        )
+
+        Invoke-NativeCommand -Stage "wix build (MSI)" -FilePath "dotnet" -Arguments $wixMsiArgs
+
+        if (-not (Test-Path $msiPath)) {
+            Write-Host "  [FAILED] MSI not found at expected path: $msiPath" -ForegroundColor Red
+            exit 1
+        }
+        $msiBytes = (Get-Item $msiPath).Length
+        Write-OK ("MSI built: {0}  ({1:N0} bytes)" -f $msiPath, $msiBytes)
     }
-    $localVer = ($localWixOut | Where-Object { $_ -match '\d+\.\d+' } |
-                 Select-Object -First 1).Trim()
-    if ($localVer -notlike "*$WixPinnedVersion*") {
-        Write-Host "  [FAILED] Local WiX is '$localVer' but '$WixPinnedVersion' required." `
-            -ForegroundColor Red
-        Write-Host "           Update the 'version' in .config/dotnet-tools.json and re-run." `
-            -ForegroundColor Red
-        exit 1
+    finally {
+        Pop-Location
     }
-    Write-OK ("Local WiX version: {0}  (global WiX, if any, is not used)" -f $localVer)
-
-    # 8c -- Ensure WiX extensions are present in the local cache.
-    # 'extension add' exits non-zero if already cached; -IgnoreFailure handles that.
-    # No --global flag: extensions go into the user-scoped WiX cache for 4.0.5.
-    $wixExts = @(
-        "WixToolset.UI.wixext/$WixPinnedVersion",
-        "WixToolset.Iis.wixext/4.0.3",
-        "WixToolset.Util.wixext/$WixPinnedVersion",
-        "WixToolset.Bal.wixext/$WixPinnedVersion"
-    )
-    foreach ($ext in $wixExts) {
-        Invoke-NativeCommand -Stage ("wix extension add {0}" -f $ext) `
-            -FilePath "dotnet" `
-            -Arguments @("tool", "run", "wix", "--", "extension", "add", $ext) `
-            -IgnoreFailure | Out-Null
-    }
-    Write-OK "WiX extensions ready."
-
-    # 8d -- Pre-harvest staging directories into .wxs ComponentGroup files.
-    #       HarvestDirectory is a WiX MSBuild-only feature; when using 'wix build'
-    #       CLI we generate equivalent .wxs fragments with New-HarvestWxs.
-    $harvestDir      = Join-Path $StagingDir "Harvest"
-    $null = New-Item -ItemType Directory -Path $harvestDir -Force
-    $webAppHarvestWxs = Join-Path $harvestDir "WebAppComponents.wxs"
-    $extHarvestWxs    = Join-Path $harvestDir "ExtensionComponents.wxs"
-
-    New-HarvestWxs `
-        -SourceDir          (Join-Path $StagingDir "WebApp") `
-        -ComponentGroupName "WebAppComponents" `
-        -DirectoryRefId     "WEBAPPFOLDER" `
-        -OutputWxs          $webAppHarvestWxs
-    Write-OK "Harvested WebApp -> $webAppHarvestWxs"
-
-    New-HarvestWxs `
-        -SourceDir          (Join-Path $StagingDir "Extension") `
-        -ComponentGroupName "ExtensionComponents" `
-        -DirectoryRefId     "EXTENSIONFOLDER" `
-        -OutputWxs          $extHarvestWxs
-    Write-OK "Harvested Extension -> $extHarvestWxs"
-
-    # 8e -- Build the MSI.
-    $installerSrcDir = Join-Path $RepoRoot "installer\Dashboard.Installer"
-    $cfgTemplateDir  = Join-Path $StagingDir "ConfigTemplate"
-    $msiIntermDir    = Join-Path $ArtifactsDir "obj\MSI"
-    $msiPath         = Join-Path $ArtifactsDir "Dashboard-$Version-Setup.msi"
-    $null = New-Item -ItemType Directory -Path $msiIntermDir -Force
-
-    $wxsSources = @(
-        (Join-Path $installerSrcDir "Product.wxs"),
-        (Join-Path $installerSrcDir "WebApplication.wxs"),
-        (Join-Path $installerSrcDir "DesktopExtension.wxs"),
-        (Join-Path $installerSrcDir "Configuration.wxs"),
-        (Join-Path $installerSrcDir "Shortcuts.wxs"),
-        $webAppHarvestWxs,
-        $extHarvestWxs
-    )
-
-    $wixMsiArgs = @("tool", "run", "wix", "--", "build") +
-                  $wxsSources +
-                  @(
-        "-arch",   "x64",
-        "-ext",    "WixToolset.UI.wixext/$WixPinnedVersion",
-        "-ext",    "WixToolset.Iis.wixext/4.0.3",
-        "-ext",    "WixToolset.Util.wixext/$WixPinnedVersion",
-        "-d",      "ProductVersion=$Version",
-        "-d",      "DashboardPort=5000",
-        "-d",      "ConfigTemplateDir=$cfgTemplateDir",
-        "-b",      $installerSrcDir,
-        "-intermediatefolder", $msiIntermDir,
-        "-pdbtype", "none",
-        "-out",    $msiPath
-    )
-
-    Invoke-NativeCommand -Stage "wix build (MSI)" -FilePath "dotnet" -Arguments $wixMsiArgs
-
-    if (-not (Test-Path $msiPath)) {
-        Write-Host "  [FAILED] MSI not found at expected path: $msiPath" -ForegroundColor Red
-        exit 1
-    }
-    $msiBytes = (Get-Item $msiPath).Length
-    Write-OK ("MSI built: {0}  ({1:N0} bytes)" -f $msiPath, $msiBytes)
 }
 
 # =============================================================================
@@ -731,9 +770,10 @@ elseif (-not (Test-Path $BundleProj)) {
 else {
     Write-Stage $Step $TotalStages "Building Burn Bundle (LFDashboard-Setup.exe)"
 
-    # Local tool was restored in Step 8; Bal extension was added there too.
-    # Build the Burn bundle using 'dotnet tool run wix -- build' (same pattern
-    # as the MSI -- bypasses MSBuild and the WiX SDK resolver entirely).
+    # Local tool was restored and extensions cached in Step 8.
+    # Build the Burn bundle using 'dotnet tool run wix -- build' (same local-tool
+    # pattern as Step 8 -- bypasses MSBuild and the WiX SDK resolver entirely).
+    # Push-Location $RepoRoot ensures 'dotnet tool run wix' finds the manifest.
 
     $msiPath        = Join-Path $ArtifactsDir "Dashboard-$Version-Setup.msi"
     $baAssemblyPath = Join-Path $StagingDir    "BA\Dashboard.BA.dll"
@@ -765,7 +805,13 @@ else {
         "-out",    $bundleExe
     )
 
-    Invoke-NativeCommand -Stage "wix build (Bundle)" -FilePath "dotnet" -Arguments $wixBundleArgs
+    Push-Location $RepoRoot
+    try {
+        Invoke-NativeCommand -Stage "wix build (Bundle)" -FilePath "dotnet" -Arguments $wixBundleArgs
+    }
+    finally {
+        Pop-Location
+    }
 
     if (-not (Test-Path $bundleExe)) {
         Write-Host ""

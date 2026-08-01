@@ -1,0 +1,383 @@
+We have another REAL Windows failure in Task #23.
+
+Steps 1-7 pass.
+
+Step 8 currently fails with:
+
+[Step 8/11] Building MSI installer (WiX 4.0.5 via local tool)
+Restoring local tools from .config/dotnet-tools.json ...
+
+Cannot find a manifest file.
+For a list of locations searched, specify the "-d" option before the tool name.
+No tools were restored.
+
+0
+[OK] Local tools restored.
+
+Then:
+
+dotnet.exe : Cannot find a tool in the manifest file that has a command named 'wix'.
+
+The repository is physically located at:
+
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip
+
+and the build script is:
+
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\build\publish.ps1
+
+
+ROOT CAUSES TO FIX
+==================
+
+There are at least TWO bugs.
+
+BUG 1:
+The script relies on the current working directory for:
+
+dotnet tool restore
+
+and:
+
+dotnet tool run wix
+
+This is not reliable.
+
+publish.ps1 must work regardless of where PowerShell was launched from.
+
+The repository root is already derivable from $PSScriptRoot.
+
+Use an absolute manifest path based on the repository root.
+
+Do NOT assume Get-Location is the repository root.
+
+
+BUG 2:
+The native-command error handling is still incorrect.
+
+dotnet tool restore clearly failed, but the script printed:
+
+0
+[OK] Local tools restored.
+
+That is unacceptable.
+
+The build must immediately stop when a required native command fails.
+
+Do not print [OK] after a failed command.
+
+
+==================================================
+1. LOCATE AND VERIFY THE MANIFEST
+==================================================
+
+Derive repository root from:
+
+$PSScriptRoot
+
+For example conceptually:
+
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$ToolManifest = Join-Path $RepoRoot ".config\dotnet-tools.json"
+
+Before Step 8, explicitly verify:
+
+Test-Path $ToolManifest
+
+If false, terminate with a clear error showing the exact expected path.
+
+Do not continue.
+
+
+==================================================
+2. USE EXPLICIT MANIFEST FILE
+==================================================
+
+Do not rely on manifest discovery.
+
+Use the supported explicit manifest option.
+
+Conceptually:
+
+dotnet tool restore --tool-manifest "$ToolManifest"
+
+Then invoke WiX using the SAME manifest explicitly.
+
+Determine the correct dotnet CLI syntax for running a local tool using a
+specific manifest.
+
+If dotnet tool run does not accept --tool-manifest directly in the installed
+SDK version, use a controlled Push-Location $RepoRoot / Pop-Location pattern.
+
+Example acceptable architecture:
+
+Push-Location $RepoRoot
+try {
+    dotnet tool restore --tool-manifest $ToolManifest
+    dotnet tool run wix -- --version
+    ...
+}
+finally {
+    Pop-Location
+}
+
+The important requirement is:
+
+NO dependence on the caller's current working directory.
+
+Do not guess command syntax. Verify against the dotnet SDK behavior available
+in the environment.
+
+
+==================================================
+3. FIX Invoke-NativeCommand
+==================================================
+
+Audit the current Invoke-NativeCommand implementation.
+
+The output:
+
+0
+[OK] Local tools restored.
+
+after a failed dotnet command proves its exit-code handling is still wrong.
+
+A required native command helper must:
+
+1. execute the executable
+2. capture $LASTEXITCODE IMMEDIATELY
+3. preserve/display useful stdout/stderr
+4. throw/exit when exit code != 0
+5. return useful output only when requested
+6. never emit the exit code as normal pipeline output
+7. never print [OK] after failure
+
+Be careful with PowerShell pipelines.
+
+Do NOT do something like:
+
+$result = & dotnet ... 2>&1
+$code = $LASTEXITCODE
+
+if subsequent PowerShell commands/pipelines can overwrite or obscure the
+native status before it is captured.
+
+Capture it immediately after invocation.
+
+
+==================================================
+4. FIX THE WIX VERSION CAPTURE
+==================================================
+
+Current code directly executes:
+
+$localWixOut = @(& dotnet tool run wix -- --version 2>&1)
+
+This bypasses the safe helper and produces a NativeCommandError.
+
+Replace it with the same robust native execution mechanism.
+
+The script must obtain the local WiX version safely.
+
+Expected version:
+
+4.0.5
+
+or a full version beginning with:
+
+4.0.5+
+
+If it is anything else, fail with:
+
+Expected local WiX 4.0.5 but found <version>.
+
+
+==================================================
+5. VERIFY THE MANIFEST IS ACTUALLY IN THE REPOSITORY
+==================================================
+
+Inspect:
+
+.config/dotnet-tools.json
+
+Do not merely assume it exists because it was created in a previous task.
+
+Verify it is physically present in the repository and committed/tracked.
+
+Expected logical contents:
+
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "wix": {
+      "version": "4.0.5",
+      "commands": [
+        "wix"
+      ]
+    }
+  }
+}
+
+If it does not exist, create/fix it.
+
+Validate it as JSON.
+
+
+==================================================
+6. NO GLOBAL WIX DEPENDENCY
+==================================================
+
+Global WiX 7.0.0 is still installed on the Windows machine.
+
+That is intentional.
+
+Do NOT uninstall it.
+
+Do NOT downgrade it.
+
+Do NOT use:
+
+wix
+
+from PATH.
+
+The Dashboard release build must exclusively use the repository-local WiX
+4.0.5 tool.
+
+Global WiX 7 must be irrelevant.
+
+
+==================================================
+7. AUDIT EVERY LOCAL WIX INVOCATION
+==================================================
+
+Search the ENTIRE publish.ps1 for:
+
+wix
+dotnet tool run
+dotnet tool restore
+dotnet build *.wixproj
+dotnet wix
+
+Every MSI/Bundle WiX operation must use the repository-local 4.0.5 toolchain.
+
+There must be no accidental fallback to global WiX.
+
+
+==================================================
+8. WORKING DIRECTORY INDEPENDENCE
+==================================================
+
+After fixing it, publish.ps1 must work when invoked from BOTH:
+
+A)
+
+cd C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip
+.\build\publish.ps1
+
+AND B)
+
+cd C:\
+& "C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\build\publish.ps1"
+
+Both must locate:
+
+.config\dotnet-tools.json
+installer\
+src\
+config\
+Release\
+artifacts\
+
+correctly.
+
+All paths must derive from $RepoRoot, never the caller's working directory.
+
+
+==================================================
+9. TEST THE EXACT STEP 8 COMMANDS
+==================================================
+
+Before saying this is fixed, test individually:
+
+Manifest exists:
+Test-Path <absolute manifest path>
+
+Restore:
+dotnet tool restore --tool-manifest <absolute manifest path>
+
+Version:
+repository-local wix --version
+
+Expected:
+4.0.5...
+
+Then test the exact local WiX command used by Step 8.
+
+Do not stop at JSON/static validation.
+
+
+==================================================
+10. CONTINUE AUDITING STEP 8/9
+==================================================
+
+Once local WiX starts correctly, proactively verify the generated harvest WXS
+files and wix build argument construction.
+
+Check:
+
+- absolute source paths
+- quoting paths with spaces
+- generated Component IDs are valid WiX identifiers
+- generated File IDs are valid
+- generated GUID strategy is stable enough for upgrades/repair
+- ComponentGroup IDs match Product.wxs references
+- DirectoryRef IDs actually exist
+- architecture x64
+- extension references resolve using WiX 4.0.5
+- output directory exists
+
+Also audit Step 9 Bundle invocation with the same local-tool mechanism.
+
+
+==================================================
+11. DO NOT MODIFY WORKING FEATURES
+==================================================
+
+Do not change:
+
+Web application
+Desktop Extension
+Web Client integration
+repository detection
+login flow
+blank password support
+Dashboard behavior
+
+Steps 1-7 are already proven on the real Windows machine.
+
+
+==================================================
+12. FINAL REPORT
+==================================================
+
+Report:
+
+1. Why the manifest was not found.
+2. Exact absolute manifest path now used.
+3. Whether .config/dotnet-tools.json physically exists.
+4. How publish.ps1 became independent of Current Working Directory.
+5. Root cause of the false "[OK] Local tools restored."
+6. How Invoke-NativeCommand was corrected.
+7. Exact restore command.
+8. Exact local WiX version command.
+9. Result/version returned.
+10. Every WiX invocation in publish.ps1 after the fix.
+11. Confirmation that global WiX 7 is ignored.
+12. Files modified.
+13. Exact Windows command to rerun.
+
+Do not claim MSI or Bundle success unless they were actually produced.
+
+Continue treating the real Windows build as the source of truth.
