@@ -22,3 +22,5 @@
 - [LFPortal Web Client button](lfportal-webclient-button.md) — Final architecture: capture-phase delegated listener only (no direct button listener); _doc=window.document; 500ms cooldown; problems solved in order.
 - [Phase 6 installer architecture](phase6-installer.md) — WiX v4 MSI in installer/Dashboard.Installer/; Web Client button deployed by separate PS1, not MSI; build/publish.ps1 orchestrates full release.
 - [WiX v4 Mba.Core API quirks](wix-mba-core-api.md) — Engine is a class not a property; Command is private protected; net48 traps: GetValueOrDefault, out-on-properties, PlaceholderText.
+- [WiX 4.0.5 schema compat](wix4-schema-compat.md) — All confirmed WiX 3→4 renames/removals: Bitness, AllowAbsent, Secure, Custom Condition attr, NeverOverwrite on Component, appcmd CA for empty ManagedRuntimeVersion, Bundle BA as Payload.
+- [New-HarvestWxs bugs fixed](new-harvest-wxs-bugs.md) — $pid collision (rename to $parentDirId); intermediate dir KeyError (use Get-ChildItem -Directory, not file.DirectoryName); WiX ID must sanitize ALL non-alnum chars.

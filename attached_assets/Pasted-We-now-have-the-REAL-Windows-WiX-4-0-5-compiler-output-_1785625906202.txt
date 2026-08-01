@@ -1,0 +1,473 @@
+We now have the REAL Windows WiX 4.0.5 compiler output.
+
+IMPORTANT:
+The local WiX architecture is CONFIRMED WORKING.
+DO NOT change it.
+
+Confirmed working on real Windows:
+
+- .config/dotnet-tools.json found
+- dotnet tool restore works
+- local WiX = 4.0.5+b9b2f1b4
+- global WiX 7 is ignored
+- WiX extensions load
+- New-HarvestWxs works
+- WebApp harvest = 118 files
+- Extension harvest = 11 files
+
+The failure is now REAL WiX 4 source validation.
+
+Fix ALL of the following errors together and proactively audit the remaining
+MSI + Bundle source for WiX 4.0.5 compatibility.
+
+============================================================
+REAL WINDOWS ERRORS
+============================================================
+
+Product.wxs:
+
+(48) WIX0004:
+RegistrySearch contains unexpected attribute 'Win64'.
+
+(88) WIX0004:
+Feature contains unexpected attribute 'Absent'.
+
+(127-131) WIX0006:
+Property/@Value cannot be an empty string.
+
+Properties affected:
+
+DASHBOARD_URL
+LF_API_URL
+LF_REPO_ID
+LF_DISPLAY_NAME
+LF_WEB_CLIENT_PATH
+
+Also WIX1006 warnings say properties without Value/Admin/Secure/Hidden
+may be ignored.
+
+(238,240,242,244,248,250) WIX0400:
+Custom contains illegal inner condition text such as:
+
+NOT REMOVE~="ALL"
+
+NOT REMOVE~="ALL" AND INSTALL_WEB_BUTTON="1"
+AND LF_WEB_CLIENT_PATH<>""
+
+REMOVE~="ALL" AND LF_WEB_CLIENT_PATH<>""
+
+REMOVE~="ALL"
+
+WebApplication.wxs:
+
+(35) WIX0006:
+WebAppPool/@ManagedRuntimeVersion cannot be empty.
+
+(58) WIX0006:
+WebApplication/@Name cannot be empty.
+
+Configuration.wxs:
+
+(39,54) WIX0004:
+File contains unexpected attribute 'NeverOverwrite'.
+
+
+============================================================
+1. USE WIX 4.0.5 SYNTAX ONLY
+============================================================
+
+Do not use WiX 3 syntax and do not use WiX 5/6/7 syntax.
+
+The actual compiler is:
+
+WiX 4.0.5+b9b2f1b4
+
+Verify every correction against the WiX 4 schema/tool behavior.
+
+Do not merely make the XML well-formed.
+It must compile with WiX 4.0.5.
+
+
+============================================================
+2. FIX RegistrySearch Win64
+============================================================
+
+Product.wxs currently uses Win64 on RegistrySearch.
+
+Determine the correct WiX 4 mechanism for selecting the 64-bit registry
+view.
+
+Use the proper WiX 4 attribute/schema.
+
+Do not simply delete Win64 unless doing so still correctly detects the
+64-bit ASP.NET Core Hosting Bundle registry information.
+
+Preserve the prerequisite/detection intent.
+
+
+============================================================
+3. FIX Feature Absent
+============================================================
+
+Feature/@Absent is not accepted by WiX 4.
+
+Determine the correct WiX 4 Feature attributes/semantics.
+
+Preserve the intended installation behavior.
+
+Do not accidentally make required Dashboard components optional or removable
+if that was not intended.
+
+
+============================================================
+4. FIX EMPTY MSI PROPERTIES
+============================================================
+
+These currently use Value="":
+
+DASHBOARD_URL
+LF_API_URL
+LF_REPO_ID
+LF_DISPLAY_NAME
+LF_WEB_CLIENT_PATH
+
+WiX 4 rejects empty Value attributes.
+
+These properties are populated by the Burn wizard/MSI properties at install
+time.
+
+Declare them correctly for WiX 4.
+
+Important:
+The properties must survive into the elevated/deferred execution context
+where required.
+
+Determine which should be Secure="yes".
+
+Do not invent fake values such as "placeholder".
+
+For standalone MSI fallback, choose sane behavior/defaults only where truly
+appropriate.
+
+INSTALL_WEB_BUTTON and other boolean/default properties should retain their
+intended defaults.
+
+
+============================================================
+5. FIX CUSTOM ACTION CONDITIONS
+============================================================
+
+WiX 4 does not accept the condition as inner text of:
+
+<Custom ...>
+    CONDITION
+</Custom>
+
+Convert ALL six sequence conditions to the correct WiX 4 syntax.
+
+Preserve the exact intended semantics:
+
+Install/configuration actions:
+NOT REMOVE~="ALL"
+
+Deploy Web Client:
+NOT REMOVE~="ALL"
+AND INSTALL_WEB_BUTTON="1"
+AND LF_WEB_CLIENT_PATH<>""
+
+Removal:
+REMOVE~="ALL"
+AND LF_WEB_CLIENT_PATH<>""
+
+Desktop extension unregister:
+REMOVE~="ALL"
+
+Also verify the correct WiX 4 syntax for sequence ordering:
+Before / After / Sequence / Condition.
+
+Audit every <Custom> element in Product.wxs, not only the reported lines.
+
+
+============================================================
+6. FIX WebAppPool ManagedRuntimeVersion
+============================================================
+
+This is an ASP.NET Core 8 application.
+
+ASP.NET Core on IIS uses the ASP.NET Core Module and the IIS app pool should
+use "No Managed Code".
+
+ManagedRuntimeVersion="" is rejected by WiX 4.
+
+Determine the correct WiX 4 way to represent No Managed Code.
+
+If omission of ManagedRuntimeVersion is the correct schema/behavior, remove
+the attribute.
+
+Do NOT set v4.0 because this is NOT an ASP.NET Framework web application.
+
+
+============================================================
+7. FIX WebApplication Name
+============================================================
+
+WebApplication/@Name="" is invalid.
+
+Determine whether a WebApplication child is actually necessary.
+
+This Dashboard is being hosted as an IIS site/root application.
+
+If the IIS WebSite already points to INSTALLFOLDER and an explicit
+WebApplication element is unnecessary, remove it cleanly.
+
+If it is required, give it a meaningful stable name.
+
+Do not insert a meaningless placeholder solely to satisfy the compiler.
+
+Verify that after installation:
+
+http://<machine>:5000/
+
+still maps to the Dashboard root.
+
+
+============================================================
+8. FIX NeverOverwrite CORRECTLY
+============================================================
+
+File/@NeverOverwrite is not valid WiX 4 syntax.
+
+But the original requirement is CRITICAL:
+
+%ProgramData%\Dashboard configuration must NOT be overwritten during upgrade.
+
+Files include:
+
+laserfiche.config.json
+extension.config.json
+
+We need:
+
+- first install creates defaults/templates as intended
+- upgrade preserves administrator configuration
+- repair should not destroy customer configuration
+- uninstall leaves %ProgramData%\Dashboard intact where required
+
+Determine the proper WiX 4 mechanism.
+
+This may belong on Component rather than File, or may require another
+component/file strategy.
+
+Do not simply delete NeverOverwrite and thereby allow upgrades to overwrite
+configuration.
+
+Preserve the original behavior.
+
+
+============================================================
+9. AUDIT ALL WIX 4 SOURCE NOW
+============================================================
+
+Do not stop after fixing the compiler errors listed above.
+
+Audit:
+
+installer/Dashboard.Installer/Product.wxs
+installer/Dashboard.Installer/WebApplication.wxs
+installer/Dashboard.Installer/DesktopExtension.wxs
+installer/Dashboard.Installer/Configuration.wxs
+installer/Dashboard.Installer/Shortcuts.wxs
+installer/Dashboard.Bundle/Bundle.wxs
+
+against WiX 4.0.5.
+
+Specifically look for more WiX 3 / WiX 5+ syntax that the compiler has not
+reached yet.
+
+Check:
+
+Package
+MajorUpgrade
+MediaTemplate
+Property
+RegistrySearch
+Feature
+Component
+File
+RegistryValue
+Directory
+StandardDirectory
+CustomAction
+InstallExecuteSequence
+Custom
+RemoveFolder
+iis:WebSite
+iis:WebAddress
+iis:WebAppPool
+iis:WebApplication
+Bundle
+BootstrapperApplication
+Payload
+Variable
+ExePackage
+MsiPackage
+MsiProperty
+
+Also verify namespace usage and extension element schemas.
+
+
+============================================================
+10. CHECK CUSTOM ACTION ARCHITECTURE
+============================================================
+
+We currently use Dashboard.SetupHelper.exe through ExeCommand custom actions.
+
+Verify for WiX 4:
+
+- FileKey / Directory / ExeCommand syntax
+- deferred execution
+- impersonation
+- Return behavior
+- scheduling
+- CustomActionData if applicable
+- install vs repair vs uninstall behavior
+
+Make sure paths with spaces are safely quoted.
+
+Do not change SetupHelper behavior unless necessary.
+
+
+============================================================
+11. CHECK CONFIG PRESERVATION
+============================================================
+
+This is especially important.
+
+After the WiX fix, reason through:
+
+FIRST INSTALL
+Creates ProgramData Dashboard configuration.
+
+UPGRADE
+Does NOT overwrite existing configuration.
+
+REPAIR
+Does NOT erase administrator values.
+
+UNINSTALL
+Leaves ProgramData configuration according to our existing Phase 6
+requirement.
+
+If the existing WiX design cannot guarantee this safely, redesign only the
+configuration components to guarantee it.
+
+
+============================================================
+12. CHECK BUNDLE BEFORE NEXT WINDOWS RUN
+============================================================
+
+Step 9 has not been reached yet.
+
+Proactively compile/audit Bundle.wxs with the same local WiX 4.0.5 if the
+environment permits.
+
+We do not want to fix MSI and immediately hit a large set of avoidable
+Bundle syntax errors.
+
+Check especially the Managed Bootstrapper Application syntax against WiX
+4.0.5.
+
+
+============================================================
+13. KEEP WORKING PARTS UNCHANGED
+============================================================
+
+Do NOT change:
+
+local WiX architecture
+.config/dotnet-tools.json
+New-HarvestWxs unless necessary
+WebApp
+Desktop Extension application behavior
+Web Client integration
+Login
+repository switching
+blank passwords
+Dashboard functionality
+
+The real Windows machine proved Steps 1-7 and harvesting work.
+
+
+============================================================
+14. VALIDATION
+============================================================
+
+After making changes:
+
+A. Parse all WXS/XML.
+
+B. Run the exact local WiX compiler if available:
+
+dotnet tool restore --tool-manifest .config/dotnet-tools.json
+
+dotnet tool run wix -- --version
+
+Must be 4.0.5.
+
+C. Compile the MSI using the SAME source list/options used by publish.ps1.
+
+Do not just run XML parsing.
+
+D. If staging files are needed, create realistic temporary harvest sources
+for compiler validation.
+
+E. Compile Bundle.wxs too if possible.
+
+F. Keep fixing WiX compiler errors until clean if the environment supports
+the compiler.
+
+Do not claim Windows installation success unless actually tested on Windows.
+
+
+============================================================
+15. REPORT
+============================================================
+
+Report each real compiler error individually:
+
+1. RegistrySearch Win64:
+   old syntax -> new syntax -> why.
+
+2. Feature Absent:
+   old -> new -> why.
+
+3. Empty Properties:
+   exact new declarations and Secure behavior.
+
+4. Custom conditions:
+   exact WiX 4 syntax used.
+
+5. ManagedRuntimeVersion:
+   final ASP.NET Core app-pool configuration.
+
+6. WebApplication Name:
+   whether removed or renamed and why.
+
+7. NeverOverwrite:
+   exact replacement mechanism and proof config remains preserved.
+
+8. Any additional WiX issues found proactively.
+
+9. Files modified.
+
+10. MSI compiler result.
+
+11. Bundle compiler result.
+
+12. Exact Windows command to rerun.
+
+Do not ask me to change/install WiX.
+Do not ask me to modify the machine.
+The build environment is now proven correct.
+
+Fix the WiX 4.0.5 source compatibility comprehensively.
