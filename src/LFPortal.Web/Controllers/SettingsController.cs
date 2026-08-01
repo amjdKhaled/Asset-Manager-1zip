@@ -89,6 +89,8 @@ public sealed class SettingsController : Controller
                 request.DisplayName?.Trim() ?? string.Empty,
                 apiBasePath,
                 apiVersion,
+                request.RootEntryId > 0 ? request.RootEntryId : 1,
+                request.TimeoutSeconds is >= 5 and <= 300 ? request.TimeoutSeconds : 30,
                 cancellationToken);
 
             // 2. Persist credentials only when both fields are supplied
@@ -147,15 +149,17 @@ public sealed class SettingsController : Controller
             request.ApiBasePath?.Trim() ?? "/LFRepositoryAPI",
             "v1");
 
-        // Save ApiBasePath into options so the adapter picks it up when
-        // building the test URLs (they are read from IOptionsMonitor inside the adapter).
-        // We do NOT write credentials; this is a read-only test.
+        // Temporarily persist URL/path so the adapter's IOptionsMonitor picks it up
+        // for building test request URLs. Credentials are not written.
+        var opts = _optionsMonitor.CurrentValue;
         await _portalConfig.SaveConnectionSettingsAsync(
             serverUrl,
             request.RepositoryId.Trim(),
-            _optionsMonitor.CurrentValue.DisplayName,
-            request.ApiBasePath?.Trim() ?? _optionsMonitor.CurrentValue.ApiBasePath,
+            opts.DisplayName,
+            request.ApiBasePath?.Trim() ?? opts.ApiBasePath,
             "v1",
+            opts.RootEntryId,
+            opts.TimeoutSeconds,
             cancellationToken);
 
         // Invalidate cached token so the test uses a fresh one against the new URL
@@ -184,11 +188,55 @@ public sealed class SettingsController : Controller
             DisplayName                       = opts.DisplayName,
             ApiBasePath                       = opts.ApiBasePath,
             ApiVersion                        = opts.ApiVersion,
+            RootEntryId                       = opts.RootEntryId,
+            TimeoutSeconds                    = opts.TimeoutSeconds,
             HasSavedCredentials               = _portalConfig.HasSavedCredentials(),
             HasEnvironmentVariableCredentials = _portalConfig.HasEnvironmentVariableCredentials(),
             SaveSuccess                       = saved,
             ErrorMessage                      = error
         };
+    }
+
+    /// <summary>
+    /// Discovers available repositories on the specified Laserfiche server using
+    /// the credentials provided in the form. Returns JSON so the Settings page
+    /// can populate the Repository ID field without a full page reload.
+    /// </summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DiscoverRepositories(
+        [FromForm] DiscoverRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.ServerUrl) ||
+            string.IsNullOrWhiteSpace(request.Username)  ||
+            string.IsNullOrWhiteSpace(request.Password))
+        {
+            return Json(new { error = "Server URL, Username and Password are required to discover repositories." });
+        }
+
+        var (serverUrl, _, _) = NormaliseServerUrl(
+            request.ServerUrl.Trim(),
+            request.ApiBasePath?.Trim() ?? "/LFRepositoryAPI",
+            "v1");
+
+        try
+        {
+            var repos = await _repositoryService.DiscoverRepositoriesAsync(
+                serverUrl,
+                request.RepositoryId?.Trim() ?? string.Empty,
+                request.Username.Trim(),
+                request.Password,
+                cancellationToken);
+
+            var items = repos.Select(r => new { id = r.RepositoryId, name = r.RepositoryName ?? r.RepositoryId });
+            return Json(new { repositories = items });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Repository discovery failed for {Url}.", serverUrl);
+            return Json(new { error = $"Discovery failed: {ex.Message}" });
+        }
     }
 
     /// <summary>
@@ -251,27 +299,31 @@ public sealed class SettingsController : Controller
 /// <summary>View model for the Settings page.</summary>
 public sealed class SettingsViewModel
 {
-    public string ServerUrl    { get; init; } = string.Empty;
-    public string RepositoryId { get; init; } = string.Empty;
-    public string DisplayName  { get; init; } = string.Empty;
-    public string ApiBasePath  { get; init; } = "/LFRepositoryAPI";
-    public string ApiVersion   { get; init; } = "v1";
-    public bool HasSavedCredentials               { get; init; }
-    public bool HasEnvironmentVariableCredentials { get; init; }
-    public bool SaveSuccess    { get; init; }
+    public string ServerUrl     { get; init; } = string.Empty;
+    public string RepositoryId  { get; init; } = string.Empty;
+    public string DisplayName   { get; init; } = string.Empty;
+    public string ApiBasePath   { get; init; } = "/LFRepositoryAPI";
+    public string ApiVersion    { get; init; } = "v1";
+    public int    RootEntryId   { get; init; } = 1;
+    public int    TimeoutSeconds { get; init; } = 30;
+    public bool   HasSavedCredentials               { get; init; }
+    public bool   HasEnvironmentVariableCredentials { get; init; }
+    public bool   SaveSuccess   { get; init; }
     public string? ErrorMessage { get; init; }
 }
 
 /// <summary>Form model for the Save action.</summary>
 public sealed class SaveSettingsRequest
 {
-    public string  ServerUrl    { get; set; } = string.Empty;
-    public string  RepositoryId { get; set; } = string.Empty;
-    public string? DisplayName  { get; set; }
-    public string? ApiBasePath  { get; set; }
-    public string? ApiVersion   { get; set; }
-    public string? Username     { get; set; }
-    public string? Password     { get; set; }
+    public string  ServerUrl      { get; set; } = string.Empty;
+    public string  RepositoryId   { get; set; } = string.Empty;
+    public string? DisplayName    { get; set; }
+    public string? ApiBasePath    { get; set; }
+    public string? ApiVersion     { get; set; }
+    public int     RootEntryId    { get; set; } = 1;
+    public int     TimeoutSeconds { get; set; } = 30;
+    public string? Username       { get; set; }
+    public string? Password       { get; set; }
 }
 
 /// <summary>Form model for the TestConnection action.</summary>
@@ -281,6 +333,16 @@ public sealed class TestConnectionRequest
     public string  RepositoryId { get; set; } = string.Empty;
     public string? ApiBasePath  { get; set; }
     public string? ApiVersion   { get; set; }
+    public string  Username     { get; set; } = string.Empty;
+    public string  Password     { get; set; } = string.Empty;
+}
+
+/// <summary>Form model for the DiscoverRepositories action.</summary>
+public sealed class DiscoverRequest
+{
+    public string  ServerUrl    { get; set; } = string.Empty;
+    public string? RepositoryId { get; set; }
+    public string? ApiBasePath  { get; set; }
     public string  Username     { get; set; } = string.Empty;
     public string  Password     { get; set; } = string.Empty;
 }

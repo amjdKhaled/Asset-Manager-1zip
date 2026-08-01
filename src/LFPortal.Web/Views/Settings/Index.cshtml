@@ -4,7 +4,7 @@
 }
 
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
-    <h1 style="font-size:1.5rem;font-weight:700;color:var(--lfp-text);">Settings</h1>
+    <h1 style="font-size:1.5rem;font-weight:700;color:var(--lfp-text);">⚙️ Settings</h1>
 </div>
 
 @* ── Success / error banners ───────────────────────────────────────────── *@
@@ -65,6 +65,9 @@ else
     <form id="settings-form" method="post" asp-controller="Settings" asp-action="Save" novalidate>
         @Html.AntiForgeryToken()
 
+        @* Always submit v1 — server exposes v1 only *@
+        <input type="hidden" name="ApiVersion" value="v1" />
+
         @* ── Repository ─────────────────────────────────────────────── *@
         <div class="form-section">
             <div class="form-section__title">Repository</div>
@@ -76,22 +79,32 @@ else
                            placeholder="https://lf-server.corp.local"
                            autocomplete="off" />
                     <span class="field-hint">
-                        Base URL of your Laserfiche API Server &mdash; scheme and host only, e.g.
+                        Base URL of your Laserfiche API Server — scheme and host only, e.g.
                         <code>https://lf-server.corp.local</code>.
                         Do <strong>not</strong> include <code>/LFRepositoryAPI</code> or a version here;
                         use the Advanced fields below. If you paste a full URL the portal will parse it automatically.
                     </span>
                 </div>
                 <div class="field-group">
-                    <label class="field-label" for="RepositoryId">Repository ID</label>
+                    <label class="field-label" for="RepositoryId">
+                        Repository ID
+                        <button type="button" id="discover-btn" class="btn btn--secondary"
+                                style="margin-left:8px;padding:3px 10px;font-size:.75rem;">
+                            🔍 Discover
+                        </button>
+                    </label>
                     <input class="field-input" type="text" id="RepositoryId" name="RepositoryId"
                            value="@Model.RepositoryId"
                            placeholder="Documents"
                            autocomplete="off" />
+                    <span id="discover-status" class="field-hint"></span>
                     <span class="field-hint">Case-sensitive. Must match the repository name in the Laserfiche Admin Console.</span>
                 </div>
                 <div class="field-group">
-                    <label class="field-label" for="DisplayName">Display Name <span style="font-weight:400;color:var(--lfp-muted);">(optional)</span></label>
+                    <label class="field-label" for="DisplayName">
+                        Display Name
+                        <span style="font-weight:400;color:var(--lfp-muted);">(optional)</span>
+                    </label>
                     <input class="field-input" type="text" id="DisplayName" name="DisplayName"
                            value="@Model.DisplayName"
                            placeholder="Documents Repository"
@@ -101,8 +114,30 @@ else
             </div>
         </div>
 
-        @* Always submit v1 — server exposes v1 only *@
-        <input type="hidden" name="ApiVersion" value="v1" />
+        @* ── Browse settings ──────────────────────────────────────────── *@
+        <div class="form-section" style="margin-top:24px;">
+            <div class="form-section__title">Browse Settings</div>
+            <div class="settings-grid">
+                <div class="field-group">
+                    <label class="field-label" for="RootEntryId">Root Entry ID</label>
+                    <input class="field-input" type="number" id="RootEntryId" name="RootEntryId"
+                           value="@Model.RootEntryId" min="1" />
+                    <span class="field-hint">
+                        Entry ID of the root folder to browse. Default is <strong>1</strong>.
+                        Change this if your repository root is not ID 1 (check the Laserfiche Admin Console).
+                    </span>
+                </div>
+                <div class="field-group">
+                    <label class="field-label" for="TimeoutSeconds">API Timeout (seconds)</label>
+                    <input class="field-input" type="number" id="TimeoutSeconds" name="TimeoutSeconds"
+                           value="@Model.TimeoutSeconds" min="5" max="300" />
+                    <span class="field-hint">
+                        HTTP request timeout for all Laserfiche API calls. Default is <strong>30</strong>.
+                        Increase for slow networks or large document downloads (max 300).
+                    </span>
+                </div>
+            </div>
+        </div>
 
         @* ── Advanced ────────────────────────────────────────────────── *@
         <div class="form-section" style="margin-top:24px;">
@@ -153,10 +188,10 @@ else
 
         <div style="display:flex;gap:12px;margin-top:24px;flex-wrap:wrap;">
             <button type="submit" class="btn btn--primary">
-                &#128190; Save Settings
+                💾 Save Settings
             </button>
             <button type="button" id="test-btn" class="btn btn--secondary">
-                &#128268; Test Connection
+                🔌 Test Connection
             </button>
         </div>
     </form>
@@ -176,10 +211,18 @@ else
             </span>
         </div>
         <div class="status-item">
-                            <span class="status-item__label">Repository List URL (current)</span>
+            <span class="status-item__label">Repository List URL (current)</span>
             <span class="status-item__value" style="font-family:monospace;font-size:.75rem;word-break:break-all;">
                 @($"{Model.ServerUrl.TrimEnd('/')}{Model.ApiBasePath}/{Model.ApiVersion}/Repositories")
             </span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">Root Entry ID</span>
+            <span class="status-item__value" style="font-family:monospace;">@Model.RootEntryId</span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">API Timeout</span>
+            <span class="status-item__value">@Model.TimeoutSeconds s</span>
         </div>
         <div class="status-item">
             <span class="status-item__label">Credential Store</span>
@@ -215,6 +258,7 @@ else
         });
     }
 
+    // ── Test Connection ──────────────────────────────────────────────────
     var testBtn  = document.getElementById('test-btn');
     var resultEl = document.getElementById('test-result');
     var form     = document.getElementById('settings-form');
@@ -242,6 +286,79 @@ else
         } finally {
             testBtn.disabled    = false;
             testBtn.textContent = '\uD83D\uDD0C Test Connection';
+        }
+    });
+
+    // ── Discover Repositories ────────────────────────────────────────────
+    var discoverBtn    = document.getElementById('discover-btn');
+    var repoInput      = document.getElementById('RepositoryId');
+    var discoverStatus = document.getElementById('discover-status');
+
+    discoverBtn.addEventListener('click', async function () {
+        discoverBtn.disabled = true;
+        discoverBtn.textContent = 'Discovering\u2026';
+        discoverStatus.textContent = '';
+        discoverStatus.style.color = '';
+
+        try {
+            var data  = new FormData();
+            var token = form.querySelector('input[name="__RequestVerificationToken"]').value;
+            data.append('__RequestVerificationToken', token);
+            data.append('ServerUrl',    document.getElementById('ServerUrl').value);
+            data.append('ApiBasePath',  document.getElementById('ApiBasePath').value);
+            data.append('RepositoryId', repoInput.value);
+            data.append('Username',     document.getElementById('Username').value);
+            data.append('Password',     document.getElementById('Password').value);
+
+            var resp = await fetch('/Settings/DiscoverRepositories', {
+                method:  'POST',
+                body:    data,
+                headers: { 'RequestVerificationToken': token }
+            });
+
+            var json = await resp.json();
+
+            if (json.error) {
+                discoverStatus.textContent = '\u26a0 ' + json.error;
+                discoverStatus.style.color = '#dc2626';
+                return;
+            }
+
+            var repos = json.repositories || [];
+            if (repos.length === 0) {
+                discoverStatus.textContent = 'No repositories found on this server.';
+                discoverStatus.style.color = '#d97706';
+                return;
+            }
+
+            if (repos.length === 1) {
+                repoInput.value = repos[0].id;
+                discoverStatus.textContent = '\u2713 Found: ' + repos[0].name;
+                discoverStatus.style.color = '#16a34a';
+                return;
+            }
+
+            // Multiple repos — build a small inline select
+            var selectHtml = '<select id="repo-select" class="field-input" style="margin-top:6px;">';
+            repos.forEach(function(r) {
+                selectHtml += '<option value="' + r.id + '">' + r.name + ' (' + r.id + ')</option>';
+            });
+            selectHtml += '</select>';
+            discoverStatus.innerHTML = '\u2713 ' + repos.length + ' repositories found. Select one: ' + selectHtml;
+            discoverStatus.style.color = '#16a34a';
+
+            document.getElementById('repo-select').addEventListener('change', function() {
+                repoInput.value = this.value;
+            });
+            // Pre-fill with first
+            repoInput.value = repos[0].id;
+
+        } catch (err) {
+            discoverStatus.textContent = '\u26a0 Discovery failed: ' + err.message;
+            discoverStatus.style.color = '#dc2626';
+        } finally {
+            discoverBtn.disabled    = false;
+            discoverBtn.textContent = '\uD83D\uDD0D Discover';
         }
     });
 }());

@@ -1,0 +1,231 @@
+STOP the Search phase.
+
+Search was not part of my original requested project plan, and I do not want a Search feature added at this stage.
+
+If you already created any Search-specific code as part of the new proposed Search phase, remove ONLY those new Search UI additions safely.
+
+Do NOT remove shared infrastructure or existing backend components that were already part of the project before the proposed Search phase.
+
+Specifically:
+- Do not create SearchController.
+- Do not create Search views.
+- Remove any newly added Search navigation item.
+- Do not modify the Dashboard to support Search.
+- Do not add new Search Audit functionality.
+- Do not continue implementing Search.
+- Do not remove existing ILaserficheSearchService or infrastructure that existed before this proposed phase unless it was created specifically by mistake during the new Search phase.
+
+We are returning to the ORIGINAL APPROVED PROJECT PLAN.
+
+Proceed now to:
+
+PHASE 4 — LF SETTINGS & FINAL POLISH
+
+This is the original Phase 4 from the approved project plan.
+
+==================================================
+PHASE 4 SCOPE
+==================================================
+
+Complete and finalize the LFPortal Settings and overall web application quality.
+
+1. LASERFICHE SETTINGS
+
+Review the existing Settings page and complete it rather than rebuilding it.
+
+The administrator must be able to configure the Laserfiche connection from the LFPortal website itself.
+
+Settings should include the configuration values that are actually required by the current implementation, including:
+
+- Laserfiche API Server URL
+- Repository
+- Repository ID where required
+- API Base Path where required
+- Root Entry ID
+- Connection-related non-sensitive settings
+
+Credentials must continue to use the existing secure credential-provider architecture.
+
+Do NOT store usernames/passwords in plain-text JSON configuration.
+
+==================================================
+2. REPOSITORY DISCOVERY
+==================================================
+
+Use the existing confirmed:
+
+GET /LFRepositoryAPI/v1/Repositories
+
+Allow the administrator to discover/select available repositories where supported.
+
+Do not invent additional endpoints.
+
+==================================================
+3. TEST CONNECTION
+==================================================
+
+Keep and finalize the existing Test Connection functionality.
+
+It must clearly report:
+
+- Connected
+- Authentication failed
+- Repository not found
+- Laserfiche API unavailable
+- Invalid configuration
+
+Do not expose passwords, access tokens, stack traces, or sensitive information.
+
+==================================================
+4. ROOT ENTRY CONFIGURATION
+==================================================
+
+RootEntryId must be configurable from the Settings page.
+
+The current environment uses:
+
+RootEntryId = 1
+
+Do not hard-code 1 throughout the application.
+
+Use the configured RootEntryId through the existing options/configuration architecture.
+
+==================================================
+5. CONFIGURATION PERSISTENCE
+==================================================
+
+Settings entered through the website must persist correctly.
+
+Use the existing external configuration architecture.
+
+The final deployment architecture must remain compatible with:
+
+%ProgramData%\LFPortal\
+
+Configuration must survive:
+- application restart
+- IIS restart
+- future application upgrade
+
+Do not introduce a database just for configuration.
+
+==================================================
+6. CONFIGURATION RELOAD
+==================================================
+
+Where supported by the current architecture, updated non-sensitive settings should take effect without requiring recompilation.
+
+Do not require Visual Studio.
+Do not require changing source code.
+Do not require dotnet run configuration changes.
+
+The installed application must ultimately be administrable through the portal/configuration files.
+
+==================================================
+7. FINAL POLISH
+==================================================
+
+Perform a final quality pass over the existing application.
+
+Review:
+
+- Status
+- Dashboard
+- Archive
+- Document Details
+- Document Viewer
+- Settings
+- Shared navigation/layout
+
+Fix genuine UI inconsistencies, broken states, incorrect labels, empty states, and error handling.
+
+Do NOT redesign pages that are already approved.
+
+==================================================
+8. DO NOT ADD NEW FEATURES
+==================================================
+
+This phase is FINAL POLISH, not feature expansion.
+
+Do NOT add:
+
+- Search UI
+- Upload
+- Delete
+- Rename
+- Move
+- Workflow
+- Forms
+- Audit Trail
+- AI features
+- Power BI
+- New Dashboard widgets
+- Document page-image rendering
+
+The Document Viewer image-preview/page-rendering issue remains DEFERRED.
+
+Do not work on it during Phase 4.
+
+==================================================
+9. EXTENSIBILITY VALIDATION
+==================================================
+
+Review the architecture and confirm that future modules can be added without rewriting the core application.
+
+Future modules may include:
+
+- Workflow
+- Forms
+- Audit Trail
+- Reporting
+- Records Management
+- Administration Hub
+- Quick Fields
+
+Do not implement these modules now.
+
+Only verify that the architecture remains extensible.
+
+==================================================
+10. QUALITY GATE
+==================================================
+
+Before declaring Phase 4 complete:
+
+- dotnet restore must succeed.
+- dotnet build must succeed.
+- 0 compilation errors.
+- 0 compiler warnings.
+- No newly introduced TODOs.
+- No mock/fake repository data.
+- No hard-coded credentials.
+- No hard-coded machine-specific paths.
+- Existing Dashboard must still work.
+- Existing Archive must still work.
+- Existing metadata fields must still work.
+- Existing Laserfiche connection must still work.
+- Settings persistence must be verified.
+- Test Connection must be verified.
+- RootEntryId configuration must be verified.
+
+Do not modify working functionality merely for refactoring.
+
+==================================================
+AFTER PHASE 4
+==================================================
+
+When Phase 4 is complete, STOP and give me a completion report.
+
+Do NOT automatically begin another feature.
+
+The next ORIGINAL planned phase after my approval will be:
+
+PHASE 5 — Laserfiche Desktop Client Extension
+
+Then:
+
+PHASE 6 — MSI Installer & Complete Deployment Package
+
+Return to the original approved roadmap and do not create additional phases unless I explicitly request them.
+
+Proceed with Phase 4 now.

@@ -42,6 +42,8 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
         string displayName,
         string apiBasePath,
         string apiVersion,
+        int    rootEntryId,
+        int    timeoutSeconds,
         CancellationToken cancellationToken = default)
     {
         var directory = Path.GetDirectoryName(_configFilePath)!;
@@ -51,11 +53,13 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
         {
             Laserfiche = new
             {
-                ServerUrl    = serverUrl.TrimEnd('/'),
-                RepositoryId = repositoryId,
-                DisplayName  = displayName,
-                ApiBasePath  = apiBasePath,
-                ApiVersion   = apiVersion
+                ServerUrl      = serverUrl.TrimEnd('/'),
+                RepositoryId   = repositoryId,
+                DisplayName    = displayName,
+                ApiBasePath    = apiBasePath,
+                ApiVersion     = apiVersion,
+                RootEntryId    = rootEntryId,
+                TimeoutSeconds = timeoutSeconds
             }
         };
 

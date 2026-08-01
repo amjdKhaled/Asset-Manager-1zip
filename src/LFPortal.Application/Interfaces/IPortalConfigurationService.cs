@@ -23,6 +23,8 @@ public interface IPortalConfigurationService
         string displayName,
         string apiBasePath,
         string apiVersion,
+        int    rootEntryId,
+        int    timeoutSeconds,
         CancellationToken cancellationToken = default);
 
     /// <summary>
