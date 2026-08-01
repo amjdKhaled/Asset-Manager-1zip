@@ -9,22 +9,31 @@
  * HOW TO DEPLOY
  * ─────────────
  * 1. Set DASHBOARD_BASE_URL below to the URL users' browsers use to reach
- *    the Dashboard server.  This runs in the CLIENT browser, so "localhost"
- *    means the USER's machine, not the Laserfiche server.
+ *    the Dashboard server.  This executes in the CLIENT browser, so
+ *    "localhost" means the USER's machine, not the Laserfiche server.
  *    Example: 'http://dashboard-server:5000'  or  'http://192.168.1.100:5000'
  * 2. Copy THIS FILE to:
  *      C:\Program Files\Laserfiche\Web Access\Web Files\assets\custom\lf-dashboard-button.js
- * 3. Browse.aspx must already contain this line (added during initial setup):
+ * 3. Browse.aspx must already contain (added during initial setup):
  *      <script src="assets/custom/lf-dashboard-button.js"></script>
- *    A Ctrl+F5 browser refresh is sufficient after re-deploying this file.
+ *    Ctrl+F5 browser hard-refresh is sufficient after re-deploying this file.
  *    IIS restart is NOT required.
  *
- * LASERFICHE JAVASCRIPT ENVIRONMENT — IMPORTANT
- * ─────────────────────────────────────────────
+ * LASERFICHE JAVASCRIPT ENVIRONMENT
+ * ──────────────────────────────────
  * The Laserfiche AngularJS app shadows the global `document` identifier.
- * Confirmed symptom: `document.querySelectorAll` is not a function.
- * All DOM access in this script uses _doc / _win, captured from the real
- * browser window object at IIFE entry — before Angular can override them.
+ * Confirmed: `document.querySelectorAll` is not a function in its context.
+ * All DOM access uses _doc / _win, captured from the real browser window
+ * at IIFE entry — before Angular can override them.
+ *
+ * EVENT HANDLING ARCHITECTURE
+ * ────────────────────────────
+ * ONE capture-phase delegated listener on _doc is the single authoritative
+ * click path.  Capture phase fires before Angular's bubble-phase listeners
+ * so it cannot be blocked by Angular stopPropagation() calls.
+ * No direct click listener is registered on the button itself — that was
+ * the cause of the double-open bug.  A 500 ms launch lock prevents any
+ * residual duplicate events from opening a second tab.
  *
  * REPOSITORY DETECTION
  * ─────────────────────
@@ -43,23 +52,20 @@
     'use strict';
 
     // ── SAFE BROWSER GLOBALS ─────────────────────────────────────────────
-    // Laserfiche's Angular application shadows the global `document` object
-    // (confirmed: `document.querySelectorAll` throws TypeError in its context).
-    // Capture the real browser objects at IIFE entry, before Angular can
-    // replace them.  All DOM operations below use _doc / _win exclusively.
+    // Capture the real browser objects immediately, before Laserfiche Angular
+    // can shadow the global `document` / `window` identifiers.
     var _win = window;
     var _doc = window.document;
     // ─────────────────────────────────────────────────────────────────────
 
     // ── CONFIGURATION ────────────────────────────────────────────────────
     /**
-     * Base URL of the Dashboard server.
-     * !! No trailing slash. !!
+     * Base URL of the Dashboard server — NO trailing slash.
      *
-     * IMPORTANT: This value is evaluated in the user's BROWSER, not on the
-     * Laserfiche server.  'http://localhost:5000' means the user's own
-     * machine.  Change this to a hostname or IP that every client machine
-     * can reach, e.g. 'http://dashboard-server:5000'.
+     * !! This executes in the USER's browser, not on the server. !!
+     * 'http://localhost:5000' points to the user's own machine.
+     * Change to a hostname / IP reachable by every client machine, e.g.:
+     *   'http://dashboard-server:5000'
      */
     var DASHBOARD_BASE_URL = 'http://localhost:5000';
 
@@ -69,42 +75,45 @@
     /** Stable identifiers for the injected button. */
     var BUTTON_ID        = 'lf-dashboard-btn';
     var BUTTON_DATA_ATTR = 'data-lf-dashboard-button';
+
+    /**
+     * Cooldown duration (ms) after a successful launch.
+     * Prevents residual duplicate events from opening a second tab.
+     * Does NOT prevent the user from clicking again after the cooldown.
+     */
+    var LAUNCH_COOLDOWN_MS = 500;
     // ─────────────────────────────────────────────────────────────────────
 
     /**
-     * Whether the capture-phase delegated listener has been registered on
-     * _doc.  Register only once regardless of how many times tryInject runs.
+     * True while a Dashboard window.open is in progress / just completed.
+     * Reset after LAUNCH_COOLDOWN_MS.
      */
-    var _delegatedRegistered = false;
+    var _launchInProgress = false;
 
     /**
-     * Used to suppress the direct-on-button listener when the capture-phase
-     * delegated listener has already handled the same click event.
+     * True once the capture-phase delegated listener has been registered
+     * on _doc.  Ensures it is registered exactly once.
      */
-    var _lastHandledEvent = null;
+    var _delegatedRegistered = false;
 
     // ─────────────────────────────────────────────────────────────────────
 
     /**
      * Returns the active Laserfiche repository name.
      *
-     * PRIMARY: server-rendered hidden input that Browse.aspx always emits
-     *   before Angular boots:
+     * PRIMARY: server-rendered hidden input Browse.aspx always emits:
      *   <input type="hidden" id="WebAccessRepositoryName" value="..." />
      *
-     * FALLBACK: URL query parameters for edge cases (?repo=, ?db=,
-     *   ?repository=).
+     * FALLBACK: URL query parameters (?repo=, ?db=, ?repository=).
      *
      * @returns {string|null}  Trimmed repository name, or null.
      */
     function getRepository() {
-        // Primary — ASP.NET code-behind sets this before Angular touches the page.
         var el = _doc.getElementById('WebAccessRepositoryName');
         if (el && typeof el.value === 'string' && el.value.trim().length > 0) {
             return el.value.trim();
         }
 
-        // Fallback — URL query string.
         try {
             var params = new URLSearchParams(_win.location.search);
             var fromQuery = params.get('repo') || params.get('db') || params.get('repository');
@@ -115,10 +124,10 @@
     }
 
     /**
-     * Builds the Dashboard URL for the given repository.
+     * Builds the full Dashboard URL for the given repository.
      *
      * @param {string} repo  Validated non-empty repository name.
-     * @returns {string}     Full URL with query parameters.
+     * @returns {string}
      */
     function buildDashboardUrl(repo) {
         return DASHBOARD_BASE_URL.replace(/\/+$/, '') +
@@ -127,13 +136,13 @@
     }
 
     /**
-     * Click handler.
+     * Handles a confirmed Dashboard button click.
      *
-     * Reads the repository at click-time (not inject-time) so that
-     * repository switches within the same Web Client session are picked up.
+     * ONE execution per physical click is guaranteed by:
+     *   1. A single capture-phase delegated listener (no direct button listener).
+     *   2. The _launchInProgress cooldown guard.
      *
-     * Logging sequence (required — lets us distinguish click failure
-     * from repository-detection or navigation failure):
+     * Console log sequence for a single successful click:
      *   [LFDashboard] Dashboard button clicked.
      *   [LFDashboard] Repository: <name>
      *   [LFDashboard] Opening Dashboard: <url>
@@ -141,12 +150,20 @@
      * @param {Event} event
      */
     function onDashboardClick(event) {
+        // ── Duplicate-click guard ─────────────────────────────────────────
+        if (_launchInProgress) {
+            console.log('[LFDashboard] Duplicate click ignored.');
+            return;
+        }
+        _launchInProgress = true;
+        _win.setTimeout(function () { _launchInProgress = false; }, LAUNCH_COOLDOWN_MS);
+
         // ── Step 1: confirm click fired ───────────────────────────────────
         console.log('[LFDashboard] Dashboard button clicked.');
 
-        // Prevent the Laserfiche navbar from also processing this click.
+        // Prevent Laserfiche navbar from processing this click.
         if (event) {
-            if (event.stopPropagation)      event.stopPropagation();
+            if (event.stopPropagation)          event.stopPropagation();
             if (event.stopImmediatePropagation) event.stopImmediatePropagation();
         }
 
@@ -173,17 +190,18 @@
 
         console.log('[LFDashboard] Repository: ' + repo);
 
-        // ── Step 4: build URL and open ────────────────────────────────────
+        // ── Step 4: open Dashboard ────────────────────────────────────────
         var url = buildDashboardUrl(repo);
         console.log('[LFDashboard] Opening Dashboard: ' + url);
 
-        // window.open must be called synchronously from a user-gesture handler
-        // to avoid popup blockers.  Repository detection above is synchronous,
-        // so this call is still within the same user gesture.
+        // window.open must be called synchronously within the user-gesture
+        // handler — repository detection above is synchronous, so this call
+        // is still within the same gesture and will not be blocked as a popup.
         var newWin = _win.open(url, '_blank', 'noopener,noreferrer');
 
         if (!newWin) {
             // Browser blocked the popup.  Fallback: programmatic anchor click.
+            // Only reached when window.open fails — never runs alongside it.
             console.warn('[LFDashboard] Browser blocked the Dashboard popup. Trying anchor fallback.');
             try {
                 var a = _doc.createElement('a');
@@ -206,14 +224,16 @@
     }
 
     /**
-     * Creates the Dashboard button element.
+     * Creates the Dashboard button element using the real browser DOM (_doc).
      *
-     * Uses _doc.createElement (real browser DOM) rather than the bare
-     * `document` global, which Laserfiche Angular may have shadowed.
+     * NO click listener is attached here.
+     * The single authoritative click path is the capture-phase delegated
+     * listener registered by ensureDelegatedHandler().  Attaching a direct
+     * listener on the button as well was the root cause of the double-open bug.
      *
-     * The button and its SVG / text children are set to
-     * pointer-events:auto / none explicitly so that clicks on any child
-     * element reliably bubble to the <button> handler.
+     * pointer-events:none on the SVG icon and text label ensures that clicks
+     * anywhere inside the button register the <button> itself as event.target,
+     * so the delegated listener's parentNode walk terminates quickly.
      *
      * @returns {HTMLButtonElement}
      */
@@ -241,8 +261,6 @@
             'line-height:1',
             'border-radius:4px',
             'transition:background .15s',
-            /* Ensure Laserfiche parent styles cannot make the button
-               non-interactive.  z-index places it above any sibling overlay. */
             'pointer-events:auto',
             'position:relative',
             'z-index:1000',
@@ -257,24 +275,14 @@
             btn.style.background = 'transparent';
         });
 
-        // Direct listener on the button (bubble phase).
-        // The capture-phase delegated listener on _doc is the resilient
-        // primary path; this is a belt-and-suspenders backup.
-        btn.addEventListener('click', function (e) {
-            // Guard: if the capture-phase delegated handler already ran for
-            // this same event, do not call onDashboardClick a second time.
-            if (e === _lastHandledEvent) return;
-            onDashboardClick(e);
-        }, false);
-
-        // Bar-chart icon (inline SVG, no external asset dependency).
-        // pointer-events:none on the icon so clicks pass through to the button.
+        // Bar-chart icon (inline SVG — no external asset dependency).
         var svg = _doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('width',       '20');
         svg.setAttribute('height',      '20');
         svg.setAttribute('viewBox',     '0 0 24 24');
         svg.setAttribute('fill',        'currentColor');
         svg.setAttribute('aria-hidden', 'true');
+        // pointer-events:none — clicks on the icon fall through to the <button>.
         svg.style.cssText = 'flex-shrink:0;vertical-align:middle;pointer-events:none;';
         svg.innerHTML =
             '<rect x="2"  y="10" width="4" height="11" rx="1"/>' +
@@ -284,21 +292,34 @@
 
         var label = _doc.createElement('span');
         label.textContent = 'Dashboard';
-        // pointer-events:none on text so clicks fall through to the button.
+        // pointer-events:none — clicks on the label fall through to the <button>.
         label.style.cssText = 'pointer-events:none;';
         btn.appendChild(label);
+
+        // !! No click listener added here !!
+        // The single authoritative handler is the capture-phase delegated
+        // listener on _doc registered in ensureDelegatedHandler().
 
         return btn;
     }
 
     /**
      * Registers the capture-phase delegated click listener on _doc exactly
-     * once.  Capture phase fires BEFORE Angular's bubble-phase listeners,
-     * so it cannot be blocked by Angular stopPropagation() calls.
+     * once.
      *
-     * The listener walks up from event.target to find any element that has
-     * data-lf-dashboard-button="true", so it works even when the click
-     * lands on the SVG icon or the text span inside the button.
+     * Why capture phase?
+     *   Fires BEFORE Angular's bubble-phase listeners, so it cannot be
+     *   silently blocked by Angular stopPropagation() calls on a parent.
+     *
+     * Why delegated from _doc?
+     *   Survives Laserfiche Angular re-rendering the navbar.  Even if
+     *   Angular replaces the button's DOM node, the document-level listener
+     *   continues to match any element that carries BUTTON_DATA_ATTR.
+     *
+     * Why only once?
+     *   _delegatedRegistered ensures that MutationObserver-triggered
+     *   re-injection calls and the polling loop cannot register a second
+     *   listener, which would double-fire onDashboardClick.
      */
     function ensureDelegatedHandler() {
         if (_delegatedRegistered) return;
@@ -306,33 +327,31 @@
 
         _doc.addEventListener('click', function (event) {
             var target = event.target;
-            // Walk up to find our button or any ancestor with the attribute.
+            // Walk up from the clicked element.
+            // With pointer-events:none on SVG/span, event.target is already
+            // the <button>; the loop is a safety net for edge cases.
             while (target && target !== _doc) {
                 if (target.getAttribute &&
                     target.getAttribute(BUTTON_DATA_ATTR) === 'true') {
-                    // Record this event so the direct button listener can
-                    // skip it and avoid a double-fire.
-                    _lastHandledEvent = event;
                     onDashboardClick(event);
                     return;
                 }
                 target = target.parentNode;
             }
-        }, true /* capture phase — fires before Angular bubble listeners */);
+        }, true /* capture phase */);
     }
 
     /**
      * Attempts to inject the Dashboard button into the Web Client toolbar.
      *
      * Target: id="rightNavbar" — the right side of the top action bar,
-     * confirmed in Browse.aspx.  Holds the repository picker and user menu.
+     * confirmed present in Browse.aspx.
      *
-     * If the button already exists this is a no-op (idempotent).
+     * Idempotent: does nothing if the button already exists.
      *
      * @returns {boolean}  true when the button is present in the DOM.
      */
     function tryInject() {
-        // Already present — nothing to do.
         if (_doc.getElementById(BUTTON_ID)) return true;
 
         var rightNavbar = _doc.getElementById('rightNavbar');
@@ -340,13 +359,11 @@
 
         var btn = createButton();
 
-        // Wrap in <ul><li> to match the existing .rightNavbar list structure.
         var li = _doc.createElement('li');
         li.style.cssText = [
             'list-style:none',
             'display:inline-flex',
             'align-items:center',
-            /* Ensure no inherited pointer-events:none from parent <ul>. */
             'pointer-events:auto',
         ].join(';');
         li.appendChild(btn);
@@ -363,10 +380,10 @@
         ].join(';');
         ul.appendChild(li);
 
-        // Insert before any existing children (repo picker, user menu).
+        // Insert before existing children (repo picker, user menu).
         rightNavbar.insertBefore(ul, rightNavbar.firstChild);
 
-        // Register the capture-phase delegated handler (once).
+        // Register the single authoritative click handler (once).
         ensureDelegatedHandler();
 
         console.info('[LFDashboard] Dashboard button injected into rightNavbar.');
@@ -374,15 +391,17 @@
     }
 
     /**
-     * Starts a narrow MutationObserver that watches for the Dashboard button
-     * being removed from the DOM (e.g. when Laserfiche Angular re-renders the
-     * navbar after a repository switch) and re-injects it automatically.
+     * MutationObserver — re-injects the button if Laserfiche Angular
+     * re-renders the navbar (e.g. after a repository switch).
      *
-     * The observer is scoped to _doc.body with subtree:true but acts only
-     * when our button is missing — it does no work on unrelated mutations.
+     * Scoped to _doc.body (subtree).  Acts only when our button is missing
+     * and rightNavbar still exists — no-ops on all unrelated mutations.
+     * The delegated click handler (ensureDelegatedHandler) is NOT
+     * re-registered on re-injection because _delegatedRegistered is already
+     * true.
      */
     function startObserver() {
-        if (!_win.MutationObserver) return; // IE10 and below — not supported
+        if (!_win.MutationObserver) return;
 
         var observer = new _win.MutationObserver(function () {
             if (!_doc.getElementById(BUTTON_ID) && _doc.getElementById('rightNavbar')) {
@@ -397,9 +416,9 @@
     /**
      * Entry point.
      *
-     * Tries to inject immediately.  If Angular has not yet rendered rightNavbar,
-     * polls every 250 ms up to POLL_TIMEOUT_MS, then starts the MutationObserver
-     * to handle subsequent re-renders.
+     * Tries to inject immediately.  If Angular has not yet rendered
+     * rightNavbar, polls every 250 ms up to POLL_TIMEOUT_MS, then starts
+     * the MutationObserver for subsequent re-renders.
      */
     function init() {
         if (tryInject()) {
@@ -426,7 +445,7 @@
     }
 
     // ── Startup ───────────────────────────────────────────────────────────
-    // Browse.aspx loads this script in the <head>, so DOMContentLoaded fires
+    // Browse.aspx loads this script in <head>, so DOMContentLoaded fires
     // before Angular bootstraps the navbar.  Use _doc (real browser document)
     // for the readyState check and event registration.
     if (_doc.readyState === 'loading') {

@@ -19,3 +19,4 @@
 - [Phase 5 dynamic repository context](phase5-dynamic-repo-context.md) — %(DatabaseName) token → ?repository= URL → session middleware → SessionAwareRepositoryContext singleton; Settings shows source badge.
 - [Phase 5 WebView2 popup](phase5-webview2-popup.md) — DashboardWindow with isolated user-data folder per click; why browser was replaced; %(DatabaseName) confirmed correct.
 - [LFPortal session auth](lfportal-session-auth.md) — Desktop Client login flow: session keys, credential stack, guard middleware, TryAuthenticateAsync, Change Account.
+- [LFPortal Web Client button](lfportal-webclient-button.md) — Final architecture: capture-phase delegated listener only (no direct button listener); _doc=window.document; 500ms cooldown; problems solved in order.

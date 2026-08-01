@@ -1,0 +1,249 @@
+The Laserfiche Web Client → Dashboard integration is now working successfully.
+
+The Dashboard button:
+- Appears correctly in the Laserfiche Web Client.
+- Is clickable.
+- Detects the active repository.
+- Opens the Dashboard Login page.
+- Passes the repository correctly.
+- The previous visible-but-not-clickable issue is resolved.
+
+There is only ONE small bug remaining before moving to the next phase.
+
+==================================================
+BUG — ONE CLICK OPENS DASHBOARD TWICE
+==================================================
+
+Currently, when I click the Dashboard button ONCE in the Laserfiche Web Client, TWO Dashboard browser tabs/windows are opened.
+
+The screenshot confirms that a single click results in two Dashboard pages being launched.
+
+This must be fixed.
+
+Expected behavior:
+
+ONE physical click on Dashboard
+        ↓
+ONE click handler execution
+        ↓
+ONE repository detection
+        ↓
+ONE Dashboard URL generation
+        ↓
+ONE window.open/navigation
+        ↓
+EXACTLY ONE Dashboard tab/window
+
+Never two.
+
+==================================================
+LIKELY CAUSE
+==================================================
+
+The previous fix intentionally introduced multiple click-handling mechanisms for reliability:
+
+1. Capture-phase delegated listener.
+2. Direct button click listener.
+3. Possibly anchor/window.open fallback logic.
+
+Now that clicking works, these mechanisms may both be handling the same physical event.
+
+Audit the ACTUAL current implementation of:
+
+src/LFPortal.Web/wwwroot/js/lf-webclient-button.js
+
+Do not guess.
+
+Trace exactly how many times onDashboardClick() is invoked from one physical click.
+
+Also verify whether:
+
+- capture listener invokes it once
+- direct listener invokes it again
+- MutationObserver creates duplicate handlers
+- duplicate script execution registers listeners twice
+- both window.open() and the anchor fallback execute
+- multiple Dashboard buttons exist invisibly
+- Laserfiche navbar re-rendering causes duplicate registrations
+
+==================================================
+REQUIREMENT — SINGLE CLICK GUARANTEE
+==================================================
+
+Refactor the event handling so there is ONE authoritative click path.
+
+Prefer the simplest reliable architecture.
+
+Since the capture-phase delegated listener solved the Laserfiche click interception problem, prefer keeping ONE delegated capture-phase handler and removing redundant direct click execution if it is no longer necessary.
+
+For example, the architecture should conceptually become:
+
+Browser document
+      ↓
+ONE capture-phase delegated listener
+      ↓
+Detect [data-lf-dashboard-button="true"]
+      ↓
+handleDashboardClick()
+      ↓
+ONE window.open()
+
+Do not keep multiple independent handlers unless absolutely necessary.
+
+==================================================
+ADD A DUPLICATE-CLICK SAFETY GUARD
+==================================================
+
+Even after simplifying the event architecture, add a small defensive guard against duplicate execution of the same physical click.
+
+For example:
+
+- event identity guard
+OR
+- very short click lock/debounce
+
+The guard must prevent duplicate execution caused by Laserfiche DOM/event behavior.
+
+It must NOT prevent the user from legitimately clicking Dashboard again later.
+
+A short lock such as approximately 300–500 ms is acceptable.
+
+Conceptually:
+
+if (launchInProgress)
+    return;
+
+launchInProgress = true;
+
+open Dashboard once;
+
+setTimeout(() => {
+    launchInProgress = false;
+}, 500);
+
+Use the cleanest implementation appropriate for the existing code.
+
+==================================================
+POPUP FALLBACK
+==================================================
+
+Review the popup fallback carefully.
+
+If:
+
+window.open(...)
+
+successfully opens the Dashboard, DO NOT execute the anchor fallback.
+
+The fallback must execute ONLY when the primary open operation actually fails.
+
+There must never be:
+
+window.open(...)
++
+anchor.click()
+
+for the same successful launch.
+
+==================================================
+LOGGING
+==================================================
+
+For ONE physical click, Console should show EXACTLY ONE sequence:
+
+[LFDashboard] Dashboard button clicked.
+[LFDashboard] Repository: NewEmployeeTest
+[LFDashboard] Opening Dashboard: http://localhost:5000/?repository=NewEmployeeTest&source=webclient
+
+It must NOT print this sequence twice.
+
+Optionally add:
+
+[LFDashboard] Duplicate click ignored.
+
+when the defensive guard blocks a duplicate event.
+
+==================================================
+DO NOT BREAK EXISTING WORKING FEATURES
+==================================================
+
+Do NOT change or break:
+
+- WebAccessRepositoryName repository detection
+- ?repository=<repo>&source=webclient
+- Login page
+- optional/blank password support
+- repository-specific authentication
+- RepositorySessionMiddleware
+- SessionAuthGuardMiddleware
+- Dashboard
+- Archive
+- Settings
+- Desktop Client Dashboard extension
+- WebView2 Desktop popup
+- Desktop repository detection
+- toolbar icon
+- existing session isolation
+
+This task should be a targeted JavaScript fix.
+
+Do not redesign the integration.
+
+==================================================
+TEST
+==================================================
+
+Test:
+
+1. Open NewEmployeeTest in Laserfiche Web Client.
+2. Click Dashboard ONCE.
+3. Exactly ONE Dashboard tab opens.
+4. Login shows NewEmployeeTest.
+5. Close it.
+6. Click Dashboard again.
+7. Exactly ONE new Dashboard tab opens.
+8. Switch Laserfiche to another repository.
+9. Click Dashboard once.
+10. Exactly ONE Dashboard tab opens for the new repository.
+11. Verify no duplicate Dashboard buttons exist.
+12. Verify Console click/open logs occur once per click.
+
+Run JS syntax validation.
+
+Run the existing .NET build quality gate:
+
+dotnet build --configuration Release
+
+Required:
+0 errors
+0 warnings.
+
+==================================================
+THEN MOVE TO THE NEXT PHASE
+==================================================
+
+Once this duplicate-window bug is fixed and verified, consider the Laserfiche Web Client button integration complete.
+
+Update the project documentation/memory with the final working architecture and the problems we solved:
+
+- Custom script initially returned 404 because the JS file was not copied into assets/custom.
+- Browse.aspx script injection was added.
+- WebAccessRepositoryName is the confirmed repository source.
+- rightNavbar is the confirmed toolbar injection location.
+- Dashboard button became visible.
+- Visible-but-not-clickable issue was fixed with robust real-DOM/capture-phase handling.
+- Dynamic Laserfiche navbar re-rendering is handled.
+- Repository switching works.
+- Dashboard Login flow works.
+- Blank passwords are supported.
+- Current duplicate-tab issue must now be fixed so one click = one launch.
+
+After this fix passes, proceed immediately to the NEXT PHASE in the previously provided Phase 0–7 roadmap.
+
+Do NOT reimplement completed phases.
+
+Do NOT return to Search.
+
+Do NOT redesign Phase 5.
+
+Continue with the next unfinished phase after the current Laserfiche Desktop/Web Client integration phase.
