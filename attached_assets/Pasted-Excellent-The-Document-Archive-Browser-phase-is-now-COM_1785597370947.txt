@@ -1,0 +1,282 @@
+Excellent. The Document Archive Browser phase is now COMPLETE and APPROVED.
+
+The latest live test confirms:
+
+- Repository browsing works
+- Folder navigation works
+- Documents are listed correctly
+- Entry details work
+- Template information works
+- Repository path works
+- Creator / Created / Modified information works
+- Page count works
+- Metadata Fields now work correctly
+- Actual Laserfiche field names and values are displayed
+- Arabic metadata is displayed correctly
+
+DO NOT modify or refactor the working Archive implementation unless absolutely necessary for the next phase.
+
+==================================================
+NEXT PHASE: DOCUMENT VIEWER + DOWNLOAD
+==================================================
+
+Proceed to the next development phase.
+
+The goal is to allow the user to open and view an archived Laserfiche document directly from LFPortal.
+
+The existing LaserficheDocumentService already contains document-related infrastructure, so audit and reuse it instead of rebuilding it.
+
+==================================================
+PHASE REQUIREMENTS
+==================================================
+
+1. Add an "Open / View" action for Document entries in the Archive.
+
+2. When the user selects a document, provide a View Document button in the document details panel.
+
+3. Create a dedicated document viewer page/modal that displays:
+
+- Document name
+- Entry ID
+- Template
+- Repository path
+- Created date
+- Modified date
+- Creator
+- Page count
+- Metadata fields
+
+AND the actual document content.
+
+4. Support Laserfiche image pages.
+
+5. Support electronic documents (edoc) where possible.
+
+6. Add a Download Original button for electronic documents.
+
+7. Keep the existing LFPortal dark design and make the viewer professional and compact.
+
+==================================================
+AVAILABLE DOCUMENT APIs
+==================================================
+
+We already know/coded these APIs:
+
+Electronic document:
+
+GET
+/v1/Repositories/{repoId}/Entries/{entryId}/Laserfiche.Repository.Document/edoc
+
+Example previously confirmed from Swagger:
+
+GET
+/v1/Repositories/TestEmployee/Entries/250/Laserfiche.Repository.Document/edoc
+
+Accept:
+application/octet-stream
+
+
+Document pages:
+
+GET
+/v1/Repositories/{repoId}/Entries/{entryId}/Laserfiche.Repository.Document/pages
+
+
+Page image:
+
+GET
+/v1/Repositories/{repoId}/Entries/{entryId}/pages/{pageNumber}/image
+
+IMPORTANT:
+
+Do NOT assume the last two endpoint formats are correct just because old code contains them.
+
+Inspect Swagger and existing code first.
+
+If the exact Laserfiche API route required for page viewing cannot be confirmed from the current project or Swagger information I have already supplied, STOP and tell me exactly which Swagger endpoint/screenshot you need.
+
+Do not invent alternative URLs.
+
+==================================================
+DOCUMENT TYPE DETECTION
+==================================================
+
+The viewer must correctly distinguish between:
+
+A) Laserfiche image document
+B) Electronic document
+C) Document containing both if supported
+
+Do not assume every document has an edoc.
+
+Use the information returned by Laserfiche to determine what content exists.
+
+==================================================
+EDOC DOWNLOAD
+==================================================
+
+For documents containing an electronic file:
+
+Use:
+
+GET /Entries/{entryId}/Laserfiche.Repository.Document/edoc
+
+Stream the response through LFPortal.
+
+Do NOT load the entire file into memory unnecessarily.
+
+Preserve:
+
+- Content-Type
+- filename
+- file extension
+
+where Laserfiche provides them.
+
+Provide:
+
+Download Original
+
+The browser must download the real original document.
+
+==================================================
+DOCUMENT VIEWER
+==================================================
+
+For viewable formats:
+
+PDF:
+Display inline in the viewer where possible.
+
+Images / Laserfiche pages:
+Display inside the viewer with page navigation.
+
+Office files or unsupported browser formats:
+Show document information and provide Download Original.
+
+Do NOT attempt unsafe or unreliable custom conversion during this phase.
+
+==================================================
+IMAGE PAGE NAVIGATION
+==================================================
+
+If the document contains Laserfiche image pages, provide:
+
+Previous
+Page X of Y
+Next
+
+Optionally:
+
+Zoom In
+Zoom Out
+Fit Width
+
+Keep the implementation simple and reliable.
+
+==================================================
+SECURITY
+==================================================
+
+Very important:
+
+The browser must NOT call the Laserfiche Repository API directly.
+
+Correct flow:
+
+Browser
+   ↓
+LFPortal Controller
+   ↓
+Application Service
+   ↓
+LaserficheDocumentService
+   ↓
+Laserfiche Repository API
+
+Credentials/tokens must remain server-side.
+
+Do not expose Laserfiche bearer tokens to JavaScript.
+
+==================================================
+ARCHIVE INTEGRATION
+==================================================
+
+Keep the current Archive UI.
+
+In the document detail panel add something similar to:
+
+[ View Document ]
+[ Download Original ]
+
+Only show Download Original when an electronic document is actually available.
+
+Folders must NOT show document actions.
+
+==================================================
+ERROR HANDLING
+==================================================
+
+Handle these conditions cleanly:
+
+- document has no electronic file
+- document has no image pages
+- unsupported file type
+- Laserfiche returns 404
+- Laserfiche returns 400
+- authentication expires
+- document no longer exists
+- API connection fails
+
+Never display a raw ASP.NET exception page to the user.
+
+==================================================
+DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- Dashboard calculations
+- Dashboard layout
+- Archive navigation
+- Archive metadata retrieval
+- FieldDefinitions implementation
+- Entry fields implementation
+- Authentication architecture
+- Repository discovery
+- Settings
+- Existing working APIs
+
+==================================================
+FIRST STEP BEFORE CODING
+==================================================
+
+Before implementing this phase:
+
+1. Audit LaserficheDocumentService.
+2. Audit ILaserficheDocumentService.
+3. Audit LaserficheApiAdapter document URL builders.
+4. Check the available Swagger endpoints.
+5. Determine which viewer/download endpoints are CONFIRMED and which are only assumptions.
+
+Then give me a short report:
+
+CONFIRMED:
+- endpoint
+- purpose
+
+UNCONFIRMED:
+- endpoint needed
+- exact Swagger information you need from me
+
+If all required APIs are confirmed, proceed with implementation.
+
+If an API is not confirmed, DO NOT guess the route.
+
+Ask me for the exact Swagger endpoint needed.
+
+After implementation:
+
+- build the full solution
+- confirm 0 compilation errors
+- do not declare the phase complete until the actual document content can be opened from Archive.
