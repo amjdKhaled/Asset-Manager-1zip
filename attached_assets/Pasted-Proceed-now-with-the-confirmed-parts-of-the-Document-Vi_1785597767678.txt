@@ -1,0 +1,234 @@
+Proceed now with the confirmed parts of the Document Viewer phase.
+
+Do NOT wait for the Page Image Swagger endpoint.
+
+Implement everything that can be implemented safely using the APIs that are currently confirmed.
+
+CONFIRMED:
+
+1. Electronic document:
+GET /v1/Repositories/{repoId}/Entries/{entryId}/Laserfiche.Repository.Document/edoc
+
+Use this exact endpoint.
+
+2. Document pages collection:
+Only use it if its exact route has already been confirmed from Swagger/current evidence.
+Do not invent or infer any route.
+
+==================================================
+IMPLEMENT NOW
+==================================================
+
+1. Fix the Edoc URL in LaserficheApiAdapter.
+
+Current incorrect:
+ /Entries/{id}/edoc
+
+Correct:
+ /Entries/{id}/Laserfiche.Repository.Document/edoc
+
+2. Update LaserficheDocumentService so StreamEdocAsync preserves the response information required by the browser:
+
+- Stream/body
+- Content-Type
+- Content-Disposition
+- Original filename when available
+- File extension when available
+- HTTP failure status where appropriate
+
+Do not unnecessarily buffer the complete electronic document into memory.
+
+3. Create DocumentController.
+
+Implement:
+
+GET /Document/View/{entryId}
+
+This must load:
+- Entry information
+- Template
+- Metadata fields
+- Repository path
+- Creator
+- Created
+- Modified
+- Page count
+- Electronic-document availability
+
+GET /Document/Content/{entryId}
+
+This should proxy an electronic document through LFPortal for inline viewing where appropriate.
+
+GET /Document/Download/{entryId}
+
+This should stream the original electronic document to the browser as a download.
+
+The browser must never receive the Laserfiche bearer token.
+
+4. Create the document viewer UI.
+
+Use the existing LFPortal dark theme.
+
+The viewer should contain:
+
+Document Name
+Entry ID
+Template
+Created
+Modified
+Created By
+Repository Path
+Metadata Fields
+
+Then a large document-content area.
+
+==================================================
+INLINE EDOC VIEWING
+==================================================
+
+If Laserfiche returns:
+
+application/pdf
+
+display the PDF inline inside LFPortal.
+
+For browser-supported image electronic documents such as:
+
+image/png
+image/jpeg
+image/webp
+
+display the image inline.
+
+For unsupported electronic formats such as Office files:
+
+do NOT attempt custom conversion.
+
+Show:
+
+"This document cannot be previewed directly in the browser."
+
+and provide:
+
+[ Download Original ]
+
+==================================================
+ARCHIVE INTEGRATION
+==================================================
+
+Add actions to the existing Archive Document Details panel:
+
+[ View Document ]
+[ Download Original ]
+
+Only show these for Document entries.
+
+Do not show document actions for folders.
+
+Do not redesign or break the existing Archive page.
+
+==================================================
+IMPORTANT: LASERFICHE IMAGE PAGES
+==================================================
+
+DO NOT implement Laserfiche image-page rendering yet.
+
+The exact single-page image Swagger endpoint is still unconfirmed.
+
+Do not guess:
+
+/pages/{page}/image
+
+or
+
+/Laserfiche.Repository.Document/pages/{page}/image
+
+or any other variation.
+
+Instead, design the Document Viewer so image-page support can be plugged into the viewer later without redesigning it.
+
+If a document has Laserfiche pages but no viewable electronic document, show a clean message such as:
+
+"Laserfiche image pages are available for this document, but page rendering is awaiting API endpoint confirmation."
+
+Do not treat that condition as an application error.
+
+==================================================
+404 HANDLING
+==================================================
+
+A 404 from the /edoc endpoint does NOT necessarily mean the document does not exist.
+
+It may simply mean the Laserfiche document has no electronic document.
+
+Handle that distinction correctly.
+
+The Entry API determines whether the entry itself exists.
+
+==================================================
+SECURITY
+==================================================
+
+Maintain this architecture:
+
+Browser
+  ↓
+LFPortal Controller
+  ↓
+Application Service
+  ↓
+LaserficheDocumentService
+  ↓
+Laserfiche Repository API
+
+Never expose:
+- bearer token
+- stored Laserfiche password
+- credential provider internals
+
+to JavaScript or browser responses.
+
+==================================================
+DO NOT TOUCH
+==================================================
+
+Do not modify:
+
+- Dashboard
+- Dashboard calculations
+- Archive navigation
+- Existing metadata implementation
+- FieldDefinitions implementation
+- Entry fields parser
+- Settings
+- Authentication architecture
+- Repository discovery
+
+==================================================
+VERIFICATION
+==================================================
+
+After implementation:
+
+1. Build the complete solution.
+2. Require 0 compilation errors.
+3. Restart the application.
+4. Verify Archive still works.
+5. Verify View Document opens.
+6. Verify metadata still appears.
+7. Verify PDF edoc can be displayed inline when available.
+8. Verify Download Original streams through LFPortal.
+9. Verify a document without an edoc produces a clean state rather than an exception.
+
+Do NOT declare the entire Document Viewer phase complete yet.
+
+At the end report two sections:
+
+COMPLETED:
+- all functionality now working with confirmed APIs
+
+WAITING FOR SWAGGER CONFIRMATION:
+- Laserfiche image page rendering
+- exact API endpoint still required
+
+Then tell me exactly what Swagger endpoint/screenshot you need from me to complete image-page viewing.

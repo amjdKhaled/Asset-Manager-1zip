@@ -67,7 +67,7 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
             EntryResource.Children       => $"{RepoBase(repositoryId)}/Entries/{entryId}/children",
             // OData-typed folder-children path confirmed in Swagger
             EntryResource.FolderChildren => $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Folder/children",
-            EntryResource.Edoc     => $"{RepoBase(repositoryId)}/Entries/{entryId}/edoc",
+            EntryResource.Edoc     => $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Document/edoc",
             EntryResource.Pages    => $"{RepoBase(repositoryId)}/Entries/{entryId}/pages",
             _ => throw new ArgumentOutOfRangeException(nameof(resource), resource, "Unknown entry resource.")
         };

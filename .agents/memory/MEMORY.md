@@ -13,3 +13,4 @@
 - [LFPortal dashboard data sources](lfportal-dashboard-sources.md) — Dashboard uses recursive folder scan (not search expressions) + TemplateDefinitions + in-memory audit log; no external DB needed.
 - [LFPortal folder-children OData params](lfportal-folder-children-no-odata.md) — This server returns HTTP 400 for any OData param ($top/$skip/$count/$select) on the Folder/children endpoint; use bare URL only, paginate in memory.
 - [LFPortal field name resolution](lfportal-field-name-resolution.md) — Entry fields response may omit human-readable names; join by fieldDefinitionId with GET /FieldDefinitions (confirmed available).
+- [LFPortal document viewer endpoints](lfportal-document-viewer-endpoints.md) — Typed edoc route is confirmed; page-list/image routes remain blocked until Swagger evidence arrives.

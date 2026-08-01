@@ -1,4 +1,5 @@
 using LFPortal.Domain.Entities;
+using LFPortal.Application.DTOs;
 
 namespace LFPortal.Application.Interfaces;
 
@@ -20,16 +21,15 @@ public interface ILaserficheDocumentService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Streams the electronic document (edoc) for the specified entry directly into
-    /// <paramref name="destination"/> without buffering the entire file in memory.
-    /// Callers are responsible for setting appropriate response headers before calling.
+    /// Opens the electronic document (edoc) for the specified entry with response
+    /// headers preserved. The returned object owns the upstream response and stream;
+    /// callers must dispose it after the portal response has completed. The file is
+    /// never buffered in memory.
     /// </summary>
     /// <param name="entryId">Laserfiche Entry ID of the document.</param>
-    /// <param name="destination">Target stream. Typically the HTTP response body stream.</param>
     /// <param name="cancellationToken">Propagated cancellation token.</param>
-    Task StreamEdocAsync(
+    Task<LaserficheEdocStream> StreamEdocAsync(
         int entryId,
-        Stream destination,
         CancellationToken cancellationToken = default);
 
     /// <summary>

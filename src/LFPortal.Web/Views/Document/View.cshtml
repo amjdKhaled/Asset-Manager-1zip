@@ -1,0 +1,179 @@
+@model LFPortal.Web.Controllers.DocumentViewModel
+@using LFPortal.Domain.Entities
+@{
+    ViewData["Title"] = Model.Entry?.Name ?? "Document Viewer";
+
+    string FmtDate(DateTimeOffset? value) =>
+        value is null ? "—" : value.Value.LocalDateTime.ToString("MMM d, yyyy HH:mm");
+}
+
+@section Styles {
+<style>
+    body { background:#0f172a !important; }
+    main { max-width:1440px !important; padding:18px 22px !important; }
+    footer.site-footer { background:#0a1020 !important; }
+    :root { --dv-surface:#1e293b; --dv-surface-2:#263349; --dv-border:#334155;
+            --dv-text:#f1f5f9; --dv-muted:#94a3b8; --dv-accent:#3b82f6; }
+    .dv-header { display:flex; justify-content:space-between; align-items:flex-start; gap:16px;
+                 flex-wrap:wrap; margin-bottom:16px; }
+    .dv-kicker { color:var(--dv-muted); font-size:.72rem; text-transform:uppercase;
+                 letter-spacing:.08em; font-weight:700; }
+    .dv-title { color:var(--dv-text); font-size:1.35rem; font-weight:650; margin-top:4px;
+                overflow-wrap:anywhere; }
+    .dv-subtitle { color:var(--dv-muted); font-size:.78rem; margin-top:4px; }
+    .dv-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .dv-btn { display:inline-flex; align-items:center; gap:7px; padding:9px 13px; border:1px solid var(--dv-border);
+              border-radius:7px; color:var(--dv-text); background:var(--dv-surface); text-decoration:none;
+              font-size:.78rem; font-weight:650; }
+    .dv-btn:hover { border-color:#60a5fa; background:#263b5c; }
+    .dv-btn-primary { background:#2563eb; border-color:#3b82f6; }
+    .dv-btn-primary:hover { background:#1d4ed8; }
+    .dv-grid { display:grid; grid-template-columns:310px minmax(0,1fr); gap:16px; align-items:start; }
+    .dv-card { background:var(--dv-surface); border:1px solid var(--dv-border); border-radius:11px;
+               box-shadow:0 1px 3px rgba(0,0,0,.35); }
+    .dv-meta { padding:17px; }
+    .dv-section-title { color:var(--dv-muted); font-size:.67rem; font-weight:700; text-transform:uppercase;
+                        letter-spacing:.07em; padding-bottom:8px; border-bottom:1px solid var(--dv-border);
+                        margin-bottom:11px; }
+    .dv-row { display:flex; justify-content:space-between; align-items:flex-start; gap:10px;
+              font-size:.77rem; margin-bottom:9px; }
+    .dv-label { color:var(--dv-muted); flex-shrink:0; }
+    .dv-value { color:var(--dv-text); text-align:right; overflow-wrap:anywhere; }
+    .dv-path { color:var(--dv-muted); font-family:ui-monospace,SFMono-Regular,monospace; font-size:.7rem;
+               line-height:1.45; overflow-wrap:anywhere; }
+    .dv-template { display:inline-flex; padding:2px 7px; border-radius:4px; color:#c4b5fd;
+                   background:rgba(139,92,246,.14); border:1px solid rgba(139,92,246,.3); }
+    .dv-content { min-height:690px; display:flex; flex-direction:column; overflow:hidden; }
+    .dv-content-head { padding:12px 16px; display:flex; align-items:center; justify-content:space-between;
+                       gap:10px; color:var(--dv-muted); font-size:.75rem; border-bottom:1px solid var(--dv-border); }
+    .dv-content-body { flex:1; min-height:640px; display:flex; align-items:center; justify-content:center;
+                       padding:18px; background:#111827; }
+    .dv-frame { width:100%; height:640px; border:0; border-radius:5px; background:#fff; }
+    .dv-image { max-width:100%; max-height:640px; object-fit:contain; }
+    .dv-empty { max-width:520px; text-align:center; color:var(--dv-muted); font-size:.84rem; line-height:1.55; }
+    .dv-empty strong { display:block; color:var(--dv-text); font-size:1rem; margin-bottom:8px; }
+    .dv-alert { padding:12px 14px; border-radius:8px; color:#fecaca; background:rgba(239,68,68,.1);
+                border:1px solid rgba(239,68,68,.25); font-size:.82rem; line-height:1.5; }
+    .dv-warn { padding:10px 12px; border-radius:7px; color:#fde68a; background:rgba(245,158,11,.08);
+               border:1px solid rgba(245,158,11,.2); font-size:.74rem; line-height:1.45; }
+    .dv-fields { width:100%; border-collapse:collapse; font-size:.73rem; }
+    .dv-fields th { color:var(--dv-muted); text-align:left; font-weight:600; padding:6px 0;
+                    border-bottom:1px solid var(--dv-border); }
+    .dv-fields td { color:var(--dv-text); padding:7px 0; border-bottom:1px solid rgba(51,65,85,.5);
+                    vertical-align:top; overflow-wrap:anywhere; }
+    .dv-fields td:first-child { color:var(--dv-muted); padding-right:9px; }
+    .dv-back { color:#93c5fd; text-decoration:none; font-size:.78rem; display:inline-block; margin-bottom:14px; }
+    .dv-back:hover { text-decoration:underline; }
+    @@media(max-width:900px) { .dv-grid { grid-template-columns:1fr; } .dv-content { min-height:480px; }
+        .dv-content-body { min-height:430px; } .dv-frame { height:430px; } }
+</style>
+}
+
+<a class="dv-back" asp-controller="Archive" asp-action="Index">← Back to Archive</a>
+
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+{
+    <div class="dv-alert">@Model.ErrorMessage</div>
+}
+else if (Model.Entry is {} entry)
+{
+    <header class="dv-header">
+        <div>
+            <div class="dv-kicker">Document Viewer</div>
+            <h1 class="dv-title">@entry.Name</h1>
+            <div class="dv-subtitle">Entry ID @entry.Id</div>
+        </div>
+        <div class="dv-actions">
+            @if (Model.HasElectronicDocument)
+            {
+                <a class="dv-btn dv-btn-primary" asp-action="Download" asp-route-entryId="@entry.Id">Download Original</a>
+            }
+            <a class="dv-btn" asp-controller="Archive" asp-action="Index">Close</a>
+        </div>
+    </header>
+
+    <div class="dv-grid">
+        <aside class="dv-card dv-meta">
+            <div class="dv-section-title">Document Information</div>
+            <div class="dv-row"><span class="dv-label">Document Name</span><span class="dv-value">@entry.Name</span></div>
+            <div class="dv-row"><span class="dv-label">Entry ID</span><span class="dv-value">@entry.Id</span></div>
+            <div class="dv-row"><span class="dv-label">Template</span><span class="dv-value">@(entry.TemplateName ?? "—")</span></div>
+            <div class="dv-row"><span class="dv-label">Created</span><span class="dv-value">@FmtDate(entry.CreationTime)</span></div>
+            <div class="dv-row"><span class="dv-label">Modified</span><span class="dv-value">@FmtDate(entry.LastModifiedTime ?? entry.CreationTime)</span></div>
+            <div class="dv-row"><span class="dv-label">Created By</span><span class="dv-value">@(entry.Creator ?? "—")</span></div>
+            <div class="dv-row"><span class="dv-label">Page Count</span><span class="dv-value">@(entry.PageCount?.ToString() ?? "—")</span></div>
+            <div class="dv-row"><span class="dv-label">Electronic File</span><span class="dv-value">@(Model.HasElectronicDocument ? "Available" : "Not available")</span></div>
+
+            <div class="dv-section-title" style="margin-top:18px">Repository Path</div>
+            <div class="dv-path">@(string.IsNullOrWhiteSpace(Model.Path) ? "—" : Model.Path)</div>
+
+            <div class="dv-section-title" style="margin-top:18px">Metadata Fields</div>
+            @if (!string.IsNullOrWhiteSpace(Model.FieldsError))
+            {
+                <div class="dv-warn">@Model.FieldsError</div>
+            }
+            else if (Model.Fields.Count == 0)
+            {
+                <div style="color:var(--dv-muted);font-size:.74rem">No field values recorded.</div>
+            }
+            else
+            {
+                <table class="dv-fields">
+                    <thead><tr><th>Field</th><th>Value</th></tr></thead>
+                    <tbody>
+                    @foreach (var field in Model.Fields)
+                    {
+                        <tr><td>@field.FieldName</td><td>@(field.Value ?? "—")</td></tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </aside>
+
+        <section class="dv-card dv-content" aria-label="Document content">
+            <div class="dv-content-head">
+                <span>Document Content</span>
+                @if (Model.HasElectronicDocument && !string.IsNullOrWhiteSpace(Model.ElectronicDocumentContentType))
+                {
+                    <span>@Model.ElectronicDocumentContentType</span>
+                }
+            </div>
+            <div class="dv-content-body">
+                @if (Model.HasElectronicDocument && Model.IsInlineElectronicDocument)
+                {
+                    if (Model.ElectronicDocumentContentType == "application/pdf")
+                    {
+                        <iframe class="dv-frame" src="@Url.Action("Content", "Document", new { entryId = entry.Id })"
+                                title="PDF document preview"></iframe>
+                    }
+                    else
+                    {
+                        <img class="dv-image" src="@Url.Action("Content", "Document", new { entryId = entry.Id })"
+                             alt="@entry.Name" />
+                    }
+                }
+                else if (Model.HasElectronicDocument)
+                {
+                    <div class="dv-empty">
+                        <strong>This document cannot be previewed directly in the browser.</strong>
+                        <a class="dv-btn dv-btn-primary" asp-action="Download" asp-route-entryId="@entry.Id">Download Original</a>
+                    </div>
+                }
+                else if (Model.HasLaserfichePages)
+                {
+                    <div class="dv-empty">
+                        <strong>No electronic file is available.</strong>
+                        Laserfiche image pages are available for this document, but page rendering is awaiting API endpoint confirmation.
+                    </div>
+                }
+                else
+                {
+                    <div class="dv-empty">
+                        <strong>No electronic file is available.</strong>
+                        This Laserfiche document does not currently have an electronic document to preview or download.
+                    </div>
+                }
+            </div>
+        </section>
+    </div>
+}

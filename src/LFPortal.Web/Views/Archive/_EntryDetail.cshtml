@@ -35,6 +35,12 @@
              padding:8px 10px; font-size:.73rem; color:#fcd34d; margin-top:8px; line-height:1.4; }
 .det-err  { background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.2); border-radius:6px;
              padding:8px 10px; font-size:.73rem; color:#fca5a5; margin-top:4px; }
+ .det-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+ .det-action { display:inline-flex; align-items:center; gap:5px; padding:7px 10px; border-radius:6px;
+               font-size:.72rem; font-weight:600; text-decoration:none; border:1px solid var(--a-border);
+               color:var(--a-text); background:rgba(255,255,255,.04); }
+ .det-action:hover { background:rgba(59,130,246,.14); border-color:rgba(59,130,246,.45); color:#bfdbfe; }
+ .det-action-primary { background:rgba(59,130,246,.16); border-color:rgba(59,130,246,.38); color:#93c5fd; }
 </style>
 
 @if (!string.IsNullOrWhiteSpace(Model.EntryError))
@@ -113,6 +119,22 @@ else if (Model.Entry is {} entry)
         <div class="det-row">
             <span class="det-label">File Size</span>
             <span class="det-value">@FmtSize(entry.FileSizeBytes)</span>
+        </div>
+    }
+
+    @if (isDoc)
+    {
+        <div class="det-actions" aria-label="Document actions">
+            <a class="det-action det-action-primary"
+               asp-controller="Document" asp-action="View" asp-route-entryId="@entry.Id">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                View Document
+            </a>
+            <a class="det-action"
+               asp-controller="Document" asp-action="Download" asp-route-entryId="@entry.Id">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+                Download Original
+            </a>
         </div>
     }
 

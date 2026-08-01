@@ -28,7 +28,10 @@ public enum EntryResource
     /// </summary>
     FolderChildren,
 
-    /// <summary>Electronic document download: <c>GET /Entries/{id}/edoc</c></summary>
+    /// <summary>
+    /// Confirmed electronic document download:
+    /// <c>GET /Entries/{id}/Laserfiche.Repository.Document/edoc</c>
+    /// </summary>
     Edoc,
 
     /// <summary>Document page metadata: <c>GET /Entries/{id}/pages</c></summary>

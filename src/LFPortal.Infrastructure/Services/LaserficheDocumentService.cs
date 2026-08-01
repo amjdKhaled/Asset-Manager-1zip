@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Net.Http.Headers;
+using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Entities;
 using LFPortal.Domain.Exceptions;
@@ -9,8 +11,8 @@ using Microsoft.Extensions.Logging;
 namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
-/// Implements document retrieval operations by calling the Laserfiche Repository API v2
-/// document-related endpoints. Electronic documents and page images are streamed directly
+/// Implements document retrieval operations by calling the Laserfiche Repository API v1
+/// document-related endpoints. Electronic documents are streamed directly
 /// from the Laserfiche server without buffering on the portal server.
 /// </summary>
 internal sealed class LaserficheDocumentService : ILaserficheDocumentService
@@ -78,9 +80,8 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
     }
 
     /// <inheritdoc />
-    public async Task StreamEdocAsync(
+    public async Task<LaserficheEdocStream> StreamEdocAsync(
         int entryId,
-        Stream destination,
         CancellationToken cancellationToken = default)
     {
         var repo = await _repositoryContext
@@ -90,24 +91,48 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         var url = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Edoc);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*"));
 
-        using var response = await client
-            .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+        var response = await client
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
         {
+            var statusCode = (int)response.StatusCode;
+            response.Dispose();
             throw new LaserficheException(
-                $"Electronic document not available for entry {entryId}: " +
-                $"HTTP {(int)response.StatusCode}.",
-                (int)response.StatusCode);
+                $"Electronic document request failed for entry {entryId}: HTTP {statusCode}.",
+                statusCode);
         }
 
-        await using var contentStream = await response.Content
-            .ReadAsStreamAsync(cancellationToken)
-            .ConfigureAwait(false);
+        try
+        {
+            var contentStream = await response.Content
+                .ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
 
-        await contentStream.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+            var contentType = response.Content.Headers.ContentType?.MediaType
+                ?? "application/octet-stream";
+            var contentDisposition = response.Content.Headers.ContentDisposition?.ToString();
+            var fileName = GetFileName(response.Content.Headers.ContentDisposition);
+            var extension = GetExtension(fileName, contentType);
+
+            return new LaserficheEdocStream(
+                contentStream,
+                contentType,
+                contentDisposition,
+                fileName,
+                extension,
+                response.Content.Headers.ContentLength,
+                response);
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
     }
 
     /// <inheritdoc />
@@ -146,6 +171,32 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         int entryId,
         CancellationToken cancellationToken = default) =>
         _entryService.GetEntryAsync(entryId, cancellationToken);
+
+    private static string? GetFileName(ContentDispositionHeaderValue? disposition)
+    {
+        var value = disposition?.FileNameStar ?? disposition?.FileName;
+        return string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Trim().Trim('"');
+    }
+
+    private static string? GetExtension(string? fileName, string contentType)
+    {
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            var extension = Path.GetExtension(fileName);
+            if (!string.IsNullOrWhiteSpace(extension)) return extension;
+        }
+
+        return contentType.ToLowerInvariant() switch
+        {
+            "application/pdf" => ".pdf",
+            "image/png" => ".png",
+            "image/jpeg" => ".jpg",
+            "image/webp" => ".webp",
+            _ => null
+        };
+    }
 
     // ──────────────────────────── Response models ──────────────────────────
 
