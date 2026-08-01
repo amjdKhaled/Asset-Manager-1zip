@@ -37,7 +37,7 @@ public interface ILaserficheApiAdapter
     /// <summary>
     /// Builds the URL for an entry resource endpoint, e.g.
     /// <c>GET /Repositories/{repoId}/Entries/{entryId}</c> or
-    /// <c>GET /Repositories/{repoId}/Entries/{entryId}/fields</c>.
+    /// <c>GET /Repositories/{repoId}/Entries/{entryId}/fields?formatValue=false</c>.
     /// </summary>
     string BuildEntryUrl(string repositoryId, int entryId, EntryResource resource);
 

@@ -10,7 +10,10 @@ public enum EntryResource
     /// <summary>Entry detail resource: <c>GET /Entries/{id}</c></summary>
     Details,
 
-    /// <summary>Entry metadata fields: <c>GET /Entries/{id}/fields</c></summary>
+    /// <summary>
+    /// Entry metadata fields:
+    /// <c>GET /Entries/{id}/fields?formatValue=false</c>
+    /// </summary>
     Fields,
 
     /// <summary>Entry tags: <c>GET /Entries/{id}/tags</c></summary>

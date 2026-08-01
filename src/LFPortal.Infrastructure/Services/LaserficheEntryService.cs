@@ -67,28 +67,58 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
         using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
-        await EnsureSuccessAsync(response, url, cancellationToken).ConfigureAwait(false);
-
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        var result = JsonSerializer.Deserialize<ODataList<FieldResource>>(body, JsonOptions.Default);
+        var contentType = response.Content.Headers.ContentType?.ToString() ?? "(missing)";
 
-        if (result is null) return [];
+        // Keep this complete diagnostic immediately after the HTTP response and
+        // before any deserialization. The fields endpoint has multiple response
+        // shapes across Repository API v1 builds, so a DTO parse must never be
+        // allowed to hide a successful response that contains field data.
+        _logger.LogInformation(
+            "===== ENTRY FIELDS RAW RESPONSE =====\n" +
+            "Repository: {Repository}\n" +
+            "EntryId: {EntryId}\n" +
+            "URL: {Url}\n" +
+            "HTTP Status: {Status}\n" +
+            "Content-Type: {ContentType}\n" +
+            "Raw Body:\n{Body}\n" +
+            "=======================================",
+            repo.RepositoryId,
+            entryId,
+            url,
+            (int)response.StatusCode,
+            contentType,
+            body);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new LaserficheException(
+                $"Laserfiche API returned HTTP {(int)response.StatusCode} for {url}. Body: {body}",
+                (int)response.StatusCode);
+        }
+
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            _logger.LogInformation(
+                "ARCHIVE METADATA DIAGNOSTIC: EntryId={EntryId} FieldsApiStatus=HTTP {Status} " +
+                "RawFields=0 ParsedFields=0 FieldDefinitions=resolved later",
+                entryId, (int)response.StatusCode);
+            return [];
+        }
+
+        var resources = ParseFieldResources(body);
+        var parsed = resources.Select(MapFieldValue).ToList().AsReadOnly();
 
         _logger.LogInformation(
-            "GetEntryFieldsAsync(entryId={EntryId}): parsed {Count} field value(s). " +
-            "fieldDefinitionIds=[{Ids}]",
-            entryId, result.Value.Count,
-            string.Join(", ", result.Value.Select(f => f.FieldDefinitionId)));
+            "ARCHIVE METADATA DIAGNOSTIC: EntryId={EntryId} FieldsApiStatus=HTTP {Status} " +
+            "RawFields={RawCount} ParsedFields={ParsedCount} fieldDefinitionIds=[{Ids}]",
+            entryId,
+            (int)response.StatusCode,
+            resources.Count,
+            parsed.Count,
+            string.Join(", ", parsed.Select(f => f.FieldDefinitionId)));
 
-        return result.Value.Select(f => new LFFieldValue
-        {
-            FieldDefinitionId = f.FieldDefinitionId,
-            FieldName         = f.Name,   // May be empty; caller should resolve via FieldDefinitions
-            Value             = f.Value,
-            FieldType         = f.FieldType,
-            IsRequired        = f.IsRequired,
-            IsMultiValue      = f.IsMultiValue
-        }).ToList().AsReadOnly();
+        return parsed;
     }
 
     /// <inheritdoc />
@@ -424,6 +454,217 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
             "recordseries" => LFEntryType.RecordSeries,
             _              => LFEntryType.Unknown
         };
+    }
+
+    /// <summary>
+    /// Parses the Entry fields response without assuming one particular v1 envelope.
+    /// Confirmed v1 installations may return a bare array, an OData value envelope,
+    /// or a named fields/fieldValues collection. Each object is retained even when
+    /// an optional property is absent; name resolution happens later via
+    /// FieldDefinitions.
+    /// </summary>
+    private static List<FieldResource> ParseFieldResources(string body)
+    {
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+
+        JsonElement array;
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            array = root;
+        }
+        else if (root.ValueKind == JsonValueKind.Object &&
+                 TryGetArray(root, "value", out var valueArray))
+        {
+            array = valueArray;
+        }
+        else if (root.ValueKind == JsonValueKind.Object &&
+                 TryGetArray(root, "fields", out var fieldsArray))
+        {
+            array = fieldsArray;
+        }
+        else if (root.ValueKind == JsonValueKind.Object &&
+                 TryGetArray(root, "fieldValues", out var fieldValuesArray))
+        {
+            array = fieldValuesArray;
+        }
+        else
+        {
+            throw new JsonException(
+                "Entry fields response did not contain a JSON array, value array, " +
+                "fields array, or fieldValues array.");
+        }
+
+        var resources = new List<FieldResource>();
+        foreach (var item in array.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Object)
+            {
+                resources.Add(ParseFieldResource(item));
+            }
+        }
+
+        return resources;
+    }
+
+    private static bool TryGetArray(
+        JsonElement objectElement,
+        string propertyName,
+        out JsonElement array)
+    {
+        if (objectElement.TryGetProperty(propertyName, out array) &&
+            array.ValueKind == JsonValueKind.Array)
+        {
+            return true;
+        }
+
+        array = default;
+        return false;
+    }
+
+    private static FieldResource ParseFieldResource(JsonElement item)
+    {
+        // Confirmed Laserfiche v1 EntryFieldValue shape:
+        // fieldId, fieldName, fieldType, and values[].value.
+        // Keep the older property names as compatibility fallbacks for other
+        // Repository API v1 builds.
+        var definitionId = ReadInt(item, "fieldId")
+                           ?? ReadInt(item, "fieldDefinitionId");
+        var inlineName   = ReadString(item, "fieldName")
+                           ?? ReadString(item, "name");
+        var fieldType    = ReadString(item, "fieldType");
+
+        // Some API responses nest definition metadata:
+        // { "fieldDefinition": { "id": 17, "name": "First Name" }, ... }.
+        if (TryGetPropertyIgnoreCase(item, "fieldDefinition", out var definition) &&
+            definition.ValueKind == JsonValueKind.Object)
+        {
+            definitionId ??= ReadInt(definition, "id");
+            inlineName ??= ReadString(definition, "name");
+            fieldType ??= ReadString(definition, "fieldType");
+        }
+
+        var value = ReadValue(item);
+
+        return new FieldResource
+        {
+            FieldDefinitionId = definitionId ?? 0,
+            Name              = inlineName ?? string.Empty,
+            Value             = value,
+            FieldType         = fieldType,
+            IsRequired         = ReadBool(item, "isRequired"),
+            IsMultiValue       = ReadBool(item, "isMultiValue")
+        };
+    }
+
+    private static LFFieldValue MapFieldValue(FieldResource resource) => new()
+    {
+        FieldDefinitionId = resource.FieldDefinitionId,
+        // May be empty; ArchiveController resolves the authoritative name
+        // from the repository-wide FieldDefinitions response.
+        FieldName         = resource.Name,
+        Value             = resource.Value,
+        FieldType         = resource.FieldType,
+        IsRequired        = resource.IsRequired,
+        IsMultiValue      = resource.IsMultiValue
+    };
+
+    private static string? ReadValue(JsonElement item)
+    {
+        // Confirmed response shape:
+        // "values": [{ "value": "..." , "position": 0 }]
+        // A document field can have multiple values, so preserve all of them
+        // in display order instead of reading only the first one.
+        if (TryGetPropertyIgnoreCase(item, "values", out var values) &&
+            values.ValueKind == JsonValueKind.Array)
+        {
+            var valuesList = values.EnumerateArray()
+                .Select(valueItem =>
+                {
+                    if (valueItem.ValueKind == JsonValueKind.Object &&
+                        TryGetPropertyIgnoreCase(valueItem, "value", out var nestedValue))
+                    {
+                        return JsonElementToString(nestedValue);
+                    }
+
+                    return JsonElementToString(valueItem);
+                })
+                .ToList();
+
+            return valuesList.Count == 0
+                ? null
+                : string.Join(", ", valuesList);
+        }
+
+        if (!TryGetPropertyIgnoreCase(item, "value", out var value))
+        {
+            if (TryGetPropertyIgnoreCase(item, "valueText", out var valueText))
+            {
+                return valueText.ValueKind == JsonValueKind.Null
+                    ? null
+                    : valueText.ToString();
+            }
+
+            return null;
+        }
+
+        return JsonElementToString(value);
+    }
+
+    private static string? JsonElementToString(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.Null      => null,
+            JsonValueKind.Array     => string.Join(", ", value.EnumerateArray().Select(v => v.ToString())),
+            JsonValueKind.Object    => value.GetRawText(),
+            _                       => value.ToString()
+        };
+    }
+
+    private static int? ReadInt(JsonElement item, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(item, propertyName, out var value)) return null;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+            return number;
+        return int.TryParse(value.ToString(), out number) ? number : null;
+    }
+
+    private static string? ReadString(JsonElement item, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(item, propertyName, out var value) ||
+            value.ValueKind == JsonValueKind.Null)
+            return null;
+        return value.ToString();
+    }
+
+    private static bool ReadBool(JsonElement item, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(item, propertyName, out var value)) return false;
+        if (value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            return value.GetBoolean();
+        return bool.TryParse(value.ToString(), out var result) && result;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(
+        JsonElement objectElement,
+        string propertyName,
+        out JsonElement value)
+    {
+        if (objectElement.TryGetProperty(propertyName, out value))
+            return true;
+
+        foreach (var property in objectElement.EnumerateObject())
+        {
+            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 
     // ──────────────────────────── Helpers ─────────────────────────────────

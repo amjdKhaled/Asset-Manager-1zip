@@ -209,9 +209,18 @@ public sealed class ArchiveController : Controller
                     resolvedName = def.Name;
                 }
 
+                // Keep every field record returned by the Entry fields endpoint.
+                // A missing definition/name is still an actual document field;
+                // show its stable ID rather than silently dropping its value.
+                if (string.IsNullOrWhiteSpace(resolvedName))
+                {
+                    resolvedName = fv.FieldDefinitionId > 0
+                        ? $"Field {fv.FieldDefinitionId}"
+                        : "Unnamed field";
+                }
+
                 return fv with { FieldName = resolvedName };
             })
-            .Where(fv => !string.IsNullOrWhiteSpace(fv.FieldName))
             .ToList()
             .AsReadOnly();
 

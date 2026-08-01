@@ -59,7 +59,10 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
         resource switch
         {
             EntryResource.Details  => $"{RepoBase(repositoryId)}/Entries/{entryId}",
-            EntryResource.Fields   => $"{RepoBase(repositoryId)}/Entries/{entryId}/fields",
+            // formatValue=false is required for the document field-values response.
+            // It returns the actual assigned field values without server-side
+            // display formatting, so the values can be joined to FieldDefinitions.
+            EntryResource.Fields   => $"{RepoBase(repositoryId)}/Entries/{entryId}/fields?formatValue=false",
             EntryResource.Tags     => $"{RepoBase(repositoryId)}/Entries/{entryId}/tags",
             EntryResource.Children       => $"{RepoBase(repositoryId)}/Entries/{entryId}/children",
             // OData-typed folder-children path confirmed in Swagger

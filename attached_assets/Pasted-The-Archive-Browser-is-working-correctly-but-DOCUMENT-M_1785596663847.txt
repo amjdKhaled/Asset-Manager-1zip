@@ -1,0 +1,248 @@
+The Archive Browser is working correctly, but DOCUMENT METADATA VALUES are still NOT working.
+
+The screenshot confirms:
+
+- Entry loads correctly
+- Entry ID = 140
+- Type = Document
+- Template is detected correctly
+- Created / Modified / Creator / Pages are detected correctly
+- Repository Path is detected correctly
+
+BUT:
+
+METADATA FIELDS
+"No field values recorded."
+
+This means the problem is now specifically the retrieval/parsing of FIELD VALUES.
+
+DO NOT modify the Archive layout.
+DO NOT modify the Dashboard.
+DO NOT modify folder navigation.
+DO NOT modify TemplateDefinitions logic.
+
+==================================================
+USE THE ENTRY FIELDS API
+==================================================
+
+I have already confirmed this Laserfiche Repository API endpoint exists:
+
+GET /v1/Repositories/{repoId}/Entries/{entryId}/fields?formatValue=false
+
+For the document currently shown in the screenshot, test EXACTLY:
+
+GET
+/v1/Repositories/LFNewRepoWF/Entries/140/fields?formatValue=false
+
+Use the currently configured repository dynamically in production.
+LFNewRepoWF and Entry 140 are only the concrete live example for debugging.
+
+Accept:
+application/json
+
+This endpoint is for the ACTUAL FIELD VALUES of the selected entry.
+
+FieldDefinitions is NOT a replacement for this endpoint.
+
+==================================================
+IMPORTANT — DEBUG THE RAW RESPONSE FIRST
+==================================================
+
+Before changing any parser, call the endpoint and log the COMPLETE raw JSON response.
+
+I want diagnostics similar to:
+
+===== ENTRY FIELDS RAW RESPONSE =====
+Repository: LFNewRepoWF
+EntryId: 140
+URL: ...
+HTTP Status: ...
+Content-Type: ...
+Raw Body:
+...
+=====================================
+
+Do NOT immediately deserialize it into the current DTO and conclude
+that there are zero fields.
+
+First inspect the REAL JSON schema returned by Laserfiche.
+
+The current problem may simply be that our DTO/parser expects the wrong
+JSON structure.
+
+==================================================
+VERY IMPORTANT
+==================================================
+
+If HTTP 200 is returned and the raw JSON contains field data, but the UI
+still says:
+
+"No field values recorded."
+
+then the API is working.
+
+THE PARSER IS WRONG.
+
+Fix the parser to match the ACTUAL Laserfiche response.
+
+Do not change endpoints in that situation.
+
+==================================================
+FIELD DEFINITIONS
+==================================================
+
+These endpoints are also confirmed:
+
+GET /v1/Repositories/{repoId}/FieldDefinitions
+
+GET /v1/Repositories/{repoId}/FieldDefinitions/{fieldDefinitionId}
+
+Use FieldDefinitions ONLY when necessary to resolve:
+
+fieldDefinitionId
+        ↓
+Field Name / Type / Definition information
+
+Do not use FieldDefinitions as the source of document values.
+
+Correct architecture:
+
+Selected Document
+        |
+        v
+GET /Entries/{entryId}/fields?formatValue=false
+        |
+        v
+Actual fields assigned to this document
+        |
+        +--------------------+
+        |                    |
+        v                    v
+fieldDefinitionId          value
+        |
+        v
+GET /FieldDefinitions
+        |
+        v
+Resolve field name/type if required
+        |
+        v
+DISPLAY:
+Field Name             Value
+
+==================================================
+DO NOT FILTER FIELDS TOO EARLY
+==================================================
+
+Check the existing code carefully for filtering such as:
+
+if value == null
+if string.IsNullOrEmpty(...)
+if fieldDefinitionId == 0
+if template field not found
+if field name not resolved
+
+Temporarily parse ALL field records returned by the Entry Fields API.
+
+Do not discard a field merely because one optional property is absent.
+
+==================================================
+ADD A TEMPORARY DIAGNOSTIC TO DOCUMENT DETAILS
+==================================================
+
+During debugging, if metadata retrieval fails, show a small development
+diagnostic in the server log containing:
+
+Entry ID
+Fields API HTTP status
+Raw fields count
+Parsed fields count
+FieldDefinitions count
+
+For example:
+
+ARCHIVE METADATA DIAGNOSTIC
+EntryId: 140
+Fields API: HTTP 200
+Raw Fields: 5
+Parsed Fields: 0
+FieldDefinitions: 19
+
+This would immediately prove that the parser is the problem.
+
+Another possible result:
+
+EntryId: 140
+Fields API: HTTP 200
+Raw Fields: 5
+Parsed Fields: 5
+FieldDefinitions: 19
+
+Then the problem is in the View/ViewModel mapping.
+
+Or:
+
+EntryId: 140
+Fields API: HTTP 404/405/400
+
+Then STOP.
+
+Do NOT try random API URLs.
+
+Give me:
+
+1. Exact requested URL
+2. HTTP status
+3. Complete raw response body
+4. Current GetEntryFieldsAsync implementation
+5. Current DTO used to deserialize the response
+
+I will provide the required Swagger information.
+
+==================================================
+EXPECTED RESULT
+==================================================
+
+For Entry ID 140, after the fix, the right-side panel should contain:
+
+METADATA FIELDS
+
+Field Name                  Value
+-------------------------------------------
+<actual Laserfiche field>   <actual value>
+<actual Laserfiche field>   <actual value>
+<actual Laserfiche field>   <actual value>
+
+Use the actual fields and values assigned to Entry 140.
+
+Do NOT hardcode them.
+
+Arabic names and Arabic values must display correctly.
+
+==================================================
+DO NOT ACCEPT THIS AS SUCCESS
+==================================================
+
+The following is NOT considered fixed:
+
+Template: working
+FieldDefinitions: working
+Metadata Fields: No field values recorded.
+
+Success means ACTUAL FIELD VALUES assigned to Entry 140 appear in the
+Document Details panel.
+
+==================================================
+FINAL INSTRUCTION
+==================================================
+
+Start by testing EXACTLY:
+
+GET /v1/Repositories/LFNewRepoWF/Entries/140/fields?formatValue=false
+
+Show/log the raw response BEFORE making further assumptions.
+
+If that request succeeds, adapt the parser to its real JSON schema.
+
+If it fails, STOP and report the exact response instead of guessing
+another Laserfiche endpoint.
