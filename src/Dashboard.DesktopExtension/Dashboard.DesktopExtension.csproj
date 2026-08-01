@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Must target .NET Framework 4.8: the Laserfiche Desktop Client SDK (SDK 10.4)
+         ships net-4.0 DLLs that are not compatible with .NET 5+. -->
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>Dashboard.DesktopExtension</AssemblyName>
+    <RootNamespace>LFPortal.DesktopExtension</RootNamespace>
+    <Nullable>enable</Nullable>
+    <Platforms>x64;x86;AnyCPU</Platforms>
+
+    <!-- Product metadata -->
+    <Company>Dashboard</Company>
+    <Product>Dashboard Desktop Extension</Product>
+    <Description>Laserfiche Desktop Client toolbar button that opens the Dashboard portal URL.</Description>
+    <Copyright>Copyright © 2026 Dashboard</Copyright>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+
+    <!-- Build annotation: this project requires the Laserfiche SDK 10.4 DLLs to be
+         present on the build machine. It is excluded from the main LFPortal.sln and
+         must be built separately on a Windows machine with the Laserfiche Desktop
+         Client installed. See docs/LFDesktopExtension.md for build instructions. -->
+  </PropertyGroup>
+
+  <!-- Laserfiche ClientAutomation SDK — required for toolbar button registration.
+       This DLL ships with the Laserfiche SDK 10.4 installer.
+       Standard installation path: C:\Program Files\Laserfiche\SDK 10.4\bin\10.4\net-4.0\
+       If your SDK is installed to a different path, update the HintPath below. -->
+  <ItemGroup>
+    <Reference Include="Laserfiche.ClientAutomation">
+      <HintPath>C:\Program Files\Laserfiche\SDK 10.4\bin\10.4\net-4.0\ClientAutomation.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- System.Text.Json is not inbox on net48; use Newtonsoft.Json from NuGet. -->
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <!-- Exclude from the main LFPortal.sln build. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

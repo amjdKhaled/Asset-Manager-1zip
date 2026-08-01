@@ -19,6 +19,6 @@ public static class LFPortalVersion
     /// <summary>Full semantic version string, e.g. <c>1.0.0</c>.</summary>
     public static string Full => $"{Major}.{Minor}.{Patch}";
 
-    /// <summary>Display string including the product name, e.g. <c>LFPortal v1.0.0</c>.</summary>
-    public static string Display => $"LFPortal v{Full}";
+    /// <summary>Display string including the product name, e.g. <c>Dashboard v1.0.0</c>.</summary>
+    public static string Display => $"Dashboard v{Full}";
 }

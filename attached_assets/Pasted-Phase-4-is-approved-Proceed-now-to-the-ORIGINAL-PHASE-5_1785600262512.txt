@@ -1,0 +1,79 @@
+Phase 4 is approved.
+
+Proceed now to the ORIGINAL:
+
+PHASE 5 — Laserfiche Desktop Client Extension
+
+Follow the original approved Phase 5 specification exactly.
+
+Important:
+- Do not add Search.
+- Do not add any unrelated new features.
+- Do not modify the approved Dashboard.
+- Do not modify the approved Archive Browser.
+- Do not revisit the deferred Document Viewer image/page rendering issue.
+- Do not start Phase 6 yet.
+
+The goal of Phase 5 is to integrate LFPortal with the Laserfiche Windows Desktop Client so that the user gets a native LFPortal button inside Laserfiche.
+
+Clicking that button must launch the installed LFPortal application without requiring:
+- Visual Studio
+- dotnet run
+- Replit
+- a developer environment
+- Internet access
+
+The entire solution must remain fully on-premises/offline.
+
+IMPORTANT — Compatibility Gate:
+
+Before implementing the extension, revisit ADR-003 and inspect the actual Laserfiche Desktop Client SDK/reference assemblies already available in the project/workspace.
+
+Determine the correct:
+- Laserfiche Desktop Client extension SDK/API
+- extension interface/base class
+- .NET target framework
+- DLL deployment mechanism
+- extension registration mechanism
+- registry location if applicable
+
+Do NOT guess any Laserfiche extension interface, registry key, DLL directory, or SDK behavior.
+
+If the information available in the project is insufficient to confirm any of these, STOP and tell me EXACTLY what you need from my installed Laserfiche machine.
+
+For example, if you need:
+- a DLL
+- DLL version
+- Laserfiche Desktop Client version
+- registry screenshot
+- installation-directory screenshot
+- PowerShell command output
+
+tell me exactly what to provide.
+
+Do not invent compatibility information.
+
+Once compatibility is confirmed, implement Phase 5 according to the original approved specification.
+
+The extension configuration must remain externalized under:
+
+%ProgramData%\LFPortal\extension.config.json
+
+The Portal URL and button label must not be hard-coded.
+
+The extension must be architecturally ready for Phase 6, where the MSI installer will automatically deploy and register it.
+
+After implementation:
+
+- Build the extension.
+- Build the complete solution.
+- Require 0 errors and 0 warnings.
+- Verify the extension has no Visual Studio runtime dependency.
+- Document the exact deployment/registration requirements in docs/LFDesktopExtension.md.
+- Do not manually fake successful Laserfiche integration if it cannot be tested in the current environment.
+
+When Phase 5 is complete, STOP.
+
+Do NOT begin Phase 6 automatically.
+
+I will approve Phase 5 before we proceed to the MSI Installer phase.

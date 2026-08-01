@@ -1,0 +1,136 @@
+Phase 4 is approved.
+
+Before starting Phase 5, make one project-wide naming change:
+
+Rename the product/application from:
+
+LFPortal
+
+to:
+
+Dashboard
+
+I want the final application/product name to be "Dashboard".
+
+Apply the rename consistently anywhere it represents the PRODUCT name, including where applicable:
+
+- Application title
+- Browser/page title
+- Navigation branding
+- UI labels
+- Product/display name
+- Configuration directory naming
+- Installer-facing product naming for the future Phase 6
+- Desktop Extension button/label
+- Documentation
+- Config templates
+- Logging/product display names
+- Future shortcuts
+- Relevant namespaces/project names ONLY if renaming them is safe and will not unnecessarily destabilize the working solution
+
+IMPORTANT:
+
+Do not blindly global-replace "LFPortal".
+
+Preserve Laserfiche-specific names such as:
+- Laserfiche
+- LFRepositoryAPI
+- Laserfiche API classes
+- Laserfiche SDK types
+- API routes
+
+Also do not break working configuration or existing functionality merely to rename internal technical identifiers.
+
+If changing existing config directories from:
+
+%ProgramData%\LFPortal\
+
+to:
+
+%ProgramData%\Dashboard\
+
+could cause existing settings/credentials to be lost, implement safe backward-compatible migration/fallback instead of simply abandoning the old configuration.
+
+The final user-facing product should be called:
+
+Dashboard
+
+After the rename:
+
+1. Run dotnet restore.
+2. Run the complete build.
+3. Require 0 errors and 0 warnings.
+4. Verify Dashboard, Archive, Settings, and existing Laserfiche connectivity still work.
+
+Then proceed immediately to:
+
+PHASE 5 — Laserfiche Desktop Client Extension
+
+Follow the ORIGINAL approved Phase 5 specification.
+
+The goal is to add a native button inside the Laserfiche Windows Desktop Client named:
+
+Dashboard
+
+Clicking the button should open the installed Dashboard web application.
+
+It must work without:
+- Visual Studio
+- dotnet run
+- Replit
+- Internet access
+- cloud services
+
+The complete solution remains on-premises/offline.
+
+Before writing the Desktop Extension implementation, verify the actual Laserfiche Desktop Client SDK compatibility.
+
+Confirm:
+- Laserfiche Desktop Client version
+- SDK/reference assembly version
+- required .NET Framework/.NET version
+- correct extension API/interface
+- deployment directory
+- registration mechanism
+- registry requirements, if any
+
+DO NOT guess any Laserfiche SDK interface, registry key, deployment path, or extension mechanism.
+
+If the existing project/workspace does not contain enough information to confirm compatibility, STOP only at that compatibility blocker and tell me EXACTLY what you need from my Laserfiche machine.
+
+For example:
+- exact DLL name
+- DLL path
+- DLL version
+- PowerShell command output
+- Desktop Client version
+- registry screenshot
+- installation folder screenshot
+
+Do not invent the missing information.
+
+The extension configuration should use the new product naming:
+
+%ProgramData%\Dashboard\extension.config.json
+
+while maintaining backward compatibility with existing LFPortal configuration where necessary.
+
+The Portal/Dashboard URL must be configurable and never hard-coded.
+
+The extension must be prepared for automatic installation and registration by Phase 6.
+
+At the end of Phase 5:
+
+- Build the Desktop Extension.
+- Build the complete solution.
+- Require 0 errors.
+- Require 0 warnings.
+- Confirm no Visual Studio runtime dependency.
+- Confirm no internet dependency.
+- Update the Desktop Extension documentation.
+- Report exactly how the extension will be deployed and registered.
+- Report anything that still requires verification on my real Laserfiche machine.
+
+Then STOP.
+
+Do NOT start Phase 6 until I approve Phase 5.

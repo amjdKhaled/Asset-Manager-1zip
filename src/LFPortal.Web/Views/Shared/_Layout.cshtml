@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <title>@ViewData["Title"] — LFPortal</title>
+    <title>@ViewData["Title"] — Dashboard</title>
     @await RenderSectionAsync("Styles", required: false)
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -262,7 +262,7 @@
 <body>
     <header class="site-header">
         <a class="site-header__logo" asp-controller="Home" asp-action="Index">
-            <span>LF</span>Portal
+            <span>LF</span>Dashboard
         </a>
         @{
             var _ctrl = ViewContext.RouteData.Values["controller"]?.ToString() ?? "";
@@ -280,8 +280,8 @@
     </main>
 
     <footer class="site-footer">
-        LFPortal @LFPortal.Domain.Version.LFPortalVersion.Full
-        &mdash; Laserfiche Enterprise Administration Portal
+        Dashboard @LFPortal.Domain.Version.LFPortalVersion.Full
+        &mdash; Laserfiche Enterprise Administration Dashboard
     </footer>
 
     @await RenderSectionAsync("Scripts", required: false)
