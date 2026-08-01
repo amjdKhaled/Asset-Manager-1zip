@@ -326,7 +326,7 @@ footer.site-footer { background: #0a1020 !important; }
     </div>
 </div>
 
-<!-- ── Row 2: Document Activity + Recent Document Activity ─────────────────── -->
+<!-- ── Row 2: Document Activity + Documents by User Activity ───────────────── -->
 <div class="d-grid-2" style="margin-bottom:18px">
 
     <!-- Panel A: Document Activity chart -->
@@ -352,49 +352,34 @@ footer.site-footer { background: #0a1020 !important; }
         }
     </div>
 
-    <!-- Panel B: Recent Document Activity table -->
+    <!-- Panel B: Documents by User Activity -->
     <div class="d-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <div class="d-card-title"><span class="d-section-bar" style="background:#f97316"></span>Recent Document Activity</div>
-            <span class="d-badge d-badge-orange">@recentActivity.Count doc@(recentActivity.Count != 1 ? "s" : "")</span>
+            <div class="d-card-title"><span class="d-section-bar"></span>Documents by User Activity</div>
+            <span class="d-badge d-badge-indigo">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                @userActivity.Count user@(userActivity.Count != 1 ? "s" : "") (LF)
+            </span>
         </div>
-        @if (recentActivity.Count == 0)
+        @if (userActivity.Count == 0)
         {
             <div class="d-empty">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                <span style="font-size:.8rem">No documents found in the repository scan.</span>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <span style="font-size:.8rem">No user activity data available (Creator field empty on all scanned documents).</span>
             </div>
         }
         else
         {
             <div class="d-tbl-wrap">
                 <table class="d-tbl">
-                    <thead>
-                        <tr>
-                            <th>Document Name</th>
-                            <th>Folder</th>
-                            <th>Template</th>
-                            <th>Created</th>
-                            <th>Modified</th>
-                            @if (recentActivity.Any(d => !string.IsNullOrWhiteSpace(d.Creator)))
-                            {
-                                <th>Creator</th>
-                            }
-                        </tr>
-                    </thead>
+                    <thead><tr><th>User</th><th>Documents Created</th><th>Last Activity</th></tr></thead>
                     <tbody>
-                        @foreach (var d in recentActivity)
+                        @foreach (var u in userActivity)
                         {
                             <tr>
-                                <td style="font-weight:500;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@d.Name">@d.Name</td>
-                                <td style="color:var(--d-muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@FolderFromPath(d.FullPath)">@FolderFromPath(d.FullPath)</td>
-                                <td style="color:var(--d-muted)">@(d.TemplateName ?? "-")</td>
-                                <td style="color:var(--d-muted);white-space:nowrap">@FmtDateShort(d.CreationTime)</td>
-                                <td style="color:var(--d-accent);white-space:nowrap">@FmtAgo(d.LastModifiedTime ?? d.CreationTime)</td>
-                                @if (recentActivity.Any(x => !string.IsNullOrWhiteSpace(x.Creator)))
-                                {
-                                    <td style="color:var(--d-muted)">@(d.Creator ?? "-")</td>
-                                }
+                                <td style="font-weight:500">@u.Name</td>
+                                <td style="color:var(--d-accent);font-weight:600">@u.Created</td>
+                                <td style="color:var(--d-muted);white-space:nowrap">@u.LastActivity</td>
                             </tr>
                         }
                     </tbody>
@@ -554,34 +539,56 @@ footer.site-footer { background: #0a1020 !important; }
     }
 </div>
 
-<!-- ── Documents by User Activity ─────────────────────────────────────────── -->
-@if (userActivity.Count > 0)
-{
+<!-- ── Recent Document Activity ────────────────────────────────────────────── -->
 <div class="d-card" style="margin-bottom:18px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div class="d-card-title"><span class="d-section-bar"></span>Documents by User Activity</div>
-        <span class="d-badge d-badge-indigo">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            @userActivity.Count user@(userActivity.Count != 1 ? "s" : "") (LF)
-        </span>
+        <div class="d-card-title"><span class="d-section-bar" style="background:#f97316"></span>Recent Document Activity</div>
+        <span class="d-badge d-badge-orange">@recentActivity.Count doc@(recentActivity.Count != 1 ? "s" : "")</span>
     </div>
-    <div class="d-tbl-wrap">
-        <table class="d-tbl">
-            <thead><tr><th>User</th><th>Documents Created</th><th>Last Activity</th></tr></thead>
-            <tbody>
-                @foreach (var u in userActivity)
-                {
+    @if (recentActivity.Count == 0)
+    {
+        <div class="d-empty">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span style="font-size:.8rem">No documents found in the repository scan.</span>
+        </div>
+    }
+    else
+    {
+        <div class="d-tbl-wrap">
+            <table class="d-tbl">
+                <thead>
                     <tr>
-                        <td style="font-weight:500">@u.Name</td>
-                        <td style="color:var(--d-accent);font-weight:600">@u.Created</td>
-                        <td style="color:var(--d-muted);white-space:nowrap">@u.LastActivity</td>
+                        <th>Document Name</th>
+                        <th>Folder</th>
+                        <th>Template</th>
+                        <th>Created</th>
+                        <th>Modified</th>
+                        @if (recentActivity.Any(d => !string.IsNullOrWhiteSpace(d.Creator)))
+                        {
+                            <th>Creator</th>
+                        }
                     </tr>
-                }
-            </tbody>
-        </table>
-    </div>
+                </thead>
+                <tbody>
+                    @foreach (var d in recentActivity)
+                    {
+                        <tr>
+                            <td style="font-weight:500;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@d.Name">@d.Name</td>
+                            <td style="color:var(--d-muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@FolderFromPath(d.FullPath)">@FolderFromPath(d.FullPath)</td>
+                            <td style="color:var(--d-muted)">@(d.TemplateName ?? "-")</td>
+                            <td style="color:var(--d-muted);white-space:nowrap">@FmtDateShort(d.CreationTime)</td>
+                            <td style="color:var(--d-accent);white-space:nowrap">@FmtAgo(d.LastModifiedTime ?? d.CreationTime)</td>
+                            @if (recentActivity.Any(x => !string.IsNullOrWhiteSpace(x.Creator)))
+                            {
+                                <td style="color:var(--d-muted)">@(d.Creator ?? "-")</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
 </div>
-}
 
 } @* end if IsConnected *@
 

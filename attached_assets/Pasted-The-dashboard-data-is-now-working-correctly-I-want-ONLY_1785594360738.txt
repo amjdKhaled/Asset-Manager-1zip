@@ -1,0 +1,130 @@
+The dashboard data is now working correctly.
+
+I want ONLY a layout/order change.
+
+DO NOT modify any Laserfiche API calls, backend services, DTOs, calculations, repository scanning, or data logic.
+
+==================================================
+CHANGE THE POSITION OF THESE TWO SECTIONS
+==================================================
+
+Currently I have:
+
+1. Recent Document Activity
+2. Recently Created Documents
+3. Documents by User Activity
+
+I want to move the sections as follows:
+
+The current position occupied by:
+
+"Recent Document Activity"
+
+should instead contain:
+
+"Documents by User Activity"
+
+including its existing badge:
+
+"2 users (LF)"
+
+and its existing columns:
+
+- User
+- Documents Created
+- Last Activity
+
+Keep the exact same real Laserfiche data and existing functionality.
+
+==================================================
+MOVE RECENT DOCUMENT ACTIVITY DOWN
+==================================================
+
+Do NOT delete "Recent Document Activity".
+
+Move the entire "Recent Document Activity" panel DOWN to the location where:
+
+"Documents by User Activity"
+
+currently exists.
+
+So effectively I want to SWAP their positions.
+
+BEFORE:
+
+[ Document Activity ] [ Recent Document Activity ]
+
+...
+
+[ Recently Created Documents ]
+
+...
+
+[ Documents by User Activity ]
+
+
+AFTER:
+
+[ Document Activity ] [ Documents by User Activity ]
+
+...
+
+[ Recently Created Documents ]
+
+...
+
+[ Recent Document Activity ]
+
+==================================================
+IMPORTANT
+==================================================
+
+This is ONLY a UI layout/order change.
+
+DO NOT:
+
+- change the Laserfiche API
+- change repository scanning
+- change Folder/children
+- change root entry
+- change document calculations
+- change user activity calculations
+- change Recent Document Activity data
+- remove any section
+- duplicate any section
+- create new mock data
+
+Simply reuse the SAME existing Razor/HTML blocks and swap their positions.
+
+==================================================
+EXPECTED RESULT
+==================================================
+
+The upper two-column analytics row should become:
+
+LEFT:
+Document Activity
+
+RIGHT:
+Documents by User Activity
+Badge: "2 users (LF)"
+
+Then further down, where Documents by User Activity currently appears, place:
+
+Recent Document Activity
+Badge: "8 docs"
+
+Keep Recently Created Documents exactly where it currently is.
+
+Make sure the moved panels remain responsive and visually consistent with the dashboard.
+
+After the change:
+
+1. Build the project.
+2. Confirm 0 errors.
+3. Run it.
+4. Visually verify there is only ONE Documents by User Activity panel.
+5. Visually verify there is only ONE Recent Document Activity panel.
+6. Verify both still show the same live Laserfiche data.
+
+Do not make any backend/API changes for this task.
