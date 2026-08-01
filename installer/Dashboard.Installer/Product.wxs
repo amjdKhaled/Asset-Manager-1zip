@@ -1,20 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Product.wxs — Top-level package definition for the Dashboard installer.
+  Product.wxs: Top-level package definition for the Dashboard installer.
 
-  Defines the package identity, upgrade logic, features, and UI.
-  All file/component content lives in the companion .wxs files.
+  Defines the package identity, upgrade logic, features, UI, and custom actions.
+  File content for WebApp and Extension is harvested via HarvestDirectory in
+  Dashboard.Installer.wixproj (not listed as File elements here).
 
   Build requirements (Windows only):
-    dotnet tool install --global wix
-    wix extension add WixToolset.UI.wixext
-    wix extension add WixToolset.Iis.wixext
-    wix extension add WixToolset.Util.wixext
+    dotnet tool install -global wix
+    wix extension add WixToolset.UI.wixext/4.0.5
+    wix extension add WixToolset.Iis.wixext/4.0.3
+    wix extension add WixToolset.Util.wixext/4.0.5
     dotnet build installer\Dashboard.Installer\Dashboard.Installer.wixproj
+
+  To build with an explicit version or port:
+    dotnet build ... -p:ProductVersion=1.2.3 -p:DashboardPort=80
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
-     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
   <?include Variables.wxi ?>
 
@@ -27,36 +30,38 @@
            InstallerVersion="500"
            Compressed="yes">
 
-    <!-- ── Upgrade / downgrade ──────────────────────────────────────────── -->
     <!--
-      MajorUpgrade: when installing a newer version over an existing one,
-      the old binaries are removed before the new ones land (Schedule=afterInstallInitialize).
+      MajorUpgrade: remove the old version before installing the new one.
       Configuration in %ProgramData%\Dashboard\ is preserved because those
-      components are marked NeverOverwrite in Configuration.wxs.
+      components use NeverOverwrite="yes" in Configuration.wxs.
     -->
     <MajorUpgrade
       DowngradeErrorMessage="A newer version of Dashboard is already installed. Downgrade is not supported. Please uninstall the current version first."
       Schedule="afterInstallInitialize" />
 
-    <!-- ── Prerequisites ────────────────────────────────────────────────── -->
     <!--
-      Require the ASP.NET Core 8 Hosting Bundle (or Runtime) to be installed
-      before the Dashboard web application can run.
-      The Hosting Bundle creates this registry value on 64-bit Windows.
-      If absent, abort with an informative message.
+      Prerequisite: ASP.NET Core 8 Hosting Bundle.
+      The Hosting Bundle writes a Version value under this key on 64-bit Windows.
+      If the property remains unset the Launch condition blocks installation.
     -->
-    <util:RegistrySearch
-      Id="DotNet8RuntimeSearch"
-      Root="HKLM"
-      Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.AspNetCore.App"
-      Variable="DOTNET8_ASPNET_VERSION"
-      Result="exists" />
+    <Property Id="ASPNETCORE8">
+      <RegistrySearch Id="DotNet8HostSearch"
+                      Root="HKLM"
+                      Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost"
+                      Name="Version"
+                      Win64="yes"
+                      Type="raw" />
+    </Property>
 
     <Launch
-      Condition="DOTNET8_ASPNET_VERSION"
-      Message="The ASP.NET Core 8 Hosting Bundle is required but was not found.&#10;&#10;Download and install it from:&#10;https://dotnet.microsoft.com/download/dotnet/8.0&#10;(choose the Windows Hosting Bundle)&#10;&#10;After installing the Hosting Bundle, run this installer again." />
+      Condition="ASPNETCORE8"
+      Message="The ASP.NET Core 8 Hosting Bundle is required but was not found.
 
-    <!-- ── Directory structure ──────────────────────────────────────────── -->
+Download from: https://dotnet.microsoft.com/download/dotnet/8.0
+Choose the Windows Hosting Bundle, then re-run this installer." />
+
+    <!-- Directory structure -->
+
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="$(InstallFolderName)">
         <Directory Id="WEBAPPFOLDER"    Name="WebApp" />
@@ -66,8 +71,7 @@
 
     <StandardDirectory Id="CommonAppDataFolder">
       <Directory Id="PROGRAMDATAFOLDER" Name="Dashboard">
-        <Directory Id="CONFIGFOLDER" Name="." />
-        <Directory Id="LOGSFOLDER"   Name="logs" />
+        <Directory Id="LOGSFOLDER" Name="logs" />
       </Directory>
     </StandardDirectory>
 
@@ -75,13 +79,11 @@
       <Directory Id="STARTMENUFOLDER" Name="$(StartMenuFolder)" />
     </StandardDirectory>
 
-    <!-- ── Features ─────────────────────────────────────────────────────── -->
+    <!-- Features -->
     <!--
       Feature tree:
-        [Required] Dashboard Web Application — always installed
-          [Required] Configuration files     — always installed
-          [Required] Start Menu shortcuts    — always installed
-        [Optional] Laserfiche Desktop Extension — requires LF Desktop Client
+        [Required] Dashboard Web Application (always installed)
+          [Optional] Laserfiche Desktop Client Extension
     -->
     <Feature Id="FeatureWebApp"
              Title="Dashboard Web Application"
@@ -106,58 +108,60 @@
 
     </Feature>
 
-    <!-- ── Installer UI ──────────────────────────────────────────────────── -->
+    <!-- Installer UI -->
     <!--
-      WixUI_FeatureTree provides:
-        Welcome → License → Custom Setup (feature selection) → Install Directory → Install → Finish
+      WixUI_FeatureTree: Welcome, License, Custom Setup, Install Dir, Install, Finish.
+      Replace License.rtf with your organisation licence for production distribution.
     -->
     <ui:WixUI Id="WixUI_FeatureTree" />
 
-    <!--
-      Suppress the built-in license dialog by providing an empty RTF.
-      Replace with a real license.rtf for production distribution.
-    -->
     <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
     <WixVariable Id="WixUIBannerBmp"  Value="Banner.bmp"  Overridable="yes" />
     <WixVariable Id="WixUIDialogBmp"  Value="Dialog.bmp"  Overridable="yes" />
 
-    <!-- ── Custom action: register Desktop Extension toolbar button ──────── -->
+    <!-- Custom actions: Desktop Extension registration -->
     <!--
-      Runs Dashboard.DesktopExtension.exe --setup --silent after files are installed.
-      Scheduled as "deferred" (elevated) so ClientAutomation SDK has write access.
-      Return="ignore": if Laserfiche Desktop Client is not installed, setup logs a
-      warning but the MSI install still succeeds.
+      RegisterExtension: runs Dashboard.DesktopExtension.exe with the -setup -silent
+      arguments after files are installed (fresh install or upgrade).
+        Execute="deferred" + Impersonate="no": runs elevated so ClientAutomation
+        SDK has write access to the Laserfiche toolbar registry.
+        Return="ignore": if Laserfiche Desktop Client is not installed the EXE
+        exits non-zero but the MSI install still succeeds.
+
+      UnregisterExtension: runs with -remove -silent before files are removed.
+      Scheduled Before="RemoveFiles" so the EXE is still on disk when it runs.
+
+      Note: the ExeCommand attributes below use the correct double-dash CLI syntax
+      required by the extension. Comments use single-dash for XML compatibility.
     -->
-    <util:ExecCmd
-      Id="RegisterDesktopExtension"
-      Command='"[EXTENSIONFOLDER]Dashboard.DesktopExtension.exe" --setup --silent'
-      Execute="deferred"
-      Impersonate="no"
-      Return="ignore"
-      Condition="NOT Installed" />
+    <CustomAction Id="RegisterExtension"
+                  Directory="EXTENSIONFOLDER"
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.DesktopExtension.exe" --setup --silent'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="UnregisterExtension"
+                  Directory="EXTENSIONFOLDER"
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.DesktopExtension.exe" --remove --silent'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
 
     <!--
-      Upgrade: re-register after files are updated so the command path stays current.
-    -->
-    <util:ExecCmd
-      Id="ReregisterDesktopExtensionOnUpgrade"
-      Command='"[EXTENSIONFOLDER]Dashboard.DesktopExtension.exe" --setup --silent'
-      Execute="deferred"
-      Impersonate="no"
-      Return="ignore"
-      Condition="Installed AND NOT REMOVE" />
+      Sequence custom actions.
 
-    <!--
-      Uninstall: remove the toolbar button before files are removed.
-      Runs before RemoveFiles so the EXE is still present.
+      RegisterExtension:   After="InstallFiles" when NOT uninstalling.
+                           Covers fresh install and upgrade. MajorUpgrade removes
+                           old binaries then runs InstallFiles for new ones, so
+                           re-running setup updates the command path.
+
+      UnregisterExtension: Before="RemoveFiles" on full uninstall only.
     -->
-    <util:ExecCmd
-      Id="UnregisterDesktopExtension"
-      Command='"[EXTENSIONFOLDER]Dashboard.DesktopExtension.exe" --remove --silent'
-      Execute="deferred"
-      Impersonate="no"
-      Return="ignore"
-      Condition='Installed AND REMOVE~="ALL"' />
+    <InstallExecuteSequence>
+      <Custom Action="RegisterExtension"   After="InstallFiles">NOT REMOVE~="ALL"</Custom>
+      <Custom Action="UnregisterExtension" Before="RemoveFiles">REMOVE~="ALL"</Custom>
+    </InstallExecuteSequence>
 
   </Package>
 </Wix>

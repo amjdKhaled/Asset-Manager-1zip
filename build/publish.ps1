@@ -6,18 +6,18 @@
     Orchestrates the full release build:
 
       1. Clean and restore
-      2. dotnet publish — Dashboard web application (net8.0, Release, framework-dependent)
-      3. dotnet build   — Desktop Extension (net48, x64, Release) [Windows only]
+      2. dotnet publish  - Dashboard web application (net8.0, Release, framework-dependent)
+      3. dotnet build   - Desktop Extension (net48, x64, Release) [Windows only]
       4. Stage all artifacts under artifacts\staging\
-      5. dotnet build   — WiX installer project → Dashboard-{version}-Setup.msi [Windows only]
+      5. dotnet build   - WiX installer project -> Dashboard-{version}-Setup.msi [Windows only]
       6. Assemble final artifacts\ release folder
 
     OUTPUT:
       artifacts\
         Dashboard-{version}-Setup.msi
-        WebApp\              (dotnet publish output — deploy to IIS)
+        WebApp\              (dotnet publish output -- deploy to IIS)
         Extension\           (Desktop Extension EXE + dependencies)
-        WebClientButton\     (lf-dashboard-button.js — deploy to LF Web Client)
+        WebClientButton\     (lf-dashboard-button.js -- deploy to LF Web Client)
         ConfigTemplate\
           laserfiche.config.json
           extension.config.json
@@ -57,7 +57,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$Version    = "",
+    [string]$Version       = "",
     [switch]$SkipMsi,
     [switch]$SkipExtension
 )
@@ -65,219 +65,308 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ── Detect platform ────────────────────────────────────────────────────────────
+# ---------- Platform detection -----------------------------------------------
 
 $IsWindowsOS = $IsWindows -or ($PSVersionTable.PSVersion.Major -le 5)
 
 if (-not $IsWindowsOS) {
-    Write-Host "Non-Windows platform detected. MSI and Desktop Extension builds will be skipped." -ForegroundColor Yellow
+    Write-Host "Non-Windows platform detected. MSI and Desktop Extension builds will be skipped." `
+        -ForegroundColor Yellow
     $SkipMsi       = $true
     $SkipExtension = $true
 }
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
+# ---------- Paths ------------------------------------------------------------
+# $PSScriptRoot is the build\ folder; repo root is one level up.
 
-$RepoRoot     = $PSScriptRoot | Split-Path -Parent
-$ArtifactsDir = Join-Path $RepoRoot "artifacts"
-$StagingDir   = Join-Path $ArtifactsDir "staging"
+$RepoRoot      = Split-Path $PSScriptRoot -Parent
+$ArtifactsDir  = Join-Path $RepoRoot "artifacts"
+$StagingDir    = Join-Path $ArtifactsDir "staging"
 
-$WebProjPath  = Join-Path $RepoRoot "src\LFPortal.Web\LFPortal.Web.csproj"
-$ExtProjPath  = Join-Path $RepoRoot "src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj"
+$WebProjPath   = Join-Path $RepoRoot "src\LFPortal.Web\LFPortal.Web.csproj"
+$ExtProjPath   = Join-Path $RepoRoot "src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj"
 $InstallerProj = Join-Path $RepoRoot "installer\Dashboard.Installer\Dashboard.Installer.wixproj"
-$DbPropsPath  = Join-Path $RepoRoot "Directory.Build.props"
+$DbPropsPath   = Join-Path $RepoRoot "Directory.Build.props"
 
-# ── Resolve version ────────────────────────────────────────────────────────────
+# ---------- Validate required source files exist ----------------------------
+
+foreach ($required in @($WebProjPath, $DbPropsPath)) {
+    if (-not (Test-Path $required)) {
+        Write-Host "[ERROR] Required file not found: $required" -ForegroundColor Red
+        Write-Host "        Run this script from the repository root." -ForegroundColor Red
+        exit 1
+    }
+}
+
+# ---------- Resolve version --------------------------------------------------
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    # Read from Directory.Build.props
     if (Test-Path $DbPropsPath) {
-        [xml]$dbProps = Get-Content $DbPropsPath
-        $versionNode  = $dbProps.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ }
-        $Version      = ($versionNode | Select-Object -First 1) -replace '\s', ''
+        [xml]$dbProps = Get-Content $DbPropsPath -Encoding UTF8
+        $versionNode  = $dbProps.Project.PropertyGroup |
+                        ForEach-Object { $_.Version } |
+                        Where-Object { $_ }
+        $Version = ($versionNode | Select-Object -First 1) -replace '\s', ''
     }
     if ([string]::IsNullOrWhiteSpace($Version)) {
         $Version = "1.0.0"
     }
 }
 
-# ── Header ────────────────────────────────────────────────────────────────────
+# ---------- Helpers ----------------------------------------------------------
 
-function Write-Step([string]$msg) { Write-Host "`n  ── $msg" -ForegroundColor Cyan }
-function Write-OK([string]$msg)   { Write-Host "     [OK] $msg" -ForegroundColor Green }
-function Invoke-Step([string]$label, [scriptblock]$sb) {
-    Write-Step $label
-    & $sb
-    if ($LASTEXITCODE -ne $null -and $LASTEXITCODE -ne 0) {
-        Write-Host "  [FAILED] Exit code: $LASTEXITCODE" -ForegroundColor Red
-        exit $LASTEXITCODE
+function Write-Step([string]$msg) {
+    Write-Host ""
+    Write-Host "  -- $msg" -ForegroundColor Cyan
+}
+
+function Write-OK([string]$msg) {
+    Write-Host "     [OK] $msg" -ForegroundColor Green
+}
+
+function Invoke-Cmd {
+    <#
+    .SYNOPSIS Runs a command, captures exit code, and stops the script on failure.
+    #>
+    param([string]$Label, [scriptblock]$Block)
+
+    Write-Step $Label
+    & $Block
+    $code = $LASTEXITCODE
+    if ($code -ne $null -and $code -ne 0) {
+        Write-Host "  [FAILED] '$Label' exited with code $code" -ForegroundColor Red
+        exit $code
     }
 }
+
+# ---------- Header -----------------------------------------------------------
 
 Write-Host ""
 Write-Host "  Dashboard Release Build" -ForegroundColor White
-Write-Host "  Version  : $Version"     -ForegroundColor Gray
-Write-Host "  Platform : $(if ($IsWindowsOS) { 'Windows' } else { 'Linux/macOS (MSI skipped)' })" -ForegroundColor Gray
+Write-Host "  Version  : $Version" -ForegroundColor Gray
+Write-Host "  Platform : $(if ($IsWindowsOS) { 'Windows' } else { 'Linux/macOS (MSI/Extension skipped)' })" `
+    -ForegroundColor Gray
 Write-Host "  Output   : $ArtifactsDir" -ForegroundColor Gray
-Write-Host ""
 
-# ── Clean artifacts ────────────────────────────────────────────────────────────
+# ---------- Clean artifacts --------------------------------------------------
 
-Invoke-Step "Cleaning previous artifacts" {
+Invoke-Cmd "Cleaning previous artifacts" {
     if (Test-Path $ArtifactsDir) {
         Remove-Item $ArtifactsDir -Recurse -Force
     }
-    New-Item -ItemType Directory -Path $StagingDir\WebApp        -Force | Out-Null
-    New-Item -ItemType Directory -Path $StagingDir\Extension     -Force | Out-Null
-    New-Item -ItemType Directory -Path $StagingDir\ConfigTemplate -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $StagingDir "WebApp")         -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $StagingDir "Extension")      -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $StagingDir "ConfigTemplate") -Force | Out-Null
     Write-OK "artifacts\staging\ created."
 }
 
-# ── Restore ────────────────────────────────────────────────────────────────────
+# ---------- Restore ----------------------------------------------------------
 
-Invoke-Step "Restoring NuGet packages" {
-    & dotnet restore (Join-Path $RepoRoot "LFPortal.sln") --verbosity minimal
+Invoke-Cmd "Restoring NuGet packages" {
+    $slnPath = Join-Path $RepoRoot "LFPortal.sln"
+    & dotnet restore $slnPath --verbosity minimal
 }
 
-# ── Publish Dashboard web application ─────────────────────────────────────────
+# ---------- Publish web application ------------------------------------------
 
-Invoke-Step "Publishing Dashboard web application (net8.0, Release, framework-dependent)" {
+Invoke-Cmd "Publishing Dashboard web application (net8.0, Release, framework-dependent)" {
+    $webAppOut = Join-Path $StagingDir "WebApp"
     & dotnet publish $WebProjPath `
         --configuration Release `
-        --output "$StagingDir\WebApp" `
+        --output $webAppOut `
         --verbosity minimal `
         -p:Version=$Version
-
-    Write-OK "Published to: $StagingDir\WebApp"
+    Write-OK "Published to: $webAppOut"
 }
 
-# ── Build Desktop Extension (Windows only) ─────────────────────────────────────
+# ---------- Build Desktop Extension (Windows only) ---------------------------
 
 if (-not $SkipExtension) {
-    Invoke-Step "Building Desktop Extension (net48, x64, Release)" {
-        # The Desktop Extension project is excluded from LFPortal.sln
-        # and must be built separately on Windows.
-        # Requires: Laserfiche SDK 10.4 DLLs in vendor\LaserficheSdk\bin\10.4\net-4.0\
-        & dotnet build $ExtProjPath `
-            --configuration Release `
-            --verbosity minimal `
-            -p:Version=$Version
+    if (-not (Test-Path $ExtProjPath)) {
+        Write-Host "  [WARN] Desktop Extension project not found: $ExtProjPath" -ForegroundColor Yellow
+        Write-Host "         Skipping extension build." -ForegroundColor Yellow
+    }
+    else {
+        Invoke-Cmd "Building Desktop Extension (net48, x64, Release)" {
+            # Requires: Laserfiche SDK 10.4 DLLs in vendor\LaserficheSdk\bin\10.4\net-4.0\
+            # Target: net48, PlatformTarget=x64, Prefer32Bit=false, no RuntimeIdentifier.
+            & dotnet build $ExtProjPath `
+                --configuration Release `
+                --verbosity minimal `
+                -p:Version=$Version
 
-        # Copy output to staging
-        $extOutputDir = Join-Path $RepoRoot "src\Dashboard.DesktopExtension\bin\Release\net48"
-        if (Test-Path $extOutputDir) {
-            Copy-Item "$extOutputDir\*" -Destination "$StagingDir\Extension" -Recurse -Force
-            Write-OK "Extension staged to: $StagingDir\Extension"
-        }
-        else {
-            Write-Host "  [WARN] Extension output not found at: $extOutputDir" -ForegroundColor Yellow
+            $extOut = Join-Path $RepoRoot "src\Dashboard.DesktopExtension\bin\Release\net48"
+            if (Test-Path $extOut) {
+                $extStaging = Join-Path $StagingDir "Extension"
+                Copy-Item "$extOut\*" -Destination $extStaging -Recurse -Force
+                Write-OK "Extension staged to: $extStaging"
+            }
+            else {
+                Write-Host "  [WARN] Extension build output not found at: $extOut" -ForegroundColor Yellow
+                Write-Host "         The MSI will be built without extension binaries." -ForegroundColor Yellow
+            }
         }
     }
 }
 else {
-    Write-Host "`n  ── Desktop Extension build skipped." -ForegroundColor DarkGray
-    # Create empty directory so the MSI build has a target (it will be empty
-    # and produce a stub; replace with real output on Windows)
-    New-Item -ItemType Directory -Path "$StagingDir\Extension" -Force | Out-Null
+    Write-Host ""
+    Write-Host "  -- Desktop Extension build skipped." -ForegroundColor DarkGray
+    # Ensure the staging directory exists so the MSI build has a target.
+    New-Item -ItemType Directory -Path (Join-Path $StagingDir "Extension") -Force | Out-Null
 }
 
-# ── Stage config templates ─────────────────────────────────────────────────────
+# ---------- Stage configuration templates ------------------------------------
 
-Invoke-Step "Staging configuration templates" {
-    Copy-Item (Join-Path $RepoRoot "config\templates\*") `
-              -Destination "$StagingDir\ConfigTemplate" -Force
-    Write-OK "Config templates staged."
+Invoke-Cmd "Staging configuration templates" {
+    $templateSrc = Join-Path $RepoRoot "config\templates"
+    if (-not (Test-Path $templateSrc)) {
+        Write-Host "  [WARN] config\templates\ not found at: $templateSrc" -ForegroundColor Yellow
+    }
+    else {
+        $templateDst = Join-Path $StagingDir "ConfigTemplate"
+        Copy-Item "$templateSrc\*" -Destination $templateDst -Force
+        Write-OK "Config templates staged."
+    }
 }
 
-# ── Stage Web Client button script ─────────────────────────────────────────────
+# ---------- Stage Web Client button script -----------------------------------
 
-Invoke-Step "Staging Web Client button script" {
-    $wcbDir = Join-Path $ArtifactsDir "WebClientButton"
+Invoke-Cmd "Staging Web Client button script" {
+    $wcbDir    = Join-Path $ArtifactsDir "WebClientButton"
     New-Item -ItemType Directory -Path $wcbDir -Force | Out-Null
-    $srcJs = Join-Path $RepoRoot "src\LFPortal.Web\wwwroot\js\lf-webclient-button.js"
-    Copy-Item $srcJs -Destination (Join-Path $wcbDir "lf-dashboard-button.js") -Force
-    # Also copy the deployment script
-    $deployScript = Join-Path $RepoRoot "installer\Deploy-WebClientButton.ps1"
-    Copy-Item $deployScript -Destination $wcbDir -Force
-    Write-OK "Web Client artifacts staged to: $wcbDir"
+
+    $srcJs     = Join-Path $RepoRoot "src\LFPortal.Web\wwwroot\js\lf-webclient-button.js"
+    $deployPs1 = Join-Path $RepoRoot "installer\Deploy-WebClientButton.ps1"
+
+    if (Test-Path $srcJs) {
+        Copy-Item $srcJs -Destination (Join-Path $wcbDir "lf-dashboard-button.js") -Force
+        Write-OK "lf-dashboard-button.js staged."
+    }
+    else {
+        Write-Host "  [WARN] Source JS not found: $srcJs" -ForegroundColor Yellow
+    }
+
+    if (Test-Path $deployPs1) {
+        Copy-Item $deployPs1 -Destination $wcbDir -Force
+        Write-OK "Deploy-WebClientButton.ps1 staged."
+    }
+
+    Write-OK "Web Client artifacts in: $wcbDir"
 }
 
-# ── Build MSI (Windows only) ───────────────────────────────────────────────────
+# ---------- Build MSI (Windows only) -----------------------------------------
 
 if (-not $SkipMsi) {
-    Invoke-Step "Building MSI installer (WiX v4)" {
-        # Ensure WiX v4 global tool is installed
-        $wixVersion = & dotnet wix --version 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  Installing WiX v4 global tool..." -ForegroundColor Yellow
-            & dotnet tool install --global wix
-        }
+    if (-not (Test-Path $InstallerProj)) {
+        Write-Host "  [WARN] WiX project not found: $InstallerProj" -ForegroundColor Yellow
+        Write-Host "         Skipping MSI build." -ForegroundColor Yellow
+    }
+    else {
+        Invoke-Cmd "Building MSI installer (WiX v4)" {
 
-        # Ensure required extensions are installed
-        foreach ($ext in @("WixToolset.UI.wixext/4.0.5",
-                           "WixToolset.Iis.wixext/4.0.3",
-                           "WixToolset.Util.wixext/4.0.5")) {
-            & wix extension add $ext --global 2>&1 | Out-Null
-        }
+            # Verify WiX v4 global tool is installed.
+            $null = & dotnet wix --version 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  WiX v4 global tool not found. Installing..." -ForegroundColor Yellow
+                & dotnet tool install --global wix
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "  [ERROR] Failed to install WiX. Install manually:" -ForegroundColor Red
+                    Write-Host "          dotnet tool install --global wix" -ForegroundColor Gray
+                    exit 1
+                }
+            }
 
-        & dotnet build $InstallerProj `
-            --configuration Release `
-            --verbosity minimal `
-            -p:ProductVersion=$Version
+            # Ensure required WiX extensions are present.
+            $extensions = @(
+                "WixToolset.UI.wixext/4.0.5",
+                "WixToolset.Iis.wixext/4.0.3",
+                "WixToolset.Util.wixext/4.0.5"
+            )
+            foreach ($ext in $extensions) {
+                $out = & wix extension add $ext --global 2>&1
+                # Non-zero exit here means already installed or minor error; continue.
+            }
 
-        $msiPath = Join-Path $ArtifactsDir "Dashboard-$Version-Setup.msi"
-        if (Test-Path $msiPath) {
-            Write-OK "MSI: $msiPath"
-        }
-        else {
-            Write-Host "  [WARN] MSI output not found at expected path: $msiPath" -ForegroundColor Yellow
+            & dotnet build $InstallerProj `
+                --configuration Release `
+                --verbosity minimal `
+                -p:ProductVersion=$Version
+
+            $msiPath = Join-Path $ArtifactsDir "Dashboard-$Version-Setup.msi"
+            if (Test-Path $msiPath) {
+                Write-OK "MSI built: $msiPath"
+            }
+            else {
+                Write-Host "  [WARN] MSI not found at expected path: $msiPath" -ForegroundColor Yellow
+                Write-Host "         Check the WiX build output for the actual output path." -ForegroundColor Yellow
+            }
         }
     }
 }
 else {
-    Write-Host "`n  ── MSI build skipped." -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  -- MSI build skipped." -ForegroundColor DarkGray
 }
 
-# ── Assemble final artifacts folder ───────────────────────────────────────────
+# ---------- Assemble final artifacts folder ----------------------------------
 
-Invoke-Step "Assembling release artifacts" {
+Invoke-Cmd "Assembling release artifacts" {
+
     # WebApp
-    $dst = Join-Path $ArtifactsDir "WebApp"
-    if (-not (Test-Path $dst)) { Copy-Item "$StagingDir\WebApp" -Destination $dst -Recurse -Force }
+    $webAppDst = Join-Path $ArtifactsDir "WebApp"
+    if (-not (Test-Path $webAppDst)) {
+        Copy-Item (Join-Path $StagingDir "WebApp") -Destination $webAppDst -Recurse -Force
+    }
 
     # Extension
-    $dst = Join-Path $ArtifactsDir "Extension"
-    if (-not (Test-Path $dst)) { Copy-Item "$StagingDir\Extension" -Destination $dst -Recurse -Force }
+    $extDst = Join-Path $ArtifactsDir "Extension"
+    if (-not (Test-Path $extDst)) {
+        Copy-Item (Join-Path $StagingDir "Extension") -Destination $extDst -Recurse -Force
+    }
 
     # ConfigTemplate
-    $dst = Join-Path $ArtifactsDir "ConfigTemplate"
-    New-Item -ItemType Directory -Path $dst -Force | Out-Null
-    Copy-Item "$StagingDir\ConfigTemplate\*" -Destination $dst -Force
+    $cfgDst = Join-Path $ArtifactsDir "ConfigTemplate"
+    New-Item -ItemType Directory -Path $cfgDst -Force | Out-Null
+    $cfgSrc = Join-Path $StagingDir "ConfigTemplate\*"
+    if (Test-Path (Join-Path $StagingDir "ConfigTemplate")) {
+        Copy-Item $cfgSrc -Destination $cfgDst -Force
+    }
 
     # Docs
-    $dst = Join-Path $ArtifactsDir "docs"
-    New-Item -ItemType Directory -Path $dst -Force | Out-Null
+    $docsDst = Join-Path $ArtifactsDir "docs"
+    New-Item -ItemType Directory -Path $docsDst -Force | Out-Null
     foreach ($doc in @("InstallationGuide.md", "UpgradeGuide.md", "ReleaseNotes.md")) {
-        $src = Join-Path $RepoRoot "docs\$doc"
-        if (Test-Path $src) { Copy-Item $src -Destination $dst -Force }
+        $docSrc = Join-Path $RepoRoot "docs\$doc"
+        if (Test-Path $docSrc) {
+            Copy-Item $docSrc -Destination $docsDst -Force
+        }
     }
 
     Write-OK "Release artifacts assembled in: $ArtifactsDir"
 }
 
-# ── Final summary ──────────────────────────────────────────────────────────────
+# ---------- Final summary ----------------------------------------------------
 
 Write-Host ""
-Write-Host "  ════════════════════════════════════════════════════════" -ForegroundColor DarkGray
-Write-Host "  Build complete — Dashboard $Version" -ForegroundColor Green
+Write-Host "  ==========================================================" -ForegroundColor DarkGray
+Write-Host "  Build complete -- Dashboard $Version" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Artifacts:" -ForegroundColor White
 Get-ChildItem $ArtifactsDir -Depth 0 | ForEach-Object {
     Write-Host "    $($_.Name)" -ForegroundColor Gray
 }
 Write-Host ""
+
 if ($SkipMsi) {
-    Write-Host "  MSI was skipped.  To build the MSI:" -ForegroundColor Yellow
-    Write-Host "    Run this script on a Windows machine with WiX v4 installed." -ForegroundColor Gray
+    Write-Host "  MSI was skipped. To build the MSI on Windows:" -ForegroundColor Yellow
+    Write-Host "    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force" -ForegroundColor Gray
     Write-Host "    .\build\publish.ps1 -Version $Version" -ForegroundColor Gray
+    Write-Host ""
 }
-Write-Host ""
+else {
+    $msi = Get-ChildItem $ArtifactsDir -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($msi) {
+        Write-Host "  MSI installer: $($msi.FullName)" -ForegroundColor Green
+        Write-Host ""
+    }
+}

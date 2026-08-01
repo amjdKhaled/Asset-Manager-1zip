@@ -1,41 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Configuration.wxs — ProgramData configuration files.
+  Configuration.wxs: ProgramData configuration files.
 
-  All configuration files use NeverOverwrite="yes" so they are created on
-  first install and NEVER touched by subsequent upgrades or repairs.
-  Administrator-edited values are always preserved.
+  All NeverOverwrite files are created on first install and never touched by
+  subsequent upgrades or repairs.  Administrator-edited values are preserved.
 
-  Paths established here (matching the application code):
-    %ProgramData%\Dashboard\extension.config.json   — Desktop Extension config
-    %ProgramData%\Dashboard\laserfiche.config.json  — Web app Laserfiche connection
+  Paths established here (matching the application source code):
+    %ProgramData%\Dashboard\extension.config.json   (Desktop Extension config)
+    %ProgramData%\Dashboard\laserfiche.config.json  (Web app connection config)
 
-  Template files (always updated on upgrade so admins see the latest schema):
-    [WEBAPPFOLDER]\ConfigTemplate\laserfiche.config.json
-    [WEBAPPFOLDER]\ConfigTemplate\extension.config.json
-
-  Credentials are NEVER stored in configuration files packaged in the MSI.
-  The administrator enters them via the Dashboard Settings page (POST /Settings/Save)
-  which encrypts them with Windows DPAPI into %ProgramData%\Dashboard\credentials\.
+  Credentials are never stored in configuration files packaged in the MSI.
+  The administrator enters them via the Dashboard Settings page which encrypts
+  them with Windows DPAPI into %ProgramData%\Dashboard\credentials\.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
   <Fragment>
 
-    <!-- ── Sub-directories under %ProgramData%\Dashboard\ ─────────────── -->
+    <!-- Sub-directories under %ProgramData%\Dashboard\ -->
     <DirectoryRef Id="PROGRAMDATAFOLDER">
-      <Directory Id="CREDSFOLDER"     Name="credentials" />
+      <Directory Id="CREDSFOLDER"      Name="credentials" />
       <Directory Id="CONFIGLOGSFOLDER" Name="logs" />
       <Directory Id="CONFIGTMPLFOLDER" Name="ConfigTemplate" />
     </DirectoryRef>
 
-    <!-- ── Configuration files (NeverOverwrite) ───────────────────────── -->
+    <!-- Configuration files and directories -->
     <ComponentGroup Id="ConfigComponents">
 
       <!--
-        Extension config — read by Dashboard.DesktopExtension.exe at runtime.
-        Edit portalUrl to point to the Dashboard server.
-        NeverOverwrite: administrator changes survive any upgrade.
+        Extension config (NeverOverwrite).
+        Edit "portalUrl" to point to the Dashboard server after installation.
+        Administrator changes survive all upgrades and repairs.
       -->
       <Component Id="CompExtensionConfig"
                  Directory="PROGRAMDATAFOLDER"
@@ -48,15 +44,9 @@
       </Component>
 
       <!--
-        Web app Laserfiche connection configuration — read by appsettings.json
-        override at runtime (if the app is configured to look for it in ProgramData).
+        Laserfiche connection config (NeverOverwrite).
         Edit ServerUrl, RepositoryId, and DisplayName after installation.
-        NeverOverwrite: administrator changes survive any upgrade.
-
-        Note: if your deployment uses a writable config override file, place it
-        here. The default installation reads appsettings.json from the web app
-        directory. To use this file, configure the app host to load it as an
-        additional JSON config source.
+        Administrator changes survive all upgrades and repairs.
       -->
       <Component Id="CompLaserficheConfig"
                  Directory="PROGRAMDATAFOLDER"
@@ -69,43 +59,40 @@
       </Component>
 
       <!--
-        credentials\ directory — created here so IIS / the app can write to it.
-        DPAPI-encrypted credential files are written by the Settings page at runtime.
-        This component creates the directory with appropriate ACLs.
+        credentials\ directory.
+        Created with write permissions for the IIS App Pool identity so
+        the Dashboard web app can write DPAPI-encrypted credential files.
       -->
       <Component Id="CompCredsDir"
                  Directory="CREDSFOLDER"
                  Guid="{F7A8B9C0-D1E2-4345-F012-678901234567}">
         <CreateFolder>
-          <!--
-            Grant IIS Network Service full control so the web app can write
-            DPAPI-encrypted credential files into this directory.
-          -->
-          <util:PermissionEx xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+          <util:PermissionEx
             User="NETWORK SERVICE"
-            Domain="[%%COMPUTERNAME]"
             GenericAll="yes" />
         </CreateFolder>
       </Component>
 
       <!--
-        logs\ directory — created with write access for IIS / the extension.
+        logs\ directory.
+        Created with write permissions for IIS App Pool identity (web app logs)
+        and for the extension process (extension.log).
       -->
       <Component Id="CompLogsDir"
                  Directory="CONFIGLOGSFOLDER"
                  Guid="{A8B9C0D1-E2F3-4456-0123-789012345678}">
         <CreateFolder>
-          <util:PermissionEx xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+          <util:PermissionEx
             User="NETWORK SERVICE"
-            Domain="[%%COMPUTERNAME]"
             GenericAll="yes" />
         </CreateFolder>
       </Component>
 
       <!--
-        Template files — ALWAYS overwritten on upgrade so admins can see the
-        latest config schema.  These are reference copies only; the live files
-        are the NeverOverwrite ones above.
+        ConfigTemplate\ directory: reference copies of the latest config schema.
+        These ARE overwritten on upgrade so administrators always have the
+        current schema available, even if their live files are protected by
+        NeverOverwrite and contain older field values.
       -->
       <Component Id="CompConfigTemplates"
                  Directory="CONFIGTMPLFOLDER"
@@ -116,20 +103,6 @@
         <File Id="FileTmplLaserfiche"
               Name="laserfiche.config.json"
               Source="$(var.ConfigTemplateDir)\laserfiche.config.json" />
-      </Component>
-
-      <!--
-        appsettings.json in the web app folder — treated as a template reference.
-        The shipping appsettings.json contains only placeholder values (no credentials).
-        It is versioned with the app and SHOULD be updated on upgrade.
-        Credentials are stored in %ProgramData%\Dashboard\credentials\ via DPAPI.
-      -->
-      <Component Id="CompAppSettings"
-                 Directory="WEBAPPFOLDER"
-                 Guid="{C0D1E2F3-A4B5-4678-2345-901234567890}">
-        <File Id="FileAppSettings"
-              Name="appsettings.json"
-              Source="$(var.PublishDir)\appsettings.json" />
       </Component>
 
     </ComponentGroup>

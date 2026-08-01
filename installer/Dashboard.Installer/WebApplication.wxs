@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  WebApplication.wxs — Files and IIS configuration for the Dashboard web application.
+  WebApplication.wxs: IIS configuration for the Dashboard web application.
 
-  The web app files are harvested from the dotnet publish output staged at:
-    artifacts\staging\WebApp\
-  by build\publish.ps1 before the WiX build runs.
+  The web application FILES are NOT listed here.  They are harvested
+  automatically from the dotnet publish output by the HarvestDirectory item
+  in Dashboard.Installer.wixproj.  The staging directory
 
-  IIS configuration:
-    Application Pool : Dashboard (No Managed Code, Integrated pipeline)
+      artifacts\staging\WebApp\
+
+  is mapped to ComponentGroup "WebAppComponents" and placed in WEBAPPFOLDER.
+
+  This file defines only the IIS infrastructure components (App Pool, Web Site).
+
+  IIS configuration after install:
+    Application Pool : Dashboard  (No Managed Code, Integrated pipeline)
     Web Site         : Dashboard, port $(DashboardPort) (default 5000)
     Physical path    : [WEBAPPFOLDER]
 -->
@@ -18,27 +24,10 @@
 
   <Fragment>
 
-    <!-- ── Web application files ──────────────────────────────────────── -->
+    <!-- IIS: Application Pool -->
     <!--
-      All files from the dotnet publish output.
-      WiX v4 glob syntax: <Files Include="..."> inside a ComponentGroup
-      automatically generates one Component per file with Guid="*".
-
-      The publish output contains:
-        Dashboard.dll, Dashboard.runtimeconfig.json, web.config,
-        appsettings.json (template — NeverOverwrite handled in Configuration.wxs),
-        wwwroot\** (static assets, Chart.js, portal CSS, lf-webclient-button.js, etc.)
-    -->
-    <ComponentGroup Id="WebAppComponents" Directory="WEBAPPFOLDER">
-      <Files Include="$(var.PublishDir)\**\*.*"
-             ExcludeFiles="$(var.PublishDir)\appsettings*.json" />
-    </ComponentGroup>
-
-    <!-- ── IIS: Application Pool ─────────────────────────────────────── -->
-    <!--
-      No Managed Code pipeline mode is required for ASP.NET Core.
-      The ASP.NET Core Module (ANCM) handles all request processing.
       ManagedRuntimeVersion="" = No Managed Code.
+      Required for ASP.NET Core: the ANCM handles all request routing.
     -->
     <ComponentGroup Id="IisComponents" Directory="WEBAPPFOLDER">
 
@@ -52,17 +41,10 @@
       </Component>
 
       <!--
-        Web Site bound to port $(DashboardPort).
-        The web application is deployed as the root "/" of this site.
-
-        After installation, the Dashboard is accessible at:
-          http://<server>:$(DashboardPort)/
-
-        To change the port after installation: use IIS Manager or
-        run msiexec /i Dashboard-Setup.msi REINSTALL=ALL REINST
-        ALLEMODE=vomus DASHBOARD_PORT=<new-port>
-
-        Note: if port 80 is desired, set DashboardPort=80 at build time.
+        Web Site bound to port $(DashboardPort) (default 5000).
+        Dashboard is the root application of this site.
+        To use port 80 instead: rebuild the MSI with -p:DashboardPort=80.
+        After installation the port can also be changed via IIS Manager.
       -->
       <Component Id="CompIisWebSite" Guid="{C4D5E6F7-A8B9-4012-CDEF-345678901234}">
         <CreateFolder />
@@ -76,8 +58,7 @@
           <iis:WebApplication
             Id="DashboardWebApp"
             Name=""
-            WebAppPool="DashboardAppPool"
-            AllowUnsafeCertificateRevocationCheck="no" />
+            WebAppPool="DashboardAppPool" />
         </iis:WebSite>
       </Component>
 

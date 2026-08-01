@@ -38,3 +38,21 @@ Web Client button (`Deploy-WebClientButton.ps1`) is deployed separately from the
 
 ## Build platform note
 Desktop Extension and MSI build require Windows. The Linux CI job runs `dotnet publish` only (SkipMsi=true). A separate Windows build agent or developer machine produces the final MSI.
+
+## XML comments in WiX files
+Never use `--` anywhere inside XML comments (`<!-- ... -->`). The XML spec forbids the double-hyphen sequence inside comment bodies. All `--` in WiX wxs/wixproj comments must use single-dash notation. Also, `-->` inside a comment body closes the comment early.
+
+## PS1 encoding
+All PS1 files must use pure ASCII (no Unicode box-drawing, em-dash, arrows, etc.). Windows PowerShell 5.1 reads PS1 files as ANSI when there is no BOM; UTF-8 multibyte sequences corrupt string boundaries and produce "terminator expected" parser errors.
+
+## WiX v4 file harvesting
+Use HarvestDirectory in the wixproj, not `<Files Include="...">` inside wxs ComponentGroup elements. The `<Files>` glob is MSBuild syntax that belongs in the wixproj, not WiX source language. Each HarvestDirectory item needs ComponentGroupName, DirectoryRefId, and SuppressRootDirectory metadata.
+
+## WiX v4 custom action for installed EXE
+Use `<CustomAction Directory="..." ExeCommand="..." Execute="deferred" .../>` (Type 34). Then schedule in `<InstallExecuteSequence>` with `<Custom Action="..." After/Before="...">condition</Custom>`. Do NOT use `<util:ExecCmd>` (does not exist in WiX v4).
+
+## WiX v4 registry prerequisite check
+Use `<Property Id="..."><RegistrySearch .../></Property>` (built-in) rather than `<util:RegistrySearch Variable="...">` (wrong attribute name, element may not exist in util v4).
+
+## DefineConstants multiline
+Never use multiline XML element content for DefineConstants in a wixproj. Whitespace is included verbatim in the value. Use separate PropertyGroup assignments with `$(DefineConstants);key=value` concatenation.

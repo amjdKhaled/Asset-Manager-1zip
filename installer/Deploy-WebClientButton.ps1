@@ -8,7 +8,7 @@
 
       1. Laserfiche Browse.aspx is a vendor file. Editing it from an MSI risks
          corruption or unrecoverable state if WiX rolls back mid-install.
-      2. Laserfiche upgrades overwrite Browse.aspx — this script must be re-run
+      2. Laserfiche upgrades overwrite Browse.aspx -- this script must be re-run
          after each Laserfiche Web Client upgrade.
       3. Administrators may need to inspect or adjust the change before applying
          it to a production Laserfiche server.
@@ -16,7 +16,7 @@
     What this script does:
       1. Backs up Browse.aspx to Browse.aspx.bak-<timestamp>
       2. Copies lf-dashboard-button.js into assets\custom\
-      3. Adds ONE <script> tag to Browse.aspx (idempotent — never adds duplicates)
+      3. Adds ONE <script> tag to Browse.aspx (idempotent -- never adds duplicates)
       4. Verifies the result
 
     What this script does NOT do:
@@ -69,28 +69,28 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ── Constants ──────────────────────────────────────────────────────────────────
+# ---------- Constants --------------------------------------------------------
 
-$ScriptTagLine  = '<script src="assets/custom/lf-dashboard-button.js"></script>'
-$AnchorPattern  = 'browse-custom\.css'          # insert after this line
+$ScriptTagLine    = '<script src="assets/custom/lf-dashboard-button.js"></script>'
+$AnchorPattern    = 'browse-custom\.css'
 $ButtonScriptDest = Join-Path $LFWebPath "assets\custom\lf-dashboard-button.js"
-$BrowseAspx     = Join-Path $LFWebPath "Browse.aspx"
+$BrowseAspx       = Join-Path $LFWebPath "Browse.aspx"
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# ---------- Helpers ----------------------------------------------------------
 
 function Write-Step([string]$msg) { Write-Host "  $msg" -ForegroundColor Cyan }
 function Write-OK([string]$msg)   { Write-Host "  [OK] $msg" -ForegroundColor Green }
 function Write-Warn([string]$msg) { Write-Host "  [WARN] $msg" -ForegroundColor Yellow }
 function Write-Err([string]$msg)  { Write-Host "  [ERROR] $msg" -ForegroundColor Red }
 
-# ── Resolve source JS file ─────────────────────────────────────────────────────
+# ---------- Resolve source JS file ------------------------------------------
 
 if ([string]::IsNullOrWhiteSpace($DashboardScriptSource)) {
-    # Try: sibling of this script (MSI installs the script alongside Deploy-WebClientButton.ps1)
+    # Candidate 1: sibling of this script (MSI copies the script here)
     $candidate1 = Join-Path $PSScriptRoot "lf-dashboard-button.js"
-    # Try: standard MSI install location
+    # Candidate 2: standard MSI install location
     $candidate2 = "C:\Program Files\Dashboard\WebApp\wwwroot\js\lf-webclient-button.js"
-    # Try: development repo location (same structure as the git repository)
+    # Candidate 3: development repo location
     $candidate3 = Join-Path $PSScriptRoot "..\src\LFPortal.Web\wwwroot\js\lf-webclient-button.js"
 
     foreach ($c in @($candidate1, $candidate2, $candidate3)) {
@@ -109,11 +109,11 @@ if ([string]::IsNullOrWhiteSpace($DashboardScriptSource)) {
 }
 
 Write-Host ""
-Write-Host "  Dashboard — Laserfiche Web Client Button Deployment" -ForegroundColor White
-Write-Host "  ════════════════════════════════════════════════════" -ForegroundColor DarkGray
+Write-Host "  Dashboard - Laserfiche Web Client Button Deployment" -ForegroundColor White
+Write-Host "  ===================================================" -ForegroundColor DarkGray
 Write-Host ""
 
-# ── Check administrator rights ─────────────────────────────────────────────────
+# ---------- Check administrator rights --------------------------------------
 
 $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal   = New-Object Security.Principal.WindowsPrincipal($currentUser)
@@ -123,7 +123,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     exit 1
 }
 
-# ── Validate paths ─────────────────────────────────────────────────────────────
+# ---------- Validate paths --------------------------------------------------
 
 Write-Step "Validating paths..."
 
@@ -141,7 +141,7 @@ if (-not (Test-Path $DashboardScriptSource)) {
 Write-OK "Browse.aspx:     $BrowseAspx"
 Write-OK "Button script:   $DashboardScriptSource"
 
-# ── Rollback mode ──────────────────────────────────────────────────────────────
+# ---------- Rollback mode ---------------------------------------------------
 
 if ($Rollback) {
     Write-Step "Rolling back Browse.aspx from most recent backup..."
@@ -167,7 +167,7 @@ if ($Rollback) {
     exit 0
 }
 
-# ── Backup Browse.aspx ─────────────────────────────────────────────────────────
+# ---------- Backup Browse.aspx ----------------------------------------------
 
 Write-Step "Backing up Browse.aspx..."
 
@@ -180,13 +180,13 @@ if ($PSCmdlet.ShouldProcess($backupPath, "Create backup")) {
 
 Write-OK "Backup: $backupPath"
 
-# ── Copy Dashboard button script ───────────────────────────────────────────────
+# ---------- Copy Dashboard button script ------------------------------------
 
 Write-Step "Deploying Dashboard button script..."
 
 $customDir = Split-Path $ButtonScriptDest -Parent
 if (-not (Test-Path $customDir)) {
-    Write-Warn "assets\custom\ directory not found — creating it."
+    Write-Warn "assets\custom\ directory not found -- creating it."
     New-Item -ItemType Directory -Path $customDir -Force | Out-Null
 }
 
@@ -196,7 +196,7 @@ if ($PSCmdlet.ShouldProcess($ButtonScriptDest, "Copy button script")) {
 
 Write-OK "Script deployed to: $ButtonScriptDest"
 
-# ── Check DASHBOARD_BASE_URL in the script ──────────────────────────────────────
+# ---------- Check DASHBOARD_BASE_URL in the script --------------------------
 
 $scriptContent = Get-Content $ButtonScriptDest -Raw
 if ($scriptContent -match "var DASHBOARD_BASE_URL\s*=\s*'http://localhost:5000'") {
@@ -206,7 +206,7 @@ if ($scriptContent -match "var DASHBOARD_BASE_URL\s*=\s*'http://localhost:5000'"
     Write-Warn "network-accessible URL of your Dashboard server before use."
 }
 
-# ── Add script tag to Browse.aspx ──────────────────────────────────────────────
+# ---------- Add script tag to Browse.aspx -----------------------------------
 
 Write-Step "Checking Browse.aspx for existing Dashboard script tag..."
 
@@ -217,7 +217,7 @@ if ($existingTags.Count -gt 0) {
 else {
     Write-Step "Adding <script> tag to Browse.aspx..."
 
-    $lines   = Get-Content $BrowseAspx -Encoding UTF8
+    $lines    = Get-Content $BrowseAspx -Encoding UTF8
     $newLines = [System.Collections.Generic.List[string]]::new()
     $inserted = $false
 
@@ -226,8 +226,8 @@ else {
         # Insert the Dashboard script tag immediately after the browse-custom.css line.
         if (-not $inserted -and $line -match $AnchorPattern) {
             # Preserve the indentation of the anchor line.
-            $indent = ($line -replace '^\s*', '')
-            $indent = $line.Substring(0, $line.Length - $indent.Length)
+            $trimmed = $line.TrimStart()
+            $indent  = $line.Substring(0, $line.Length - $trimmed.Length)
             $newLines.Add("$indent$ScriptTagLine")
             $inserted = $true
         }
@@ -248,13 +248,16 @@ else {
     }
 
     if ($PSCmdlet.ShouldProcess($BrowseAspx, "Insert Dashboard script tag")) {
-        [System.IO.File]::WriteAllLines($BrowseAspx, $newLines, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllLines(
+            $BrowseAspx,
+            $newLines,
+            [System.Text.UTF8Encoding]::new($false))
     }
 
     Write-OK "Script tag inserted."
 }
 
-# ── Verify ─────────────────────────────────────────────────────────────────────
+# ---------- Verify ----------------------------------------------------------
 
 Write-Step "Verifying result..."
 
@@ -272,10 +275,10 @@ else {
     Write-Warn "  Script tag count:    $verifyTag (expected 1)"
 }
 
-# ── Summary ────────────────────────────────────────────────────────────────────
+# ---------- Summary ---------------------------------------------------------
 
 Write-Host ""
-Write-Host "  ════════════════════════════════════════════════════" -ForegroundColor DarkGray
+Write-Host "  ===================================================" -ForegroundColor DarkGray
 Write-OK "Web Client button deployment complete."
 Write-Host ""
 Write-Host "  NEXT STEPS:" -ForegroundColor White

@@ -1,0 +1,571 @@
+We need to fix and fully validate Phase 6 of this project.
+
+IMPORTANT:
+Do not only patch the visible PowerShell syntax error.
+Perform a complete audit of the Phase 6 build/deployment pipeline and fix every issue you can find before reporting completion.
+
+============================================================
+CURRENT WINDOWS FAILURE
+============================================================
+
+On the actual Windows development machine, from the repository root:
+
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip
+
+I ran:
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+
+Then:
+
+& ".\build\publish.ps1"
+
+PowerShell returned:
+
+At C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\build\publish.ps1:281 char:58
++ ... ost "    .\build\publish.ps1 -Version $Version" -ForegroundColor Gray
++                                                   ~~~~~~~~~~~~~~~~~~~~~~~
+The string is missing the terminator: ".
+    + CategoryInfo          : ParserError: (:) [], ParseException
+    + FullyQualifiedErrorId : TerminatorExpectedAtEndOfString
+
+Running with the absolute path produces exactly the same error:
+
+& "C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\build\publish.ps1"
+
+Therefore this is NOT an ExecutionPolicy issue and NOT a path issue.
+
+The PowerShell file itself currently contains a parser/syntax error.
+
+============================================================
+TASK 1 — FIX publish.ps1 CORRECTLY
+============================================================
+
+Open and inspect the ENTIRE:
+
+build/publish.ps1
+
+Do not assume line 281 itself is necessarily the real source of the error.
+
+PowerShell frequently reports an unterminated string at a later line when the actual problem is earlier in the script.
+
+Inspect the complete script for:
+
+- unmatched "
+- unmatched '
+- malformed here-strings
+- @" / "@
+- @' / '@
+- malformed backticks
+- dangling escape characters
+- malformed interpolated strings
+- malformed Write-Host statements
+- unbalanced:
+  ()
+  {}
+  []
+- invalid PowerShell syntax
+- Unicode/smart quotes accidentally inserted instead of ASCII quotes
+- incorrect multiline commands
+- invalid escaping
+- malformed paths
+- incorrect variable interpolation
+- malformed command invocation
+- broken try/catch/finally blocks
+
+Fix the ROOT CAUSE, not merely the line PowerShell reports.
+
+Do not rewrite the entire build system unnecessarily.
+
+============================================================
+TASK 2 — PARSE VALIDATE ALL POWERSHELL FILES
+============================================================
+
+After fixing publish.ps1, perform PowerShell parser validation on EVERY .ps1 file in the repository.
+
+Use PowerShell's parser API where available, conceptually equivalent to:
+
+[System.Management.Automation.Language.Parser]::ParseFile(...)
+
+Collect parser errors for every script.
+
+At minimum validate:
+
+build/publish.ps1
+
+installer/Deploy-WebClientButton.ps1
+
+and every other *.ps1 file in the repository.
+
+Required result:
+
+0 PowerShell parser errors.
+
+Do not report the task complete if any PowerShell script still has a parser error.
+
+============================================================
+TASK 3 — AUDIT THE COMPLETE PHASE 6 PIPELINE
+============================================================
+
+Review all Phase 6 files together.
+
+At minimum inspect:
+
+build/publish.ps1
+
+installer/Dashboard.Installer/Dashboard.Installer.wixproj
+installer/Dashboard.Installer/Variables.wxi
+installer/Dashboard.Installer/Product.wxs
+installer/Dashboard.Installer/WebApplication.wxs
+installer/Dashboard.Installer/DesktopExtension.wxs
+installer/Dashboard.Installer/Configuration.wxs
+installer/Dashboard.Installer/Shortcuts.wxs
+installer/Dashboard.Installer/License.rtf
+
+installer/Deploy-WebClientButton.ps1
+
+config/templates/extension.config.json
+config/templates/laserfiche.config.json
+
+docs/InstallationGuide.md
+docs/UpgradeGuide.md
+docs/ReleaseNotes.md
+
+Also inspect the projects that publish.ps1 builds:
+
+LFPortal.Web
+LFPortal.Application
+LFPortal.Infrastructure
+LFPortal.Domain
+Dashboard.DesktopExtension
+
+Do not trust the previous Phase 6 implementation report blindly.
+Verify the files as they exist NOW.
+
+============================================================
+TASK 4 — VERIFY PATHS AND PROJECT REFERENCES
+============================================================
+
+Check every path used by publish.ps1.
+
+Confirm that every referenced:
+
+.csproj
+.wixproj
+directory
+config template
+publish directory
+artifact directory
+Desktop Extension output
+Web publish output
+
+actually corresponds to the current repository structure.
+
+The repository root on Windows is:
+
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip
+
+The script must use repository-relative paths and must NOT hard-code my personal Windows path.
+
+It should work when invoked from the repository root as:
+
+.\build\publish.ps1
+
+and preferably also when invoked from another current working directory.
+
+Resolve paths based on $PSScriptRoot / repository root rather than assuming the current directory.
+
+============================================================
+TASK 5 — VERIFY WINDOWS BUILD COMMANDS
+============================================================
+
+Audit the exact commands publish.ps1 executes.
+
+The Desktop Extension has already been successfully compiled on this Windows machine before.
+
+Its project is:
+
+src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj
+
+Target framework:
+
+net48
+
+Architecture:
+
+x64
+
+Do NOT reintroduce the previous broken:
+
+net48/win-x64
+
+RuntimeIdentifier configuration.
+
+The intended model is:
+
+TargetFramework = net48
+PlatformTarget = x64
+Prefer32Bit = false
+RuntimeIdentifier = empty
+
+Do not add win-x64 RuntimeIdentifier unless there is an independently proven requirement.
+
+The WebView2 popup currently works.
+
+Do not break it.
+
+============================================================
+TASK 6 — VERIFY DESKTOP EXTENSION BEHAVIOR
+============================================================
+
+Do not regress the completed Desktop Client integration.
+
+The Desktop Extension currently:
+
+- adds a Dashboard toolbar button
+- receives the current Laserfiche repository
+- launches Dashboard in a native WebView2 popup
+- passes the repository dynamically
+- uses the Dashboard icon
+- shows the Login page first
+- allows blank passwords
+- then opens Dashboard
+- isolates sessions between popup windows
+
+Do not modify this working behavior unless absolutely required for packaging.
+
+The installer should deploy/register it correctly.
+
+============================================================
+TASK 7 — VERIFY WEB CLIENT INTEGRATION IS NOT BROKEN
+============================================================
+
+The Laserfiche Web Client integration is also working.
+
+Current design:
+
+Browse.aspx loads:
+
+assets/custom/lf-dashboard-button.js
+
+The source file is:
+
+src/LFPortal.Web/wwwroot/js/lf-webclient-button.js
+
+The deployed script adds a Dashboard button to Laserfiche Web Client.
+
+Repository detection uses:
+
+#WebAccessRepositoryName
+
+The generated URL format is:
+
+http://localhost:5000/?repository=<RepositoryName>&source=webclient
+
+The previous double-tab problem was fixed.
+
+IMPORTANT:
+
+Do NOT reintroduce window.open + fallback behavior.
+
+There must be only ONE navigation per physical Dashboard click.
+
+The Web Client customization is intentionally deployed separately using:
+
+installer/Deploy-WebClientButton.ps1
+
+because Laserfiche upgrades can overwrite Browse.aspx.
+
+The MSI should not blindly overwrite Laserfiche vendor files.
+
+============================================================
+TASK 8 — AUDIT WiX v4 FILES
+============================================================
+
+Inspect all WiX source carefully for actual WiX v4 compatibility.
+
+Do not assume WiX syntax is valid simply because XML parses.
+
+Verify:
+
+- namespaces
+- Package structure
+- MajorUpgrade
+- UpgradeCode
+- Product/version variables
+- Component GUID strategy
+- directory definitions
+- file harvesting strategy
+- IIS extension syntax
+- Util extension syntax
+- custom actions
+- conditions
+- shortcuts
+- ProgramData directories
+- NeverOverwrite behavior
+- uninstall behavior
+- upgrade behavior
+- ASP.NET Core Hosting Bundle prerequisite check
+
+Make sure syntax is WiX v4 syntax, not accidentally mixed WiX v3 syntax.
+
+The UpgradeCode must remain stable across upgrades.
+
+Do not generate a new UpgradeCode if one is already established.
+
+============================================================
+TASK 9 — CONFIGURATION PRESERVATION
+============================================================
+
+Verify that installation and upgrade behavior preserves:
+
+%ProgramData%\Dashboard\
+
+especially:
+
+laserfiche.config.json
+extension.config.json
+credentials\
+
+Requirements:
+
+Fresh install:
+create defaults if they do not exist.
+
+Upgrade:
+do NOT overwrite administrator configuration.
+
+Uninstall:
+do NOT delete user configuration/credentials unless explicitly intended by the existing design.
+
+No plaintext credentials should be generated into installer files.
+
+============================================================
+TASK 10 — PUBLISH SCRIPT ERROR HANDLING
+============================================================
+
+publish.ps1 must fail loudly when a required build step fails.
+
+Audit:
+
+$LASTEXITCODE
+try/catch
+ErrorActionPreference
+
+Use robust behavior such as:
+
+$ErrorActionPreference = 'Stop'
+
+where appropriate.
+
+If:
+
+dotnet restore
+dotnet build
+dotnet publish
+WiX build
+Desktop Extension build
+
+fails, the release script must NOT continue and print a successful release message.
+
+Do not hide important build failures with:
+
+-ErrorAction SilentlyContinue
+
+or equivalent unless that operation is genuinely optional.
+
+============================================================
+TASK 11 — WINDOWS PREREQUISITES
+============================================================
+
+Audit whether publish.ps1 correctly detects required Windows tooling.
+
+At minimum consider:
+
+.NET SDK
+WiX v4
+Laserfiche SDK dependency required by Dashboard.DesktopExtension
+WebView2 packaging/runtime assumptions
+
+If something is missing, provide a clear actionable error.
+
+Do not silently skip MSI generation on Windows when the user requested a release package.
+
+============================================================
+TASK 12 — ARTIFACT OUTPUT
+============================================================
+
+After a successful run, the script should produce a predictable release structure under:
+
+artifacts\
+
+Audit exactly what should be generated.
+
+The final output should make it obvious where the MSI is.
+
+For example, the user should be able to run:
+
+Get-ChildItem ".\artifacts" -Recurse -Filter "*.msi"
+
+and find the installer.
+
+Avoid stale artifacts from previous builds being mistaken for newly generated files.
+
+Clean/recreate the appropriate release artifact directory before packaging.
+
+Do NOT delete source files or user configuration.
+
+============================================================
+TASK 13 — VALIDATE JSON/XML/JS
+============================================================
+
+Validate:
+
+config/templates/*.json
+
+as actual JSON.
+
+Validate WiX XML structurally.
+
+Validate:
+
+src/LFPortal.Web/wwwroot/js/lf-webclient-button.js
+
+with:
+
+node --check
+
+if Node is available.
+
+Also statically confirm the Web Client script still has only one navigation path per Dashboard click.
+
+============================================================
+TASK 14 — BUILD VALIDATION
+============================================================
+
+Run every validation that the current environment genuinely supports.
+
+At minimum:
+
+dotnet restore
+dotnet build --configuration Release
+
+for the main solution/projects.
+
+If running on Windows and the Laserfiche SDK is available, also build:
+
+src\Dashboard.DesktopExtension\Dashboard.DesktopExtension.csproj
+
+Required target:
+
+0 errors
+0 warnings
+
+If WiX v4 is available, build the installer too.
+
+If your environment cannot execute a Windows-only step, DO NOT claim that step passed.
+
+Instead:
+
+1. clearly state that it was statically validated,
+2. explain what could not be executed,
+3. provide the exact Windows command I need to run.
+
+============================================================
+TASK 15 — TEST publish.ps1 ITSELF
+============================================================
+
+This is critical.
+
+Do not stop after fixing parser syntax.
+
+Actually execute publish.ps1 if your environment supports it.
+
+We need to discover runtime errors such as:
+
+- wrong paths
+- missing directories
+- wrong project names
+- wrong WiX command
+- bad parameters
+- missing tools
+- incorrect Copy-Item paths
+- output directory assumptions
+- bad quoting
+
+before I run it again on Windows.
+
+If the complete script cannot run in your environment because of Windows-specific dependencies, execute as much of the pipeline as possible and distinguish:
+
+PARSER VALIDATED
+STATICALLY VALIDATED
+EXECUTED SUCCESSFULLY
+NOT EXECUTABLE IN CURRENT ENVIRONMENT
+
+Do not blur these categories.
+
+============================================================
+TASK 16 — DOCUMENT THE EXACT WINDOWS COMMAND
+============================================================
+
+After all fixes, the intended Windows command must remain simple:
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+
+& ".\build\publish.ps1"
+
+If Version is supported, also verify:
+
+& ".\build\publish.ps1" -Version "1.0.0"
+
+Do not require me to manually run 10 different build commands unless the script itself cannot safely automate them.
+
+============================================================
+DO NOT REGRESS PHASES 0–5
+============================================================
+
+The existing application functionality is working.
+
+Do NOT redesign:
+
+Dashboard
+Archive
+Settings
+repository session handling
+Login
+Desktop Client repository detection
+WebView2 popup
+Web Client button
+Web Client repository detection
+blank-password login support
+
+This task is Phase 6 build/deployment stabilization.
+
+Keep changes narrowly scoped.
+
+============================================================
+FINAL REPORT REQUIRED
+============================================================
+
+When finished, report:
+
+1. Exact root cause of the PowerShell parser error.
+2. Exact file and line(s) that were wrong.
+3. Every file modified.
+4. Whether every .ps1 file passes PowerShell parser validation.
+5. Main .NET Release build result.
+6. Desktop Extension Release build result.
+7. WiX/MSI build result.
+8. JSON validation result.
+9. JavaScript syntax result.
+10. Whether publish.ps1 was actually executed.
+11. What parts were only statically validated.
+12. Exact artifacts produced.
+13. Exact MSI path, if successfully generated.
+14. Any prerequisites I still need on Windows.
+15. Exact command I should run next on my Windows machine.
+
+Do not say "Phase 6 complete" unless the checks genuinely support that statement.
+
+Most importantly:
+Fix ALL issues you discover in the Phase 6 release pipeline, not only the current line-281 parser error.
