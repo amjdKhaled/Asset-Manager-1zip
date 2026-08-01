@@ -129,22 +129,24 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken).ConfigureAwait(false);
         var skip = (page - 1) * pageSize;
         // Use the Swagger-documented OData-typed folder-children path.
-        var baseUrl = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.FolderChildren);
-        var url = $"{baseUrl}?$top={pageSize}&$skip={skip}&$count=true&orderby=name asc";
+        // No OData query parameters — this server returns HTTP 400 for $top/$skip/$count/$select
+        // on the folder-children endpoint. Fetch all children and slice in memory.
+        var url = _adapter.BuildFolderChildrenUrl(repo.RepositoryId, entryId);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
         using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
         await EnsureSuccessAsync(response, url, cancellationToken).ConfigureAwait(false);
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        var result = JsonSerializer.Deserialize<ODataCountList<EntryApiResource>>(body, JsonOptions.Default);
+        var allEntries = ParseEntryList(body);
+        var totalCount = allEntries.Count;
 
-        var items = result?.Value.Select(MapEntry).ToList() ?? [];
-        var totalCount = result?.Count ?? items.Count;
+        // Server does not support $top/$skip — slice in memory.
+        var page_items = allEntries.Skip(skip).Take(pageSize).ToList();
 
         return new PagedResult<LFEntry>
         {
-            Items      = items.AsReadOnly(),
+            Items      = page_items.AsReadOnly(),
             TotalCount = totalCount,
             PageNumber = page,
             PageSize   = pageSize

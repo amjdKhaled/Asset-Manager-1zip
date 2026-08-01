@@ -11,3 +11,4 @@
 - [LFPortal v1 repository response](lfportal-v1-repository-response.md) — GET /Repositories returns a root JSON array with repoId, repoName, and webclientUrl.
 - [LFPortal search endpoints](lfportal-search-endpoints.md) — Advanced search is /Searches (v1), NOT /Entries/Search (v2-only, returns 405); SimpleSearches returns OData inline, no polling.
 - [LFPortal dashboard data sources](lfportal-dashboard-sources.md) — Dashboard uses recursive folder scan (not search expressions) + TemplateDefinitions + in-memory audit log; no external DB needed.
+- [LFPortal folder-children OData params](lfportal-folder-children-no-odata.md) — This server returns HTTP 400 for any OData param ($top/$skip/$count/$select) on the Folder/children endpoint; use bare URL only, paginate in memory.

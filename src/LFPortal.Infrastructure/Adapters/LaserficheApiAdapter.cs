@@ -106,8 +106,8 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
     /// No <c>$select</c> — let the server return all available fields to avoid
     /// HTTP 400 from field names that may not exist on a particular installation.
     /// </remarks>
-    public string BuildFolderChildrenUrl(string repositoryId, int entryId, int top = 1000) =>
-        $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Folder/children?$top={top}";
+    public string BuildFolderChildrenUrl(string repositoryId, int entryId) =>
+        $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Folder/children";
 
     /// <inheritdoc />
     public string BuildTemplateDefinitionsUrl(string repositoryId) =>

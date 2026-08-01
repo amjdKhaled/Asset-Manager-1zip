@@ -75,11 +75,12 @@ public interface ILaserficheApiAdapter
     string BuildTokenUrlFor(string serverUrl, string repositoryId);
 
     /// <summary>
-    /// Builds the URL for listing ALL direct children of a folder entry using the
+    /// Builds the URL for listing direct children of a folder entry using the
     /// Laserfiche v1 OData-typed path:
-    /// <c>GET /Repositories/{repoId}/Entries/{entryId}/Laserfiche.Repository.Folder/children?$top={top}</c>.
+    /// <c>GET /Repositories/{repoId}/Entries/{entryId}/Laserfiche.Repository.Folder/children</c>.
+    /// No query parameters — this installation rejects $top, $skip, $count, and $select with HTTP 400.
     /// </summary>
-    string BuildFolderChildrenUrl(string repositoryId, int entryId, int top = 1000);
+    string BuildFolderChildrenUrl(string repositoryId, int entryId);
 
     /// <summary>
     /// Builds the URL for the template definitions endpoint:
