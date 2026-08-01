@@ -582,6 +582,28 @@ else {
     else {
         Write-Warn "Dashboard.BA output not found at: $baOut"
     }
+
+    # Post-staging guard: WixToolset.Mba.Core.dll must be present in the BA
+    # staging folder before the Bundle build (Step 9) references it via
+    # $(var.MbaCoreAssembly).  If it is absent the Bundle linker fails with an
+    # opaque "file not found" error; catch it here with a clear message instead.
+    $mbaCoreStaged = Join-Path $baStaging "WixToolset.Mba.Core.dll"
+    if (-not (Test-Path $mbaCoreStaged)) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] Required BA staging file is missing:" -ForegroundColor Red
+        Write-Host ("    MISSING: {0}" -f $mbaCoreStaged) -ForegroundColor Red
+        Write-Host "" -ForegroundColor Red
+        Write-Host "  WixToolset.Mba.Core.dll must be produced by the Dashboard.BA" -ForegroundColor Red
+        Write-Host "  build and copied to artifacts\staging\BA\ before the Bundle" -ForegroundColor Red
+        Write-Host "  (Step 9) can link.  Possible causes:" -ForegroundColor Red
+        Write-Host "    - NuGet restore did not produce the package" -ForegroundColor Red
+        Write-Host "    - The BA build failed silently (check output above)" -ForegroundColor Red
+        Write-Host "    - The BA output path has changed from: $baOut" -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "WixToolset.Mba.Core.dll confirmed present in BA staging folder."
 }
 
 # =============================================================================
