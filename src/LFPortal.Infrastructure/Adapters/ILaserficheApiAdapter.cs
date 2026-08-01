@@ -89,6 +89,13 @@ public interface ILaserficheApiAdapter
     string BuildTemplateDefinitionsUrl(string repositoryId);
 
     /// <summary>
+    /// Builds the URL for the repository-wide field definitions endpoint:
+    /// <c>GET /Repositories/{repoId}/FieldDefinitions</c>.
+    /// Confirmed available on this installation.
+    /// </summary>
+    string BuildFieldDefinitionsUrl(string repositoryId);
+
+    /// <summary>
     /// Builds the URL for the ByPath entry lookup endpoint:
     /// <c>GET /Repositories/{repoId}/Entries/ByPath?fullPath={encodedPath}</c>.
     /// Pass <c>%5C</c> (backslash) as the path to resolve the repository root.

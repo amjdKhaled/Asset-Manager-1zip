@@ -5,6 +5,13 @@ namespace LFPortal.Domain.Entities;
 /// </summary>
 public sealed record LFFieldValue
 {
+    /// <summary>
+    /// Numeric ID of the field definition in the Laserfiche repository.
+    /// Used to join with repository-wide FieldDefinitions when the entry
+    /// fields response does not include a human-readable name.
+    /// </summary>
+    public int FieldDefinitionId { get; init; }
+
     /// <summary>Name of the metadata field as defined in the Laserfiche template.</summary>
     public string FieldName { get; init; } = string.Empty;
 

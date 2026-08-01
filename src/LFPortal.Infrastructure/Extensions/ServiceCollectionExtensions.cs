@@ -65,12 +65,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISearchAuditLog, InMemorySearchAuditLog>();
 
         // ── Domain services — scoped (HttpClient usage is per-request) ─────────
-        services.AddScoped<ILaserficheRepositoryService, LaserficheRepositoryService>();
-        services.AddScoped<ILaserficheEntryService,      LaserficheEntryService>();
-        services.AddScoped<ILaserficheSearchService,     LaserficheSearchService>();
-        services.AddScoped<ILaserficheDocumentService,   LaserficheDocumentService>();
-        services.AddScoped<ILaserficheTemplateService,   LaserficheTemplateService>();
-        services.AddScoped<ILaserficheDashboardService,  LaserficheDashboardService>();
+        services.AddScoped<ILaserficheRepositoryService,       LaserficheRepositoryService>();
+        services.AddScoped<ILaserficheEntryService,            LaserficheEntryService>();
+        services.AddScoped<ILaserficheFieldDefinitionService,  LaserficheFieldDefinitionService>();
+        services.AddScoped<ILaserficheSearchService,           LaserficheSearchService>();
+        services.AddScoped<ILaserficheDocumentService,         LaserficheDocumentService>();
+        services.AddScoped<ILaserficheTemplateService,         LaserficheTemplateService>();
+        services.AddScoped<ILaserficheDashboardService,        LaserficheDashboardService>();
 
         // ── Health checks ──────────────────────────────────────────────────────
         services.AddHealthChecks()

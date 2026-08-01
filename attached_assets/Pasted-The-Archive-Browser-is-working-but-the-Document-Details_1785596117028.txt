@@ -1,0 +1,302 @@
+The Archive Browser is working, but the Document Details section is not correctly showing the Laserfiche metadata fields.
+
+I confirmed from my Laserfiche Repository API Swagger that these endpoints are available:
+
+GET /v1/Repositories/{repoId}/FieldDefinitions
+
+Description:
+Returns the paged listing of the field definitions available in a repository.
+
+Also available:
+
+GET /v1/Repositories/{repoId}/FieldDefinitions/{fieldDefinitionId}
+
+Description:
+Returns a single field definition object.
+
+==================================================
+FIX DOCUMENT METADATA / FIELD DISPLAY
+==================================================
+
+Use the Laserfiche FieldDefinitions API to resolve the repository field definitions correctly.
+
+Repository:
+
+{repoId} = the currently configured repository.
+
+DO NOT hardcode the repository name.
+
+Use:
+
+GET /v1/Repositories/{repoId}/FieldDefinitions
+
+to retrieve the available field definitions.
+
+This should provide the field metadata such as:
+
+- Field Definition ID
+- Field Name
+- Field Type
+- Other available field definition properties
+
+Then use those definitions when rendering the metadata of the selected document.
+
+==================================================
+IMPORTANT DISTINCTION
+==================================================
+
+FieldDefinitions tells us WHAT fields exist.
+
+It does NOT necessarily tell us the VALUE assigned to a specific document.
+
+Therefore inspect the existing LaserficheEntryService.
+
+We previously identified an existing implementation for:
+
+GET /v1/Repositories/{repoId}/Entries/{entryId}/fields?formatValue=false
+
+If that endpoint exists in the current Swagger/API and works, use it to retrieve the ACTUAL field values assigned to the selected document.
+
+The correct data flow should therefore be:
+
+Selected Document
+        |
+        v
+GET /Entries/{entryId}
+        |
+        +---- Basic document information
+        |
+        v
+GET /Entries/{entryId}/fields?formatValue=false
+        |
+        +---- Actual metadata values
+        |
+        v
+GET /FieldDefinitions
+        |
+        +---- Field definitions / names / types
+        |
+        v
+Combine the results
+        |
+        v
+Display Document Metadata
+
+==================================================
+EXPECTED RESULT
+==================================================
+
+When I click a document in Archive, I want Document Details to show something like:
+
+DOCUMENT INFORMATION
+
+Name:
+SRA - TRA - 01 -010101 - 100186 - 19-07-2026
+
+Entry ID:
+123
+
+Type:
+Document
+
+Template:
+نموذج تدريب موظف (اصفر)
+
+Folder:
+\الوارد
+
+Created:
+...
+
+Modified:
+...
+
+Created By:
+ADMIN
+
+
+METADATA FIELDS
+
+Field Name                 Value
+---------------------------------------------
+First Name                 Ahmed
+Last Name                  Ali
+Department                 HR
+Position                   Employee
+Supervisor                 Khalid
+
+The field names and values must come from Laserfiche.
+
+DO NOT hardcode field names.
+
+==================================================
+ONLY SHOW RELEVANT DOCUMENT FIELDS
+==================================================
+
+Do NOT simply display every FieldDefinition in the repository as though
+it belongs to the selected document.
+
+FieldDefinitions is repository-wide.
+
+Only display fields that are actually associated with / returned for
+the selected document.
+
+Use FieldDefinitions only to resolve additional information when needed.
+
+For example:
+
+Document fields response:
+fieldDefinitionId = 17
+value = "Ahmed"
+
+FieldDefinitions response:
+id = 17
+name = "First Name"
+
+Result:
+
+First Name     Ahmed
+
+==================================================
+TEMPLATE FIELDS
+==================================================
+
+If the selected document has a template, display its assigned fields.
+
+Do not confuse:
+
+Template Name
+Field Definition
+Field Value
+
+These are different concepts.
+
+The UI should preferably show:
+
+Template
+--------
+نموذج تدريب موظف (اصفر)
+
+Metadata Fields
+--------------------------------
+First Name       Ahmed
+Last Name        Ali
+Department       HR
+Position         Employee
+Supervisor       Khalid
+
+==================================================
+FIELD DEFINITIONS SERVICE
+==================================================
+
+Check whether a FieldDefinition service already exists.
+
+If not, create something clean such as:
+
+ILaserficheFieldDefinitionService
+
+LaserficheFieldDefinitionService
+
+with a method similar to:
+
+GetFieldDefinitionsAsync(...)
+
+Reuse:
+- IRepositoryContext
+- ICredentialProvider
+- LaserficheApiAdapter
+
+Do NOT put HttpClient/API logic directly in ArchiveController.
+
+Maintain:
+
+ArchiveController
+       ↓
+Application Service Interface
+       ↓
+Infrastructure Service
+       ↓
+Laserfiche Repository API
+
+==================================================
+DO NOT GUESS THE ENTRY FIELD API
+==================================================
+
+The FieldDefinitions endpoints are CONFIRMED:
+
+GET /v1/Repositories/{repoId}/FieldDefinitions
+
+GET /v1/Repositories/{repoId}/FieldDefinitions/{fieldDefinitionId}
+
+For actual document field VALUES, inspect Swagger before changing the
+implementation.
+
+If:
+
+GET /v1/Repositories/{repoId}/Entries/{entryId}/fields
+
+is available in Swagger, use it.
+
+If it is NOT available or the response format does not match the current
+parser:
+
+STOP.
+
+Do not try random endpoints.
+
+Tell me exactly:
+
+1. Which endpoint you need for retrieving field values from an Entry.
+2. What endpoint the current code is calling.
+3. HTTP status returned.
+4. Raw response body.
+5. Which Swagger section you need me to provide.
+
+I will provide the correct API.
+
+==================================================
+DEBUGGING
+==================================================
+
+During development, log:
+
+Selected Entry ID
+Template Name
+Number of document fields returned
+Number of FieldDefinitions returned
+
+For example:
+
+Archive metadata:
+EntryId=123
+Template="Employee"
+EntryFields=5
+FieldDefinitions=20
+
+If EntryFields=0 but FieldDefinitions=20, DO NOT show all 20 definitions.
+
+That means we successfully retrieved the definitions but still need to
+fix retrieval of the document's actual field values.
+
+==================================================
+FINAL VERIFICATION
+==================================================
+
+Test using a document that visibly has metadata in the Laserfiche Client.
+
+Verify:
+
+1. Document Details opens.
+2. Correct Template Name appears.
+3. Metadata fields appear.
+4. Field names match Laserfiche.
+5. Field values match Laserfiche.
+6. Fields belonging to other templates/documents do not appear.
+7. Empty field values are handled cleanly.
+8. Arabic field names and Arabic values render correctly.
+9. Dashboard remains untouched.
+10. Archive folder navigation remains working.
+
+Do not modify the approved Dashboard.
+
+Implement this metadata fix only.

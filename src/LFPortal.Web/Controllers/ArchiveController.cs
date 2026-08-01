@@ -12,18 +12,21 @@ namespace LFPortal.Web.Controllers;
 /// </summary>
 public sealed class ArchiveController : Controller
 {
-    private readonly ILaserficheEntryService _entryService;
-    private readonly ILaserficheApiAdapter   _adapter;
-    private readonly ILogger<ArchiveController> _logger;
+    private readonly ILaserficheEntryService            _entryService;
+    private readonly ILaserficheFieldDefinitionService  _fieldDefService;
+    private readonly ILaserficheApiAdapter              _adapter;
+    private readonly ILogger<ArchiveController>         _logger;
 
     public ArchiveController(
-        ILaserficheEntryService     entryService,
-        ILaserficheApiAdapter       adapter,
-        ILogger<ArchiveController>  logger)
+        ILaserficheEntryService           entryService,
+        ILaserficheFieldDefinitionService fieldDefService,
+        ILaserficheApiAdapter             adapter,
+        ILogger<ArchiveController>        logger)
     {
-        _entryService = entryService;
-        _adapter      = adapter;
-        _logger       = logger;
+        _entryService    = entryService;
+        _fieldDefService = fieldDefService;
+        _adapter         = adapter;
+        _logger          = logger;
     }
 
     // GET /Archive          → root
@@ -120,7 +123,7 @@ public sealed class ArchiveController : Controller
             return PartialView("_EntryDetail",
                 ArchiveDetailViewModel.Error(entryId, "Invalid entry ID."));
 
-        // Load the entry
+        // ── 1. Load the entry ────────────────────────────────────────────────
         LFEntry entry;
         try
         {
@@ -134,36 +137,104 @@ public sealed class ArchiveController : Controller
                 ArchiveDetailViewModel.Error(entryId, $"Could not load entry: {ex.Message}"));
         }
 
-        // Attempt metadata fields — only for documents with a template applied.
-        // Endpoint: GET /Repositories/{repo}/Entries/{id}/fields
-        // This endpoint has not been tested on the live server; errors are caught and reported.
-        IReadOnlyList<LFFieldValue> fields = [];
+        _logger.LogInformation(
+            "Archive metadata: EntryId={EntryId} Template=\"{Template}\" Type={Type}",
+            entry.Id, entry.TemplateName ?? "(none)", entry.EntryType);
+
+        // ── 2. Load entry field values ───────────────────────────────────────
+        // Only attempt for documents that have a template applied.
+        IReadOnlyList<LFFieldValue> rawFields = [];
         string? fieldsError = null;
 
-        if (entry.EntryType == LFEntryType.Document &&
-            !string.IsNullOrWhiteSpace(entry.TemplateName))
+        if (!string.IsNullOrWhiteSpace(entry.TemplateName))
         {
             try
             {
-                fields = await _entryService.GetEntryFieldsAsync(entryId, cancellationToken);
+                rawFields = await _entryService.GetEntryFieldsAsync(entryId, cancellationToken);
+
+                _logger.LogInformation(
+                    "Archive metadata: EntryId={EntryId} EntryFields={Count} fieldDefinitionIds=[{Ids}]",
+                    entryId, rawFields.Count,
+                    string.Join(", ", rawFields.Select(f => f.FieldDefinitionId)));
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "Archive/Detail: fields endpoint failed for entry {EntryId}.", entryId);
+                    "Archive/Detail: entry fields endpoint failed for entry {EntryId}.", entryId);
                 fieldsError =
-                    $"Metadata fields could not be loaded. " +
-                    $"Required Laserfiche API endpoint: " +
+                    $"Metadata field values could not be loaded from " +
                     $"GET /Repositories/{{repo}}/Entries/{entryId}/fields — " +
-                    $"confirm availability in Swagger if fields are needed.";
+                    $"{ex.Message}";
             }
+        }
+
+        // ── 3. Load repository-wide field definitions (for name resolution) ─
+        // Only needed when we have raw field values that may lack human-readable names.
+        IReadOnlyDictionary<int, LFFieldDefinition> fieldDefs =
+            new Dictionary<int, LFFieldDefinition>();
+        string? fieldDefsError = null;
+
+        if (rawFields.Count > 0)
+        {
+            try
+            {
+                fieldDefs = await _fieldDefService.GetFieldDefinitionsAsync(cancellationToken);
+
+                _logger.LogInformation(
+                    "Archive metadata: EntryId={EntryId} FieldDefinitions={Count}",
+                    entryId, fieldDefs.Count);
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal: if definitions fail we fall back to whatever name the
+                // entry fields response already provided.
+                _logger.LogWarning(ex,
+                    "Archive/Detail: field definitions endpoint failed for entry {EntryId}. " +
+                    "Will use names from entry fields response as fallback.", entryId);
+                fieldDefsError = ex.Message;
+            }
+        }
+
+        // ── 4. Join: resolve field name from definitions, keep inline name as fallback ─
+        var resolvedFields = rawFields
+            .Select(fv =>
+            {
+                // Prefer the name from the repository-wide FieldDefinitions if available.
+                string resolvedName = fv.FieldName; // inline name from entry fields response
+
+                if (fv.FieldDefinitionId > 0 &&
+                    fieldDefs.TryGetValue(fv.FieldDefinitionId, out var def) &&
+                    !string.IsNullOrWhiteSpace(def.Name))
+                {
+                    resolvedName = def.Name;
+                }
+
+                return fv with { FieldName = resolvedName };
+            })
+            .Where(fv => !string.IsNullOrWhiteSpace(fv.FieldName))
+            .ToList()
+            .AsReadOnly();
+
+        _logger.LogInformation(
+            "Archive metadata: EntryId={EntryId} ResolvedFields={Count} " +
+            "names=[{Names}]",
+            entryId, resolvedFields.Count,
+            string.Join(", ", resolvedFields.Select(f => f.FieldName)));
+
+        // Compose the fields error message — surface the most helpful information.
+        string? combinedFieldsError = fieldsError;
+        if (combinedFieldsError is null && fieldDefsError is not null && rawFields.Count > 0)
+        {
+            // Fields loaded but definitions failed; names may be incomplete.
+            combinedFieldsError =
+                $"Field names may be incomplete — field definitions could not be loaded: {fieldDefsError}";
         }
 
         return PartialView("_EntryDetail", new ArchiveDetailViewModel
         {
             Entry       = entry,
-            Fields      = fields,
-            FieldsError = fieldsError
+            Fields      = resolvedFields,
+            FieldsError = combinedFieldsError
         });
     }
 

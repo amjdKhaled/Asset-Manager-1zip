@@ -72,14 +72,23 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var result = JsonSerializer.Deserialize<ODataList<FieldResource>>(body, JsonOptions.Default);
 
-        return result?.Value.Select(f => new LFFieldValue
+        if (result is null) return [];
+
+        _logger.LogInformation(
+            "GetEntryFieldsAsync(entryId={EntryId}): parsed {Count} field value(s). " +
+            "fieldDefinitionIds=[{Ids}]",
+            entryId, result.Value.Count,
+            string.Join(", ", result.Value.Select(f => f.FieldDefinitionId)));
+
+        return result.Value.Select(f => new LFFieldValue
         {
-            FieldName   = f.Name,
-            Value       = f.Value,
-            FieldType   = f.FieldType,
-            IsRequired  = f.IsRequired,
-            IsMultiValue = f.IsMultiValue
-        }).ToList().AsReadOnly() ?? (IReadOnlyList<LFFieldValue>)[];
+            FieldDefinitionId = f.FieldDefinitionId,
+            FieldName         = f.Name,   // May be empty; caller should resolve via FieldDefinitions
+            Value             = f.Value,
+            FieldType         = f.FieldType,
+            IsRequired        = f.IsRequired,
+            IsMultiValue      = f.IsMultiValue
+        }).ToList().AsReadOnly();
     }
 
     /// <inheritdoc />
@@ -509,6 +518,18 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
 
     private sealed record FieldResource
     {
+        /// <summary>
+        /// Numeric field definition ID. Matches <c>id</c> in the repository-wide
+        /// FieldDefinitions list. Used as the join key when resolving human-readable names.
+        /// </summary>
+        [JsonPropertyName("fieldDefinitionId")]
+        public int FieldDefinitionId { get; init; }
+
+        /// <summary>
+        /// Human-readable field name. May be populated by some server builds directly
+        /// in the entry fields response; used as a fallback if a FieldDefinitions lookup
+        /// is unavailable.
+        /// </summary>
         [JsonPropertyName("name")]
         public string Name { get; init; } = string.Empty;
 

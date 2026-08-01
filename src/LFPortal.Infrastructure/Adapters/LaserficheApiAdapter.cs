@@ -114,6 +114,10 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
         $"{RepoBase(repositoryId)}/TemplateDefinitions";
 
     /// <inheritdoc />
+    public string BuildFieldDefinitionsUrl(string repositoryId) =>
+        $"{RepoBase(repositoryId)}/FieldDefinitions";
+
+    /// <inheritdoc />
     public string BuildEntryByPathUrl(string repositoryId, string fullPath) =>
         $"{RepoBase(repositoryId)}/Entries/ByPath?fullPath={Uri.EscapeDataString(fullPath)}";
 
