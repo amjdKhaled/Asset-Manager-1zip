@@ -1,0 +1,194 @@
+We now have the REAL Windows Burn runtime log. Do not guess and do not redesign the installer.
+
+The build succeeds completely, but Release\LFDashboard-Setup.exe still fails before Dashboard.BA.dll can load.
+
+This is the exact runtime error from WiX Burn 4.0.5:
+
+Error 0x8007006e:
+Failed to load bootstrapper config file from path:
+...\ .ba\WixToolset.Mba.Host.config
+
+Error 0x8007006e:
+Failed to find supported framework.
+
+The log also proves .NET Framework 4.8 IS installed:
+
+NetFx48Release = 533509
+Condition 'NetFx48Release >= 528040' evaluates to true.
+
+Therefore DO NOT modify the .NET 4.8 prerequisite detection/package.
+That part is working.
+
+The previous fix created:
+
+    BootstrapperCore.config
+
+That was wrong for this WiX 4.0.5 ManagedBootstrapperApplicationHost.
+
+The runtime is explicitly looking for:
+
+    WixToolset.Mba.Host.config
+
+TASK:
+
+Perform a focused audit of the WiX 4.0.5 Managed Bootstrapper Application configuration and fix the bundle so that the extracted .ba directory contains exactly:
+
+    WixToolset.Mba.Host.config
+
+Do not merely rename files blindly. Verify the WiX 4.0.5 ManagedBootstrapperApplicationHost requirements from the installed WixToolset.Bal.wixext / WixToolset.Mba.Core packages and the actual Burn runtime behavior.
+
+The Windows runtime log is authoritative:
+
+    Failed to load bootstrapper config file from path:
+    .ba\WixToolset.Mba.Host.config
+
+Required work:
+
+1. Remove the incorrect BootstrapperCore.config implementation if WiX 4 does not use it.
+
+2. Create:
+
+    installer/Dashboard.BA/WixToolset.Mba.Host.config
+
+with the correct CLR configuration for Dashboard.BA targeting .NET Framework 4.8.
+
+Expected content should be verified, but likely:
+
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <startup useLegacyV2RuntimeActivationPolicy="true">
+    <supportedRuntime version="v4.0"
+                      sku=".NETFramework,Version=v4.8" />
+  </startup>
+</configuration>
+
+Do not assume this content is correct without checking it against WiX 4.0.5 managed BA hosting.
+
+3. Update Dashboard.BA.csproj so:
+
+    WixToolset.Mba.Host.config
+
+is copied to:
+
+    bin\Release\net48\WixToolset.Mba.Host.config
+
+Do NOT copy it under another filename.
+
+4. Update build/publish.ps1 Step 6.
+
+The post-build/staging validation must check:
+
+    artifacts\staging\BA\Dashboard.BA.dll
+    artifacts\staging\BA\WixToolset.Mba.Core.dll
+    artifacts\staging\BA\WixToolset.Mba.Host.config
+
+Remove any guard checking BootstrapperCore.config.
+
+Also verify all three files have non-zero size.
+
+5. Update Bundle.wxs.
+
+Inside:
+
+    <BootstrapperApplication>
+        <bal:WixManagedBootstrapperApplicationHost />
+
+the payloads must include:
+
+    Dashboard.BA.dll
+    WixToolset.Mba.Core.dll
+    WixToolset.Mba.Host.config
+
+The config payload MUST be extracted by Burn with the exact filename:
+
+    WixToolset.Mba.Host.config
+
+Do not let an absolute SourceFile path become the payload Name.
+
+Explicitly set Name if WiX requires it.
+
+For example, verify whether the correct WiX 4 syntax is:
+
+<Payload
+    SourceFile="$(var.MbaHostConfig)"
+    Name="WixToolset.Mba.Host.config" />
+
+Use the syntax actually supported by WiX 4.0.5.
+
+6. Update publish.ps1 Step 9 to pass the absolute config source path to WiX, for example:
+
+    -d MbaHostConfig=<absolute path to staged WixToolset.Mba.Host.config>
+
+Remove the old BootstrapperCoreConfig define completely.
+
+7. Search the ENTIRE repository for:
+
+    BootstrapperCore.config
+    BootstrapperCoreConfig
+
+There must be ZERO stale references after the migration unless WiX 4.0.5 documentation proves one is still required.
+
+Also search for:
+
+    WixToolset.Mba.Host.config
+
+and report every occurrence.
+
+8. VERY IMPORTANT:
+
+The final Burn EXE must contain/extract the file as:
+
+    .ba\WixToolset.Mba.Host.config
+
+NOT:
+
+    .ba\BootstrapperCore.config
+
+NOT:
+
+    .ba\Dashboard.BA.dll.config
+
+NOT any other name.
+
+9. If possible, inspect the generated bundle or WiX intermediate output after build and prove that the BA payload manifest contains:
+
+    WixToolset.Mba.Host.config
+
+with exactly that payload name.
+
+10. Do NOT modify:
+
+- NetFx48Prereq
+- NetFx48Release detection
+- ndp48-web.exe handling
+- MSI
+- IIS configuration
+- Desktop Extension
+- SetupHelper
+
+Those areas are unrelated to this failure.
+
+11. Keep the existing WiX version pinned to 4.0.5.
+
+12. Return a final report containing:
+
+- exact root cause
+- why BootstrapperCore.config was wrong
+- exact filename WiX 4.0.5 expects
+- exact config XML
+- exact csproj changes
+- exact Bundle.wxs Payload
+- exact publish.ps1 changes
+- every removed BootstrapperCore reference
+- every WixToolset.Mba.Host.config reference
+- confirmation that .NET 4.8 detection remains unchanged
+- command to rebuild
+- expected Step 6 validation output
+- expected extracted .ba contents
+
+The authoritative success criterion is that this runtime error disappears:
+
+    Failed to load bootstrapper config file from path:
+    ...\.ba\WixToolset.Mba.Host.config
+
+Do not claim the issue is fixed until the generated Windows bundle has been rebuilt and tested.

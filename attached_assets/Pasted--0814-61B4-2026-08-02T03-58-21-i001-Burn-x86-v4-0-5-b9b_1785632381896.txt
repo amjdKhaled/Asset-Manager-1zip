@@ -1,0 +1,69 @@
+[0814:61B4][2026-08-02T03:58:21]i001: Burn x86 v4.0.5+b9b2f1b4c69a1b509d487dc950b30b4ec9b0d040, Windows v10.0 x64 (Build 26200: Service Pack 0), path: C:\Users\AMJADA~1\AppData\Local\Temp\{E3B2F22D-F3AE-464C-8C32-DED2B725E066}\.cr\LFDashboard-Setup.exe
+[0814:61B4][2026-08-02T03:58:21]i000: Initializing string variable 'DashboardUrl' to value ''
+[0814:61B4][2026-08-02T03:58:21]i000: Initializing string variable 'DashboardPort' to value '5000'
+[0814:61B4][2026-08-02T03:58:21]i000: Initializing string variable 'LaserficheApiUrl' to value ''
+[0814:61B4][2026-08-02T03:58:21]i000: Initializing string variable 'RepositoryId' to value ''
+[0814:61B4][2026-08-02T03:58:21]i000: Initializing string variable 'DisplayName' to value ''
+[0814:61B4][2026-08-02T03:58:21]i000: Initializing string variable 'LFWebClientPath' to value ''
+[0814:61B4][2026-08-02T03:58:21]i000: Initializing numeric variable 'InstallDesktopButton' to value '1'
+[0814:61B4][2026-08-02T03:58:21]i000: Initializing numeric variable 'InstallWebButton' to value '0'
+[0814:61B4][2026-08-02T03:58:21]i009: Command Line: '-burn.clean.room=C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\Release\LFDashboard-Setup.exe -burn.filehandle.attached=756 -burn.filehandle.self=624'
+[0814:61B4][2026-08-02T03:58:21]i000: Setting string variable 'WixBundleOriginalSource' to value 'C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\Release\LFDashboard-Setup.exe'
+[0814:61B4][2026-08-02T03:58:21]i000: Setting string variable 'WixBundleOriginalSourceFolder' to value 'C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\Release\'
+[0814:61B4][2026-08-02T03:58:21]i000: Setting string variable 'WixBundleLog' to value 'C:\Users\AMJADA~1\AppData\Local\Temp\Laserfiche_Dashboard_20260802035821.log'
+[0814:61B4][2026-08-02T03:58:21]i000: Setting string variable 'WixBundleInProgressName' to value ''
+[0814:61B4][2026-08-02T03:58:21]i000: Setting string variable 'WixBundleName' to value 'Laserfiche Dashboard'
+[0814:61B4][2026-08-02T03:58:21]i000: Setting string variable 'WixBundleManufacturer' to value 'Dashboard'
+[0814:61B4][2026-08-02T03:58:21]e000: Error 0x8007006e: Failed to load bootstrapper config file from path: C:\Users\AMJADA~1\AppData\Local\Temp\{24C05E29-86DF-45FC-B41B-747F50922362}\.ba\WixToolset.Mba.Host.config
+[0814:61B4][2026-08-02T03:58:21]e000: Error 0x8007006e: Failed to find supported framework.
+[0814:61B4][2026-08-02T03:58:21]i000: Loading prerequisite bootstrapper application because managed host could not be loaded, error: 0x8007006e.
+[0814:58E4][2026-08-02T03:58:21]i000: Setting numeric variable 'WixStdBALanguageId' to value 1033
+[0814:58E4][2026-08-02T03:58:21]i000: Setting version variable 'WixBundleFileVersion' to value '1.0.0.0'
+[0814:61B4][2026-08-02T03:58:21]i100: Detect begin, 2 packages
+[0814:61B4][2026-08-02T03:58:21]i000: Setting string variable 'NetFx48Release' to value '533509'
+[0814:61B4][2026-08-02T03:58:21]i052: Condition 'NetFx48Release >= 528040' evaluates to true.
+[0814:61B4][2026-08-02T03:58:21]i101: Detected package: NetFx48Prereq, state: Present, cached: Yes, install registration state: (permanent), cache registration state: (permanent)
+[0814:61B4][2026-08-02T03:58:21]i101: Detected package: DashboardMsi, state: Absent, cached: No, install registration state: Absent, cache registration state: Absent
+[0814:61B4][2026-08-02T03:58:21]i199: Detect complete, result: 0x0, registration state: None, cached: No, eligible for cleanup: No
+[0814:61B4][2026-08-02T03:58:23]i200: Plan begin, 2 packages, action: Install
+[0814:61B4][2026-08-02T03:58:23]w321: Skipping dependency registration on package with no dependency providers: NetFx48Prereq
+[0814:61B4][2026-08-02T03:58:23]i222: Planned rollback boundary: 'WixDefaultBoundary', vital: Yes, transaction: No (default: No)
+[0814:61B4][2026-08-02T03:58:23]i201: Planned package: NetFx48Prereq, state: Present, default requested: Present, ba requested: Present, execute: None, rollback: None, default cache strategy: Keep, ba requested strategy: Keep, cache: Vital, uncache: No, dependency: None, expected install registration state: (permanent), expected cache registration state: (permanent)
+[0814:61B4][2026-08-02T03:58:23]i201: Planned package: DashboardMsi, state: Absent, default requested: Present, ba requested: None, execute: None, rollback: None, default cache strategy: Keep, ba requested strategy: Keep, cache: No, uncache: No, dependency: None, expected install registration state: Absent, expected cache registration state: Absent
+[0814:61B4][2026-08-02T03:58:23]i299: Plan complete, result: 0x0
+[0814:61B4][2026-08-02T03:58:23]i300: Apply begin
+[0814:61B4][2026-08-02T03:58:23]i010: Launching elevated engine process.
+[0814:61B4][2026-08-02T03:58:25]i011: Launched elevated engine process.
+[0814:61B4][2026-08-02T03:58:25]i012: Connected to elevated engine.
+[2050:408C][2026-08-02T03:58:26]i358: Pausing automatic updates.
+[2050:408C][2026-08-02T03:58:26]i359: Paused automatic updates.
+[2050:408C][2026-08-02T03:58:26]i360: Creating a system restore point.
+[2050:408C][2026-08-02T03:58:26]w363: Could not create system restore point, error: 0x80070422. Continuing...
+[2050:408C][2026-08-02T03:58:26]i370: Session begin, registration key: SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{F434DC90-DC6A-4013-B17E-47A5E5EC2F25}, options: 0x3, disable resume: No
+[2050:408C][2026-08-02T03:58:26]i000: Caching bundle from: 'C:\Users\AMJADA~1\AppData\Local\Temp\{24C05E29-86DF-45FC-B41B-747F50922362}\.be\LFDashboard-Setup.exe' to: 'C:\ProgramData\Package Cache\{F434DC90-DC6A-4013-B17E-47A5E5EC2F25}\LFDashboard-Setup.exe'
+[2050:408C][2026-08-02T03:58:26]i320: Registering bundle dependency provider: {F434DC90-DC6A-4013-B17E-47A5E5EC2F25}, version: 1.0.0
+[2050:408C][2026-08-02T03:58:26]i371: Updating session, registration key: SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{F434DC90-DC6A-4013-B17E-47A5E5EC2F25}, resume: Active, restart initiated: No, disable resume: No
+[2050:6648][2026-08-02T03:58:26]i304: Verified existing payload: NetFx48Prereq at path: C:\ProgramData\Package Cache\642721C60D52051C7F3434D8710FE3406A7CFE10B2B39E90EA847719ED1697D7\ndp48-web.exe.
+[0814:61B4][2026-08-02T03:58:26]i373: Calculating whether to keep registration
+[0814:61B4][2026-08-02T03:58:26]i374:   package: NetFx48Prereq, install registration state: (permanent), cache registration state: (permanent)
+[0814:61B4][2026-08-02T03:58:26]i374:   package: DashboardMsi, install registration state: Absent, cache registration state: Absent
+[0814:61B4][2026-08-02T03:58:26]i372: Session end, registration key: SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{F434DC90-DC6A-4013-B17E-47A5E5EC2F25}, resume: None, restart: None, disable resume: No, default registration: None, ba requested registration: None
+[2050:408C][2026-08-02T03:58:26]i330: Removed bundle dependency provider: {F434DC90-DC6A-4013-B17E-47A5E5EC2F25}
+[2050:408C][2026-08-02T03:58:26]i326: Removed dependency: {F434DC90-DC6A-4013-B17E-47A5E5EC2F25} on package provider: {9BE277D6-E9AE-4C00-BB7A-87D9F3691070}_v1.0.0, package DashboardMsi
+[2050:408C][2026-08-02T03:58:26]i329: Removed package dependency provider: {9BE277D6-E9AE-4C00-BB7A-87D9F3691070}_v1.0.0, package: DashboardMsi
+[2050:408C][2026-08-02T03:58:26]i352: Removing cached bundle: {F434DC90-DC6A-4013-B17E-47A5E5EC2F25}, from path: C:\ProgramData\Package Cache\{F434DC90-DC6A-4013-B17E-47A5E5EC2F25}\
+[2050:408C][2026-08-02T03:58:26]i371: Updating session, registration key: SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{F434DC90-DC6A-4013-B17E-47A5E5EC2F25}, resume: None, restart initiated: No, disable resume: No
+[2050:408C][2026-08-02T03:58:26]i420: Resuming automatic updates.
+[0814:61B4][2026-08-02T03:58:26]i000: Unsetting variable 'WixStdBARestartRequired'
+[2050:408C][2026-08-02T03:58:26]i421: Resumed automatic updates.
+[0814:61B4][2026-08-02T03:58:26]i399: Apply complete, result: 0x0, restart: None, ba requested restart:  No
+[0814:61B4][2026-08-02T03:58:26]i500: Shutting down, exit code: 0x0
+[0814:61B4][2026-08-02T03:58:26]i000: The prerequisites were successfully installed. The bootstrapper application will be reloaded.
+[0814:61B4][2026-08-02T03:58:26]i006: Bootstrapper application requested to be reloaded.
+[0814:61B4][2026-08-02T03:58:26]e000: Error 0x8007006e: Failed to load bootstrapper config file from path: C:\Users\AMJADA~1\AppData\Local\Temp\{24C05E29-86DF-45FC-B41B-747F50922362}\.ba\WixToolset.Mba.Host.config
+[0814:61B4][2026-08-02T03:58:26]e000: Error 0x8007006e: Failed to find supported framework.
+[0814:61B4][2026-08-02T03:58:26]e000: Error 0x81f403ea: The prerequisites were already installed. The bootstrapper application will not be reloaded to prevent an infinite loop.
+[0814:61B4][2026-08-02T03:58:26]i000: Loading prerequisite bootstrapper application because managed host could not be loaded, error: 0x81f403ea.
+[0814:8E78][2026-08-02T03:58:26]i000: Setting numeric variable 'WixStdBALanguageId' to value 1033
+[0814:8E78][2026-08-02T03:58:26]i000: Setting version variable 'WixBundleFileVersion' to value '1.0.0.0'
+[0814:8E78][2026-08-02T03:58:26]i052: Condition 'WixStdBARestartRequired' evaluates to false.

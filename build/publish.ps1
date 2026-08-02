@@ -684,6 +684,7 @@ else {
     # staging folder before the Bundle build (Step 9) references it via
     # $(var.MbaCoreAssembly).  If it is absent the Bundle linker fails with an
     # opaque "file not found" error; catch it here with a clear message instead.
+    # ---- Guard 1: WixToolset.Mba.Core.dll ----
     $mbaCoreStaged = Join-Path $baStaging "WixToolset.Mba.Core.dll"
     if (-not (Test-Path $mbaCoreStaged)) {
         Write-Host ""
@@ -700,13 +701,16 @@ else {
         Write-Host "  ============================================================" -ForegroundColor Red
         exit 1
     }
+    if ((Get-Item $mbaCoreStaged).Length -eq 0) {
+        Write-Host "  [PREFLIGHT FAILED] WixToolset.Mba.Core.dll is zero bytes: $mbaCoreStaged" -ForegroundColor Red
+        exit 1
+    }
     Write-OK "WixToolset.Mba.Core.dll confirmed present in BA staging folder."
 
-    # Post-staging guard: Dashboard.BA.dll must be present in the BA staging
-    # folder before the Bundle build (Step 9) embeds it as the managed
-    # bootstrapper payload.  If it is absent the Bundle ships without a UI and
-    # fails silently at runtime; catch it here with a clear message instead.
-    # Mirrors the guard added to Step 4 for Dashboard.DesktopExtension.exe.
+    # ---- Guard 2: Dashboard.BA.dll ----
+    # Must be present before the Bundle build (Step 9) embeds it as the managed
+    # bootstrapper payload.  Without it the Bundle ships with no UI and silently
+    # fails at runtime.
     $baDllStaged = Join-Path $baStaging "Dashboard.BA.dll"
     if (-not (Test-Path $baDllStaged)) {
         Write-Host ""
@@ -727,35 +731,45 @@ else {
         Write-Host "  ============================================================" -ForegroundColor Red
         exit 1
     }
+    if ((Get-Item $baDllStaged).Length -eq 0) {
+        Write-Host "  [PREFLIGHT FAILED] Dashboard.BA.dll is zero bytes: $baDllStaged" -ForegroundColor Red
+        exit 1
+    }
     Write-OK "Dashboard.BA.dll confirmed present in BA staging folder."
 
-    # Post-staging guard: BootstrapperCore.config must be present alongside the
-    # BA DLL.  mbahost.dll (the WiX native managed-BA host) reads this file at
-    # bundle startup to know which CLR version to activate before loading
-    # Dashboard.BA.dll.  Without it, the native host cannot start the managed
-    # BA and Burn shows:
-    #   "failed to load the .NET Framework runtime even though all prerequisites
-    #    are installed."
-    # .NET 4.8 may be fully installed on the machine — this config is what tells
-    # mbahost.dll to use it.
-    $bootstrapperConfigStaged = Join-Path $baStaging "BootstrapperCore.config"
-    if (-not (Test-Path $bootstrapperConfigStaged)) {
+    # ---- Guard 3: WixToolset.Mba.Host.config ----
+    # mbahost.dll (the WiX 4 native managed-BA host) reads this file at bundle
+    # startup to know which CLR version to activate before loading Dashboard.BA.dll.
+    #
+    # WiX 4.0.5 RENAMED this file from BootstrapperCore.config (WiX 3).
+    # Burn 4.0.5 looks for it at exactly:  .ba\WixToolset.Mba.Host.config
+    # Without it, Burn emits:
+    #   Error 0x8007006e: Failed to load bootstrapper config file from path:
+    #   ...\.ba\WixToolset.Mba.Host.config
+    # and falls back to the native prereq UI -- even when .NET 4.8 is present.
+    $mbaHostConfigStaged = Join-Path $baStaging "WixToolset.Mba.Host.config"
+    if (-not (Test-Path $mbaHostConfigStaged)) {
         Write-Host ""
         Write-Host "  ============================================================" -ForegroundColor Red
-        Write-Host "  [PREFLIGHT FAILED] BootstrapperCore.config is missing from BA staging:" `
+        Write-Host "  [PREFLIGHT FAILED] WixToolset.Mba.Host.config is missing from BA staging:" `
             -ForegroundColor Red
-        Write-Host ("    MISSING: {0}" -f $bootstrapperConfigStaged) -ForegroundColor Red
+        Write-Host ("    MISSING: {0}" -f $mbaHostConfigStaged) -ForegroundColor Red
         Write-Host "" -ForegroundColor Red
-        Write-Host "  BootstrapperCore.config must be in Dashboard.BA\bin\Release\net48\" -ForegroundColor Red
+        Write-Host "  WixToolset.Mba.Host.config must be in Dashboard.BA\bin\Release\net48\" -ForegroundColor Red
         Write-Host "  and staged to artifacts\staging\BA\ before the Bundle build." -ForegroundColor Red
         Write-Host "  Possible causes:" -ForegroundColor Red
-        Write-Host "    - installer\Dashboard.BA\BootstrapperCore.config was deleted" -ForegroundColor Red
+        Write-Host "    - installer\Dashboard.BA\WixToolset.Mba.Host.config was deleted" -ForegroundColor Red
         Write-Host "    - The <None CopyToOutputDirectory=Always> entry was removed from" -ForegroundColor Red
         Write-Host "      Dashboard.BA.csproj" -ForegroundColor Red
+        Write-Host "    - The file was renamed (must stay WixToolset.Mba.Host.config)" -ForegroundColor Red
         Write-Host "  ============================================================" -ForegroundColor Red
         exit 1
     }
-    Write-OK "BootstrapperCore.config confirmed present in BA staging folder."
+    if ((Get-Item $mbaHostConfigStaged).Length -eq 0) {
+        Write-Host "  [PREFLIGHT FAILED] WixToolset.Mba.Host.config is zero bytes: $mbaHostConfigStaged" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "WixToolset.Mba.Host.config confirmed present in BA staging folder."
 }
 
 # =============================================================================
@@ -1116,7 +1130,7 @@ else {
         "-ext",    "WixToolset.Util.wixext/$WixPinnedVersion",
         "-d",      "BAAssembly=$baAssemblyPath",
         "-d",      "MbaCoreAssembly=$(Join-Path $baStagingDir 'WixToolset.Mba.Core.dll')",
-        "-d",      "BootstrapperCoreConfig=$(Join-Path $baStagingDir 'BootstrapperCore.config')",
+        "-d",      "MbaHostConfig=$(Join-Path $baStagingDir 'WixToolset.Mba.Host.config')",
         "-d",      "MsiPath=$msiPath",
         "-d",      "BundleVersion=$Version",
         "-d",      "NetFx48Installer=$netFx48Installer",

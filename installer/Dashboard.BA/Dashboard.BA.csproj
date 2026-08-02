@@ -36,19 +36,24 @@
 
   <ItemGroup>
     <!--
-      BootstrapperCore.config: mbahost.dll reads this at bundle startup to know
-      which CLR version to activate before loading Dashboard.BA.dll.  Without it
-      the native host cannot start the managed BA and Burn shows "failed to load
-      the .NET Framework runtime even though all prerequisites are installed."
+      WixToolset.Mba.Host.config: mbahost.dll reads this file at bundle startup
+      to activate the correct CLR version before loading Dashboard.BA.dll.
 
-      CopyToOutputDirectory=Always ensures it lands in bin\Release\net48\ next to
-      Dashboard.BA.dll, from where publish.ps1 Stage 6 copies everything to
-      artifacts\staging\BA\.  Bundle.wxs then embeds it as an explicit Payload.
+      WiX 4.0.5 renamed the managed-BA host config from BootstrapperCore.config
+      (WiX 3) to WixToolset.Mba.Host.config.  The Burn runtime looks for the
+      file at exactly .ba\WixToolset.Mba.Host.config.  Without it, Burn emits:
+        Error 0x8007006e: Failed to load bootstrapper config file from path:
+        ...\.ba\WixToolset.Mba.Host.config
+      and falls back to the native prereq UI even when .NET 4.8 is present.
 
-      The filename must remain "BootstrapperCore.config" — mbahost.dll hardcodes
-      that name.
+      CopyToOutputDirectory=Always ensures it lands in bin\Release\net48\ next
+      to Dashboard.BA.dll, from where publish.ps1 Step 6 copies everything to
+      artifacts\staging\BA\.  Bundle.wxs embeds it as an explicit Payload with
+      Name="WixToolset.Mba.Host.config" to guarantee the extracted filename.
+
+      The filename MUST remain "WixToolset.Mba.Host.config".  Do not rename.
     -->
-    <None Include="BootstrapperCore.config">
+    <None Include="WixToolset.Mba.Host.config">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
