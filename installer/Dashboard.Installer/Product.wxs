@@ -168,6 +168,14 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
       custom actions reference it via [DASHBOARD_PORT] in ExeCommand.
     -->
     <Property Id="DASHBOARD_PORT"         Value="5000" Secure="yes" />
+    <!--
+      TRUST_LF_CERT: operator consent (from the Bundle wizard checkbox) to
+      trust a detected SELF-SIGNED Laserfiche API certificate on this machine.
+      Consumed by the PrepareTls custom action. Consent only: the SetupHelper
+      re-validates identity, validity, self-signed status, and chain state
+      before touching LocalMachine\Root. Defaults to 0 (no trust change).
+    -->
+    <Property Id="TRUST_LF_CERT"          Value="0"    Secure="yes" />
 
     <!-- Custom actions: Desktop Extension registration -->
     <!--
@@ -261,6 +269,26 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
       LF_WEB_CLIENT_PATH<>"").  A requested deployment that fails verification
       must fail the install loudly instead of reporting success with no button.
     -->
+    <!--
+      PrepareTls: certificate/TLS preparation stage. Inspects the certificate
+      presented by the Laserfiche API HTTPS endpoint, and (only for a valid
+      self-signed certificate matching the host, with operator consent via
+      TRUST_LF_CERT) installs the PUBLIC certificate into LocalMachine\Root,
+      recycles the Dashboard app pool, and runs a full-validation HTTPS
+      verification. Never bypasses TLS validation; never exports private keys.
+      Runs BEFORE WriteConfig so trust exists before the configuration that
+      the Dashboard will use is finalized and before its first API request.
+      Return="ignore": trust preparation is best-effort; every outcome is
+      logged to SetupHelper.log with the [TLS SETUP] prefix. A missing or
+      unreachable API must never roll back the whole installation.
+    -->
+    <CustomAction Id="PrepareTls"
+                  Directory="EXTENSIONFOLDER"
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --prepare-tls --lf-api "[LF_API_URL]" --trust-selfsigned "[TRUST_LF_CERT]"'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
     <CustomAction Id="DeployWebClient"
                   Directory="EXTENSIONFOLDER"
                   ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --deploy-webclient --url "[DASHBOARD_URL]" --path "[LF_WEB_CLIENT_PATH]."'
@@ -368,8 +396,17 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
 
       <!-- Install / Upgrade actions -->
-      <Custom Action="WriteConfig"
+      <!--
+        PrepareTls runs after InstallFiles (SetupHelper.exe is on disk) and
+        BEFORE WriteConfig: LocalMachine trust for the Laserfiche certificate
+        must exist before the configuration is written and before the
+        Dashboard app pool serves its first real API request.
+      -->
+      <Custom Action="PrepareTls"
               After="InstallFiles"
+              Condition="NOT REMOVE~=&quot;ALL&quot; AND LF_API_URL&lt;&gt;&quot;&quot;" />
+      <Custom Action="WriteConfig"
+              After="PrepareTls"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="RegisterExtension"
               After="WriteConfig"

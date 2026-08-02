@@ -34,6 +34,15 @@ namespace Dashboard.BA
 
         /// <summary>True when the chain builds in LocalMachine context.</summary>
         public bool ChainTrusted { get; set; }
+
+        /// <summary>Certificate subject DN (for wizard display/logging).</summary>
+        public string Subject { get; set; } = "";
+
+        /// <summary>Certificate thumbprint (upper-case hex, no separators).</summary>
+        public string Thumbprint { get; set; } = "";
+
+        /// <summary>True when Subject == Issuer (self-signed certificate).</summary>
+        public bool SelfSigned { get; set; }
     }
 
     /// <summary>Result of host selection.</summary>

@@ -529,12 +529,18 @@ foreach ($f in $wxsFiles) {
 Write-OK "Guard G2: no MSI/Bundle source references LFDashboard-Setup.exe."
 
 $bypassHits = Get-ChildItem @((Join-Path $RepoRoot "src"), (Join-Path $RepoRoot "installer")) -Include *.cs -Recurse |
-              Where-Object { $_.FullName -notmatch "\\(bin|obj)\\" } |
-              Select-String -Pattern "DangerousAcceptAnyServerCertificateValidator" -SimpleMatch
+              Where-Object { $_.FullName -notmatch "\\(bin|obj)\\" -and $_.FullName -notmatch "\\.Tests\\" } |
+              Select-String -Pattern @(
+                  "DangerousAcceptAnyServerCertificateValidator",
+                  "ServerCertificateCustomValidationCallback\s*=\s*\([^)]*\)\s*=>\s*true",
+                  "ServerCertificateValidationCallback\s*=\s*\([^)]*\)\s*=>\s*true",
+                  "RemoteCertificateValidationCallback\s*=\s*\([^)]*\)\s*=>\s*true",
+                  "ServicePointManager\.ServerCertificateValidationCallback\s*=")
 if ($bypassHits) {
-    Fail ("GUARD G3: dangerous certificate validation bypass found: {0}" -f (($bypassHits | ForEach-Object { $_.Path }) -join ", "))
+    $hitDesc = ($bypassHits | ForEach-Object { "{0}:{1}" -f $_.Path, $_.LineNumber }) -join ", "
+    Fail ("GUARD G3: TLS certificate-validation bypass pattern found: {0}" -f $hitDesc)
 }
-Write-OK "Guard G3: no certificate-validation bypass in sources."
+Write-OK "Guard G3: no certificate-validation bypass in production sources."
 
 # =============================================================================
 # STEP 2 -- Restore NuGet packages
@@ -745,6 +751,18 @@ else {
         exit 1
     }
     Write-OK "Dashboard.SetupHelper.exe confirmed present in Extension staging folder."
+
+    # The staged helper must include the TLS preparation component: the
+    # PrepareTls custom action invokes "--prepare-tls"; a helper built from
+    # stale source would silently skip certificate trust preparation.
+    # .NET assembly string literals are UTF-16, so decode the binary as
+    # Unicode before searching.
+    $helperBytes   = [System.IO.File]::ReadAllBytes($setupHelperStaged)
+    $helperUnicode = [System.Text.Encoding]::Unicode.GetString($helperBytes)
+    if ($helperUnicode -notlike "*--prepare-tls*") {
+        Fail "Staged Dashboard.SetupHelper.exe does not contain the prepare-tls TLS component. Stale binary?"
+    }
+    Write-OK "Staged Dashboard.SetupHelper.exe contains the prepare-tls TLS component."
 
     # ---- Stale-helper guard: staged EXE must be byte-identical to the build ----
     # A stale Dashboard.SetupHelper.exe in staging means the MSI would package

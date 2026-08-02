@@ -167,6 +167,14 @@
     <Variable Name="LFWebClientPath"      Type="string"  Value=""     Persisted="yes" />
     <Variable Name="InstallDesktopButton" Type="numeric" Value="1"    Persisted="yes" />
     <Variable Name="InstallWebButton"     Type="numeric" Value="0"    Persisted="yes" />
+    <!--
+      TrustLFCertificate: "1" when the operator checked the wizard's
+      "Trust the detected Laserfiche certificate on this machine" checkbox
+      (offered ONLY for a valid self-signed endpoint certificate lacking
+      LocalMachine trust). Consent flag only; the elevated SetupHelper
+      prepare-tls action re-validates every safety rule before acting.
+    -->
+    <Variable Name="TrustLFCertificate"   Type="string"  Value="0"    Persisted="yes" />
 
     <!--
       Package chain.
@@ -293,6 +301,7 @@
         <MsiProperty Name="INSTALL_DESKTOP_BUTTON" Value="[InstallDesktopButton]" />
         <MsiProperty Name="INSTALL_WEB_BUTTON"     Value="[InstallWebButton]" />
         <MsiProperty Name="DASHBOARD_PORT"         Value="[DashboardPort]" />
+        <MsiProperty Name="TRUST_LF_CERT"          Value="[TrustLFCertificate]" />
 
       </MsiPackage>
 

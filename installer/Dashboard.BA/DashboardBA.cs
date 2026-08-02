@@ -194,6 +194,7 @@ namespace Dashboard.BA
             // RepositoryId / DisplayName intentionally not set: repository is
             // runtime session context, not installation configuration.
             _engine.SetVariableString("LFWebClientPath",  config.LFWebClientPath,  false);
+            _engine.SetVariableString("TrustLFCertificate", config.TrustSelfSignedCert ? "1" : "0", false);
             _engine.SetVariableString("DashboardPort",    config.DashboardPort,    false);
             _engine.SetVariableNumeric("InstallDesktopButton", config.InstallDesktopButton ? 1L : 0L);
             _engine.SetVariableNumeric("InstallWebButton",     config.InstallWebButton     ? 1L : 0L);

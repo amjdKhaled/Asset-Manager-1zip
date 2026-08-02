@@ -1,0 +1,727 @@
+We have now reproduced and solved the remaining Laserfiche Dashboard TLS problem on the real Windows target machine.
+
+I need you to implement the permanent, production-quality installer fix so this works automatically on other Windows machines without manual certificate commands.
+
+IMPORTANT:
+Do not guess.
+First inspect the complete existing installer, BA, SetupHelper, configuration, IIS detection, TLS diagnostic, and authentication code.
+Preserve all currently working functionality, especially:
+- Desktop Client Dashboard button
+- Web Client Dashboard button
+- dynamic repository propagation
+- installer single-wizard / related-bundle headless fix
+- same-version upgrade/reinstall protection
+- current IIS deployment
+- current authentication flow
+- current TLS validation
+- existing logging
+- no certificate-validation bypasses
+
+============================================================
+1. WHAT WE PROVED ON THE REAL MACHINE
+============================================================
+
+Laserfiche Repository API:
+
+    https://localhost/LFRepositoryAPI
+
+worked from PowerShell and the certificate actually presented by IIS was:
+
+    Subject: CN=localhost
+    Issuer: CN=localhost
+    SAN: DNS Name=localhost
+    Thumbprint on THIS MACHINE:
+    972F61FC2D278A86BAA04CF87ECC6FA1DD1CD4A5
+
+Certificate validity:
+
+    NotBefore: 2025-09-02
+    NotAfter: 2030-09-02
+
+IIS HTTPS binding:
+
+    *:443:
+
+The certificate was located in:
+
+    Cert:\LocalMachine\My
+
+and the certificate chain itself was valid when inspected manually.
+
+The Dashboard IIS application pool runs as:
+
+    NetworkService
+
+The Dashboard correctly constructed the Laserfiche token endpoint:
+
+    https://localhost/LFRepositoryAPI/v1/Repositories/<runtime-repository>/Token
+
+Therefore:
+- repository propagation was correct
+- API URL construction was correct
+- /LFRepositoryAPI was not duplicated
+- hostname matched the certificate
+- Laserfiche API was reachable
+
+But ASP.NET/.NET HttpClient failed with:
+
+    AuthenticationException
+    UntrustedRoot
+
+The Dashboard therefore displayed:
+
+    A secure (TLS) connection to the Laserfiche server could not be established.
+
+The permanent manual fix that PROVED the root cause was:
+
+1. Read the existing IIS certificate from LocalMachine\My.
+2. Export ONLY the public certificate.
+3. Import that public certificate into:
+
+       Cert:\LocalMachine\Root
+
+4. Keep the original certificate in LocalMachine\My.
+5. Restart the Dashboard IIS application pool.
+
+After that:
+
+    LocalMachine\My\<thumbprint>   = True
+    LocalMachine\Root\<thumbprint> = True
+
+and Dashboard authentication immediately worked.
+
+The Dashboard is now fully working from BOTH:
+
+- Laserfiche Desktop Client
+- Laserfiche Web Client
+
+This proves the remaining failure was LocalMachine TLS trust.
+
+============================================================
+2. GOAL
+============================================================
+
+Make the installer handle this situation automatically and dynamically.
+
+DO NOT hardcode:
+
+- localhost
+- 192.168.x.x
+- DESKTOP-K1SVI53
+- certificate thumbprint
+- certificate subject
+- certificate SAN
+- IIS site name unless discovered
+- repository ID
+
+The installer must work on another customer's machine with a different:
+
+- hostname
+- certificate
+- thumbprint
+- CA
+- IIS configuration
+- Laserfiche API path
+- certificate store state
+
+============================================================
+3. REQUIRED ARCHITECTURE
+============================================================
+
+Implement a reusable certificate/TLS preparation stage.
+
+The installer must discover the actual Laserfiche Repository API HTTPS endpoint and the certificate IIS is presenting for that endpoint.
+
+Use the existing DetectionService / IIS detection code where possible.
+
+The flow should be approximately:
+
+    Detect Laserfiche API IIS application
+            |
+            v
+    Detect HTTPS binding
+            |
+            v
+    Resolve actual certificate
+            |
+            v
+    Determine correct hostname from binding/SAN
+            |
+            v
+    Validate certificate
+            |
+            +--> already trusted -> do nothing
+            |
+            +--> self-signed + valid + exact endpoint cert
+            |       -> offer/perform LocalMachine trust
+            |
+            +--> CA-issued but untrusted
+            |       -> DO NOT blindly trust leaf
+            |       -> report missing chain/root
+            |
+            +--> expired / hostname mismatch / invalid
+                    -> DO NOT bypass
+                    -> block or clearly warn
+
+============================================================
+4. VERY IMPORTANT SECURITY REQUIREMENT
+============================================================
+
+DO NOT implement any of these:
+
+    ServerCertificateCustomValidationCallback = (...) => true
+
+    DangerousAcceptAnyServerCertificateValidator
+
+    ServicePointManager.ServerCertificateValidationCallback = ...
+
+or any equivalent "ignore TLS errors" solution.
+
+Search the entire repository for certificate-validation bypasses.
+
+There must be ZERO production bypasses.
+
+The solution must establish normal Windows certificate trust.
+
+============================================================
+5. SELF-SIGNED CERTIFICATE HANDLING
+============================================================
+
+The real Laserfiche installation used a self-signed certificate:
+
+    Subject == Issuer
+    CN=localhost
+    SAN=localhost
+
+The certificate existed in:
+
+    LocalMachine\My
+
+but was NOT trusted by the Dashboard NetworkService process until its public certificate was placed in:
+
+    LocalMachine\Root
+
+Implement this generically.
+
+If ALL of the following are true:
+
+1. The certificate is the certificate actually bound to the Laserfiche API HTTPS endpoint.
+2. The certificate is currently valid by date.
+3. The requested hostname matches SAN/CN.
+4. The certificate is self-signed.
+5. Chain failure is specifically UntrustedRoot/self-signed trust.
+6. Installer is elevated.
+
+Then the installer may install ONLY the PUBLIC certificate into:
+
+    LocalMachine\Root
+
+Do not export/import the private key into Root.
+
+The original certificate/private key remains in:
+
+    LocalMachine\My
+
+Use X509Certificate2 / X509Store if possible instead of shelling out to PowerShell.
+
+Conceptually:
+
+    using (var root = new X509Store(StoreName.Root, StoreLocation.LocalMachine))
+    {
+        root.Open(OpenFlags.ReadWrite);
+
+        if (!root.Certificates
+                 .Find(X509FindType.FindByThumbprint, cert.Thumbprint, false)
+                 .Any())
+        {
+            // Add public-only certificate.
+            var publicCert = new X509Certificate2(cert.Export(X509ContentType.Cert));
+            root.Add(publicCert);
+        }
+    }
+
+But adapt this correctly to the project's .NET Framework version and existing architecture.
+
+============================================================
+6. DO NOT MODIFY TRUST UNNECESSARILY
+============================================================
+
+Before adding anything to Trusted Root:
+
+Build and inspect the chain using LocalMachine trust context.
+
+If the certificate already validates normally:
+
+    DO NOTHING.
+
+The installer must log:
+
+    Certificate already trusted; no trust-store change required.
+
+This is important for real enterprise deployments using certificates from:
+
+- internal enterprise CA
+- Active Directory Certificate Services
+- public CA
+- existing trusted root
+
+Do NOT copy every Laserfiche certificate into Trusted Root.
+
+============================================================
+7. CA-ISSUED CERTIFICATES
+============================================================
+
+If:
+
+    Subject != Issuer
+
+and the chain is untrusted:
+
+DO NOT automatically trust the leaf certificate as a root.
+
+Instead determine and log the chain problem.
+
+Examples:
+
+    PartialChain
+    UntrustedRoot
+    NotTimeValid
+    RevocationStatusUnknown
+    OfflineRevocation
+
+For a CA-issued certificate with missing root/intermediate:
+
+show an installer warning such as:
+
+    The Laserfiche HTTPS certificate is issued by <issuer>,
+    but Windows does not currently trust its certificate chain.
+
+    Install the issuing/root CA certificate in the Local Computer
+    certificate store and retry.
+
+If an intermediate certificate is available from the chain and Windows can safely place it into Intermediate Certification Authorities, that may be handled separately, but DO NOT turn a normal leaf certificate into a trusted root.
+
+============================================================
+8. HOSTNAME VALIDATION
+============================================================
+
+Do not assume localhost.
+
+The installer must choose a ServerUrl whose host matches the certificate.
+
+Candidate hosts may include:
+
+1. explicit IIS HTTPS binding host
+2. certificate SAN DNS names
+3. machine FQDN
+4. machine hostname
+5. localhost
+6. configured Laserfiche endpoint
+
+But a candidate may only be selected if:
+
+- it resolves/reaches the local Laserfiche API
+- the IIS binding serves the API
+- TLS certificate identity matches it
+
+IP addresses should only be selected if the certificate has the corresponding IP SAN.
+
+Do not treat CN/SAN DNS=localhost as valid for 192.168.x.x.
+
+Our test proved why:
+
+machine IP was:
+
+    192.168.102.111
+
+while an old certificate was:
+
+    192.168.102.112
+
+and TCP 443 to 192.168.102.112 timed out.
+
+localhost, however, returned HTTP 200.
+
+Therefore discovery must use the CURRENT environment, never stale IP information.
+
+============================================================
+9. INSTALLER UI
+============================================================
+
+Improve the Dashboard Configuration page.
+
+When Laserfiche API detection succeeds, show something like:
+
+    Laserfiche Repository API
+    https://localhost/LFRepositoryAPI
+
+    TLS certificate:
+    CN=localhost
+
+    Certificate status:
+    Trusted
+
+If it finds a valid self-signed certificate that only lacks LocalMachine trust, show:
+
+    Certificate status:
+    Self-signed certificate requires Local Machine trust.
+
+    [x] Trust the detected Laserfiche certificate on this machine
+
+This checkbox should default ON for this exact safe self-signed scenario.
+
+Do NOT show this checkbox for arbitrary invalid certificates.
+
+If the user disables it, warn that Dashboard authentication may fail.
+
+============================================================
+10. INSTALL TIME ORDER
+============================================================
+
+The order is important.
+
+The installation should effectively perform:
+
+    Detect Laserfiche API
+    Detect HTTPS binding
+    Resolve certificate
+    Validate identity
+    Validate chain
+    Establish LocalMachine trust IF safe/necessary
+    Write laserfiche.config.json
+    Deploy Dashboard
+    Configure IIS
+    Start/recycle Dashboard App Pool
+    Perform final HTTPS/API probe
+
+The Dashboard process should not start its first real API request before required trust preparation is complete.
+
+============================================================
+11. FINAL INSTALL VERIFICATION
+============================================================
+
+After installation, perform a verification using the SAME Windows trust rules the Dashboard's HttpClient uses.
+
+Do NOT disable validation.
+
+Probe:
+
+    <ServerUrl>
+
+and preferably:
+
+    <ServerUrl>/v1/Repositories
+
+HTTP authentication failures are acceptable evidence that TLS succeeded.
+
+For example:
+
+    200 = TLS PASS
+    400 = TLS PASS
+    401 = TLS PASS
+    403 = TLS PASS
+    404 = TLS PASS if endpoint/path probe is expected
+
+TLS handshake failure = INSTALL VERIFICATION FAILURE.
+
+Log separately:
+
+    TCP reachable
+    TLS handshake successful
+    certificate trusted
+    hostname matched
+    HTTP status
+
+============================================================
+12. LOGGING
+============================================================
+
+Add detailed installer logging to:
+
+    C:\ProgramData\Dashboard\Logs\SetupHelper.log
+
+Never log private keys or passwords.
+
+Log:
+
+    Laserfiche API URL
+    IIS site/application
+    HTTPS binding
+    selected hostname
+    certificate Subject
+    certificate Issuer
+    certificate Thumbprint
+    certificate SANs
+    certificate NotBefore
+    certificate NotAfter
+    self-signed true/false
+    certificate location
+    chain status before trust
+    trust action taken/skipped
+    chain status after trust
+    final TLS verification result
+
+Example:
+
+    [TLS SETUP] API URL: https://localhost/LFRepositoryAPI
+    [TLS SETUP] Certificate: CN=localhost
+    [TLS SETUP] Thumbprint: ...
+    [TLS SETUP] SelfSigned: True
+    [TLS SETUP] LocalMachine Root present: False
+    [TLS SETUP] Chain before: UntrustedRoot
+    [TLS SETUP] Installing public certificate into LocalMachine\Root.
+    [TLS SETUP] LocalMachine Root present: True
+    [TLS SETUP] Chain after: Valid
+    [TLS SETUP] HTTPS verification: PASS
+
+============================================================
+13. UNINSTALL BEHAVIOR
+============================================================
+
+Be conservative.
+
+DO NOT automatically remove a certificate from LocalMachine\Root during uninstall unless you can prove:
+
+1. Dashboard itself installed that exact certificate,
+2. it was not already trusted before installation,
+3. no other product requires it.
+
+Preferred initial implementation:
+
+leave the trusted certificate in LocalMachine\Root on uninstall.
+
+This is safer than removing machine trust used by another application.
+
+Document this behavior.
+
+============================================================
+14. UPGRADE / REINSTALL
+============================================================
+
+The operation must be idempotent.
+
+First install:
+
+    Root missing
+    -> install public cert
+    -> verify
+
+Second install / repair:
+
+    Root already contains thumbprint
+    -> skip
+    -> verify
+
+Upgrade:
+
+    same behavior.
+
+Never create duplicate certificates.
+
+============================================================
+15. EXISTING INSTALLER BUG FIXES MUST REMAIN
+============================================================
+
+Do not regress the work already completed.
+
+Specifically preserve:
+
+- related Burn bundle executions run headlessly
+- no second Dashboard Configuration wizard during upgrade
+- one production WizardForm construction path
+- same-version upgrade support
+- Web Client button survives reinstall
+- Web Client script insertion remains idempotent
+- Desktop Client integration remains working
+- dynamic repository selection remains working
+- no RepositoryId stored by installer
+- no DisplayName stored by installer
+- repository remains runtime session context
+- SetupHelper smoke test remains isolated from ProgramData
+- source/staged BA SHA256 guard remains
+- PowerShell parser guard remains
+
+============================================================
+16. TESTS REQUIRED
+============================================================
+
+Add automated tests for the trust decision logic.
+
+At minimum:
+
+TEST 1:
+Trusted CA certificate
+Expected:
+No trust-store modification.
+
+TEST 2:
+Valid self-signed certificate + exact SAN match + UntrustedRoot
+Expected:
+Trust action allowed.
+
+TEST 3:
+Self-signed certificate + hostname mismatch
+Expected:
+Trust action DENIED.
+
+TEST 4:
+Expired self-signed certificate
+Expected:
+Trust action DENIED.
+
+TEST 5:
+CA-issued leaf + UntrustedRoot
+Expected:
+Do NOT add leaf to Root.
+
+TEST 6:
+Certificate already present in LocalMachine\Root
+Expected:
+No-op.
+
+TEST 7:
+IP URL but only DNS SAN exists
+Expected:
+Identity mismatch.
+
+TEST 8:
+localhost URL + SAN localhost
+Expected:
+Identity match.
+
+TEST 9:
+Wildcard DNS SAN
+Expected:
+Correct RFC-style wildcard behavior.
+
+TEST 10:
+Trust succeeds and chain rebuild becomes valid
+Expected:
+Final verification PASS.
+
+Keep pure decision logic separate from Windows certificate-store mutation so it can be unit tested.
+
+============================================================
+17. PUBLISH / BUILD GUARDS
+============================================================
+
+Extend publish.ps1 guards.
+
+Fail the build if production source contains obvious TLS bypass patterns:
+
+    DangerousAcceptAnyServerCertificateValidator
+    ServerCertificateCustomValidationCallback ... true
+    RemoteCertificateValidationCallback ... true
+    ServerCertificateValidationCallback ... true
+
+Do not false-positive on tests/comments if avoidable.
+
+Also verify the new SetupHelper TLS component is included in staging.
+
+============================================================
+18. IMPORTANT: DO NOT HARDCODE OUR FIX
+============================================================
+
+This is the most important requirement.
+
+The solution is NOT:
+
+    always trust thumbprint
+    972F61FC2D278A86BAA04CF87ECC6FA1DD1CD4A5
+
+The solution is NOT:
+
+    always trust CN=localhost
+
+The solution is NOT:
+
+    always use https://localhost
+
+Those values belong only to the machine where we diagnosed the problem.
+
+The production solution must derive:
+
+    endpoint
+    binding
+    hostname
+    certificate
+    thumbprint
+    SAN
+    trust state
+
+from the machine being installed.
+
+============================================================
+19. DO A FULL REVIEW BEFORE EDITING
+============================================================
+
+Before modifying code:
+
+1. Trace the current installer architecture.
+2. Trace where LF API URL is detected.
+3. Trace how the HTTPS certificate is discovered.
+4. Trace where laserfiche.config.json is written.
+5. Trace when Dashboard IIS/AppPool starts.
+6. Trace existing SetupHelper elevated custom actions.
+7. Trace upgrade/reinstall execution.
+8. Identify the safest location for certificate trust preparation.
+
+Then implement.
+
+Do not duplicate functionality already present in DetectionService or the TLS diagnostic code.
+
+============================================================
+20. FINAL REPORT REQUIRED
+============================================================
+
+After implementation give me:
+
+A. Exact original TLS root cause.
+
+B. Why PowerShell worked but Dashboard NetworkService failed.
+
+C. Files modified.
+
+D. Exact certificate discovery algorithm.
+
+E. Exact ServerUrl selection algorithm.
+
+F. Exact rules allowing automatic self-signed trust.
+
+G. Exact rules that DENY automatic trust.
+
+H. Whether private keys are ever copied to Root.
+
+I. Behavior for enterprise CA certificates.
+
+J. Behavior when certificate is already trusted.
+
+K. Behavior on reinstall.
+
+L. Behavior on uninstall.
+
+M. Final generated laserfiche.config.json example.
+
+N. Final installer TLS logs example.
+
+O. All certificate/trust unit-test results.
+
+P. Web application test results.
+
+Q. SetupHelper build result.
+
+R. BA build result.
+
+S. Full publish.ps1 Windows result.
+
+T. Confirmation there are zero TLS-validation bypasses.
+
+U. Confirmation RepositoryId/DisplayName are still not installer settings.
+
+V. Confirmation Desktop Client button still works.
+
+W. Confirmation Web Client button still works.
+
+X. Confirmation related-bundle execution cannot display a second configuration wizard.
+
+Do not report success for anything you did not actually build/test.

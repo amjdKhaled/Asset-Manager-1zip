@@ -36,6 +36,13 @@ namespace Dashboard.BA
 
         // IIS HTTP binding port.  Must match the port in DashboardUrl.
         public string DashboardPort { get; set; } = "5000";
+
+        // True: the operator consented (wizard checkbox) to trusting the
+        // detected SELF-SIGNED Laserfiche API certificate on this machine
+        // (public certificate into LocalMachine\Root, performed by the
+        // elevated SetupHelper --prepare-tls custom action, which re-checks
+        // every safety rule itself; this flag is consent only, not policy).
+        public bool TrustSelfSignedCert { get; set; } = false;
     }
 
     // Results of the environment detection scan (page 2 of the wizard).
@@ -62,6 +69,14 @@ namespace Dashboard.BA
         // Non-fatal warning about the API certificate (untrusted chain,
         // expired, no hostname match, ...) to surface in the wizard/log.
         public string LaserficheApiWarning { get; set; } = "";
+
+        // Certificate presented by the detected /LFRepositoryAPI HTTPS
+        // binding: shown on the config page and used to decide whether the
+        // "trust self-signed certificate" checkbox may be offered.
+        public string LaserficheCertSubject    { get; set; } = "";
+        public string LaserficheCertThumbprint { get; set; } = "";
+        public bool   LaserficheCertSelfSigned { get; set; }
+        public bool   LaserficheCertTrusted    { get; set; }
 
         // True if all components required for the Dashboard web app are present.
         public bool AllRequiredPresent => IisInstalled && AspNetCore8Installed;

@@ -25,4 +25,18 @@ to the machine name, config pointed at localhost.
   machine trust, not CurrentUser.
 - Wizard "Next" does a live HTTPS probe with a RECORDING (never bypassing)
   per-request ServerCertificateValidationCallback: hard-block on TLS failure,
-  Yes/No for plain unreachability.
+  Yes/No for plain unreachability. Exception: chain-errors-only on the exact
+  detected URL pass when the operator checked the trust checkbox (trust is
+  established during install).
+- ROOT CAUSE of the production TLS failure: valid SELF-SIGNED IIS cert in
+  LocalMachine\My but not in LocalMachine\Root — PowerShell (user context /
+  interactive) worked while the NetworkService app pool failed with
+  UntrustedRoot. Fix: SetupHelper `--prepare-tls` (elevated deferred CA,
+  After=InstallFiles, before WriteConfig, Return=ignore, always exit 0):
+  pure TlsTrustPlanner (compile-linked into net8 tests) decides; installs
+  ONLY the public cert into LocalMachine\Root when self-signed + valid +
+  host-matched + UntrustedRoot-only + elevated + operator consent
+  (wizard checkbox -> TrustLFCertificate -> TRUST_LF_CERT). CA-issued leaves
+  are NEVER added to Root; uninstall never removes Root certs; idempotent.
+  Final verification = HttpWebRequest with default validation; any HTTP
+  status = TLS PASS.

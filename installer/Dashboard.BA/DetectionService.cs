@@ -89,9 +89,18 @@ namespace Dashboard.BA
                     string portSuffix = (port == "443") ? "" : ":" + port;
                     r.LaserficheApiUrl = "https://" + sel.Host + portSuffix + "/LFRepositoryAPI";
                 }
+                if (certInfo != null)
+                {
+                    r.LaserficheCertSubject    = certInfo.Subject;
+                    r.LaserficheCertThumbprint = certInfo.Thumbprint;
+                    r.LaserficheCertSelfSigned = certInfo.SelfSigned;
+                    r.LaserficheCertTrusted    = certInfo.ChainTrusted;
+                }
                 StartupLogger.Log(
                     $"LF API detection: bindingHost='{bindingHost}' port={port} " +
-                    $"selectedHost='{sel.Host ?? "(none)"}' warning='{sel.Warning}'");
+                    $"selectedHost='{sel.Host ?? "(none)"}' warning='{sel.Warning}' " +
+                    $"certSubject='{r.LaserficheCertSubject}' selfSigned={r.LaserficheCertSelfSigned} " +
+                    $"trusted={r.LaserficheCertTrusted} thumbprint={r.LaserficheCertThumbprint}");
             }
             catch (Exception ex)
             {
@@ -266,7 +275,10 @@ namespace Dashboard.BA
                 var info = new ApiCertificateInfo
                 {
                     NotBeforeUtc = cert.NotBefore.ToUniversalTime(),
-                    NotAfterUtc  = cert.NotAfter.ToUniversalTime()
+                    NotAfterUtc  = cert.NotAfter.ToUniversalTime(),
+                    Subject      = cert.Subject,
+                    Thumbprint   = cert.Thumbprint ?? "",
+                    SelfSigned   = string.Equals(cert.Subject, cert.Issuer, StringComparison.Ordinal)
                 };
 
                 // SAN DNS names (OID 2.5.29.17); fall back to CN.

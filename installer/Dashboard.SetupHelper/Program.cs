@@ -25,6 +25,15 @@
 //   --rollback-webclient
 //       --path  <web-client-physical-path>
 //
+//   --prepare-tls
+//       --lf-api           <laserfiche-api-url>
+//       --trust-selfsigned <0|1>   (operator consent from the wizard checkbox)
+//       Certificate/TLS preparation stage: inspects the certificate the LF
+//       API endpoint presents, and (only for a valid self-signed certificate
+//       matching the host, with consent) installs the PUBLIC certificate
+//       into LocalMachine\Root. Never bypasses TLS validation. Always
+//       exits 0 (best-effort; all outcomes logged with [TLS SETUP]).
+//
 // Exit codes: 0 = success, 1 = error.
 // All diagnostic output goes to stdout/stderr (captured in MSI log).
 //
@@ -80,6 +89,10 @@ namespace Dashboard.SetupHelper
 
                     case "--rollback-webclient":
                         rc = WebClientAction.Rollback(opts);
+                        break;
+
+                    case "--prepare-tls":
+                        rc = TlsSetupAction.Execute(opts);
                         break;
 
                     default:
