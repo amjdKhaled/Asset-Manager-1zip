@@ -1,0 +1,519 @@
+We now have a working WiX 4 Managed Bootstrapper Application. The installer
+window opens successfully and reaches the Dashboard Configuration page.
+
+DO NOT redesign the installer architecture and DO NOT undo the existing WiX 4
+BA fixes. The managed BA startup problem is solved.
+
+I need you to fix the installer UX and installer lifecycle properly.
+
+============================================================
+GOAL
+============================================================
+
+Make LFDashboard-Setup.exe behave like a normal professional Windows installer.
+
+The current Dashboard Configuration page is too tall for the window.
+Some controls at the bottom are inaccessible because there is no proper
+scrolling/responsive layout.
+
+Also, when the installation reaches the final Setup Complete / Installation
+Failed page, clicking Finish does not reliably close the installer window.
+
+Fix BOTH problems completely.
+
+Also simplify the configuration page. Do not expose technical settings to the
+user unless they actually need to be configured.
+
+============================================================
+1. FIX DASHBOARD CONFIGURATION PAGE LAYOUT
+============================================================
+
+Inspect:
+
+installer/Dashboard.BA/WizardForm.cs
+
+and every related BA UI file.
+
+The configuration page currently contains fields such as:
+
+- Dashboard URL
+- Laserfiche API
+- Repository ID
+- Display Name
+- IIS Port
+- Laserfiche Web Client Path
+- Desktop Button
+- Web Button
+
+The current layout does not fit vertically in the installer window.
+
+DO NOT solve this by simply increasing the window height.
+
+The installer must work correctly on:
+
+- 1366x768
+- 1920x1080
+- Windows display scaling 100%
+- Windows display scaling 125%
+- Windows display scaling 150%
+
+Implement a proper responsive WinForms layout.
+
+Preferred solution:
+
+Create a main TableLayoutPanel with:
+
+Dock = Fill
+
+Structure:
+
+Row 0:
+    page header / description
+    AutoSize
+
+Row 1:
+    configuration content
+    Percent 100%
+
+Row 2:
+    navigation buttons
+    AutoSize
+
+The navigation buttons must ALWAYS remain visible.
+
+The middle configuration area must be scrollable:
+
+Panel configScrollPanel
+
+configScrollPanel.Dock = Fill
+configScrollPanel.AutoScroll = true
+
+Put all configuration fields inside that panel.
+
+The user must always be able to reach every field.
+
+Do not allow controls to disappear below the window.
+
+============================================================
+2. SIMPLIFY THE CONFIGURATION PAGE
+============================================================
+
+The installer is currently asking the user for too many technical values.
+
+Reduce the normal configuration page to only values that genuinely require
+user input.
+
+The primary fields should be:
+
+1. Laserfiche API URL
+2. Repository ID
+
+Optional:
+
+3. Display Name
+
+Move advanced settings into an:
+
+"Advanced Settings"
+
+section or expandable GroupBox.
+
+Advanced settings:
+
+- Dashboard URL
+- IIS Port
+- Laserfiche Web Client Path
+- Install Desktop Button
+- Install Web Button
+
+Where possible, AUTO-DETECT these values.
+
+============================================================
+3. AUTO-DETECT DASHBOARD URL
+============================================================
+
+Default Dashboard URL should automatically use:
+
+http://<computer-name>:5000
+
+Use:
+
+Environment.MachineName
+
+Do not hardcode DESKTOP-K1SVI53.
+
+Example:
+
+http://SERVER01:5000
+
+If IIS Port changes, Dashboard URL should update automatically unless the user
+manually changed the URL.
+
+============================================================
+4. AUTO-DETECT LASERFICHE API
+============================================================
+
+Try to detect a local Laserfiche Repository API installation.
+
+Check common IIS/local installation information and known paths.
+
+If LFRepositoryAPI exists locally, default to something similar to:
+
+https://localhost/LFRepositoryAPI
+
+Do NOT require the user to type this manually when it can be detected.
+
+However, allow manual override.
+
+============================================================
+5. AUTO-DETECT LASERFICHE WEB CLIENT PATH
+============================================================
+
+Do not make the user manually enter:
+
+C:\Program Files\Laserfiche\Web Access\Web Files
+
+Try to detect the actual installation path.
+
+Check:
+
+- expected Laserfiche installation directories
+- IIS physical paths if appropriate
+- registry if Laserfiche stores installation information there
+
+If Web Client is not installed:
+
+disable the "Install Web Button" option automatically.
+
+Do NOT fail the entire Dashboard installation merely because Laserfiche Web
+Client integration is unavailable.
+
+Desktop integration and Web integration must be optional features.
+
+============================================================
+6. VALIDATION
+============================================================
+
+Validation must happen when Next is clicked.
+
+Do not allow the user to continue with invalid required fields.
+
+Repository ID:
+
+- cannot be empty
+
+Laserfiche API URL:
+
+- cannot be empty
+- must be a valid http:// or https:// URI
+
+Dashboard URL:
+
+- if supplied, must be valid
+
+IIS Port:
+
+- integer
+- range 1-65535
+
+Show friendly validation messages next to the field or in a clear MessageBox.
+
+Do not crash.
+
+============================================================
+7. FIX FINISH BUTTON
+============================================================
+
+There is a serious lifecycle bug:
+
+On the final Setup Complete / Installation Failed page, pressing Finish does
+not reliably close the installer.
+
+Find the actual reason.
+
+Do NOT just hide the form.
+
+Finish must terminate the WinForms message loop and allow Burn to shut down
+cleanly.
+
+Inspect:
+
+WizardForm.cs
+DashboardBA.cs
+BAFactory.cs
+
+and all Finish button handlers.
+
+The Finish button should ultimately cause the main form to close.
+
+For example, depending on the current architecture:
+
+private void FinishButton_Click(object sender, EventArgs e)
+{
+    DialogResult = DialogResult.OK;
+    Close();
+}
+
+Then make sure DashboardBA.Run() actually exits after:
+
+Application.Run(form);
+
+Do NOT call Application.Run() again.
+
+Do NOT create another hidden WizardForm.
+
+Do NOT cancel FormClosing on the final page.
+
+If FormClosing is currently intercepted, fix that logic.
+
+After Finish:
+
+1. WizardForm closes.
+2. Application.Run(form) returns.
+3. DashboardBA.Run() returns.
+4. Burn shuts down.
+5. LFDashboard-Setup.exe process exits normally.
+
+Also make the X button behave correctly when installation has completed.
+
+============================================================
+8. FIX INSTALLATION FAILED PAGE BEHAVIOR
+============================================================
+
+The same Finish behavior must work when installation FAILS.
+
+Current screen says:
+
+Installation Failed
+Installation failed (HRESULT 0x80070643)
+
+Finish must close the installer.
+
+The user should NOT have to kill LFDashboard-Setup.exe from Task Manager.
+
+============================================================
+9. DO NOT MIX INSTALL FAILURE WITH UI FAILURE
+============================================================
+
+There are now two independent issues:
+
+A. Installer UI / Finish behavior
+B. MSI installation failure 0x80070643
+
+Fix the UI/lifecycle problem independently.
+
+Then investigate the MSI failure separately.
+
+The Burn log proves the BA is now working and DashboardMsi is being launched.
+
+Do NOT return to debugging WixToolset.Mba.Host.config or the previous
+0x80131902 problem.
+
+That issue is solved.
+
+============================================================
+10. INVESTIGATE MSI 0x80070643
+============================================================
+
+The current MSI log is:
+
+Laserfiche_Dashboard_*_000_DashboardMsi.log
+
+The MSI starts installing files successfully.
+
+Search the COMPLETE MSI log, especially around:
+
+Return value 3
+
+Do NOT assume the nearby IIS messages are necessarily the root cause.
+
+Find the LAST occurrence of:
+
+Return value 3
+
+Then inspect at least 50 lines before it and 20 lines after it.
+
+Search for:
+
+Return value 3
+error
+failed
+exception
+CustomAction
+SetupHelper
+IIS
+ConfigureIIs
+InstallFinalize
+CAQuietExec
+Dashboard.SetupHelper
+exit code
+
+Determine the EXACT custom action or MSI operation that fails.
+
+Do not report generic:
+
+"0x80070643 means MSI installation failed"
+
+I already know that.
+
+I need the actual failing action and actual underlying error.
+
+============================================================
+11. MAKE OPTIONAL INTEGRATIONS NON-FATAL
+============================================================
+
+Review the installer architecture.
+
+Installing the core Dashboard application should not fail merely because:
+
+- Laserfiche Desktop Client is not installed
+- Laserfiche Web Client is not installed
+- a Web Client customization path is unavailable
+- an optional integration cannot be installed
+
+Core Dashboard installation should succeed independently.
+
+Optional integrations should either:
+
+A. be disabled when unavailable
+
+or
+
+B. show a warning after installation.
+
+Do not rollback the entire Dashboard because an optional button integration
+cannot be installed.
+
+============================================================
+12. CLEAN INSTALLER UX
+============================================================
+
+Final desired wizard:
+
+PAGE 1
+Welcome
+
+PAGE 2
+Dashboard Configuration
+
+Required:
+Laserfiche API URL
+Repository ID
+
+Optional:
+Display Name
+
+Advanced Settings:
+Dashboard URL
+IIS Port
+Web Client integration
+Desktop Client integration
+
+PAGE 3
+Ready to Install
+
+Show summary.
+
+PAGE 4
+Installing
+
+Progress bar.
+
+PAGE 5
+Setup Complete
+
+Show:
+
+Dashboard URL
+Installation location
+integration status
+
+Buttons:
+
+Finish
+
+Finish MUST close the application.
+
+============================================================
+13. DO NOT BREAK EXISTING WORKING FIXES
+============================================================
+
+Preserve:
+
+- WiX 4.0.5
+- x86 Managed BA
+- working WixToolset.Mba.Host.config
+- BAFactory
+- StartupLogger
+- mbanative.dll handling
+- WixToolset.Mba.Core
+- existing Burn variables
+- existing MSI property passing
+- existing publish.ps1 guards
+
+Do NOT revert to AnyCPU.
+
+Do NOT add sku back to WixToolset.Mba.Host.config.
+
+Do NOT remove the working BA factory attribute.
+
+============================================================
+14. BUILD AND VERIFY
+============================================================
+
+After modifications:
+
+1. Clean previous build outputs.
+2. Build Dashboard.BA Release.
+3. Build the MSI.
+4. Build the Bundle.
+5. Run publish.ps1.
+6. Verify LFDashboard-Setup.exe exists.
+7. Verify no compile errors.
+8. Verify no warnings caused by your changes.
+
+Also inspect the generated MSI/Burn configuration to make sure the properties
+still flow correctly:
+
+DASHBOARD_URL
+LF_API_URL
+LF_REPO_ID
+LF_DISPLAY_NAME
+LF_WEB_CLIENT_PATH
+INSTALL_DESKTOP_BUTTON
+INSTALL_WEB_BUTTON
+DASHBOARD_PORT
+
+============================================================
+15. IMPORTANT WORKING STYLE
+============================================================
+
+Do not stop after identifying a problem.
+
+Do not give me a diagnostic-only answer.
+
+Inspect the code, identify the cause, MODIFY THE FILES, build, verify, and fix
+all directly discoverable problems.
+
+If the first implementation causes another build/runtime issue, continue
+investigating and correct it.
+
+Do not undo previously working fixes.
+
+At the end report:
+
+1. Root cause of the configuration page clipping
+2. Files modified
+3. Exact UI/layout changes
+4. Root cause of Finish not closing
+5. Exact Finish lifecycle fix
+6. Exact root cause of MSI 0x80070643
+7. Exact MSI fix made
+8. Optional integrations made non-fatal
+9. Build result
+10. Any remaining issue that genuinely requires testing on Windows
+
+The goal is not merely to make the project compile.
+
+The goal is for LFDashboard-Setup.exe to behave like a normal installer:
+open -> configure -> install -> finish -> CLOSE.

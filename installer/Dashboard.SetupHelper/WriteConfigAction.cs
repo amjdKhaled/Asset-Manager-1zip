@@ -125,19 +125,25 @@ namespace Dashboard.SetupHelper
                 }
                 else
                 {
-                    // Hard error: the file must be present so we can patch the port.
-                    // Under IIS the IIS binding takes precedence, but if the file is
-                    // missing it means the publish step omitted it entirely, which is
-                    // a packaging defect we must not silently ignore.  Returning a
-                    // non-zero exit code causes the MSI WriteConfig custom action to
-                    // fail and roll back the installation rather than leaving the app
-                    // configured on the wrong port.
+                    // NON-FATAL: log a warning but allow installation to continue.
+                    //
+                    // Under IIS/ANCM the IIS binding (set by the SetIisBindingPort
+                    // appcmd custom action in Product.wxs) is the authoritative port
+                    // source; appsettings.json Urls is a developer convenience that
+                    // has no effect when the app runs under IIS.  Returning rc=1 here
+                    // would cause the WriteConfig CA (Return="check") to roll back the
+                    // entire installation for a non-critical step -- a worse outcome
+                    // than leaving Urls un-patched.
+                    //
+                    // If this warning appears in the MSI log, verify that the publish
+                    // output includes appsettings.json (CopyToPublishDirectory in
+                    // LFPortal.Web.csproj), and re-run the installer.
                     Console.Error.WriteLine(
-                        $"[SetupHelper] ERROR: {appSettingsPath} not found. " +
-                        "The web app cannot be port-configured without appsettings.json. " +
-                        "Ensure the publish output includes appsettings.json " +
-                        "(check CopyToPublishDirectory in LFPortal.Web.csproj).");
-                    rc = 1;
+                        $"[SetupHelper] WARNING: {appSettingsPath} not found. " +
+                        "Urls port will not be patched in appsettings.json. " +
+                        "IIS binding (SetIisBindingPort custom action) is the " +
+                        "authoritative port source; installation will continue.");
+                    // rc stays 0 -- installation is NOT rolled back.
                 }
             }
             else
