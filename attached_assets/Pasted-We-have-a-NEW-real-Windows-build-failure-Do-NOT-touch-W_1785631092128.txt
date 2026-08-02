@@ -1,0 +1,320 @@
+We have a NEW real Windows build failure.
+
+Do NOT touch WiX Step 8 or Bundle Step 9 yet.
+
+The build currently reaches Step 4 successfully:
+
+[Step 4/11] Building Desktop Extension (net48, x64, Release)
+
+Dashboard.DesktopExtension succeeded
+→ src\Dashboard.DesktopExtension\bin\Release\net48\Dashboard.DesktopExtension.exe
+
+Build succeeded.
+
+The files are then staged successfully to:
+
+artifacts\staging\Extension
+
+But publish.ps1 immediately fails with:
+
+[PREFLIGHT FAILED] Required Extension DLL is missing after staging:
+
+MISSING:
+artifacts\staging\Extension\Dashboard.DesktopExtension.dll
+
+This preflight check is WRONG.
+
+============================================================
+ROOT CAUSE
+============================================================
+
+Dashboard.DesktopExtension is an executable project.
+
+The actual primary output is:
+
+Dashboard.DesktopExtension.exe
+
+NOT:
+
+Dashboard.DesktopExtension.dll
+
+This is also consistent with the existing registration architecture:
+
+Dashboard.DesktopExtension.exe --setup --silent
+
+and uninstall:
+
+Dashboard.DesktopExtension.exe --remove --silent
+
+Therefore publish.ps1 appears to contain a newly introduced incorrect
+assumption that the Desktop Extension must produce a DLL.
+
+============================================================
+TASK
+============================================================
+
+Audit the COMPLETE Desktop Extension packaging pipeline and fix every place
+that incorrectly expects:
+
+Dashboard.DesktopExtension.dll
+
+when the actual project output is:
+
+Dashboard.DesktopExtension.exe
+
+Do NOT simply remove the preflight check.
+
+Make the check validate the CORRECT artifact.
+
+============================================================
+1. INSPECT THE PROJECT FIRST
+============================================================
+
+Read:
+
+src/Dashboard.DesktopExtension/Dashboard.DesktopExtension.csproj
+
+Confirm:
+
+- OutputType
+- TargetFramework
+- PlatformTarget
+- AssemblyName
+- actual output files
+- how Laserfiche registration is implemented
+
+Do not guess.
+
+Determine definitively whether the intended deployable entry point is:
+
+Dashboard.DesktopExtension.exe
+
+Based on the current architecture it should be.
+
+============================================================
+2. FIX publish.ps1
+============================================================
+
+Find every reference in:
+
+build/publish.ps1
+
+to:
+
+Dashboard.DesktopExtension.dll
+
+Audit whether each reference should instead be:
+
+Dashboard.DesktopExtension.exe
+
+The post-Step-4 preflight must check:
+
+artifacts\staging\Extension\Dashboard.DesktopExtension.exe
+
+not the nonexistent DLL.
+
+For example conceptually:
+
+$extensionExe =
+    Join-Path $ExtensionStageDir "Dashboard.DesktopExtension.exe"
+
+if (-not (Test-Path $extensionExe)) {
+    fail clearly
+}
+
+Also validate that the EXE is non-empty.
+
+Do NOT require a DLL that the project does not produce.
+
+============================================================
+3. AUDIT THE MSI
+============================================================
+
+Search ALL installer files for:
+
+Dashboard.DesktopExtension.dll
+
+including:
+
+installer/Dashboard.Installer/*.wxs
+installer/Dashboard.Bundle/*.wxs
+installer/Dashboard.SetupHelper/*
+build/publish.ps1
+
+Make sure the MSI installs the actual Extension executable and all required
+dependencies.
+
+The Extension staging directory currently contains 11 files.
+
+Preserve all required dependencies.
+
+============================================================
+4. AUDIT EXTENSION REGISTRATION
+============================================================
+
+Confirm the MSI registration custom action still executes:
+
+Dashboard.DesktopExtension.exe --setup --silent
+
+and uninstall executes:
+
+Dashboard.DesktopExtension.exe --remove --silent
+
+Do not change this to rundll32, regsvr32, DLL registration, or any other
+architecture.
+
+The Desktop Extension already worked before the installer work.
+
+Do not redesign it.
+
+============================================================
+5. AUDIT HARVESTING
+============================================================
+
+Step 8 previously reported:
+
+Harvested Extension: 11 files
+
+Confirm New-HarvestWxs harvests:
+
+Dashboard.DesktopExtension.exe
+
+and all of its required DLL/config dependencies.
+
+Make sure there is no Component/File reference expecting
+Dashboard.DesktopExtension.dll.
+
+============================================================
+6. CHECK INSTALL PATH REFERENCES
+============================================================
+
+Search the entire repository for:
+
+Dashboard.DesktopExtension.dll
+
+and classify EVERY occurrence.
+
+For each occurrence:
+
+- fix it if it incorrectly refers to the extension executable
+- leave it only if there is genuinely a separate DLL with that exact name
+  and explain why
+
+Also search for:
+
+Dashboard.DesktopExtension.exe
+
+and make sure all installer paths are consistent.
+
+============================================================
+7. DO NOT REGRESS WORKING BUILD STEPS
+============================================================
+
+The real Windows build already confirms:
+
+Step 1 PASS
+Step 2 PASS
+Step 3 PASS
+Step 4 BUILD PASS
+
+The failure happens only in the new post-Step-4 preflight.
+
+Do not modify the Extension source code unless the audit proves it is
+actually necessary.
+
+Do not change OutputType from WinExe/Exe to Library just to satisfy the
+incorrect preflight.
+
+The installer must adapt to the existing working Extension architecture,
+not the other way around.
+
+============================================================
+8. IMPORTANT: CONTINUE AUDITING AFTER THIS FIX
+============================================================
+
+This incorrect DLL assumption may have been introduced elsewhere during
+the installer changes.
+
+Proactively inspect Steps 5-11 for the same type of wrong artifact
+assumption.
+
+Specifically check expected outputs for:
+
+Dashboard.SetupHelper.exe
+Dashboard.BA.dll
+Dashboard.DesktopExtension.exe
+LFPortal.Web.dll
+Dashboard-1.0.0-Setup.msi
+LFDashboard-Setup.exe
+
+Make sure publish.ps1 validates the actual project outputs.
+
+I do not want another build stopped later because the script expects the
+wrong file extension.
+
+============================================================
+9. DO NOT REGRESS THE .NET 4.8 PREREQUISITE FIX
+============================================================
+
+Keep the latest Step 9 architecture:
+
+.build-cache\prerequisites\ndp48-web.exe
+
+automatic Microsoft download
+
+Authenticode validation
+
+NetFx48Installer passed to WiX
+
+ExePackagePayload SourceFile + DownloadUrl
+
+bal:PrereqPackage="yes"
+
+Do not undo any of this while fixing the Extension preflight.
+
+============================================================
+10. SUCCESS CRITERIA
+============================================================
+
+After the fix, Step 4 should look conceptually like:
+
+[Step 4/11] Building Desktop Extension
+Build succeeded
+[OK] Extension binaries staged
+[OK] Desktop Extension executable verified:
+     artifacts\staging\Extension\Dashboard.DesktopExtension.exe
+
+Then the script must continue automatically to:
+
+Step 5
+Step 6
+...
+Step 8
+Step 9
+
+without looking for Dashboard.DesktopExtension.dll.
+
+============================================================
+11. FINAL REPORT
+============================================================
+
+Report:
+
+1. Actual OutputType from Dashboard.DesktopExtension.csproj.
+2. Actual primary build artifact.
+3. Why publish.ps1 incorrectly expected a DLL.
+4. Every Dashboard.DesktopExtension.dll reference found.
+5. Every file changed.
+6. Correct post-Step-4 preflight check.
+7. MSI registration executable/path.
+8. Uninstall registration executable/path.
+9. Confirmation Extension harvesting includes the EXE.
+10. Results of auditing expected artifacts for Steps 5-11.
+11. Confirmation the Step 9 .NET 4.8 prerequisite changes remain untouched.
+12. Exact command to rerun on Windows.
+
+Do NOT claim BUILD SUCCESSFUL.
+
+The authoritative test remains my REAL Windows execution of:
+
+.\build\publish.ps1
