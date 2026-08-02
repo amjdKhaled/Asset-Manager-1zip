@@ -471,6 +471,34 @@ Invoke-NativeCommand -Stage "dotnet publish (web app)" -FilePath "dotnet" -Argum
 
 Write-OK "Web app published to: $webAppOut"
 
+# Post-publish guard: appsettings.json must be present in the staged WebApp
+# folder.  WriteConfigAction patches the "Urls" key in this file at install
+# time so the ASP.NET Core app binds the wizard-selected port.  If the file
+# is missing the installer will abort (WriteConfigAction now returns exit 1),
+# but catching it here at build time gives a clearer message and fails fast
+# before the MSI is assembled.
+$stagedAppSettings = Join-Path $webAppOut "appsettings.json"
+if (-not (Test-Path $stagedAppSettings)) {
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Red
+    Write-Host "  [PREFLIGHT FAILED] appsettings.json is missing from the staged WebApp folder:" `
+        -ForegroundColor Red
+    Write-Host ("    MISSING: {0}" -f $stagedAppSettings) -ForegroundColor Red
+    Write-Host "" -ForegroundColor Red
+    Write-Host "  The MSI cannot be built without this file.  WriteConfigAction" -ForegroundColor Red
+    Write-Host "  patches the Urls key in appsettings.json at install time so the" -ForegroundColor Red
+    Write-Host "  web app binds the wizard-selected port.  Without it the app would" -ForegroundColor Red
+    Write-Host "  silently start on Kestrel's built-in default port." -ForegroundColor Red
+    Write-Host "" -ForegroundColor Red
+    Write-Host "  Possible causes:" -ForegroundColor Red
+    Write-Host "    - appsettings.json was excluded from the publish output" -ForegroundColor Red
+    Write-Host "      (check CopyToPublishDirectory in LFPortal.Web.csproj)" -ForegroundColor Red
+    Write-Host "    - The dotnet publish step failed silently (check output above)" -ForegroundColor Red
+    Write-Host "  ============================================================" -ForegroundColor Red
+    exit 1
+}
+Write-OK "appsettings.json confirmed present in staged WebApp folder."
+
 # =============================================================================
 # STEP 4 -- Build Desktop Extension (Windows only)
 # =============================================================================

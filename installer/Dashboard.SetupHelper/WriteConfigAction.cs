@@ -125,7 +125,19 @@ namespace Dashboard.SetupHelper
                 }
                 else
                 {
-                    Console.WriteLine($"[SetupHelper] Warning: {appSettingsPath} not found; Urls not written.");
+                    // Hard error: the file must be present so we can patch the port.
+                    // Under IIS the IIS binding takes precedence, but if the file is
+                    // missing it means the publish step omitted it entirely, which is
+                    // a packaging defect we must not silently ignore.  Returning a
+                    // non-zero exit code causes the MSI WriteConfig custom action to
+                    // fail and roll back the installation rather than leaving the app
+                    // configured on the wrong port.
+                    Console.Error.WriteLine(
+                        $"[SetupHelper] ERROR: {appSettingsPath} not found. " +
+                        "The web app cannot be port-configured without appsettings.json. " +
+                        "Ensure the publish output includes appsettings.json " +
+                        "(check CopyToPublishDirectory in LFPortal.Web.csproj).");
+                    rc = 1;
                 }
             }
             else
