@@ -1,0 +1,1277 @@
+IMPORTANT: DO NOT MODIFY THE PROJECT YET.
+
+I now want to completely understand and take ownership of this project.
+
+You have made many changes to this project over multiple iterations. I do NOT want another implementation task right now.
+
+Your job is now to TEACH ME THE ENTIRE CURRENT PROJECT exactly as it exists in the repository.
+
+I want to understand enough of the codebase that I can later modify, debug, build, install, extend, and maintain it manually without depending on you.
+
+Assume I know programming and can read C#, JavaScript, PowerShell, JSON, HTML/CSS, ASP.NET Core, etc., but I do not yet understand the architecture of THIS project.
+
+Do not give me a generic explanation of ASP.NET, WiX, IIS, or Laserfiche.
+
+Everything must be tied directly to the ACTUAL CURRENT SOURCE CODE in this repository.
+
+============================================================
+PRIMARY GOAL
+============================================================
+
+I want to understand:
+
+- What every project/folder is responsible for
+- How all projects communicate
+- How the application starts
+- How the installer works
+- How the Dashboard works
+- How Laserfiche integration works
+- How authentication works
+- How repository context works
+- How the Laserfiche API is called
+- How the Desktop Client integration works
+- How the Web Client button works
+- How IIS hosting works
+- How TLS/certificate handling works
+- How configuration files work
+- How SetupHelper works
+- How WiX works in THIS project
+- How the Bootstrapper Application works
+- How upgrades/reinstalls/repairs/uninstalls work
+- How publish.ps1 builds everything
+- How to manually modify each major feature
+- How to debug each major component
+- Where logs are written
+- What could break if I modify specific files
+
+I eventually want to know this project well enough that I can say:
+
+"This is my project and I understand how every important part works."
+
+============================================================
+RULE #1 — DO NOT TEACH FROM MEMORY
+============================================================
+
+Before explaining anything, inspect the CURRENT repository.
+
+Do not rely on previous conversation summaries.
+
+The repository has changed many times.
+
+Read the actual current files.
+
+If documentation disagrees with source code, SOURCE CODE WINS.
+
+Do not describe features that no longer exist.
+
+Do not describe old implementations that have already been replaced unless you explicitly label them as historical context.
+
+============================================================
+RULE #2 — DO NOT MODIFY CODE
+============================================================
+
+This is a READ-ONLY learning/audit task.
+
+Do NOT:
+
+- edit files
+- refactor
+- fix bugs
+- add comments
+- add documentation files
+- change formatting
+- change configuration
+- run destructive commands
+
+You may build/test/read/search the project if necessary to understand it.
+
+But do not change production source code.
+
+============================================================
+PHASE 1 — REPOSITORY INVENTORY
+============================================================
+
+Start by scanning the entire repository.
+
+Produce the real directory/project structure.
+
+Identify every important project such as:
+
+src/LFPortal.Web
+src/LFPortal.Application
+src/LFPortal.Infrastructure
+src/LFPortal.Domain
+
+installer/Dashboard.BA
+installer/Dashboard.Bundle
+installer/Dashboard.Installer
+installer/Dashboard.SetupHelper
+
+build/
+config/
+tools/
+tests/
+
+Do not assume these names exist — verify them.
+
+For every important directory explain:
+
+1. What it contains
+2. Why it exists
+3. Whether it runs at build time, install time, or runtime
+4. What other projects depend on it
+5. What would happen if it were removed
+
+Create an architecture tree like:
+
+Repository
+│
+├── src/
+│   ├── ...
+│
+├── installer/
+│   ├── ...
+│
+├── build/
+│   └── ...
+│
+└── ...
+
+But use the REAL repository structure.
+
+============================================================
+PHASE 2 — BIG-PICTURE ARCHITECTURE
+============================================================
+
+Before going line-by-line, explain the whole system.
+
+I want a complete flow beginning from:
+
+LFDashboard-Setup.exe
+
+and ending with:
+
+Dashboard running inside/alongside Laserfiche.
+
+Explain the chain approximately like:
+
+LFDashboard-Setup.exe
+        ↓
+WiX Burn
+        ↓
+Dashboard.BA
+        ↓
+WizardForm
+        ↓
+Detect
+        ↓
+Plan
+        ↓
+Apply
+        ↓
+MSI
+        ↓
+Dashboard.SetupHelper
+        ↓
+IIS / files / configuration / TLS
+        ↓
+LFPortal.Web
+        ↓
+Laserfiche Repository API
+
+But verify the real flow from the source.
+
+Also separately show:
+
+Laserfiche Desktop Client
+        ↓
+Dashboard integration
+        ↓
+Browser/Dashboard
+        ↓
+repository context
+        ↓
+LFRepositoryAPI
+
+and:
+
+Laserfiche Web Client
+        ↓
+Browse.aspx
+        ↓
+lf-dashboard-button.js
+        ↓
+Dashboard URL
+        ↓
+repository parameter
+        ↓
+Dashboard session
+
+Again: use the ACTUAL implementation.
+
+============================================================
+PHASE 3 — SOLUTION / PROJECT DEPENDENCIES
+============================================================
+
+Inspect all:
+
+*.sln
+*.csproj
+*.wixproj if present
+Directory.Build.*
+NuGet/package references
+project references
+
+Explain the dependency graph.
+
+For example:
+
+LFPortal.Web
+   → Application
+   → Infrastructure
+   → Domain
+
+Only show relationships that actually exist.
+
+Explain WHY each dependency exists.
+
+Also explain important NuGet packages and what THIS project uses them for.
+
+============================================================
+PHASE 4 — DASHBOARD WEB APPLICATION
+============================================================
+
+Teach me the Dashboard application in depth.
+
+Start from Program.cs.
+
+Walk through application startup in execution order.
+
+Explain:
+
+- configuration loading
+- dependency injection
+- logging
+- middleware registration
+- session configuration
+- authentication/session handling
+- controllers
+- Razor/views/static files
+- HTTP clients
+- Laserfiche services
+- repository context
+- error handling
+
+For every important registration like:
+
+services.Add...
+builder.Services...
+app.Use...
+
+tell me:
+
+WHAT it does
+WHY we need it
+WHAT class implements it
+WHAT breaks if removed
+
+Then map every important controller.
+
+For each controller explain:
+
+- routes
+- actions
+- dependencies
+- input
+- output
+- session usage
+- Laserfiche API usage
+
+============================================================
+PHASE 5 — LASERFICHE AUTHENTICATION
+============================================================
+
+This is extremely important.
+
+Trace a real login from beginning to end.
+
+Example:
+
+User enters:
+username
+password
+repository
+
+↓
+LoginController
+
+↓
+LaserficheAuthService
+
+↓
+LaserficheApiAdapter
+
+↓
+POST
+/LFRepositoryAPI/v1/Repositories/{repository}/Token
+
+↓
+Bearer token
+
+↓
+token/session storage
+
+↓
+subsequent API requests
+
+Verify the exact real implementation.
+
+Show the exact methods involved.
+
+Explain:
+
+- where username is used
+- where password is used
+- whether password is stored
+- where Bearer token is stored
+- token lifetime
+- token cache
+- session isolation
+- repository isolation
+- logout
+- token invalidation
+- errors
+
+Also explain security implications.
+
+============================================================
+PHASE 6 — REPOSITORY CONTEXT
+============================================================
+
+Explain this very carefully because we intentionally removed installation-time RepositoryId.
+
+Trace repository context from:
+
+Desktop Client
+
+and separately:
+
+Web Client
+
+and separately:
+
+direct browser login.
+
+Explain classes such as:
+
+RepositorySessionMiddleware
+SessionAwareRepositoryContext
+
+if they currently exist.
+
+Show exactly:
+
+where ?repository= comes from
+where it is read
+where it is stored
+where it is retrieved
+how API calls obtain it
+
+Prove from source that RepositoryId is not hardcoded during installation.
+
+============================================================
+PHASE 7 — LASERFICHE API
+============================================================
+
+Find every place that calls LFRepositoryAPI.
+
+Create a table:
+
+Method/Class
+HTTP Method
+Endpoint
+Purpose
+Authentication
+Repository dependency
+
+Explain URL construction.
+
+For example explain how:
+
+ServerUrl
+ApiBasePath
+ApiVersion
+repository
+
+become a final URL.
+
+Explain the protection against duplicate:
+
+/LFRepositoryAPI/LFRepositoryAPI
+
+if such protection currently exists.
+
+============================================================
+PHASE 8 — CONFIGURATION SYSTEM
+============================================================
+
+Find every configuration source.
+
+Examples may include:
+
+appsettings.json
+laserfiche.config.json
+extension.config.json
+environment variables
+ProgramData
+session values
+installer properties
+
+For each configuration value explain:
+
+WHO WRITES IT
+WHEN
+WHERE
+WHO READS IT
+DEFAULT
+EXAMPLE
+
+Especially:
+
+Laserfiche.ServerUrl
+Laserfiche.ApiBasePath
+Laserfiche.ApiVersion
+TimeoutSeconds
+CredentialProvider
+Dashboard URL
+Dashboard Port
+
+Also clearly distinguish:
+
+BUILD-TIME CONFIG
+INSTALL-TIME CONFIG
+RUNTIME CONFIG
+SESSION CONFIG
+
+============================================================
+PHASE 9 — IIS HOSTING
+============================================================
+
+Explain exactly how LFPortal.Web becomes an IIS website.
+
+Trace installer → IIS configuration.
+
+Explain:
+
+- Dashboard IIS site
+- Application Pool
+- physical path
+- port
+- ASP.NET Core Module
+- web.config
+- Kestrel
+- why appsettings may contain http://0.0.0.0:5000
+- difference between IIS binding and Kestrel binding
+- NetworkService identity
+
+Explain why:
+
+dotnet run --urls http://0.0.0.0:5000
+
+fails when IIS already owns port 5000.
+
+Tie everything to our actual configuration.
+
+============================================================
+PHASE 10 — TLS / CERTIFICATES
+============================================================
+
+This is extremely important because we had a real production issue here.
+
+Teach me the COMPLETE TLS implementation.
+
+Explain:
+
+LocalMachine\My
+vs
+LocalMachine\Root
+
+Explain why the Laserfiche certificate can exist in:
+
+LocalMachine\My
+
+and IIS works,
+
+but Dashboard HttpClient can still reject it.
+
+Explain the real problem we encountered:
+
+CN=localhost
+SAN=localhost
+self-signed
+certificate bound to IIS
+certificate not originally trusted in LocalMachine\Root
+Dashboard running under NetworkService
+
+Then explain the automated installer solution.
+
+Walk through:
+
+DetectionService
+ApiHostSelector
+TlsSetupAction
+TlsTrustPlanner
+
+if these names still exist.
+
+For every function explain:
+
+- certificate discovery
+- IIS binding discovery
+- SAN extraction
+- hostname matching
+- wildcard matching
+- IP SAN behavior
+- certificate expiration
+- self-signed detection
+- chain validation
+- UntrustedRoot detection
+- elevation requirement
+- operator consent
+- installation into LocalMachine\Root
+- post-install verification
+
+Explain WHY we copy only the public certificate.
+
+Explain why private key must never be copied.
+
+Explain why we DO NOT automatically trust arbitrary enterprise CA-issued certificates.
+
+Explain why we refused to implement:
+
+DangerousAcceptAnyServerCertificateValidator
+
+or other TLS bypasses.
+
+============================================================
+PHASE 11 — DASHBOARD.SETUPHELPER
+============================================================
+
+This project is critical.
+
+Inspect Program.cs and enumerate EVERY supported command.
+
+For example:
+
+--write-config
+--prepare-tls
+--deploy-webclient
+--remove-webclient
+--help
+
+but use the actual list.
+
+For each command explain:
+
+Command
+Implementation class
+Inputs
+Outputs
+Files modified
+Windows components modified
+Exit codes
+Logs
+Rollback behavior
+
+Then go through:
+
+WriteConfigAction
+WebClientAction
+TlsSetupAction
+PathUtil
+SetupLog
+
+and every other important class.
+
+Explain each important method.
+
+============================================================
+PHASE 12 — WEB CLIENT BUTTON
+============================================================
+
+Teach me exactly how we modify Laserfiche Web Client.
+
+Start from detection.
+
+How do we discover:
+
+/Laserfiche
+
+IIS application?
+
+How do we find:
+
+C:\Program Files\Laserfiche\Web Access\Web Files
+
+?
+
+Then explain how the installer modifies:
+
+Browse.aspx
+
+Explain the marker/script injection.
+
+Explain where:
+
+lf-dashboard-button.js
+
+comes from and where it gets copied.
+
+Explain how JavaScript finds the active repository.
+
+Explain exactly how it builds:
+
+?repository=...
+
+Explain reinstall behavior.
+
+Explain upgrade behavior.
+
+Explain uninstall behavior.
+
+Explain why the button previously disappeared after reinstall and what protections now prevent that.
+
+============================================================
+PHASE 13 — DESKTOP CLIENT INTEGRATION
+============================================================
+
+Find all Desktop Client integration code.
+
+Explain:
+
+- what gets installed
+- destination directories
+- DLL/JS/config files involved
+- how Laserfiche loads it
+- how Dashboard is opened
+- how repository context is passed
+- how updates/uninstalls work
+
+Again, actual source only.
+
+============================================================
+PHASE 14 — WiX MSI
+============================================================
+
+Teach me Product.wxs.
+
+Do not just explain XML syntax.
+
+Explain OUR Product.wxs.
+
+Walk through:
+
+Package
+MajorUpgrade
+Properties
+Directories
+Components
+Features
+CustomActions
+InstallExecuteSequence
+
+Explain every important CustomAction.
+
+For each one tell me:
+
+WHEN it executes
+CONDITION
+COMMAND
+RETURN behavior
+IMPERSONATION/ELEVATION
+ROLLBACK
+WHAT SetupHelper command it invokes
+
+Explain properties such as:
+
+LF_API_URL
+LF_WEB_CLIENT_PATH
+
+and whatever currently exists.
+
+============================================================
+PHASE 15 — BURN BUNDLE
+============================================================
+
+Teach me Bundle.wxs.
+
+Explain:
+
+Why we have MSI AND Bundle.
+
+Explain:
+
+Burn
+Bootstrapper
+Chain
+Packages
+Variables
+Managed Bootstrapper Application
+
+Explain how:
+
+LFDashboard-Setup.exe
+
+contains/runs:
+
+Dashboard.BA
+MSI
+prerequisites
+
+Explain upgrades.
+
+Explain related bundles.
+
+Explain why we previously got a SECOND wizard around 50%.
+
+Trace that bug from source/architecture:
+
+new bundle
+↓
+old related bundle removal
+↓
+old BA process
+↓
+old WizardForm
+
+Then explain the current headless related-bundle solution.
+
+============================================================
+PHASE 16 — DASHBOARD.BA
+============================================================
+
+This is another critical project.
+
+Teach me:
+
+DashboardBA.cs
+BAFactory.cs
+WizardForm.cs
+DetectionService.cs
+InstallConfig.cs
+RuntimeLog.cs
+ApiHostSelector.cs
+StartupLogger.cs
+
+and all other important files.
+
+Explain Burn lifecycle:
+
+Detect
+Plan
+Apply
+
+Explain events.
+
+Explain page navigation.
+
+Explain how progress works.
+
+Explain how Finish closes.
+
+Explain detection.
+
+Explain how installer values become MSI properties.
+
+Explain interactive execution vs related-bundle/headless execution.
+
+============================================================
+PHASE 17 — WIZARD UI
+============================================================
+
+Walk through WizardForm page by page.
+
+For each page:
+
+- controls
+- variables
+- validation
+- navigation
+- actions
+
+Show me where I would manually change:
+
+- installer title
+- labels
+- button text
+- default port
+- default API URL
+- advanced settings
+- checkbox behavior
+- window size
+- DPI behavior
+- Finish behavior
+
+============================================================
+PHASE 18 — BUILD PIPELINE
+============================================================
+
+Teach me build/publish.ps1 from top to bottom.
+
+THIS IS VERY IMPORTANT.
+
+Do not summarize it.
+
+Divide it into its real steps.
+
+For each Step:
+
+INPUT
+COMMAND
+OUTPUT
+FAILURE CONDITIONS
+WHY IT EXISTS
+
+Explain:
+
+clean
+restore
+dotnet publish
+SetupHelper build
+BA build
+staging
+harvesting
+WiX MSI
+Burn Bundle
+Release copy
+
+Explain artifacts/.
+
+Explain staging/.
+
+Explain Release/.
+
+Explain all important guards.
+
+Especially:
+
+SHA256 guards
+source-vs-staged validation
+SetupHelper --help behavioral probe
+write-config smoke test
+BA guards
+TLS bypass guards
+stale binary guards
+
+Explain which guards are essential and which are development safety checks.
+
+============================================================
+PHASE 19 — INSTALL / REPAIR / UPGRADE / UNINSTALL
+============================================================
+
+Create four separate execution traces.
+
+FRESH INSTALL
+
+REINSTALL SAME VERSION
+
+UPGRADE
+
+UNINSTALL
+
+For each trace show:
+
+Burn
+BA
+MSI
+CustomActions
+SetupHelper
+IIS
+Web Client modification
+configuration
+certificate behavior
+
+Explain:
+
+ProductCode
+UpgradeCode
+Bundle identity
+AllowSameVersionUpgrades
+UPGRADINGPRODUCTCODE
+
+and the current implementation.
+
+============================================================
+PHASE 20 — LOGGING AND DEBUGGING
+============================================================
+
+Create a debugging handbook.
+
+List every log location.
+
+Examples:
+
+C:\ProgramData\Dashboard\Logs\SetupHelper.log
+BA-runtime.log
+dashboard-*.log
+extension.log
+Burn logs
+IIS logs
+
+Verify actual paths.
+
+For each log:
+
+WHO WRITES IT
+WHEN
+WHAT IT CONTAINS
+WHEN I SHOULD CHECK IT
+
+Then give troubleshooting flows:
+
+Installer does not open
+Installer fails at 50%
+MSI 0x80070643
+Dashboard HTTP 500
+Dashboard HTTP 200 but login fails
+TLS error
+Repository not found
+Web Client button missing
+Desktop button missing
+port conflict
+certificate error
+
+============================================================
+PHASE 21 — MANUAL MODIFICATION GUIDE
+============================================================
+
+This is extremely important.
+
+After teaching the architecture, show me HOW I can manually modify the project.
+
+Give concrete examples.
+
+Example 1:
+Change installer title.
+
+Tell me:
+file
+class
+method/property
+what to edit
+build command
+how to test
+
+Example 2:
+Change Dashboard port.
+
+Example 3:
+Change Dashboard UI.
+
+Example 4:
+Add a new Dashboard page.
+
+Example 5:
+Add a new API endpoint.
+
+Example 6:
+Add another Laserfiche API operation.
+
+Example 7:
+Change Web Client button text/icon.
+
+Example 8:
+Change Desktop Client button.
+
+Example 9:
+Add a new installer checkbox.
+
+Example 10:
+Add a new SetupHelper command.
+
+Example 11:
+Change TLS policy safely.
+
+Example 12:
+Add a new configuration field.
+
+For each example explain the full dependency impact.
+
+============================================================
+PHASE 22 — FUNCTION-BY-FUNCTION STUDY
+============================================================
+
+After the architecture lessons, create a function inventory for important production code.
+
+Format:
+
+FILE:
+Class:
+
+Function:
+Purpose:
+Called by:
+Calls:
+Inputs:
+Outputs:
+Side effects:
+Failure modes:
+Related configuration:
+Safe to modify?
+What can break?
+
+Do this for important functions, not trivial getters/setters.
+
+I eventually want coverage of every important production function.
+
+============================================================
+PHASE 23 — DATA FLOW MAPS
+============================================================
+
+Create detailed data-flow maps for:
+
+1. Installer settings
+2. Laserfiche API URL
+3. Dashboard URL
+4. Dashboard port
+5. Repository name
+6. Username/password
+7. Bearer token
+8. TLS certificate
+9. Web Client physical path
+10. Desktop integration settings
+
+Show where each value:
+
+ORIGINATES
+TRANSFORMS
+IS STORED
+IS READ
+ENDS
+
+============================================================
+PHASE 24 — OWNERSHIP MAP
+============================================================
+
+Create a map:
+
+"If I want to change X, where do I go?"
+
+Examples:
+
+Dashboard UI
+→ src/...
+
+Authentication
+→ ...
+
+Laserfiche API
+→ ...
+
+Installer UI
+→ Dashboard.BA/...
+
+Installation behavior
+→ Product.wxs + SetupHelper
+
+Bundle behavior
+→ Bundle.wxs
+
+Web Client integration
+→ WebClientAction + JS
+
+TLS
+→ TlsSetupAction + TlsTrustPlanner + DetectionService
+
+Build
+→ publish.ps1
+
+Use the actual current files.
+
+============================================================
+PHASE 25 — TEACH ME, DON'T JUST DOCUMENT
+============================================================
+
+Very important:
+
+Do not dump a giant technical report and stop.
+
+Teach this progressively.
+
+For every major concept use:
+
+1. SIMPLE EXPLANATION
+2. ACTUAL PROJECT FILES
+3. ACTUAL EXECUTION FLOW
+4. IMPORTANT CODE
+5. WHY IT WAS DESIGNED THIS WAY
+6. WHAT HAPPENS IF I CHANGE IT
+7. HOW I CAN TEST IT
+8. MINI EXERCISE FOR ME
+
+At the end of each lesson ask me 3–5 questions to make sure I understand it.
+
+Do not continue to the next major lesson until the current lesson is understandable.
+
+============================================================
+PHASE 26 — HISTORICAL BUGS AS LEARNING MATERIAL
+============================================================
+
+Use our previous bugs to teach architecture.
+
+Examples include:
+
+- 0x80131902 managed BA startup failure
+- incorrect WixToolset.Mba.Host.config
+- BA architecture confusion
+- stale BA binaries
+- PowerShell encoding/parser errors
+- SetupHelper quoting issue
+- --config-dir swallowed into --webapp-path
+- incorrect smoke-test assertions
+- second installer wizard around 50%
+- Web Client button disappearing after reinstall
+- RepositoryId incorrectly stored in installation config
+- localhost TLS trust failure
+- self-signed certificate missing from LocalMachine\Root
+- port 5000 conflict with IIS
+
+But VERIFY the relevant current implementation before explaining how each was fixed.
+
+For every bug explain:
+
+SYMPTOM
+ROOT CAUSE
+CODE INVOLVED
+WHY THE OLD DESIGN FAILED
+CURRENT FIX
+HOW TO DIAGNOSE IT
+HOW TO AVOID REINTRODUCING IT
+
+This is important because understanding the bugs will help me understand the architecture.
+
+============================================================
+PHASE 27 — SOURCE OF TRUTH
+============================================================
+
+Whenever possible, cite:
+
+FILE PATH
+CLASS
+METHOD
+approximate line/section
+
+Example:
+
+installer/Dashboard.SetupHelper/TlsSetupAction.cs
+TlsSetupAction.Execute()
+
+Do not give vague statements like:
+
+"The installer checks the certificate."
+
+Tell me exactly WHO checks it and WHERE.
+
+============================================================
+PHASE 28 — DO NOT HIDE COMPLEXITY
+============================================================
+
+If something is complicated, explain it.
+
+Do not simplify by skipping important details.
+
+I specifically want to understand:
+
+C#
+ASP.NET Core
+IIS
+WiX
+Burn
+MSI
+PowerShell
+JavaScript
+HTTP
+REST
+sessions
+tokens
+Windows certificates
+TLS
+Laserfiche API
+Laserfiche Web Client integration
+
+as they relate to THIS project.
+
+============================================================
+PHASE 29 — IDENTIFY TECHNICAL DEBT
+============================================================
+
+While reading the project, identify:
+
+- fragile code
+- duplicated logic
+- legacy compatibility code
+- hardcoded values
+- dangerous areas to modify
+- installer complexity
+- platform assumptions
+- code that exists only because of previous bugs
+
+DO NOT FIX IT.
+
+Just label it:
+
+SAFE
+CAUTION
+HIGH RISK
+
+and explain why.
+
+============================================================
+PHASE 30 — FINAL KNOWLEDGE MAP
+============================================================
+
+After completing all lessons, produce a final knowledge map showing:
+
+INSTALLER
+WEB APP
+LASERFICHE API
+AUTHENTICATION
+SESSION
+TLS
+IIS
+WEB CLIENT
+DESKTOP CLIENT
+CONFIGURATION
+BUILD
+UPGRADE
+LOGGING
+
+and how everything connects.
+
+The final goal is that I should be able to maintain this project myself.
+
+============================================================
+START NOW
+============================================================
+
+Do NOT start by editing anything.
+
+First:
+
+1. Inspect the repository.
+2. Produce the verified repository architecture.
+3. Produce the dependency map.
+4. Produce the high-level execution flow.
+5. List the lessons you will teach me in order.
+6. Start LESSON 1 only.
+
+LESSON 1 should answer:
+
+"What exactly happens from the moment I double-click
+LFDashboard-Setup.exe until the Dashboard is running and accessible?"
+
+Use the CURRENT source code to teach it.
+
+Do not move to Lesson 2 yet.
+
+I want depth, not speed.
