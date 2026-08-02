@@ -804,6 +804,40 @@ else {
         exit 1
     }
     Write-OK ("mbanative.dll (win-x86) confirmed present in BA staging folder ({0:N0} bytes)." -f (Get-Item $mbaNativeStaged).Length)
+
+    # ---- Guard 5: BootstrapperApplicationFactory attribute in Dashboard.BA.dll ----
+    # WixToolset.Mba.Host.dll reads assemblyName from WixToolset.Mba.Host.config,
+    # loads that DLL, and calls GetCustomAttributes() to find the factory type.
+    # If [assembly: BootstrapperApplicationFactory(typeof(BAFactory))] is absent
+    # from the compiled DLL, the host cannot locate the factory and returns
+    # E_NOTFOUND, which surfaces as:
+    #   Error 0x80070490: Failed to create the managed bootstrapper application.
+    #
+    # Binary scan (Latin-1) avoids CLR version issues in the PowerShell host while
+    # still confirming the metadata string was emitted by the compiler.  The literal
+    # "BootstrapperApplicationFactoryAttribute" MUST appear in the .NET metadata
+    # section of any DLL that carries the attribute.
+    $baDllBytes = [System.IO.File]::ReadAllBytes($baDllStaged)
+    $baDllText  = [System.Text.Encoding]::Latin1.GetString($baDllBytes)
+    if ($baDllText -notmatch "BootstrapperApplicationFactoryAttribute") {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] Dashboard.BA.dll is missing the" -ForegroundColor Red
+        Write-Host "  [assembly: BootstrapperApplicationFactory(...)] attribute." -ForegroundColor Red
+        Write-Host ("    CHECKED: {0}" -f $baDllStaged) -ForegroundColor Red
+        Write-Host "" -ForegroundColor Red
+        Write-Host "  WixToolset.Mba.Host.dll uses this attribute to locate and" -ForegroundColor Red
+        Write-Host "  create the BA factory.  Without it Burn reports:" -ForegroundColor Red
+        Write-Host "    Error 0x80070490: Failed to create the managed bootstrapper" -ForegroundColor Red
+        Write-Host "    application." -ForegroundColor Red
+        Write-Host "  Possible causes:" -ForegroundColor Red
+        Write-Host "    - The [assembly: BootstrapperApplicationFactory(typeof(BAFactory))]" -ForegroundColor Red
+        Write-Host "      line was removed from installer\Dashboard.BA\BAFactory.cs" -ForegroundColor Red
+        Write-Host "    - BAFactory.cs was excluded from the project compile" -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "BootstrapperApplicationFactory attribute confirmed in Dashboard.BA.dll."
 }
 
 # =============================================================================

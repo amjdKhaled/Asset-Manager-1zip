@@ -1,0 +1,340 @@
+We have NEW authoritative Windows runtime evidence.
+
+Do NOT repeat the previous fixes and do NOT guess another missing DLL.
+
+CURRENT WINDOWS BURN LOG
+========================
+
+Burn x86 WiX 4.0.5 successfully reaches:
+
+    Loading managed bootstrapper application.
+
+Then immediately fails:
+
+    Error 0x80070490: Failed to create the bootstrapper application.
+    Error 0x80070490: Failed to create the managed bootstrapper application.
+    Error 0x80070490: Failed to create BA.
+    Error 0x80070490: Failed to load BA.
+
+Exit code:
+
+    0x80070490
+
+The previous fixes are already present:
+
+    WixToolset.Mba.Host.config
+    Dashboard.BA.dll
+    WixToolset.Mba.Core.dll
+    win-x86 mbanative.dll
+
+.NET Framework 4.8 is installed.
+
+Do NOT modify the .NET prerequisite.
+Do NOT modify NetFx48Release.
+Do NOT modify WixToolset.Mba.Host.config.
+Do NOT add more DLLs based only on assumptions.
+
+GOAL
+====
+
+Find the exact reason WiX 4.0.5 ManagedBootstrapperApplicationHost
+cannot CREATE Dashboard.BA.
+
+This is now specifically a BA factory/assembly-loading/runtime issue.
+
+STEP 1 — INSPECT THE REAL BA FACTORY
+====================================
+
+Read completely:
+
+    installer/Dashboard.BA/BAFactory.cs
+    installer/Dashboard.BA/DashboardBA.cs
+    installer/Dashboard.BA/Dashboard.BA.csproj
+
+Find the exact assembly-level attribute.
+
+Verify against the ACTUAL WixToolset.Mba.Core 4.0.5 assembly API.
+
+Do not rely on memory or WiX 3 examples.
+
+Inspect WixToolset.Mba.Core.dll directly using reflection/IL metadata if necessary.
+
+Confirm the exact type and constructor of:
+
+    BootstrapperApplicationFactoryAttribute
+
+Confirm exactly what argument it expects.
+
+Confirm the exact required factory interface/base class.
+
+Confirm the exact Create method signature.
+
+Report the actual signatures extracted from version 4.0.5.
+
+STEP 2 — INSPECT COMPILED Dashboard.BA.dll
+==========================================
+
+Do not only inspect source code.
+
+Inspect:
+
+    installer\Dashboard.BA\bin\Release\net48\Dashboard.BA.dll
+
+Use reflection / ildasm / metadata inspection.
+
+Verify that the compiled assembly REALLY contains:
+
+    Dashboard.BA.BAFactory
+
+and that it is public.
+
+Verify the assembly-level BootstrapperApplicationFactory attribute
+exists in the compiled DLL.
+
+Print the attribute constructor argument exactly as stored in metadata.
+
+Verify BAFactory can be instantiated.
+
+Verify there is not a namespace/type-name mismatch.
+
+STEP 3 — CREATE A LOCAL FACTORY LOAD TEST
+=========================================
+
+Create a temporary diagnostic console/test utility if necessary.
+
+From the BA output directory, attempt:
+
+    Assembly.LoadFrom("Dashboard.BA.dll")
+
+Then enumerate:
+
+    assembly.GetCustomAttributes(...)
+
+Find BootstrapperApplicationFactoryAttribute.
+
+Print:
+
+    attribute found?
+    factory type
+    factory type FullName
+    factory type IsPublic
+    factory base type
+
+If loading throws:
+
+    FileNotFoundException
+    FileLoadException
+    BadImageFormatException
+    TypeLoadException
+    ReflectionTypeLoadException
+
+print the COMPLETE exception including InnerException and
+LoaderExceptions.
+
+This is critical.
+
+Do NOT swallow exceptions.
+
+STEP 4 — CHECK ASSEMBLY BINDING
+===============================
+
+Inspect Dashboard.BA.dll assembly references.
+
+Print every non-System assembly reference including exact version:
+
+    WixToolset.Mba.Core
+    any other dependency
+
+Then inspect the staged WixToolset.Mba.Core.dll:
+
+    AssemblyName
+    Version
+    PublicKeyToken
+
+Verify Dashboard.BA.dll requests the exact compatible assembly.
+
+Check for version mismatch.
+
+STEP 5 — CHECK mba host config
+==============================
+
+Read:
+
+    WixToolset.Mba.Host.config
+
+Verify whether WiX 4.0.5 requires assembly binding redirects for
+WixToolset.Mba.Core.
+
+Do not add redirects unless actual assembly metadata proves they are
+needed.
+
+STEP 6 — INSPECT ACTUAL BUNDLE PAYLOAD
+======================================
+
+Do not assume Bundle.wxs means the files were actually packaged.
+
+Use WiX tooling / bundle extraction on the Windows-generated:
+
+    Release\LFDashboard-Setup.exe
+
+Extract the bundle to a temporary directory if supported.
+
+Verify the actual BA payload contains:
+
+    Dashboard.BA.dll
+    WixToolset.Mba.Core.dll
+    WixToolset.Mba.Host.config
+    mbanative.dll
+
+Print exact sizes.
+
+For mbanative.dll verify PE architecture.
+
+It MUST be x86 if the process loading it is x86.
+
+STEP 7 — VERIFY WIx MBA HOST ARCHITECTURE REQUIREMENTS
+======================================================
+
+The Burn log says:
+
+    Burn x86 v4.0.5
+
+Do not automatically conclude that Dashboard.BA should remain AnyCPU.
+
+Inspect the official WiX 4.0.5 implementation/examples or package
+metadata and determine the expected BA architecture.
+
+Specifically investigate whether the managed BA assembly must be:
+
+    AnyCPU
+    x86
+
+and whether Prefer32Bit matters.
+
+If WiX 4.0.5 expects x86, change Dashboard.BA.csproj appropriately.
+
+But only after proving it.
+
+STEP 8 — INVESTIGATE 0x80070490 IN MBA HOST
+===========================================
+
+Search the WiX 4.0.5 source code for where ManagedBootstrapperApplicationHost
+returns or propagates:
+
+    ERROR_NOT_FOUND
+    0x80070490
+
+Find the exact condition that generates:
+
+    Failed to create the bootstrapper application.
+
+This is extremely important.
+
+Do not infer the meaning from the generic Windows error alone.
+
+Trace the WiX source path:
+
+    mbahost
+        ->
+    managed host
+        ->
+    factory discovery
+        ->
+    BootstrapperApplicationFactoryAttribute
+        ->
+    factory creation
+
+Identify exactly which lookup can return ERROR_NOT_FOUND.
+
+STEP 9 — CHECK FACTORY ATTRIBUTE PLACEMENT
+==========================================
+
+Verify whether WiX 4 expects:
+
+    [assembly: BootstrapperApplicationFactory(...)]
+
+or another registration mechanism.
+
+Verify whether the attribute must reference:
+
+    typeof(BAFactory)
+
+or a string.
+
+Again, use the exact WixToolset.Mba.Core 4.0.5 API.
+
+STEP 10 — ONLY THEN FIX
+=======================
+
+After identifying the exact failure:
+
+make the MINIMUM required change.
+
+Do not refactor unrelated installer code.
+
+Do not change:
+
+    MSI
+    IIS configuration
+    .NET 4.8 prerequisite
+    ndp48-web.exe
+    NetFx48Release
+    WebApp
+    DesktopExtension
+
+STEP 11 — ADD A BUILD-TIME BA VALIDATION
+========================================
+
+Add a validation step to publish.ps1 after Dashboard.BA is built.
+
+It should verify not only file existence but that Dashboard.BA.dll
+contains the expected BootstrapperApplicationFactoryAttribute.
+
+If practical, create a small PowerShell reflection check.
+
+Fail the build before WiX bundling if the attribute/factory cannot
+be found.
+
+STEP 12 — REPORT
+================
+
+Report:
+
+1. Exact line/path in WiX 4.0.5 source that led to 0x80070490.
+2. Exact compiled BootstrapperApplicationFactory attribute found.
+3. Exact factory type discovered.
+4. Whether BAFactory was actually public.
+5. Exact Create() signature required by WiX 4.0.5.
+6. Exact Create() signature in our project.
+7. Dashboard.BA architecture.
+8. mbanative.dll architecture.
+9. Every BA assembly reference/version.
+10. Actual extracted .ba payload contents.
+11. Exact root cause.
+12. Exact files modified.
+13. Why the modification fixes THIS specific 0x80070490.
+
+IMPORTANT
+=========
+
+Do not claim that mbanative.dll was the root cause.
+
+The Windows runtime test AFTER adding mbanative.dll still produces
+the exact same 0x80070490.
+
+Therefore that hypothesis has been disproven.
+
+Success must be confirmed by rebuilding on Windows and running:
+
+    Release\LFDashboard-Setup.exe
+
+The successful Burn log must proceed beyond:
+
+    Loading managed bootstrapper application.
+
+without:
+
+    Failed to create the bootstrapper application
+    Failed to create the managed bootstrapper application
+    Failed to create BA
+    0x80070490
