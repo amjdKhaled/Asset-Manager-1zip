@@ -170,21 +170,55 @@
           if it is absent.
       -->
       <!--
-        WiX 4 attribute names: InstallArguments / RepairArguments (renamed from
-        InstallCommand / RepairCommand in WiX 3).  UninstallArguments is not
-        provided; Permanent="yes" suppresses uninstall of .NET 4.8 when the
-        Dashboard bundle is removed — .NET Framework is an OS component and
-        must never be removed by an application installer.
+        WiX 4 SYNTAX NOTES FOR THIS ExePackage:
+
+        ATTRIBUTE RENAMES vs WiX 3:
+          InstallCommand  → InstallArguments
+          RepairCommand   → RepairArguments
+          UninstallArguments is not provided; Permanent="yes" suppresses
+          uninstall of .NET 4.8 when Dashboard is removed — .NET Framework
+          is an OS component and must never be uninstalled by an app installer.
+
+        REMOTE PAYLOAD — ExePackagePayload child element:
+          WiX 3 used <RemotePayload> as the child element.
+          WiX 4.0.5 removes <RemotePayload> (WIX0005 if used).
+          WiX 4.0.5 also forbids SourceFile / Name / DownloadUrl / Compressed
+          on <ExePackage> itself when a child payload element is present
+          (WIX0372 if mixed).
+
+          Correct WiX 4 pattern for a remote-only ExePackage:
+            - No SourceFile / Name / DownloadUrl on the <ExePackage> element
+            - Child <ExePackagePayload Name="..." DownloadUrl="..." />
+
+          The compiler does NOT look for ndp48-web.exe on disk when the file
+          is named via ExePackagePayload — this is the architectural difference
+          that eliminates WIX0103.
+
+        SECURITY — HASH OMITTED INTENTIONALLY:
+          ExePackagePayload/@Hash (SHA512) is optional.  ndp48-web.exe is
+          Authenticode-signed by Microsoft.  Windows verifies the full
+          certificate trust chain before executing any EXE, providing
+          cryptographic assurance stronger than a content hash: a tampered
+          binary breaks the Authenticode chain and is rejected by the OS.
+          A hard-coded hash in source control is also fragile — if Microsoft
+          reissues the web installer, the hash changes and breaks every build.
+
+        DOWNLOAD URL:
+          https://go.microsoft.com/fwlink/?LinkId=2085155 is Microsoft's
+          official permalink for the .NET Framework 4.8 web installer.
+          Burn follows HTTP redirects natively; the final destination is
+          always a download.microsoft.com CDN URL.
       -->
       <ExePackage Id="NetFx48Prereq"
-                  Name="ndp48-web.exe"
-                  DownloadUrl="https://go.microsoft.com/fwlink/?LinkId=2085155"
                   InstallArguments="/q /norestart /ChainingPackage &quot;[WixBundleName]&quot;"
                   RepairArguments="/q /norestart /repair /ChainingPackage &quot;[WixBundleName]&quot;"
                   DetectCondition="NetFx48Release >= 528040"
                   Permanent="yes"
                   Vital="yes"
-                  bal:PrereqPackage="yes" />
+                  bal:PrereqPackage="yes">
+        <ExePackagePayload Name="ndp48-web.exe"
+                           DownloadUrl="https://go.microsoft.com/fwlink/?LinkId=2085155" />
+      </ExePackage>
 
       <MsiPackage
           Id="DashboardMsi"

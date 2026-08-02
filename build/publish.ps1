@@ -883,7 +883,6 @@ else {
     $baStagingDir   = Join-Path $StagingDir    "BA"
     $baAssemblyPath = Join-Path $baStagingDir  "Dashboard.BA.dll"
     $bundleSrcDir   = Join-Path $RepoRoot      "installer\Dashboard.Bundle"
-    $prereqDir      = Join-Path $RepoRoot      "installer\prerequisites"
     $bundleIntermDir = Join-Path $ArtifactsDir "obj\Bundle"
     $bundleExe      = Join-Path $ArtifactsDir  "LFDashboard-Setup.exe"
     $null = New-Item -ItemType Directory -Path $bundleIntermDir -Force
@@ -905,7 +904,6 @@ else {
         "-d",      "MbaCoreAssembly=$(Join-Path $baStagingDir 'WixToolset.Mba.Core.dll')",
         "-d",      "MsiPath=$msiPath",
         "-d",      "BundleVersion=$Version",
-        "-d",      "PrereqDir=$prereqDir",
         "-intermediatefolder", $bundleIntermDir,
         "-pdbtype", "none",
         "-out",    $bundleExe

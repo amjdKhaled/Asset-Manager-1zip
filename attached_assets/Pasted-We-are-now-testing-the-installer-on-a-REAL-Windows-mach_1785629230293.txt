@@ -1,0 +1,338 @@
+We are now testing the installer on a REAL Windows machine.
+
+IMPORTANT PROGRESS:
+
+Steps 1–8 PASS successfully.
+
+Step 8 successfully produces:
+
+artifacts\Dashboard-1.0.0-Setup.msi
+
+The previous WIX6802 problem is also fixed.
+
+We are now failing ONLY in Step 9 while building the Burn Bundle.
+
+REAL WINDOWS ERROR:
+
+[Step 9/11] Building Burn Bundle (LFDashboard-Setup.exe)
+
+Bundle.wxs(179) : error WIX0103:
+
+Cannot find the WixBundlePayload file
+'SourceDir\ndp48-web.exe'.
+
+The following paths were checked:
+
+SourceDir\ndp48-web.exe
+
+Exit code: 103
+
+============================================================
+ROOT PROBLEM TO INVESTIGATE
+============================================================
+
+The .NET Framework 4.8 prerequisite ExePackage currently has:
+
+Name="ndp48-web.exe"
+
+and:
+
+DownloadUrl="https://go.microsoft.com/fwlink/?LinkId=2085155"
+
+WiX 4.0.5 is still trying to resolve a BUILD-TIME source payload:
+
+SourceDir\ndp48-web.exe
+
+instead of treating this correctly as a remote/downloadable Burn package.
+
+Do NOT tell me to manually download ndp48-web.exe.
+
+Do NOT require the developer to manually put ndp48-web.exe into:
+
+installer\prerequisites\
+
+Do NOT hard-code a developer-machine path.
+
+The entire purpose of the build architecture is:
+
+git clone / copy project
+→ .\build\publish.ps1
+→ Release\LFDashboard-Setup.exe
+
+with no manual prerequisite-file preparation.
+
+============================================================
+TASK
+============================================================
+
+Fix the .NET Framework 4.8 prerequisite package correctly for WiX 4.0.5.
+
+Before changing Bundle.wxs, verify the actual WiX 4.0.5 ExePackage schema and Burn remote-payload behavior.
+
+Determine exactly why:
+
+Name + DownloadUrl
+
+is still causing WiX to require:
+
+SourceDir\ndp48-web.exe
+
+at build time.
+
+Do not guess.
+
+============================================================
+REMOTE PAYLOAD
+============================================================
+
+Investigate the proper WiX 4.0.5 mechanism for a remote ExePackage.
+
+This may require using RemotePayload or the WiX 4 equivalent with the
+correct metadata, such as:
+
+- DownloadUrl
+- Hash
+- Size
+- Version
+- ProductName
+- Description
+
+or another supported WiX 4 mechanism.
+
+Use the exact WiX 4.0.5 schema.
+
+Do NOT copy WiX 3 syntax blindly.
+
+The final package must NOT require ndp48-web.exe to exist locally during
+normal project builds if a remote Burn payload is the correct supported
+architecture.
+
+============================================================
+SECURITY REQUIREMENT
+============================================================
+
+If the prerequisite is downloaded by Burn, do NOT create an unverified
+arbitrary download.
+
+Use the supported Burn payload verification mechanism.
+
+The downloaded .NET Framework installer must be cryptographically
+verified using the metadata required by WiX/Burn.
+
+Do not invent a SHA/hash.
+
+If an exact immutable Microsoft payload/hash cannot be reliably embedded,
+choose a safer supported architecture and explain it.
+
+============================================================
+IMPORTANT: MICROSOFT LINK
+============================================================
+
+Audit whether:
+
+https://go.microsoft.com/fwlink/?LinkId=2085155
+
+is appropriate as a Burn DownloadUrl.
+
+If this URL redirects, determine whether Burn/WiX 4 handles that correctly.
+
+Do not change it to a random third-party URL.
+
+Only Microsoft-hosted prerequisite sources are acceptable.
+
+============================================================
+DO NOT REGRESS WIX6802
+============================================================
+
+The Bundle MUST continue to satisfy:
+
+ManagedBootstrapperApplicationHost
+→ at least one real bal:PrereqPackage="yes"
+
+The previous WIX6802 fix must remain solved.
+
+Do not remove the .NET Framework prerequisite merely to make compilation
+pass.
+
+============================================================
+DETECTION
+============================================================
+
+Preserve proper .NET Framework 4.8 detection:
+
+HKLM\
+SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full
+
+Release >= 528040
+
+But verify that this is correct for all Windows versions targeted by this
+installer.
+
+The prerequisite should only download/install when .NET Framework 4.8 is
+actually missing.
+
+============================================================
+PORTABILITY
+============================================================
+
+Absolutely no:
+
+C:\Users\Amjad...
+developer-specific paths
+hard-coded machine names
+hard-coded repository names
+manual prerequisite copying
+
+may be introduced.
+
+The build must remain portable.
+
+============================================================
+BUILD SCRIPT
+============================================================
+
+Audit:
+
+build\publish.ps1
+
+and:
+
+installer\Dashboard.Bundle\Bundle.wxs
+
+together.
+
+Notice that Step 9 currently passes:
+
+-d PrereqDir=<repo>\installer\prerequisites
+
+Determine whether PrereqDir is still necessary.
+
+If the new remote-payload architecture does not require it:
+
+- remove the unnecessary define,
+- remove dead prerequisite-directory assumptions,
+- remove any preflight requirement for a local ndp48-web.exe.
+
+Do not leave dead configuration behind.
+
+============================================================
+DO NOT TOUCH WORKING MSI
+============================================================
+
+Step 8 is CONFIRMED WORKING on real Windows.
+
+Do not modify the working MSI architecture unless strictly required.
+
+Current confirmed working:
+
+Steps 1–7 PASS
+Step 8 PASS
+118 WebApp files harvested
+11 Extension files harvested
+Dashboard-1.0.0-Setup.msi generated
+
+Only Step 9 needs repair.
+
+============================================================
+REAL WINDOWS BUILD MUST BE THE STANDARD
+============================================================
+
+Previous Linux validation incorrectly classified some WiX issues as
+"Linux false positives."
+
+Do not use that assumption anymore.
+
+The Windows output I provide is authoritative.
+
+Fix based on actual Windows WiX 4.0.5 behavior.
+
+============================================================
+AFTER THE FIX
+============================================================
+
+Do not stop after editing Bundle.wxs.
+
+Perform every static/compiler validation available.
+
+Then tell me to run:
+
+.\build\publish.ps1
+
+on Windows.
+
+The expected result is:
+
+[Step 8/11] ... PASS
+
+[Step 9/11] Building Burn Bundle
+[OK] Bundle built
+
+[Step 10/11] ... PASS
+
+[Step 11/11] ... PASS
+
+BUILD SUCCESSFUL
+
+and:
+
+Release\
+    LFDashboard-Setup.exe
+    README.txt
+
+============================================================
+PROACTIVE BUNDLE AUDIT
+============================================================
+
+Before reporting completion, audit the REST of Bundle.wxs for the next
+likely WiX 4.0.5 compiler/linker errors.
+
+Specifically validate:
+
+ManagedBootstrapperApplicationHost syntax
+BA payloads
+Dashboard.BA.dll
+WixToolset.Mba.Core.dll
+ExePackage syntax
+RemotePayload syntax
+MsiPackage syntax
+MsiProperty bindings
+Bundle variables
+Persisted variables
+DetectCondition
+InstallArguments
+RepairArguments
+Permanent
+Vital
+bal:PrereqPackage
+Chain ordering
+
+I do not want to fix one compiler error per iteration if the remaining
+file contains obvious WiX 4 incompatibilities.
+
+============================================================
+FINAL REPORT
+============================================================
+
+Report:
+
+1. Exact root cause of WIX0103.
+2. Why DownloadUrl alone did not eliminate the build-time payload requirement.
+3. Exact WiX 4.0.5 remote payload syntax used.
+4. Exact verification metadata used for the .NET Framework payload.
+5. Whether ndp48-web.exe is required locally after the fix.
+6. Whether installer\prerequisites is still required.
+7. Whether PrereqDir was removed.
+8. Exact Bundle.wxs changes.
+9. Exact publish.ps1 changes.
+10. Confirmation WIX6802 remains fixed.
+11. Result of proactive Bundle audit.
+12. Exact command I should run on Windows.
+13. Expected generated EXE path.
+
+Most importantly:
+
+DO NOT mark Task #23 complete until the REAL Windows build produces:
+
+Release\LFDashboard-Setup.exe
+
+successfully.
