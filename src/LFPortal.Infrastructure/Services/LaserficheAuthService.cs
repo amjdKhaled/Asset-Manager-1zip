@@ -14,7 +14,8 @@ namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
 /// Acquires and caches Laserfiche Bearer tokens using the password-grant flow
-/// against the Repository API v2 <c>/Token</c> endpoint.
+/// against the Repository API v1 token endpoint:
+/// <c>{ServerUrl}{ApiBasePath}/v1/Repositories/{repositoryId}/Token</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -111,7 +112,10 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
 
         var tokenUrl = _adapter.BuildTokenUrl(repository.RepositoryId);
 
-        _logger.LogInformation("→ POST {TokenUrl} (acquiring token)", tokenUrl);
+        _logger.LogInformation(
+            "[LF AUTH] POST {TokenUrl} (acquiring token, repository {RepoId})",
+            tokenUrl,
+            repository.RepositoryId);
 
         var tokenResponse = await RequestTokenAsync(tokenUrl, credentials.Username, credentials.Password, cancellationToken)
             .ConfigureAwait(false);
@@ -149,7 +153,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
 
         // Log the attempt WITHOUT logging the password.
         _logger.LogInformation(
-            "→ POST {TokenUrl} (login attempt for repository {RepoId}, user {Username})",
+            "[LF AUTH] POST {TokenUrl} (login attempt for repository {RepoId}, user {Username})",
             tokenUrl,
             repository.RepositoryId,
             username);
@@ -165,7 +169,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
 
             _logger.LogInformation(
-                "Login succeeded for repository {RepoId}. Token cached for {CacheSeconds}s.",
+                "[LF AUTH] Login succeeded for repository {RepoId}. Token cached for {CacheSeconds}s.",
                 repository.RepositoryId,
                 expirySeconds);
 
@@ -176,7 +180,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         {
             // Credential error — return false; do not propagate.
             _logger.LogInformation(
-                "Login failed for repository {RepoId}: HTTP {StatusCode}.",
+                "[LF AUTH] Login failed for repository {RepoId}: HTTP {StatusCode}.",
                 repository.RepositoryId,
                 ex.StatusCode);
             return false;
@@ -215,7 +219,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         if (!response.IsSuccessStatusCode)
         {
             _logger.LogError(
-                "Token request failed: HTTP {StatusCode}. URL: {Url}.",
+                "[LF AUTH] Token request failed: HTTP {StatusCode}. URL: {Url}.",
                 (int)response.StatusCode,
                 tokenUrl);
             throw new Domain.Exceptions.LaserficheException(
@@ -228,7 +232,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
 
         if (tokenResponse is null || string.IsNullOrWhiteSpace(tokenResponse.AccessToken))
         {
-            _logger.LogError("Token response from {Url} was empty or malformed.", tokenUrl);
+            _logger.LogError("[LF AUTH] Token response from {Url} was empty or malformed.", tokenUrl);
             throw new Domain.Exceptions.LaserficheException(
                 "The Laserfiche API Server returned an empty token response. " +
                 "Ensure the API Server is running and the repository ID is correct.",

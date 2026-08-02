@@ -214,30 +214,10 @@ public sealed class LoginController : Controller
             return $"The Laserfiche server rejected the request (HTTP {lex.StatusCode}).";
         }
 
-        // Walk the inner-exception chain for transport-level causes.
-        for (Exception? cur = ex; cur is not null; cur = cur.InnerException)
-        {
-            switch (cur)
-            {
-                case System.Security.Authentication.AuthenticationException:
-                    return "A secure (TLS) connection to the Laserfiche server could not be established. " +
-                           "The server's certificate may be invalid or untrusted on this machine.";
-
-                case System.Net.Sockets.SocketException:
-                    return "The Laserfiche server could not be reached (network error). " +
-                           "Check that the server is online and the API URL in Settings is correct.";
-            }
-        }
-
-        if (ex is TaskCanceledException or TimeoutException)
-            return "The connection to the Laserfiche server timed out. " +
-                   "The server may be overloaded or unreachable.";
-
-        if (ex is HttpRequestException)
-            return "Could not connect to the Laserfiche server. " +
-                   "Check the API URL in Settings and your network connection.";
-
-        return "An unexpected error occurred while contacting the Laserfiche server.";
+        // Transport-level causes — shared classifier evaluates the precise
+        // HttpRequestError kind first (DNS / TLS / refused / timeout) before
+        // falling back to inner-exception inspection.
+        return Diagnostics.LaserficheErrorClassifier.Classify(ex).Detail;
     }
 
     // ------------------------------------------------------------------ //

@@ -135,5 +135,6 @@ public sealed class SessionAuthGuardMiddleware
         path.StartsWithSegments("/Login",    StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/Settings", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/health",   StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWithSegments("/api/diagnostics", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/Home",     StringComparison.OrdinalIgnoreCase);
 }

@@ -28,11 +28,35 @@ try
 
     // ── Serilog — replace the default ASP.NET Core logging pipeline ──────────
     builder.Host.UseSerilog((context, services, loggerConfig) =>
+    {
         loggerConfig
             .ReadFrom.Configuration(context.Configuration)
             .ReadFrom.Services(services)
             .Enrich.FromLogContext()
-            .Enrich.WithProperty("Application", LFPortalVersion.Display));
+            .Enrich.WithProperty("Application", LFPortalVersion.Display);
+
+        // ── Machine-wide diagnostics log — %ProgramData%\Dashboard\Logs ──────
+        // The site-relative logs/ folder may not be writable (or easy to find)
+        // under IIS; this second sink gives administrators a stable location
+        // (C:\ProgramData\Dashboard\Logs on Windows) for [LF AUTH] diagnostics.
+        try
+        {
+            var programDataLogs = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "Dashboard", "Logs");
+            Directory.CreateDirectory(programDataLogs);
+            loggerConfig.WriteTo.File(
+                Path.Combine(programDataLogs, "dashboard-.log"),
+                rollingInterval: Serilog.RollingInterval.Day,
+                retainedFileCountLimit: 14,
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}");
+        }
+        catch (Exception ex)
+        {
+            // Never let a log-directory problem prevent startup.
+            Log.Warning(ex, "Could not initialise the ProgramData diagnostics log directory.");
+        }
+    });
 
     // ── IIS integration ───────────────────────────────────────────────────────
     builder.Services.Configure<IISServerOptions>(opts =>
