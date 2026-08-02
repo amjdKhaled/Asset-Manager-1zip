@@ -24,11 +24,16 @@
     <RootNamespace>Dashboard.BA</RootNamespace>
     <Nullable>enable</Nullable>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <!-- x86: Burn 4.0.5 runs as an x86 process. The BA DLL architecture must
-         match the host process. AnyCPU is insufficient because mbanative.dll
-         is a native win-x86 DLL that can only be loaded by an x86 process;
-         and 0x80131902 is returned when the managed host tries to load a
-         non-x86 BA into an x86 Burn process. -->
+    <!-- x86: Burn 4.0.5 is an x86 (32-bit) process.
+         The BA DLL MUST be x86 for two reasons:
+           1. mbanative.dll is a win-x86 native DLL; only an x86 process can
+              load it, and WixToolset.Mba.Core.dll P/Invokes into it.
+           2. An x86 Burn process cannot load an x64 managed DLL; attempting
+              this produces BadImageFormatException (0x8007000B), not a managed
+              startup error.
+         NOTE: 0x80131902 (ConfigurationErrorsException) is NOT caused by
+         architecture mismatch.  It was caused by an unrecognised 'sku' XML
+         attribute in the <supportedFrameworks> config section (now removed). -->
     <PlatformTarget>x86</PlatformTarget>
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>

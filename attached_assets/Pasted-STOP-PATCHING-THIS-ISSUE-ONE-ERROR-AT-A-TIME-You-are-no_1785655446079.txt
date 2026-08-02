@@ -1,0 +1,689 @@
+STOP PATCHING THIS ISSUE ONE ERROR AT A TIME.
+
+You are now responsible for resolving the WiX 4.0.5 Managed Bootstrapper
+Application startup failure end-to-end.
+
+The final installer:
+
+    Release\LFDashboard-Setup.exe
+
+currently exits immediately when launched and shows NO UI.
+
+You must investigate the complete installer architecture, identify ALL
+incorrect WiX 4 MBA assumptions/configuration/dependencies in the repository,
+fix them together, and leave the project in a state that is actually capable
+of launching the Bootstrapper Application.
+
+DO NOT stop after finding one suspicious issue.
+DO NOT stop after "Build succeeded".
+DO NOT claim success merely because static checks pass.
+DO NOT keep stacking speculative patches on top of previous speculative patches.
+
+====================================================================
+CURRENT AUTHORITATIVE WINDOWS RUNTIME FAILURE
+====================================================================
+
+Latest Burn log:
+
+Burn x86 v4.0.5+b9b2f1b4...
+
+Loading managed bootstrapper application.
+
+Error 0x80131902: Failed to create the bootstrapper application.
+Error 0x80131902: Failed to create the managed bootstrapper application.
+Error 0x80131902: Failed to create BA.
+Error 0x80131902: Failed to load BA.
+Error 0x80131902: Failed while running
+Error 0x80131902: Failed to run per-user mode.
+
+.NET Framework detection succeeds:
+
+NetFx48Release = 533509
+Condition 'NetFx48Release >= 528040' evaluates to true.
+
+Therefore .NET Framework 4.8 IS INSTALLED.
+Do not add .NET 8 as a solution.
+Do not change NetFx detection unless concrete evidence requires it.
+
+====================================================================
+CRITICAL NEW EVIDENCE
+====================================================================
+
+A StartupLogger was added to:
+
+BAFactory.Create()
+DashboardBA constructor
+DashboardBA.Run()
+WizardForm constructor
+
+It should create:
+
+    %TEMP%\LFDashboard-BA-startup.log
+
+But after launching the newly rebuilt installer:
+
+    LFDashboard-BA-startup.log DOES NOT EXIST.
+
+This is extremely important.
+
+It means the failure happens BEFORE our BAFactory.Create diagnostic code
+successfully executes, OR the expected Dashboard.BA assembly/factory is not
+being instantiated at all.
+
+Therefore STOP investigating WizardForm, DetectionService, IIS, Laserfiche,
+or application logic until the managed host/factory loading layer is proven.
+
+The failure boundary is now:
+
+    Burn
+      -> mbahost
+      -> WixToolset.Mba.Host
+      -> config parsing
+      -> assembly loading
+      -> BootstrapperApplicationFactory discovery/instantiation
+      -> BAFactory.Create
+
+The diagnostic logger proves we are not reliably reaching the last step.
+
+====================================================================
+IMPORTANT PREVIOUS EVIDENCE
+====================================================================
+
+Previous failure:
+
+    0x8007006e
+    Failed to load:
+    .ba\WixToolset.Mba.Host.config
+
+That failure disappeared after adding the config.
+
+Current staged BA files:
+
+    Dashboard.BA.dll
+    WixToolset.Mba.Core.dll
+    WixToolset.Mba.Host.config
+    mbanative.dll
+
+PowerShell reflection successfully loads:
+
+    WixToolset.Mba.Core.dll
+    Dashboard.BA.dll
+
+Dashboard.BA.dll contains public:
+
+    Dashboard.BA.BAFactory
+    Dashboard.BA.DashboardBA
+
+Assembly attributes include:
+
+    WixToolset.Mba.Core.BootstrapperApplicationFactoryAttribute
+
+Current BA PE machine:
+
+    0x014C / I386 / x86
+
+Current Burn runtime:
+
+    Burn x86 4.0.5
+
+Changing AnyCPU -> x86 DID NOT change the runtime error.
+
+Therefore do NOT claim architecture is the root cause without new evidence.
+
+====================================================================
+YOUR OBJECTIVE
+====================================================================
+
+Perform a COMPLETE WiX 4.0.5 MBA architecture audit and FIX the installer.
+
+Do not work from WiX 3 memory.
+
+Use the actual installed/restored WiX 4.0.5 binaries/packages/extensions
+in this repository/environment as the primary technical truth.
+
+Inspect/decompile/reflection-inspect them where necessary.
+
+====================================================================
+PHASE 1 — FIND A REAL WiX 4.0.5 MBA REFERENCE IMPLEMENTATION
+====================================================================
+
+Before changing our project again, locate the actual WiX 4 Managed BA
+implementation/templates/tests/examples available from:
+
+- installed/restored WixToolset packages
+- WixToolset source/tests/examples if available
+- WixToolset.Bal.wixext package contents
+- WixToolset.Mba.Core 4.0.5
+- WixToolset.Mba.Host 4.0.5
+
+If internet access is available, research the official FireGiant/WiX Toolset
+documentation/source for WiX 4 managed bootstrapper applications.
+
+Use version 4 behavior, preferably 4.0.x / 4.0.5.
+
+DO NOT copy WiX 3 BootstrapperCore examples.
+
+Create a reference checklist of what a MINIMAL FUNCTIONAL WiX 4 managed BA
+actually requires.
+
+Then compare our implementation line-by-line against it.
+
+====================================================================
+PHASE 2 — INSPECT THE ACTUAL BAL EXTENSION
+====================================================================
+
+Inspect the exact WixToolset.Bal.wixext 4.0.5 used by the build.
+
+Determine exactly what this element:
+
+    <bal:WixManagedBootstrapperApplicationHost />
+
+automatically injects into the BA container.
+
+Specifically determine whether WiX automatically supplies:
+
+    mbahost.dll
+    WixToolset.Mba.Host.dll
+    WixToolset.Mba.Host.config
+    mbanative.dll
+    WixToolset.Mba.Core.dll
+
+and which of these are supposed to be manually supplied.
+
+We have manually added several files while debugging.
+
+Some of those assumptions may be WRONG.
+
+Do not assume "more DLLs = safer".
+
+A manually supplied wrong-version/wrong-architecture host component can break
+the MBA.
+
+Identify the exact ownership of every BA container file.
+
+====================================================================
+PHASE 3 — INSPECT WixToolset.Mba.Host.config SCHEMA
+====================================================================
+
+This is HIGH PRIORITY.
+
+Our current config was manually constructed.
+
+Do not assume it is correct.
+
+Inspect the actual configuration classes in:
+
+    WixToolset.Mba.Host.dll 4.0.5
+
+including:
+
+    BootstrapperSectionGroup
+    HostSection
+    SupportedFrameworkElement
+    SupportedFrameworkCollection
+
+Determine the exact XML schema expected.
+
+Our current config approximately contains:
+
+    <configSections>
+      <sectionGroup name="wix.bootstrapper"
+                    type="WixToolset.Mba.Host.BootstrapperSectionGroup, WixToolset.Mba.Host">
+        <section name="host"
+                 type="WixToolset.Mba.Host.HostSection, WixToolset.Mba.Host" />
+      </sectionGroup>
+    </configSections>
+
+    <startup useLegacyV2RuntimeActivationPolicy="true">
+      <supportedRuntime version="v4.0"
+                        sku=".NETFramework,Version=v4.8" />
+    </startup>
+
+    <wix.bootstrapper>
+      <host assemblyName="Dashboard.BA">
+        <supportedFrameworks>
+          <add version="v4.8"
+               sku=".NETFramework,Version=v4.8" />
+        </supportedFrameworks>
+      </host>
+    </wix.bootstrapper>
+
+VERIFY EVERY ATTRIBUTE AND ELEMENT AGAINST THE ACTUAL 4.0.5 CODE.
+
+In particular verify:
+
+    assemblyName
+
+Does it expect:
+
+    Dashboard.BA
+    Dashboard.BA.dll
+    full assembly-qualified name
+    a file path
+    something else?
+
+Verify whether supportedFrameworks belongs there at all.
+
+Verify exact version syntax:
+
+    v4.0
+vs
+    v4.8
+
+Verify sku syntax.
+
+Verify whether configSections should be authored manually.
+
+Verify whether the WiX build normally generates this file instead.
+
+A malformed custom config can successfully activate CLR but still fail before
+BAFactory.Create, which matches our current evidence.
+
+====================================================================
+PHASE 4 — INSPECT FACTORY DISCOVERY CODE
+====================================================================
+
+Decompile/reflection-inspect WixToolset.Mba.Host.dll 4.0.5.
+
+Trace the complete method responsible for:
+
+    loading assemblyName
+    Assembly.Load / LoadFrom
+    finding BootstrapperApplicationFactoryAttribute
+    obtaining the factory type
+    instantiating the factory
+    calling its native Create entry point
+
+Find every branch capable of returning/throwing:
+
+    0x80131902
+
+or the exception that eventually becomes 0x80131902.
+
+DO NOT merely translate the HRESULT.
+
+Find the exact managed failure path.
+
+Because StartupLogger never creates its file, determine what can fail BEFORE
+our overridden Create() is entered.
+
+====================================================================
+PHASE 5 — VERIFY FACTORY TYPE EXACTLY
+====================================================================
+
+Inspect the actual WixToolset.Mba.Core 4.0.5 API.
+
+Compare BAFactory.cs against it.
+
+Verify:
+
+    BootstrapperApplicationFactoryAttribute
+    BaseBootstrapperApplicationFactory
+    public visibility
+    constructor requirements
+    native Create(IntPtr, IntPtr)
+    protected Create(IEngine, IBootstrapperCommand)
+    expected override
+    assembly attribute placement
+    reflection construction requirements
+
+Check whether BAFactory requires an explicit PUBLIC PARAMETERLESS CONSTRUCTOR.
+
+Do not assume the compiler-generated constructor is sufficient without
+checking how the host instantiates it.
+
+Verify the compiled BAFactory metadata, not only source.
+
+====================================================================
+PHASE 6 — TEST FACTORY DISCOVERY OUTSIDE BURN
+====================================================================
+
+Create a temporary diagnostic/test utility if necessary.
+
+Using the same .NET Framework/runtime context as possible:
+
+1. Load WixToolset.Mba.Core.dll.
+2. Load Dashboard.BA.dll.
+3. Read BootstrapperApplicationFactoryAttribute.
+4. Extract its factory Type.
+5. Instantiate that factory using the same mechanism WixToolset.Mba.Host uses.
+
+Report EXACTLY where this succeeds/fails.
+
+Do not call the Burn-dependent Create method without a valid engine pointer.
+
+The purpose is to prove host-side discovery and factory construction.
+
+Delete temporary diagnostic artifacts afterward unless useful for permanent
+tests.
+
+====================================================================
+PHASE 7 — INSPECT THE ACTUAL FINAL BUNDLE
+====================================================================
+
+Do NOT assume staging equals the final EXE.
+
+This is mandatory.
+
+After building:
+
+    Release\LFDashboard-Setup.exe
+
+inspect/extract the actual Burn bundle BA container using WiX tooling or
+another reliable method.
+
+Show the ACTUAL files Burn embeds/extracts under .ba.
+
+Verify names, versions, architecture and sizes.
+
+We specifically need proof of the final container, not:
+
+    artifacts\staging\BA
+
+because staging can be correct while Bundle.wxs embeds something else.
+
+Expected investigation should answer whether final .ba actually contains:
+
+    Dashboard.BA.dll
+    WixToolset.Mba.Core.dll
+    WixToolset.Mba.Host.dll
+    WixToolset.Mba.Host.config
+    mbahost.dll
+    mbanative.dll
+
+and which are injected automatically.
+
+Check for DUPLICATES or conflicting versions.
+
+====================================================================
+PHASE 8 — VERIFY VERSION CONSISTENCY
+====================================================================
+
+Inspect file/assembly versions of every WiX runtime component:
+
+    wix.exe
+    WixToolset.Bal.wixext
+    WixToolset.Mba.Core.dll
+    WixToolset.Mba.Host.dll
+    mbahost.dll
+    mbanative.dll
+
+They must belong to a compatible WiX 4.0.5 runtime set.
+
+Detect accidental mixing of:
+
+    WiX 3
+    WiX 4.0.5
+    another WiX 4.x version
+
+Do not rely only on filenames.
+
+Read assembly/file versions.
+
+====================================================================
+PHASE 9 — RECONSIDER THE MANUAL mbanative.dll PATCH
+====================================================================
+
+We previously manually copied:
+
+    WixToolset.Mba.Core/4.0.5/runtimes/win-x86/native/mbanative.dll
+
+and manually embedded it.
+
+Verify from the actual WiX 4 MBA implementation whether this is correct.
+
+If WixManagedBootstrapperApplicationHost already provides/loads its own native
+bridge, our manual payload may be unnecessary or harmful.
+
+KEEP IT only if the actual 4.0.5 implementation proves it is required.
+
+Otherwise remove the patch cleanly from:
+
+    Dashboard.BA.csproj
+    Bundle.wxs
+    publish.ps1
+
+and remove corresponding misleading comments/guards.
+
+====================================================================
+PHASE 10 — RECONSIDER x86 BA PATCH
+====================================================================
+
+Do the same for:
+
+    PlatformTarget=x86
+    Prefer32Bit=true
+
+Find what the official WiX 4 MBA pattern expects.
+
+If AnyCPU is the supported/recommended configuration, restore AnyCPU.
+
+If x86 is genuinely required, keep it.
+
+Do not decide based solely on the text "Burn x86".
+
+Use actual WiX 4 host behavior.
+
+====================================================================
+PHASE 11 — CREATE A MINIMAL BA ISOLATION TEST
+====================================================================
+
+If the existing DashboardBA still cannot be proven correct, create a TEMPORARY
+minimal BA inside the existing project/repository that does nothing except:
+
+    log startup
+    display a simple MessageBox or Form
+    close cleanly
+
+No:
+
+    Laserfiche
+    detection
+    IIS
+    registry logic
+    setup pages
+    custom configuration logic
+
+Use it with the SAME Bundle host configuration.
+
+This is an isolation experiment.
+
+If minimal BA launches:
+
+    host/factory configuration is correct
+    problem is DashboardBA application code
+
+If minimal BA DOES NOT launch:
+
+    host/config/payload architecture is still wrong
+
+Use the result to identify the correct layer.
+
+Do not leave the production installer permanently replaced by a fake BA.
+Use the test to isolate the problem, then fix the production BA.
+
+====================================================================
+PHASE 12 — ADD PRE-FACTORY DIAGNOSTICS IF POSSIBLE
+====================================================================
+
+Our StartupLogger inside BAFactory.Create never executes.
+
+Therefore logging inside Create is TOO LATE.
+
+Find a diagnostic point that executes earlier.
+
+Possibilities include:
+
+    BAFactory constructor
+    static field initializer
+    module initializer if supported
+    factory instance constructor
+
+Add safe diagnostics to the earliest managed code WE control.
+
+For example, explicitly define:
+
+    public BAFactory()
+    {
+        StartupLogger.Log("BAFactory constructor entered");
+    }
+
+But only after confirming the host instantiation mechanism.
+
+Also ensure StartupLogger's file location is not the problem.
+
+Write diagnostics to BOTH:
+
+    Path.GetTempPath()
+and
+    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)
+        + appropriate Dashboard diagnostic folder
+
+if permissions permit.
+
+Never let logging throw.
+
+====================================================================
+PHASE 13 — FIX EVERYTHING FOUND
+====================================================================
+
+Once the evidence identifies incorrect configuration or code:
+
+FIX ALL CONFIRMED ISSUES TOGETHER.
+
+Do not return after identifying them.
+
+Update:
+
+    csproj
+    Bundle.wxs
+    host config
+    BA source
+    publish.ps1
+
+as required.
+
+Remove obsolete debugging patches when they are proven wrong.
+
+Keep the final architecture SIMPLE.
+
+Do not retain unnecessary payloads/guards/comments from failed hypotheses.
+
+====================================================================
+PHASE 14 — BUILD
+====================================================================
+
+Run the complete available build.
+
+At minimum:
+
+    dotnet restore
+    Dashboard.BA build
+    relevant WiX bundle build
+
+If the environment can run the complete publish script, run it.
+
+Require:
+
+    0 errors
+
+Fix warnings introduced by your changes.
+
+====================================================================
+PHASE 15 — STATIC FINAL VALIDATION
+====================================================================
+
+Before finishing verify:
+
+1. Correct BA target architecture.
+2. Correct factory attribute.
+3. Correct factory type.
+4. Correct host config schema.
+5. Correct BA assemblyName.
+6. Correct WiX runtime versions.
+7. Correct final Bundle payloads.
+8. No stale WiX 3 configuration assumptions.
+9. No duplicate native host components.
+10. No unnecessary mbanative copy if WiX supplies it.
+11. No incorrect manual host DLL payloads.
+12. No old BootstrapperCore.config.
+13. publish.ps1 checks match the FINAL architecture.
+14. Release EXE is freshly generated.
+
+====================================================================
+IMPORTANT: DO NOT CALL THIS FIXED JUST BECAUSE IT BUILDS
+====================================================================
+
+The actual success criterion is:
+
+    Release\LFDashboard-Setup.exe
+
+opens the Dashboard installation wizard on Windows.
+
+Your environment may not be capable of performing that final Windows UI
+test.
+
+If you cannot run the Windows bundle here, say exactly:
+
+    "Static/build verification passed. Windows runtime verification is still required."
+
+DO NOT say:
+
+    "Fixed"
+    "Resolved"
+    "This will definitely work"
+
+unless the actual EXE has launched successfully.
+
+====================================================================
+IF WINDOWS RUNTIME TEST STILL FAILS
+====================================================================
+
+Design the diagnostics NOW so another blind debugging cycle is unnecessary.
+
+The next Windows run must leave enough information to identify the exact
+failure.
+
+If the production BA still cannot start, ensure the build includes a
+diagnostic mechanism that can tell us whether execution reached:
+
+    BA assembly load
+    BAFactory type load
+    BAFactory constructor
+    BAFactory.Create
+    DashboardBA constructor
+    DashboardBA.Run
+    WizardForm
+
+Do not rely only on Burn's generic HRESULT.
+
+====================================================================
+FINAL REPORT REQUIRED
+====================================================================
+
+Return a detailed report containing:
+
+1. Root cause(s) found.
+2. Which previous assumptions were wrong.
+3. Exact WiX 4.0.5 managed BA architecture.
+4. Exact role of mbahost.dll.
+5. Exact role of WixToolset.Mba.Host.dll.
+6. Exact role of WixToolset.Mba.Core.dll.
+7. Exact role of mbanative.dll.
+8. Correct WixToolset.Mba.Host.config schema.
+9. Correct assemblyName syntax.
+10. Correct BA architecture.
+11. Factory discovery path.
+12. Why StartupLogger previously never ran.
+13. Every file changed.
+14. Every obsolete patch removed.
+15. Final BA container contents.
+16. WiX version consistency results.
+17. Build results.
+18. Exact Windows rebuild commands.
+19. Exact Windows runtime test command.
+20. Exact diagnostic commands if runtime still fails.
+
+Do not finish early.
+
+Treat this as an installer architecture repair, not another one-line patch.

@@ -1,15 +1,21 @@
 // StartupLogger.cs
 // Self-contained startup diagnostic logger for the Dashboard managed BA.
 //
-// Writes to %TEMP%\LFDashboard-BA-startup.log using only System.IO.
-// All public methods silently swallow every exception — the logger MUST
-// never be the reason the bootstrapper application fails.
+// Writes to TWO locations for redundancy:
+//   %TEMP%\LFDashboard-BA-startup.log
+//   %ProgramData%\LFDashboard\Logs\BA-startup.log
+//
+// Uses only System.IO.  All public methods silently swallow every exception —
+// the logger MUST never be the reason the bootstrapper application fails.
 //
 // Design constraints:
 //   • No static constructor   (a faulting static ctor → TypeInitializationException,
 //                              which is exactly what we are trying to diagnose)
 //   • No DI, no WiX engine, no UI, no third-party libs
 //   • Thread-safe via a simple object lock around file writes
+//   • Writes to both %TEMP% and %ProgramData% so that if one location fails
+//     or is inaccessible (e.g. elevation, temp dir per-session isolation)
+//     the other survives.
 
 using System;
 using System.IO;
@@ -21,40 +27,62 @@ namespace Dashboard.BA
     {
         // ---------------------------------------------------------------- state
         // No static constructor — field initialisers below cannot throw.
-        private static readonly object _lock    = new object();
-        private static          string _logPath = "";       // "" ⇒ disabled
-        private static          bool   _ready   = false;
+        private static readonly object _lock   = new object();
+        private static string _tempPath        = "";   // "" ⇒ disabled
+        private static string _commonPath      = "";   // "" ⇒ disabled
+        private static bool   _ready           = false;
 
         // ---------------------------------------------------------------- init
+
         // Called lazily on first use.  Safe to call multiple times; idempotent.
         private static void EnsureReady()
         {
             if (_ready) return;
-            _ready = true;                          // set first so a failure disables the logger
+            _ready = true;   // set first so a fault here disables the logger cleanly
 
+            var header = BuildHeader();
+
+            // Location 1: %TEMP%\LFDashboard-BA-startup.log
             try
             {
-                _logPath = Path.Combine(Path.GetTempPath(), "LFDashboard-BA-startup.log");
-
-                var sb = new StringBuilder();
-                sb.AppendLine("====================================================");
-                sb.AppendLine("  LFDashboard Bootstrapper Application – startup log");
-                sb.AppendLine($"  {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}");
-                sb.AppendLine("----------------------------------------------------");
-                try { sb.AppendLine($"  Process bit-ness : {(IntPtr.Size == 8 ? "64-bit" : "32-bit")}"); } catch { /* ignore */ }
-                try { sb.AppendLine($"  CLR version      : {Environment.Version}"); } catch { /* ignore */ }
-                try { sb.AppendLine($"  OS               : {Environment.OSVersion}"); } catch { /* ignore */ }
-                try { sb.AppendLine($"  AppDomain base   : {AppDomain.CurrentDomain.BaseDirectory}"); } catch { /* ignore */ }
-                try { sb.AppendLine($"  Temp path        : {Path.GetTempPath()}"); } catch { /* ignore */ }
-                sb.AppendLine("====================================================");
-
-                // Overwrite any previous log so we always start fresh
-                lock (_lock) { File.WriteAllText(_logPath, sb.ToString(), Encoding.UTF8); }
+                _tempPath = Path.Combine(Path.GetTempPath(), "LFDashboard-BA-startup.log");
+                lock (_lock) { File.WriteAllText(_tempPath, header, Encoding.UTF8); }
             }
-            catch
+            catch { _tempPath = ""; }
+
+            // Location 2: %ProgramData%\LFDashboard\Logs\BA-startup.log
+            try
             {
-                _logPath = "";   // disable — cannot write
+                var programData = Environment.GetFolderPath(
+                    Environment.SpecialFolder.CommonApplicationData);
+                var logDir = Path.Combine(programData, "LFDashboard", "Logs");
+                Directory.CreateDirectory(logDir);
+                _commonPath = Path.Combine(logDir, "BA-startup.log");
+                lock (_lock) { File.WriteAllText(_commonPath, header, Encoding.UTF8); }
             }
+            catch { _commonPath = ""; }
+        }
+
+        private static string BuildHeader()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("====================================================");
+            sb.AppendLine("  LFDashboard Bootstrapper Application – startup log");
+            try { sb.AppendLine($"  {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}"); } catch { /* ignore */ }
+            sb.AppendLine("----------------------------------------------------");
+            try { sb.AppendLine($"  Process bit-ness : {(IntPtr.Size == 8 ? "64-bit" : "32-bit")}"); } catch { /* ignore */ }
+            try { sb.AppendLine($"  CLR version      : {Environment.Version}"); } catch { /* ignore */ }
+            try { sb.AppendLine($"  OS               : {Environment.OSVersion}"); } catch { /* ignore */ }
+            try { sb.AppendLine($"  AppDomain base   : {AppDomain.CurrentDomain.BaseDirectory}"); } catch { /* ignore */ }
+            try { sb.AppendLine($"  Temp path        : {Path.GetTempPath()}"); } catch { /* ignore */ }
+            try
+            {
+                var pd = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                sb.AppendLine($"  ProgramData      : {pd}");
+            }
+            catch { /* ignore */ }
+            sb.AppendLine("====================================================");
+            return sb.ToString();
         }
 
         // ---------------------------------------------------------------- public API
@@ -65,10 +93,12 @@ namespace Dashboard.BA
             try
             {
                 EnsureReady();
-                if (_logPath.Length == 0) return;
-
                 var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}{Environment.NewLine}";
-                lock (_lock) { File.AppendAllText(_logPath, line, Encoding.UTF8); }
+                lock (_lock)
+                {
+                    if (_tempPath.Length > 0)   File.AppendAllText(_tempPath,   line, Encoding.UTF8);
+                    if (_commonPath.Length > 0) File.AppendAllText(_commonPath, line, Encoding.UTF8);
+                }
             }
             catch { /* never propagate */ }
         }
@@ -82,14 +112,16 @@ namespace Dashboard.BA
             try
             {
                 EnsureReady();
-                if (_logPath.Length == 0) return;
-
                 var sb = new StringBuilder();
                 sb.AppendLine($"[{DateTime.Now:HH:mm:ss.fff}] *** EXCEPTION in {context} ***");
                 AppendException(sb, ex, depth: 0);
                 sb.AppendLine($"[{DateTime.Now:HH:mm:ss.fff}] *** END EXCEPTION ***");
-
-                lock (_lock) { File.AppendAllText(_logPath, sb.ToString(), Encoding.UTF8); }
+                var text = sb.ToString();
+                lock (_lock)
+                {
+                    if (_tempPath.Length > 0)   File.AppendAllText(_tempPath,   text, Encoding.UTF8);
+                    if (_commonPath.Length > 0) File.AppendAllText(_commonPath, text, Encoding.UTF8);
+                }
             }
             catch { /* never propagate */ }
         }
@@ -100,14 +132,15 @@ namespace Dashboard.BA
         {
             if (ex == null || depth > 10) return;
 
-            string pad = new string(' ', depth * 2);
+            var pad = new string(' ', depth * 2);
             sb.AppendLine($"{pad}Type    : {ex.GetType().FullName}");
             sb.AppendLine($"{pad}Message : {ex.Message}");
             sb.AppendLine($"{pad}HResult : 0x{ex.HResult:X8}");
 
             if (!string.IsNullOrEmpty(ex.StackTrace))
             {
-                foreach (var line in ex.StackTrace.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
+                foreach (var line in ex.StackTrace.Split(new[] { "\r\n", "\n" },
+                                                          StringSplitOptions.None))
                 {
                     if (line.Length > 0)
                         sb.AppendLine($"{pad}  {line.TrimStart()}");

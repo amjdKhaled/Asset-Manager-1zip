@@ -840,12 +840,22 @@ else {
     Write-OK "BootstrapperApplicationFactory attribute confirmed in Dashboard.BA.dll."
 
     # ---- Guard 6: Dashboard.BA.dll PE architecture must be x86 (0x014C) ----
-    # Burn 4.0.5 is an x86 process.  Loading an AnyCPU or x64 managed BA into
-    # an x86 Burn host produces:
-    #   Error 0x80131902: Failed to create the managed bootstrapper application.
-    # The PE Machine field at bytes [peOffset+4 .. peOffset+5] must equal 0x014C
-    # (IMAGE_FILE_MACHINE_I386).  Dashboard.BA.csproj sets PlatformTarget=x86 and
-    # Prefer32Bit=true to guarantee this; this guard catches any accidental revert.
+    # Burn 4.0.5 is an x86 (32-bit) process.  The managed BA DLL MUST match the
+    # host process bitness for two reasons:
+    #   1. mbanative.dll (the native Burn bridge) is win-x86; a 64-bit process
+    #      cannot LoadLibrary a 32-bit DLL — this would produce a
+    #      BadImageFormatException / 0x8007000B in a 64-bit process.
+    #   2. The x86 Burn process cannot load an x64 managed DLL at all —
+    #      Assembly.Load would throw BadImageFormatException / 0x8007000B.
+    #
+    # NOTE ON 0x80131902:
+    #   0x80131902 is ConfigurationErrorsException — a config file parse error,
+    #   NOT an architecture error.  The confirmed root cause was an unrecognised
+    #   'sku' XML attribute in the <supportedFrameworks> section of
+    #   WixToolset.Mba.Host.config.  That issue is now fixed in the config file.
+    #   This guard is still required and correct — an architecture mismatch would
+    #   produce a different error, but it is a real failure mode that must be
+    #   prevented.
     $baPeBytes  = [System.IO.File]::ReadAllBytes($baDllStaged)
     $baPeOffset = [System.BitConverter]::ToInt32($baPeBytes, 0x3C)
     $baMachine  = [System.BitConverter]::ToUInt16($baPeBytes, $baPeOffset + 4)
@@ -856,11 +866,9 @@ else {
         Write-Host ("    PE Machine: 0x{0:X4} (expected 0x014C = x86)" -f $baMachine) -ForegroundColor Red
         Write-Host ("    FILE: {0}" -f $baDllStaged) -ForegroundColor Red
         Write-Host "" -ForegroundColor Red
-        Write-Host "  WiX Burn 4.0.5 is an x86 process and requires the BA" -ForegroundColor Red
-        Write-Host "  architecture to match.  AnyCPU or x64 DLLs cannot be" -ForegroundColor Red
-        Write-Host "  loaded; Burn reports:" -ForegroundColor Red
-        Write-Host "    Error 0x80131902: Failed to create the managed" -ForegroundColor Red
-        Write-Host "    bootstrapper application." -ForegroundColor Red
+        Write-Host "  WiX Burn 4.0.5 is an x86 (32-bit) process; it cannot load" -ForegroundColor Red
+        Write-Host "  an x64 or architecture-incompatible managed DLL.  A mismatch" -ForegroundColor Red
+        Write-Host "  produces a BadImageFormatException (0x8007000B) at load time." -ForegroundColor Red
         Write-Host "  Fix: set <PlatformTarget>x86</PlatformTarget> and" -ForegroundColor Red
         Write-Host "  <Prefer32Bit>true</Prefer32Bit> in Dashboard.BA.csproj." -ForegroundColor Red
         Write-Host "  ============================================================" -ForegroundColor Red

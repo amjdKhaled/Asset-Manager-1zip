@@ -1,17 +1,23 @@
 ---
-name: WiX 4 Mba.Host.config assemblyName section
-description: WixToolset.Mba.Host.dll requires a <wix.bootstrapper> config section to find the BA assembly; <startup> alone is not enough and causes 0x80070490.
+name: WiX 4 Mba.Host.config — complete verified schema
+description: Exact config file schema for WixToolset.Mba.Host.config, verified by DLL inspection; includes root cause of 0x80131902 and what NOT to include.
 ---
 
 ## Rule
 
-`WixToolset.Mba.Host.config` MUST contain BOTH a `<startup>` section AND a `<wix.bootstrapper>` section group with `assemblyName`. Providing only `<startup>` causes `Error 0x80070490: Failed to create the managed bootstrapper application.`
+`WixToolset.Mba.Host.config` requires BOTH a `<startup>` section AND a `<wix.bootstrapper>` section group with `assemblyName`.
 
-**Why:** `WixToolset.Mba.Host.dll` (a 23 KB managed assembly auto-embedded into every bundle by `WixToolset.Bal.wixext`) is the component that actually discovers and loads the BA factory. It calls `ConfigurationManager.GetSection("wix.bootstrapper/host")` to read `assemblyName`, then loads that DLL and calls `GetCustomAttributes<BootstrapperApplicationFactoryAttribute>()`. If the section is absent the call returns null and the host returns `E_NOTFOUND` → `0x80070490`. The `<startup>` section only activates the CLR; it does NOT tell the managed host which assembly to scan.
+**How the host reads this file:**
+1. Native `mbahost.dll` reads `<startup>` to activate the CLR (before any managed code runs).
+2. Managed `WixToolset.Mba.Host.dll` (23 KB, auto-embedded by `WixToolset.Bal.wixext`) calls `ConfigurationManager.GetSection("wix.bootstrapper/host")` to read `assemblyName`.
+3. It loads `Assembly.Load(assemblyName)` from the `.ba\` AppBase directory.
+4. Scans for `[assembly: BootstrapperApplicationFactory(typeof(BAFactory))]`.
+5. Calls `Activator.CreateInstance(factoryType)` → `factory.Create(pArgs, pResults)`.
 
-**How to apply:** Every `WixToolset.Mba.Host.config` for a .NET 4.x managed BA must include:
+**Confirmed correct schema (verified against WixToolset.Mba.Host 4.0.5 DLL metadata):**
 
 ```xml
+<?xml version="1.0" encoding="utf-8" ?>
 <configuration>
   <configSections>
     <sectionGroup name="wix.bootstrapper"
@@ -24,28 +30,50 @@ description: WixToolset.Mba.Host.dll requires a <wix.bootstrapper> config sectio
     <supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8" />
   </startup>
   <wix.bootstrapper>
-    <host assemblyName="Dashboard.BA">          <!-- SHORT name, no .dll -->
-      <supportedFrameworks>
-        <add version="v4.8" sku=".NETFramework,Version=v4.8" />
-      </supportedFrameworks>
-    </host>
+    <host assemblyName="Dashboard.BA" />
   </wix.bootstrapper>
 </configuration>
 ```
 
-Type names confirmed from `WixToolset.Mba.Host.dll` strings:
-- `BootstrapperSectionGroup` → `WixToolset.Mba.Host.BootstrapperSectionGroup`
-- `HostSection` → `WixToolset.Mba.Host.HostSection`
-- `assemblyName` attribute → short assembly name without `.dll`
-- `supportedFrameworks` child collection uses `<add version="..." sku="..." />`
+## What caused 0x80131902 (ConfigurationErrorsException)
 
-## Investigation method that found this
+**Root cause confirmed:** `SupportedFrameworkElement` in `WixToolset.Mba.Host.dll` has exactly ONE `ConfigurationProperty`: `version`. The `sku` attribute does NOT exist in the type. In .NET Framework, `ConfigurationElement` throws `ConfigurationErrorsException` (HRESULT `0x80131902`) on ANY unrecognised XML attribute. Adding `<add version="v4.8" sku=".NETFramework,Version=v4.8"/>` introduced the `sku` attribute → immediate config parse error → `Create()` was never reached → `StartupLogger` never fired.
 
-Extracted the wix-ir ZIP embedded in `WixToolset.Bal.wixext.dll` → found `WixToolset.Mba.Host.dll` (23 KB) is auto-embedded alongside `mbahost.dll`. Read its strings → saw `BootstrapperSectionGroup`, `HostSection`, `assemblyNameProperty`, `GetSection`, `E_NOTFOUND`. This proved the managed host reads config for assembly discovery, not assembly scanning.
+**What NOT to include in `<wix.bootstrapper>`:**
+- `<supportedFrameworks>` with `sku` attribute — `SupportedFrameworkElement` has no `sku` property; including it crashes config parsing
+- `version="v4.8"` — CLR version strings use `v4.0` for all .NET 4.x; `v4.8` is the framework marketing version, not the CLR runtime version
+
+`<supportedFrameworks>` itself is optional; omitting it is safest.
+
+## Error sequence summary
+
+| Config state | Error | Cause |
+|---|---|---|
+| No config file | `0x8007006e` | mbahost.dll cannot find `WixToolset.Mba.Host.config` |
+| `<startup>` only | `0x80070490` | `GetSection()` returns null → factory not found |
+| `<configSections>` + `<wix.bootstrapper>` + `sku` attr | `0x80131902` | `ConfigurationErrorsException` from unrecognised `sku` |
+| `<configSections>` + `<wix.bootstrapper>` (no sku) | ✅ proceeds | Config parses → assembly loads → factory created |
+
+## Investigation method (how DLL schema was determined)
+
+1. `WixToolset.Bal.bal.wixlib` embedded resource in `WixToolset.Bal.wixext.dll` is a ZIP.
+2. Extracted: `unzip wixlib.zip "wix-ir/WixToolset.Mba.Host.dll"` → 23 KB managed DLL.
+3. Ran `strings` on it: found `version`, `versionProperty`, `assemblyName`, `assemblyNameProperty`, `ConfigurationManager`, `GetSection`, `GetBAFactoryTypeFromAssembly`, `BootstrapperSectionGroup`, `HostSection`.
+4. Confirmed **NO** `sku`, `skuProperty` anywhere in the DLL → `sku` is an unrecognised attribute.
+
+## mbahost.dll architecture (from wixlib)
+
+WiX auto-selects the correct `mbahost.dll` variant for the bundle architecture:
+- `wix-ir/mbahost.dll` = ARM64
+- `wix-ir/mbahost.dll-1` = x64/AMD64
+- `wix-ir/mbahost.dll-2` = x86/I386  ← selected for Burn x86 bundles automatically
 
 ## Related invariants
 
-- `WixToolset.Mba.Core.dll` must be an explicit `<Payload>` (not auto-embedded by WiX).
-- `mbanative.dll` (win-x86, 140 KB) must be an explicit `<Payload>` (Burn is x86).
-- `[assembly: BootstrapperApplicationFactory(typeof(BAFactory))]` must be present in the BA DLL (verified by Guard 5 binary scan in publish.ps1).
-- The `<startup>` section is still required for CLR activation; do not remove it.
+- `WixToolset.Mba.Core.dll` — NOT auto-embedded; must be an explicit `<Payload>`.
+- `mbanative.dll` (win-x86) — NOT auto-embedded; must be an explicit `<Payload>`. Source: `WixToolset.Mba.Core 4.0.5` NuGet, `runtimes/win-x86/native/mbanative.dll`. Copied by `CopyMbaNativeDll` MSBuild target in `Dashboard.BA.csproj`.
+- `[assembly: BootstrapperApplicationFactory(typeof(BAFactory))]` must be in the DLL (Guard 5 in publish.ps1 binary-scans for this string).
+- `Dashboard.BA.dll` must be `PlatformTarget=x86` (Burn is x86 process; Guard 6 in publish.ps1 checks PE machine = 0x014C).
+- `BAFactory()` explicit constructor logs to `%TEMP%\LFDashboard-BA-startup.log` and `%ProgramData%\LFDashboard\Logs\BA-startup.log`. If either log is absent after launch, the failure is before `Activator.CreateInstance(BAFactory)` — inside the managed host itself.
+- `0x80131902` = `ConfigurationErrorsException` = config parse error (NOT architecture mismatch).
+- Architecture mismatch would produce `BadImageFormatException` (0x8007000B), not 0x80131902.
