@@ -141,8 +141,8 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
     -->
     <Property Id="DASHBOARD_URL"          Secure="yes" />
     <Property Id="LF_API_URL"             Secure="yes" />
-    <Property Id="LF_REPO_ID"             Secure="yes" />
-    <Property Id="LF_DISPLAY_NAME"        Secure="yes" />
+    <!-- LF_REPO_ID / LF_DISPLAY_NAME removed: repository is runtime session
+         context, never installation configuration. -->
     <Property Id="LF_WEB_CLIENT_PATH"     Secure="yes" />
     <Property Id="INSTALL_DESKTOP_BUTTON" Value="1" />
     <Property Id="INSTALL_WEB_BUTTON"     Value="0" />
@@ -235,7 +235,7 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
     -->
     <CustomAction Id="WriteConfig"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --repo-id "[LF_REPO_ID]" --display-name "[LF_DISPLAY_NAME]" --port "[DASHBOARD_PORT]" --webapp-path "[WEBAPPFOLDER]."'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --port "[DASHBOARD_PORT]" --webapp-path "[WEBAPPFOLDER]."'
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />

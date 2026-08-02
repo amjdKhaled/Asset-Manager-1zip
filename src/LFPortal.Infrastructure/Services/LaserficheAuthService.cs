@@ -5,6 +5,7 @@ using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
 using LFPortal.Infrastructure.Adapters;
 using LFPortal.Infrastructure.Options;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -38,6 +39,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     private readonly ILaserficheApiAdapter _adapter;
     private readonly IMemoryCache _cache;
     private readonly LaserficheOptions _options;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<LaserficheAuthService> _logger;
 
     /// <summary>Initialises the auth service with all required dependencies.</summary>
@@ -47,14 +49,44 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         ILaserficheApiAdapter adapter,
         IMemoryCache cache,
         IOptions<LaserficheOptions> options,
+        IHttpContextAccessor httpContextAccessor,
         ILogger<LaserficheAuthService> logger)
     {
         _httpClientFactory = httpClientFactory;
         _credentialProvider = credentialProvider;
         _adapter = adapter;
+        _httpContextAccessor = httpContextAccessor;
         _cache = cache;
         _options = options.Value;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Builds the token cache key. Includes the repository id (different repositories
+    /// must never share a token) and, when an HTTP session is present, the session id —
+    /// so two concurrent users authenticated as different Laserfiche accounts can never
+    /// reuse each other's cached token. Outside an HTTP context (background work) a
+    /// process-wide scope is used, matching the disk-stored fallback credentials.
+    /// </summary>
+    private string CacheKeyFor(RepositoryDescriptor repository)
+    {
+        string scope = "app";
+        try
+        {
+            var session = _httpContextAccessor.HttpContext?.Session;
+            // Use the session id only for ESTABLISHED sessions (any data written).
+            // An empty session has no stable id and, more importantly, uses the
+            // shared disk-stored fallback credentials — sharing the "app" scope
+            // is then both correct and avoids re-authenticating every request.
+            if (session is not null && session.Keys.Any() && !string.IsNullOrEmpty(session.Id))
+                scope = session.Id;
+        }
+        catch
+        {
+            // Session unavailable (not loaded / no session middleware) — use app scope.
+        }
+
+        return $"{CacheKeyPrefix}{repository.Key}:{repository.RepositoryId}:{scope}";
     }
 
     /// <inheritdoc />
@@ -62,7 +94,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         RepositoryDescriptor repository,
         CancellationToken cancellationToken = default)
     {
-        var cacheKey = $"{CacheKeyPrefix}{repository.Key}";
+        var cacheKey = CacheKeyFor(repository);
 
         if (_cache.TryGetValue(cacheKey, out string? cachedToken) && cachedToken is not null)
         {
@@ -100,7 +132,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     /// <inheritdoc />
     public Task InvalidateTokenAsync(RepositoryDescriptor repository)
     {
-        var cacheKey = $"{CacheKeyPrefix}{repository.Key}";
+        var cacheKey = CacheKeyFor(repository);
         _cache.Remove(cacheKey);
         _logger.LogDebug("Token cache invalidated for repository {Key}.", repository.Key);
         return Task.CompletedTask;
@@ -128,7 +160,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 .ConfigureAwait(false);
 
             // Warm the token cache so subsequent GetTokenAsync calls skip re-authentication.
-            var cacheKey      = $"{CacheKeyPrefix}{repository.Key}";
+            var cacheKey      = CacheKeyFor(repository);
             var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
             _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
 
@@ -140,16 +172,18 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             return true;
         }
         catch (Domain.Exceptions.LaserficheException ex)
-            when (ex.StatusCode is >= 400 and < 500)
+            when (ex.StatusCode is 400 or 401 or 403)
         {
-            // Credential or repository error — return false; do not propagate.
+            // Credential error — return false; do not propagate.
             _logger.LogInformation(
                 "Login failed for repository {RepoId}: HTTP {StatusCode}.",
                 repository.RepositoryId,
                 ex.StatusCode);
             return false;
         }
-        // Network failures and 5xx errors propagate to the caller.
+        // 404 (unknown repository), other 4xx, network failures and 5xx errors
+        // propagate to the caller so it can show a precise error message
+        // instead of a misleading "check username and password".
     }
 
     /// <summary>

@@ -18,13 +18,10 @@ namespace Dashboard.BA
         // Example: https://lf-server.company.local/LFRepositoryAPI
         public string LaserficheApiUrl { get; set; } = "";
 
-        // Laserfiche repository identifier (case-sensitive, not display name).
-        // Example: Documents
-        public string RepositoryId { get; set; } = "";
-
-        // Human-readable name shown in the Dashboard UI.
-        // Optional: defaults to RepositoryId when blank.
-        public string DisplayName { get; set; } = "";
+        // NOTE: Repository ID and Display Name were intentionally REMOVED.
+        // The repository is runtime session context (passed by the Desktop /
+        // Web Client via ?repository=, or chosen at login) — never a permanent
+        // installation setting.  The installer configures infrastructure only.
 
         // Physical path to the Laserfiche Web Client (Web Files) directory.
         // Empty string means: skip web client integration.

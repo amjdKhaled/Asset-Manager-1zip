@@ -1,8 +1,8 @@
 {
   "Laserfiche": {
     "ServerUrl": "https://YOUR-LF-SERVER/LFRepositoryAPI",
-    "RepositoryId": "YourRepositoryId",
-    "DisplayName": "Your Repository",
+    "RepositoryId": "",
+    "DisplayName": "",
     "ApiBasePath": "/LFRepositoryAPI",
     "ApiVersion": "v1",
     "TimeoutSeconds": 30,

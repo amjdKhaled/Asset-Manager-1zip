@@ -60,8 +60,6 @@ namespace Dashboard.BA
 
         // ---------------------------------------------------------------- Config page controls
         private TextBox  _txtLFApiUrl      = null!;
-        private TextBox  _txtRepoId        = null!;
-        private TextBox  _txtDisplayName   = null!;
         private TextBox  _txtDashboardUrl  = null!;
         private TextBox  _txtPort          = null!;
         private CheckBox _chkDesktop       = null!;
@@ -362,15 +360,9 @@ namespace Dashboard.BA
                 "https://YOUR-LF-SERVER/LFRepositoryAPI",
                 "Full URL of the Laserfiche Repository API.  Example: https://lf-server/LFRepositoryAPI");
 
-            _txtRepoId = AddField(
-                "Repository ID *",
-                "",
-                "Case-sensitive Laserfiche repository identifier.  Example: Documents");
-
-            _txtDisplayName = AddField(
-                "Display Name",
-                "",
-                "Human-readable name shown in Dashboard (blank = use Repository ID).");
+            // Repository ID / Display Name fields intentionally removed:
+            // the repository is selected per session at runtime (Desktop/Web
+            // Client context or login page), never fixed at install time.
 
             y += 6;  // gap before Advanced section
 
@@ -868,9 +860,6 @@ namespace Dashboard.BA
                      !_txtLFApiUrl.Text.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                 errors.Add("Laserfiche API URL must start with http:// or https://");
 
-            if (string.IsNullOrWhiteSpace(_txtRepoId.Text))
-                errors.Add("Repository ID is required.");
-
             if (string.IsNullOrWhiteSpace(_txtDashboardUrl.Text))
                 errors.Add("Dashboard URL is required (in Advanced Settings).");
             else if (!_txtDashboardUrl.Text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
@@ -897,8 +886,6 @@ namespace Dashboard.BA
         private void CollectConfigPage()
         {
             _config.LaserficheApiUrl = _txtLFApiUrl.Text.Trim().TrimEnd('/');
-            _config.RepositoryId     = _txtRepoId.Text.Trim();
-            _config.DisplayName      = _txtDisplayName.Text.Trim();
             _config.DashboardUrl     = _txtDashboardUrl.Text.Trim().TrimEnd('/');
             _config.DashboardPort    = _txtPort.Text.Trim();
 
@@ -930,10 +917,8 @@ namespace Dashboard.BA
             sb.AppendLine($"    - URL: {_config.DashboardUrl}");
             sb.AppendLine();
             sb.AppendLine("  Laserfiche Connection");
-            sb.AppendLine($"    - API:        {_config.LaserficheApiUrl}");
-            sb.AppendLine($"    - Repository: {_config.RepositoryId}");
-            if (!string.IsNullOrEmpty(_config.DisplayName))
-                sb.AppendLine($"    - Display:    {_config.DisplayName}");
+            sb.AppendLine($"    - API: {_config.LaserficheApiUrl}");
+            sb.AppendLine("    - Repository: selected automatically per user session");
             sb.AppendLine();
 
             if (_config.InstallDesktopButton)

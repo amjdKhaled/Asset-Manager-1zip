@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using LFPortal.Application.Interfaces;
+using LFPortal.Domain.Exceptions;
 using LFPortal.Web.Middleware;
 using Microsoft.AspNetCore.Mvc;
 
@@ -55,7 +56,24 @@ public sealed class LoginController : Controller
     public async Task<IActionResult> Index(CancellationToken cancellationToken)
     {
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
-        return View(new LoginViewModel { ActiveRepository = repo.RepositoryId });
+        return View(new LoginViewModel
+        {
+            ActiveRepository     = repo.RepositoryId,
+            AllowRepositoryInput = AllowRepositoryInput(),
+            SubmittedRepository  = repo.RepositoryId
+        });
+    }
+
+    /// <summary>
+    /// Repository selection is allowed only for direct browser sessions.
+    /// Sessions launched from the Laserfiche Desktop or Web Client carry their
+    /// repository in the launch URL and must not be able to switch it here.
+    /// </summary>
+    private bool AllowRepositoryInput()
+    {
+        var source = HttpContext.Session.GetString(
+            RepositorySessionMiddleware.SessionKeySource);
+        return string.IsNullOrEmpty(source);
     }
 
     // ------------------------------------------------------------------ //
@@ -73,59 +91,68 @@ public sealed class LoginController : Controller
         CancellationToken cancellationToken)
     {
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+        var allowRepoInput = AllowRepositoryInput();
+
+        // Resolve which repository this login targets:
+        //   - Direct browser sessions may type/override the repository name.
+        //   - Desktop / Web Client sessions always use the launch-context repository.
+        var repoId = allowRepoInput && !string.IsNullOrWhiteSpace(input.Repository)
+            ? input.Repository.Trim()
+            : repo.RepositoryId;
+
+        LoginViewModel ViewWithError(string? error) => new()
+        {
+            ActiveRepository     = repo.RepositoryId,
+            AllowRepositoryInput = allowRepoInput,
+            SubmittedRepository  = allowRepoInput ? (input.Repository ?? string.Empty) : repo.RepositoryId,
+            SubmittedUsername    = input.Username,
+            ErrorMessage         = error
+        };
 
         // Username is required; ModelState captures that via [Required] on LoginInputModel.
         // Password is intentionally NOT required — blank passwords are valid Laserfiche accounts.
         if (!ModelState.IsValid)
         {
-            return View(new LoginViewModel
-            {
-                ActiveRepository   = repo.RepositoryId,
-                SubmittedUsername  = input.Username
-            });
+            return View(ViewWithError(null));
         }
+
+        if (string.IsNullOrWhiteSpace(repoId))
+        {
+            return View(ViewWithError(
+                "Enter the name of the Laserfiche repository to sign in to."));
+        }
+
+        // Repository is runtime session context: authenticate against exactly
+        // the repository this session targets.
+        var targetRepo = repo with { RepositoryId = repoId, DisplayName = repoId };
 
         // Attempt authentication — never log the password.
         bool success;
         try
         {
             success = await _authService.TryAuthenticateAsync(
-                repo,
+                targetRepo,
                 input.Username,
                 input.Password ?? string.Empty,
                 cancellationToken);
         }
         catch (Exception ex)
         {
-            // Infrastructure error (network failure, 5xx) — show a safe message.
             _logger.LogError(ex,
-                "Login: infrastructure error while authenticating for repository {RepoId}.",
-                repo.RepositoryId);
+                "Login: error while authenticating for repository {RepoId}: {ErrorType}.",
+                repoId, ex.GetType().Name);
 
-            return View(new LoginViewModel
-            {
-                ActiveRepository  = repo.RepositoryId,
-                SubmittedUsername = input.Username,
-                ErrorMessage      =
-                    "Could not reach the Laserfiche server. " +
-                    "Check your network connection and try again."
-            });
+            return View(ViewWithError(ClassifyLoginError(ex, repoId)));
         }
 
         if (!success)
         {
             _logger.LogInformation(
                 "Login: invalid credentials submitted for repository {RepoId}.",
-                repo.RepositoryId);
+                repoId);
 
-            return View(new LoginViewModel
-            {
-                ActiveRepository  = repo.RepositoryId,
-                SubmittedUsername = input.Username,
-                ErrorMessage      =
-                    $"Unable to sign in to {repo.RepositoryId}. " +
-                    "Check the username and password."
-            });
+            return View(ViewWithError(
+                $"Unable to sign in to {repoId}. Check the username and password."));
         }
 
         // ── Authentication succeeded ──────────────────────────────────────────
@@ -137,16 +164,73 @@ public sealed class LoginController : Controller
             input.Password ?? string.Empty,
             cancellationToken);
 
-        // Mark this session as authenticated for the active repository.
+        // Record the repository this session now works against (important for
+        // direct browser sessions that selected a repository on this form) and
+        // mark the session as authenticated for it.
+        HttpContext.Session.SetString(
+            RepositorySessionMiddleware.SessionKeyRepositoryId,
+            repoId);
         HttpContext.Session.SetString(
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
-            repo.RepositoryId);
+            repoId);
 
         _logger.LogInformation(
             "Login: session authenticated for repository {RepoId}.",
-            repo.RepositoryId);
+            repoId);
 
         return RedirectToAction("Index", "Dashboard");
+    }
+
+    // ------------------------------------------------------------------ //
+    // Error classification                                                 //
+    // ------------------------------------------------------------------ //
+
+    /// <summary>
+    /// Maps an authentication failure to a precise, user-facing message that
+    /// distinguishes TLS problems, connectivity failures, timeouts, an unknown
+    /// repository, and Laserfiche server errors — instead of a single generic
+    /// "could not reach the server" message.
+    /// </summary>
+    private static string ClassifyLoginError(Exception ex, string repoId)
+    {
+        // Laserfiche API answered with an HTTP error the auth service propagated.
+        if (ex is LaserficheException lex)
+        {
+            if (lex.StatusCode == 404)
+                return $"Repository \"{repoId}\" was not found on the Laserfiche server. " +
+                       "Check the repository name (it is case-sensitive).";
+
+            if (lex.StatusCode >= 500)
+                return $"The Laserfiche server reported an internal error (HTTP {lex.StatusCode}). " +
+                       "Try again, or contact your Laserfiche administrator.";
+
+            return $"The Laserfiche server rejected the request (HTTP {lex.StatusCode}).";
+        }
+
+        // Walk the inner-exception chain for transport-level causes.
+        for (Exception? cur = ex; cur is not null; cur = cur.InnerException)
+        {
+            switch (cur)
+            {
+                case System.Security.Authentication.AuthenticationException:
+                    return "A secure (TLS) connection to the Laserfiche server could not be established. " +
+                           "The server's certificate may be invalid or untrusted on this machine.";
+
+                case System.Net.Sockets.SocketException:
+                    return "The Laserfiche server could not be reached (network error). " +
+                           "Check that the server is online and the API URL in Settings is correct.";
+            }
+        }
+
+        if (ex is TaskCanceledException or TimeoutException)
+            return "The connection to the Laserfiche server timed out. " +
+                   "The server may be overloaded or unreachable.";
+
+        if (ex is HttpRequestException)
+            return "Could not connect to the Laserfiche server. " +
+                   "Check the API URL in Settings and your network connection.";
+
+        return "An unexpected error occurred while contacting the Laserfiche server.";
     }
 
     // ------------------------------------------------------------------ //
@@ -178,6 +262,16 @@ public sealed class LoginViewModel
     /// <summary>Repository name displayed read-only on the login form.</summary>
     public string ActiveRepository { get; init; } = string.Empty;
 
+    /// <summary>
+    /// True for direct browser sessions, which may choose the repository on the
+    /// login form. False for Desktop / Web Client launches, where the repository
+    /// comes from the launch context and is displayed read-only.
+    /// </summary>
+    public bool AllowRepositoryInput { get; init; }
+
+    /// <summary>Preserves the repository name the user entered after a failed attempt.</summary>
+    public string SubmittedRepository { get; init; } = string.Empty;
+
     /// <summary>Error message shown below the form after a failed sign-in attempt. Null when none.</summary>
     public string? ErrorMessage { get; init; }
 
@@ -195,6 +289,12 @@ public sealed class LoginViewModel
 /// </summary>
 public sealed class LoginInputModel
 {
+    /// <summary>
+    /// Repository name for direct browser sessions. Ignored for Desktop /
+    /// Web Client launches, whose repository is fixed by the launch context.
+    /// </summary>
+    public string? Repository { get; set; }
+
     /// <summary>Laserfiche username. Required.</summary>
     [Required(ErrorMessage = "Username is required.")]
     public string Username { get; set; } = string.Empty;

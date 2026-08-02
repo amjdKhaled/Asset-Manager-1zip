@@ -1,0 +1,339 @@
+The installer and IIS deployment are now confirmed working.
+
+Windows verification:
+
+Dashboard:
+http://localhost:5000
+HTTP 200
+
+Laserfiche Repository API:
+https://localhost/LFRepositoryAPI
+HTTP 200
+redirects correctly to:
+/LFRepositoryAPI/swagger/index.html
+
+IIS application:
+/LFRepositoryAPI
+Application Pool: LFRepositoryAPI
+State: working
+
+Therefore STOP debugging IIS, port 5000, WiX, Burn, and installation.
+Those are working.
+
+We now need to correct the product architecture.
+
+CURRENT PROBLEM:
+
+The installer asks for Repository ID.
+
+This is wrong for the intended design.
+
+The Dashboard is launched from Laserfiche and must operate against the
+repository/session context of the Laserfiche user who opened it.
+
+Repository ID must NOT be permanently selected during installation.
+
+For example:
+
+User opens Laserfiche Desktop Client:
+
+Repository: TestEmployee
+User: admin
+
+Then opens Dashboard.
+
+Dashboard should use:
+
+Repository = TestEmployee
+Current Laserfiche user/context
+
+If another user opens:
+
+Repository: Master
+User: Ahmed
+
+Dashboard should use Master instead.
+
+==================================================
+1. REMOVE REPOSITORY FROM INSTALLER
+==================================================
+
+Remove Repository ID from the installer wizard.
+
+Repository ID must not be required by:
+
+- Bundle variables
+- MSI properties
+- SetupHelper WriteConfig
+- appsettings.json installation configuration
+
+Do not hardcode TestEmployee or any repository.
+
+The installer should configure infrastructure only.
+
+Keep things such as:
+
+Dashboard URL
+Dashboard IIS Port
+Laserfiche Repository API base URL
+Desktop integration
+Web integration
+
+==================================================
+2. INVESTIGATE CURRENT LASERFICHE EXTENSION
+==================================================
+
+Inspect the existing Laserfiche Desktop Client extension.
+
+Determine exactly what context is available when the Dashboard button is
+clicked.
+
+Look for:
+
+Session
+Repository
+RepositoryName
+RepositoryId
+CurrentUser
+Entry
+Client context
+Laserfiche RepositoryAccess session
+
+Do NOT guess.
+
+Inspect the actual extension code and the Laserfiche SDK references already
+used by this project.
+
+==================================================
+3. PASS REPOSITORY CONTEXT DYNAMICALLY
+==================================================
+
+When Dashboard is opened from Laserfiche, dynamically pass the repository
+being used by the current Laserfiche session.
+
+Do NOT permanently store the repository in appsettings.json.
+
+Preferred conceptual flow:
+
+Laserfiche Desktop Client
+        |
+        | current repository context
+        v
+Dashboard Extension
+        |
+        | secure launch/bootstrap context
+        v
+Dashboard Web Application
+        |
+        v
+Laserfiche Repository API
+
+Repository selection must happen per session/user, not per installation.
+
+==================================================
+4. AUTHENTICATION
+==================================================
+
+Investigate how authentication currently works.
+
+The Dashboard currently displays:
+
+Repository: TestEmployee
+Username
+Password
+Sign In
+
+and reports:
+
+"Could not reach the Laserfiche server."
+
+But direct Windows testing proves:
+
+https://localhost/LFRepositoryAPI
+returns HTTP 200.
+
+Therefore distinguish:
+
+API connectivity failure
+
+from:
+
+Laserfiche authentication failure
+
+from:
+
+invalid repository
+
+from:
+
+TLS/certificate failure
+
+from:
+
+HTTP/API response failure.
+
+Do not display "Could not reach the Laserfiche server" for every error.
+
+Implement accurate error messages and server-side diagnostic logging.
+
+==================================================
+5. CURRENT LASERFICHE LOGIN
+==================================================
+
+The desired UX is:
+
+If Dashboard is launched from an authenticated Laserfiche client,
+reuse the current Laserfiche context where technically and securely possible.
+
+IMPORTANT:
+
+Do NOT put passwords in:
+
+URL query strings
+command-line arguments
+plain-text config
+localStorage
+logs
+
+Do not invent a fake SSO mechanism.
+
+Research the capabilities of the Laserfiche SDK/API already available to
+this project and determine the correct supported mechanism.
+
+If the Desktop Client authentication session cannot safely be transferred
+to LFRepositoryAPI, implement the closest secure architecture and clearly
+explain the limitation.
+
+==================================================
+6. DIRECT BROWSER FALLBACK
+==================================================
+
+The Dashboard can also be opened directly:
+
+http://localhost:5000
+
+In that case there may be no Laserfiche client context.
+
+Provide a fallback login flow.
+
+The repository can then be:
+
+- discovered from LFRepositoryAPI if supported, OR
+- selected by the user from available repositories.
+
+Do not require repository selection during installation.
+
+==================================================
+7. SETTINGS
+==================================================
+
+Installation settings should contain only machine/server configuration.
+
+For example:
+
+LaserficheApiBaseUrl:
+https://localhost/LFRepositoryAPI
+
+Do NOT store:
+
+RepositoryId = TestEmployee
+
+as permanent installation configuration.
+
+Repository is runtime context.
+
+==================================================
+8. CLEAN EXISTING IMPLEMENTATION
+==================================================
+
+Search the entire repository for:
+
+RepositoryId
+Repository ID
+TestEmployee
+LF_REPO_ID
+repo-id
+Repository
+Login
+SignIn
+LFRepositoryAPI
+
+Trace every use.
+
+Remove assumptions that one Dashboard installation belongs to exactly one
+repository.
+
+Do not blindly remove repository parameters that are legitimately required
+by individual LFRepositoryAPI requests.
+
+Instead change their source from:
+
+installation configuration
+
+to:
+
+runtime session context.
+
+==================================================
+9. DO THE IMPLEMENTATION
+==================================================
+
+Do not only write an architecture report.
+
+Modify the code.
+
+Update:
+
+Installer wizard
+Bundle/MSI variables
+SetupHelper
+Dashboard configuration
+Desktop Client extension
+Dashboard backend
+Dashboard frontend/login page
+
+where required.
+
+Preserve the now-working WiX BA and installation infrastructure.
+
+DO NOT modify the working BA hosting fixes unless absolutely necessary.
+
+DO NOT break the successful installer.
+
+==================================================
+10. BUILD AND VERIFY
+==================================================
+
+Build everything.
+
+Installer must still install successfully.
+
+Dashboard must still return HTTP 200.
+
+LFRepositoryAPI base URL remains:
+
+https://localhost/LFRepositoryAPI
+
+No repository should be permanently required during installation.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report:
+
+1. How repository selection worked before.
+2. Why that architecture was wrong.
+3. Every RepositoryId dependency found.
+4. What was removed from installation.
+5. How repository context is determined now.
+6. How Desktop Client launch works.
+7. Whether the current Laserfiche authenticated session can actually be
+   reused and by what supported mechanism.
+8. What happens when Dashboard is opened directly in a browser.
+9. How authentication errors are now distinguished from connectivity errors.
+10. Every file modified.
+11. Build result.
+12. Any Laserfiche SDK/API limitation discovered.
+
+Do not claim SSO works unless it has a real supported implementation.

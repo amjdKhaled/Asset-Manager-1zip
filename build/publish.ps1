@@ -682,12 +682,12 @@ else {
 '@ | Set-Content -Path (Join-Path $smokeWebApp "appsettings.json") -Encoding UTF8
 
     # Raw argument string reproduces CommandLineToArgvW behavior exactly,
-    # including --display-name "" and the trailing \" on --webapp-path.
+    # including the trailing \" on --webapp-path.  Repository args are gone:
+    # the repository is runtime session context, not installer config.
     # --config-dir redirects the ProgramData writes into the temp folder so
     # the smoke test never touches the build machine's real configuration.
     $smokeArgs = '--write-config --url "http://desktop-k1svi53:5000" ' +
-                 '--lf-api "https://localhost/LFRepositoryAPI" --repo-id "TestEmployee" ' +
-                 '--display-name "" --port "5000" ' +
+                 '--lf-api "https://localhost/LFRepositoryAPI" --port "5000" ' +
                  '--webapp-path "' + $smokeWebApp + '\" ' +
                  '--config-dir "' + $smokeConfig + '"'
     $smokeProc = Start-Process -FilePath $setupHelperStaged -ArgumentList $smokeArgs `

@@ -124,8 +124,8 @@ namespace Dashboard.BA
 
             _engine.SetVariableString("DashboardUrl",     config.DashboardUrl,     false);
             _engine.SetVariableString("LaserficheApiUrl", config.LaserficheApiUrl, false);
-            _engine.SetVariableString("RepositoryId",     config.RepositoryId,     false);
-            _engine.SetVariableString("DisplayName",      config.DisplayName,      false);
+            // RepositoryId / DisplayName intentionally not set: repository is
+            // runtime session context, not installation configuration.
             _engine.SetVariableString("LFWebClientPath",  config.LFWebClientPath,  false);
             _engine.SetVariableString("DashboardPort",    config.DashboardPort,    false);
             _engine.SetVariableNumeric("InstallDesktopButton", config.InstallDesktopButton ? 1L : 0L);

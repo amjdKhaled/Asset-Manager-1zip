@@ -43,10 +43,13 @@ public sealed class LaserficheOptions
     public string ServerUrl { get; set; } = string.Empty;
 
     /// <summary>
-    /// Repository identifier used in every API request path, e.g. <c>Documents</c>.
-    /// Case-sensitive; must match exactly what is shown in the Laserfiche Server Admin Console.
+    /// Optional fallback repository identifier, e.g. <c>Documents</c>.
+    /// The repository is normally supplied per session at runtime — by the
+    /// Laserfiche Desktop/Web Client (<c>?repository=</c>) or by user selection
+    /// on the login page.  When set here it only serves as the default for
+    /// direct browser access; when empty, direct browser users choose a
+    /// repository at login.  Case-sensitive.
     /// </summary>
-    [Required]
     public string RepositoryId { get; set; } = string.Empty;
 
     /// <summary>

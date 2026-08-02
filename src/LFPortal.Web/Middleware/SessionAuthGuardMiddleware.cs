@@ -1,3 +1,6 @@
+using LFPortal.Infrastructure.Options;
+using Microsoft.Extensions.Options;
+
 namespace LFPortal.Web.Middleware;
 
 /// <summary>
@@ -48,15 +51,18 @@ public sealed class SessionAuthGuardMiddleware
         };
 
     private readonly RequestDelegate _next;
+    private readonly IOptionsMonitor<LaserficheOptions> _options;
     private readonly ILogger<SessionAuthGuardMiddleware> _logger;
 
     /// <summary>Initialises the middleware.</summary>
     public SessionAuthGuardMiddleware(
         RequestDelegate next,
+        IOptionsMonitor<LaserficheOptions> options,
         ILogger<SessionAuthGuardMiddleware> logger)
     {
-        _next   = next;
-        _logger = logger;
+        _next    = next;
+        _options = options;
+        _logger  = logger;
     }
 
     /// <summary>
@@ -65,16 +71,35 @@ public sealed class SessionAuthGuardMiddleware
     /// </summary>
     public async Task InvokeAsync(HttpContext context)
     {
-        // Only guard sessions that arrived via a known launch source.
+        // Only guard sessions that arrived via a known launch source — with one
+        // exception: a direct browser session that has NO resolvable repository
+        // (nothing in the session and no configured fallback) must go through
+        // the login page to choose one, otherwise every API call would fail
+        // with an empty repository path segment.
         var source = context.Session.GetString(SessionKeyActiveRepoSource);
+        var path   = context.Request.Path;
+
         if (!GuardedSources.Contains(source ?? string.Empty))
         {
+            var sessionRepo    = context.Session.GetString(SessionKeyActiveRepoId);
+            var configuredRepo = _options.CurrentValue.RepositoryId;
+
+            if (string.IsNullOrWhiteSpace(sessionRepo) &&
+                string.IsNullOrWhiteSpace(configuredRepo) &&
+                !IsExcluded(path))
+            {
+                _logger.LogInformation(
+                    "Direct browser session has no repository (none in session, none configured). " +
+                    "Redirecting to /Login for repository selection.");
+                context.Response.Redirect("/Login");
+                return;
+            }
+
             await _next(context);
             return;
         }
 
         // Never redirect paths that are part of the auth / admin / health surface.
-        var path = context.Request.Path;
         if (IsExcluded(path))
         {
             await _next(context);

@@ -74,15 +74,19 @@ internal sealed class SessionAwareRepositoryContext : IRepositoryContext
             // Session not available in this context — fall through to config fallback.
         }
 
-        var repoId = !string.IsNullOrWhiteSpace(sessionRepoId)
-            ? sessionRepoId
-            : opt.RepositoryId;
+        var hasSessionRepo = !string.IsNullOrWhiteSpace(sessionRepoId);
+        var repoId = hasSessionRepo ? sessionRepoId! : opt.RepositoryId;
+
+        // When the repository came from the session (Desktop/Web Client launch
+        // or login-page selection), the configured display name refers to a
+        // different repository — use the session repository id as the label.
+        var displayName = hasSessionRepo ? repoId : opt.EffectiveDisplayName;
 
         var descriptor = new RepositoryDescriptor(
             Key:          "default",
             ServerUrl:    opt.ServerUrl.TrimEnd('/'),
             RepositoryId: repoId,
-            DisplayName:  opt.EffectiveDisplayName);
+            DisplayName:  displayName);
 
         return Task.FromResult(descriptor);
     }

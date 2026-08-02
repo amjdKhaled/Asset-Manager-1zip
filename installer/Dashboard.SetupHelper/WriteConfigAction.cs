@@ -5,8 +5,8 @@
 //   Dashboard.SetupHelper.exe --write-config
 //       --url          <dashboard-url>
 //       --lf-api       <laserfiche-api-url>
-//       --repo-id      <repository-id>
-//       --display-name <display-name>
+//       --repo-id      <repository-id>       (LEGACY, optional; ignored by new MSI)
+//       --display-name <display-name>        (LEGACY, optional; ignored by new MSI)
 //       --port         <tcp-port>          (optional; default 5000)
 //       --webapp-path  <path-to-webappfolder>  (optional; required to write Urls)
 //
@@ -53,10 +53,11 @@ namespace Dashboard.SetupHelper
                           $"display-name='{(string.IsNullOrEmpty(displayName) ? "<EMPTY>" : displayName)}' " +
                           $"port='{portStr}' webapp-path='{webAppPath}'");
 
-            // --display-name "" is valid: DisplayName is OPTIONAL and defaults
-            // to the repository id.  It must never fail the installation.
-            if (string.IsNullOrEmpty(displayName))
-                displayName = repoId;
+            // --repo-id / --display-name are LEGACY arguments kept only so old
+            // command lines (repairs of previous MSIs) do not fail.  The
+            // repository is runtime session context, never install config.
+            // When absent, any RepositoryId already present in an existing
+            // laserfiche.config.json is preserved as a fallback default.
 
             // Validate port: must be a positive integer in the valid TCP range.
             int port;
@@ -93,7 +94,7 @@ namespace Dashboard.SetupHelper
             }
 
             // -- laserfiche.config.json (Web app connection settings) ----------
-            if (!string.IsNullOrEmpty(lfApiUrl) || !string.IsNullOrEmpty(repoId))
+            if (!string.IsNullOrEmpty(lfApiUrl))
             {
                 string lfPath = Path.Combine(dashboardDir, "laserfiche.config.json");
 
@@ -192,9 +193,12 @@ namespace Dashboard.SetupHelper
             string existingPath)
         {
             // Load existing values so we do not lose fields not provided by the wizard.
+            // RepositoryId/DisplayName default to EMPTY: the repository is chosen at
+            // runtime (Desktop/Web Client launch context or the login page).  A
+            // non-empty value only survives here if an admin set one previously.
             string existingServerUrl  = "https://YOUR-LF-SERVER/LFRepositoryAPI";
-            string existingRepoId     = "YourRepositoryId";
-            string existingDisplay    = "Your Repository";
+            string existingRepoId     = "";
+            string existingDisplay    = "";
             string existingApiBase    = "/LFRepositoryAPI";
             string existingApiVersion = "v1";
             int    existingTimeout    = 30;
@@ -204,6 +208,13 @@ namespace Dashboard.SetupHelper
                 try { ParseExistingLFConfig(existingPath, ref existingServerUrl, ref existingRepoId, ref existingDisplay, ref existingApiBase, ref existingApiVersion, ref existingTimeout); }
                 catch { /* parse failed -- use defaults */ }
             }
+
+            // Scrub legacy placeholder sentinels shipped by older template files.
+            // They must never survive as a "configured" repository.
+            if (string.Equals(existingRepoId, "YourRepositoryId", StringComparison.OrdinalIgnoreCase))
+                existingRepoId = "";
+            if (string.Equals(existingDisplay, "Your Repository", StringComparison.OrdinalIgnoreCase))
+                existingDisplay = "";
 
             // Wizard-provided values always win over existing.
             if (!string.IsNullOrEmpty(serverUrl))  existingServerUrl = serverUrl;

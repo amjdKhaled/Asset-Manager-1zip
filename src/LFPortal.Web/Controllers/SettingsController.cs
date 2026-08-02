@@ -89,8 +89,9 @@ public sealed class SettingsController : Controller
 
         if (string.IsNullOrWhiteSpace(serverUrl))
             ModelState.AddModelError(nameof(request.ServerUrl), "Server URL is required.");
-        if (string.IsNullOrWhiteSpace(request.RepositoryId))
-            ModelState.AddModelError(nameof(request.RepositoryId), "Default Repository is required.");
+        // Default Repository is intentionally OPTIONAL: the repository is runtime
+        // session context (Desktop/Web Client launch or login-page selection).
+        // A value here only serves as the fallback for direct browser access.
         if (!string.IsNullOrWhiteSpace(request.Username) && string.IsNullOrWhiteSpace(request.Password))
             ModelState.AddModelError(nameof(request.Password), "Password is required when a username is provided.");
 
@@ -107,7 +108,7 @@ public sealed class SettingsController : Controller
             // 1. Persist connection settings
             await _portalConfig.SaveConnectionSettingsAsync(
                 serverUrl,
-                request.RepositoryId.Trim(),
+                request.RepositoryId?.Trim() ?? string.Empty,
                 request.DisplayName?.Trim() ?? string.Empty,
                 apiBasePath,
                 apiVersion,
