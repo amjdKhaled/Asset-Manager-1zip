@@ -428,7 +428,7 @@ if (Test-Path $ArtifactsDir) {
 # Clean Dashboard.BA and SetupHelper intermediate output so MSBuild incremental
 # builds never stage a DLL compiled from old source code.  artifacts\ is cleaned
 # above; these bin/obj folders are separate and must be explicitly removed.
-# Locked-file failures are non-fatal warnings — a clean VM or CI agent will
+# Locked-file failures are non-fatal warnings -- a clean VM or CI agent will
 # never have locked files; a developer machine may and should be warned.
 foreach ($d in @(
         (Join-Path $RepoRoot "installer\Dashboard.BA\bin"),
@@ -437,7 +437,7 @@ foreach ($d in @(
         (Join-Path $RepoRoot "installer\Dashboard.SetupHelper\obj"))) {
     if (Test-Path $d) {
         try   { Remove-Item $d -Recurse -Force -ErrorAction Stop }
-        catch { Write-Warn "Could not fully remove $d — files may be locked.  Stale binaries may be used." }
+        catch { Write-Warn "Could not fully remove $d -- files may be locked.  Stale binaries may be used." }
     }
 }
 
@@ -566,7 +566,7 @@ else {
 
     # Post-staging guard: Dashboard.DesktopExtension.exe must be present in the
     # Extension staging folder before the MSI build (Step 8) harvests it.
-    # OutputType=WinExe → the primary artifact is always an EXE, never a DLL.
+    # OutputType=WinExe -> the primary artifact is always an EXE, never a DLL.
     # If it is absent the WiX harvester silently ships an empty Extension
     # component; catch it here with a clear message instead.
     $extExeStaged = Join-Path $StagingDir "Extension\Dashboard.DesktopExtension.exe"
@@ -758,7 +758,7 @@ else {
     if ($smokeJsonOk) {
         $appSettingsObj = (Get-Content $smokeAppSettings -Raw) | ConvertFrom-Json
         if (-not ($appSettingsObj.PSObject.Properties.Name -contains "Urls")) {
-            $smokeErrors.Add("appsettings.json is missing the Urls key — WriteConfig did not patch it.")
+            $smokeErrors.Add("appsettings.json is missing the Urls key -- WriteConfig did not patch it.")
         }
     }
 
@@ -809,20 +809,20 @@ else {
     if ($smokeErrors.Count -gt 0) {
         Write-Host ""
         Write-Host "  ============================================================" -ForegroundColor Red
-        Write-Host "  [FAILED] SetupHelper smoke test — $($smokeErrors.Count) condition(s) failed:" -ForegroundColor Red
+        Write-Host "  [FAILED] SetupHelper smoke test -- $($smokeErrors.Count) condition(s) failed:" -ForegroundColor Red
         foreach ($e in $smokeErrors) {
             Write-Host ("    * {0}" -f $e) -ForegroundColor Red
         }
         Write-Host "  Root cause checklist:" -ForegroundColor Red
         Write-Host "    1. Argument parsing: --config-dir swallowed into --webapp-path" -ForegroundColor Red
-        Write-Host "       (trailing \" on --webapp-path escapes the closing quote)" -ForegroundColor Red
+        Write-Host '       (trailing " on --webapp-path escapes the closing quote)' -ForegroundColor Red
         Write-Host "    2. PathUtil.SanitizeDir not stripping trailing \." -ForegroundColor Red
         Write-Host "    3. WriteConfig exited non-zero (check stdout above)" -ForegroundColor Red
         Write-Host "  The build is stopped; LFDashboard-Setup.exe was NOT produced." -ForegroundColor Red
         Write-Host "  ============================================================" -ForegroundColor Red
         exit 1
     }
-    Write-OK "SetupHelper smoke test passed — all 10 conditions verified."
+    Write-OK "SetupHelper smoke test passed -- all 10 conditions verified."
     Write-Host ("    webapp-path : {0}" -f $smokeWebApp)  -ForegroundColor DarkGray
     Write-Host ("    config-dir  : {0}" -f $smokeConfig)  -ForegroundColor DarkGray
 }
@@ -937,7 +937,7 @@ else {
         Write-Host ("    Built  SHA256: {0}" -f $baBuiltHash)  -ForegroundColor Red
         Write-Host ("    Staged SHA256: {0}" -f $baStagedHash) -ForegroundColor Red
         Write-Host "  The installer would bundle an outdated bootstrapper UI." -ForegroundColor Red
-        Write-Host "  Step 1 should have cleaned Dashboard.BA\bin\ — check for locked files." -ForegroundColor Red
+        Write-Host "  Step 1 should have cleaned Dashboard.BA\bin\ -- check for locked files." -ForegroundColor Red
         Write-Host "  ============================================================" -ForegroundColor Red
         exit 1
     }
@@ -986,7 +986,7 @@ else {
             -ForegroundColor Red
         Write-Host ("    MISSING: {0}" -f $mbaHostConfigStaged) -ForegroundColor Red
         Write-Host "" -ForegroundColor Red
-        Write-Host "  WixToolset.Mba.Host.config must be in Dashboard.BA\bin\Release\net48\" -ForegroundColor Red
+        Write-Host '  WixToolset.Mba.Host.config must be in Dashboard.BA\bin\Release\net48\' -ForegroundColor Red
         Write-Host "  and staged to artifacts\staging\BA\ before the Bundle build." -ForegroundColor Red
         Write-Host "  Possible causes:" -ForegroundColor Red
         Write-Host "    - installer\Dashboard.BA\WixToolset.Mba.Host.config was deleted" -ForegroundColor Red
@@ -1018,7 +1018,7 @@ else {
             -ForegroundColor Red
         Write-Host ("    MISSING: {0}" -f $mbaNativeStaged) -ForegroundColor Red
         Write-Host "" -ForegroundColor Red
-        Write-Host "  mbanative.dll must be copied to Dashboard.BA\bin\Release\net48\" -ForegroundColor Red
+        Write-Host '  mbanative.dll must be copied to Dashboard.BA\bin\Release\net48\' -ForegroundColor Red
         Write-Host "  by the CopyMbaNativeDll MSBuild Target in Dashboard.BA.csproj." -ForegroundColor Red
         Write-Host "  Possible causes:" -ForegroundColor Red
         Write-Host "    - The CopyMbaNativeDll Target was removed from Dashboard.BA.csproj" -ForegroundColor Red
@@ -1074,17 +1074,17 @@ else {
     # Burn 4.0.5 is an x86 (32-bit) process.  The managed BA DLL MUST match the
     # host process bitness for two reasons:
     #   1. mbanative.dll (the native Burn bridge) is win-x86; a 64-bit process
-    #      cannot LoadLibrary a 32-bit DLL — this would produce a
+    #      cannot LoadLibrary a 32-bit DLL -- this would produce a
     #      BadImageFormatException / 0x8007000B in a 64-bit process.
-    #   2. The x86 Burn process cannot load an x64 managed DLL at all —
+    #   2. The x86 Burn process cannot load an x64 managed DLL at all --
     #      Assembly.Load would throw BadImageFormatException / 0x8007000B.
     #
     # NOTE ON 0x80131902:
-    #   0x80131902 is ConfigurationErrorsException — a config file parse error,
+    #   0x80131902 is ConfigurationErrorsException -- a config file parse error,
     #   NOT an architecture error.  The confirmed root cause was an unrecognised
     #   'sku' XML attribute in the <supportedFrameworks> section of
     #   WixToolset.Mba.Host.config.  That issue is now fixed in the config file.
-    #   This guard is still required and correct — an architecture mismatch would
+    #   This guard is still required and correct -- an architecture mismatch would
     #   produce a different error, but it is a real failure mode that must be
     #   prevented.
     $baPeBytes  = [System.IO.File]::ReadAllBytes($baDllStaged)
@@ -1397,7 +1397,7 @@ else {
     }
 
     # -------------------------------------------------------------------------
-    # .NET Framework 4.8 prerequisite — build-time acquisition
+    # .NET Framework 4.8 prerequisite -- build-time acquisition
     # -------------------------------------------------------------------------
     # WiX 4.0.5 requires the actual ndp48-web.exe to exist locally at build
     # time so the compiler can compute the payload hash/size/version it embeds
@@ -1406,7 +1406,7 @@ else {
     #
     # The file is cached in .build-cache\prerequisites\ (gitignored) so it
     # survives the Step 1 artifact wipe and is not re-downloaded on every run.
-    # The Authenticode signature is verified on every build — cached or fresh.
+    # The Authenticode signature is verified on every build -- cached or fresh.
     # -------------------------------------------------------------------------
     $prereqCacheDir    = Join-Path $RepoRoot ".build-cache\prerequisites"
     $netFx48Installer  = Join-Path $prereqCacheDir "ndp48-web.exe"
@@ -1433,7 +1433,7 @@ else {
         Write-Host "  Using cached .NET Framework 4.8 installer: $netFx48Installer" -ForegroundColor DarkGray
     }
 
-    # Authenticode verification — runs on every build (cached or fresh).
+    # Authenticode verification -- runs on every build (cached or fresh).
     # Requirement: Status = Valid, signer Subject contains "Microsoft".
     Write-Host "  Verifying Authenticode signature..." -ForegroundColor DarkGray
     $sig = Get-AuthenticodeSignature -FilePath $netFx48Installer

@@ -1,0 +1,244 @@
+Fix build/publish.ps1 completely. Do not make any installer architecture changes yet.
+
+The Windows PowerShell script currently DOES NOT PARSE.
+
+Running:
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+.\build\publish.ps1
+
+fails immediately with PowerShell ParserError errors, including:
+
+Line 477:
+Missing argument in parameter list.
+
+Line 761:
+Missing ')' in method call.
+Unexpected token 'WriteConfig'.
+
+Line 768:
+Unexpected token 'config-dir'.
+Missing closing ')'.
+
+Then many cascading:
+Missing closing '}'
+
+IMPORTANT:
+These are parse-time errors. The script never reaches the build.
+Fix the PowerShell script itself first.
+
+Known evidence:
+The file contains corrupted text/encoding sequences such as:
+
+â€”
+â€“
+â€™
+â€œ
+â€
+
+These likely came from UTF-8 punctuation being decoded incorrectly and may have broken quoted PowerShell strings.
+
+TASK:
+
+1. Read the ENTIRE:
+   build/publish.ps1
+
+   Do not inspect only the reported lines.
+
+2. Fix ALL PowerShell syntax errors in the file.
+
+3. Inspect especially the regions around:
+   line 438
+   line 477
+   line 618
+   lines 730-790
+   and every section modified in the previous change.
+
+4. Replace corrupted/non-ASCII punctuation inside PowerShell source strings/comments with safe ASCII equivalents where appropriate.
+
+Examples:
+
+â€”  -> -
+â€“  -> -
+smart quotes -> normal ASCII quotes
+smart apostrophes -> '
+
+Do NOT blindly replace PowerShell quote delimiters.
+Preserve valid PowerShell syntax.
+
+5. Carefully check every:
+   "
+   '
+   (
+   )
+   {
+   }
+   @(
+   @{}
+   if
+   else
+   try
+   catch
+
+for balanced syntax.
+
+6. Pay special attention to strings containing:
+   --config-dir
+   --webapp-path
+   WriteConfig
+   appsettings.json
+   laserfiche.config.json
+
+The text "--config-dir" inside an error message must remain INSIDE a correctly quoted PowerShell string and must never be parsed as an operator.
+
+7. Fix line 477 correctly.
+
+The call that prints:
+
+Publishing Dashboard web application (net8.0, Release...)
+
+must be syntactically valid for the existing Write-Step function signature.
+
+Do NOT guess its parameters.
+Read the definition of Write-Step first and make the call match its actual signature.
+
+8. Preserve the previous functional fixes:
+   - clean Dashboard.BA bin/obj
+   - clean SetupHelper bin/obj
+   - SetupHelper SHA256 guard
+   - BA source/staged SHA256 comparison
+   - stale BA detection
+   - removed Repository ID / Display Name guard
+   - SetupHelper smoke test
+   - --config-dir isolation
+   - no writes to real ProgramData during smoke testing
+
+Do NOT delete these features merely to make the parser pass.
+
+9. IMPORTANT: Fix the SetupHelper smoke-test invocation properly.
+
+Do NOT construct one giant raw command-line string.
+
+Use a PowerShell argument array.
+
+Conceptually:
+
+$arguments = @(
+    "--write-config",
+    "--url", $smokeDashboardUrl,
+    "--lf-api", $smokeLfApi,
+    "--port", "5000",
+    "--webapp-path", "$smokeWebApp\.",
+    "--config-dir", $smokeConfig
+)
+
+But adapt variable names to the actual existing script.
+
+Do not introduce escaped trailing quote hacks such as:
+
+\" 
+
+The resulting SetupHelper process MUST receive:
+--webapp-path
+and
+--config-dir
+
+as separate arguments.
+
+10. Add a parser validation BEFORE considering the task complete.
+
+Run on Windows if PowerShell is available:
+
+$errors = $null
+$tokens = $null
+
+[System.Management.Automation.Language.Parser]::ParseFile(
+    (Resolve-Path ".\build\publish.ps1"),
+    [ref]$tokens,
+    [ref]$errors
+) | Out-Null
+
+if ($errors.Count -gt 0) {
+    $errors | ForEach-Object {
+        Write-Host "$($_.Extent.StartLineNumber): $($_.Message)"
+    }
+    throw "publish.ps1 still contains PowerShell parser errors."
+}
+
+Write-Host "PowerShell parser check: PASS"
+
+If this environment cannot run Windows PowerShell, perform an equivalent syntax validation if possible, but DO NOT claim Windows validation was performed.
+
+11. Search the entire file after the fix for mojibake/corrupted characters.
+
+At minimum search for:
+
+â€
+â€”
+â€“
+â€™
+ï¿½
+�
+
+There should be ZERO corrupted encoding sequences in executable PowerShell source.
+
+12. After parser validation succeeds, run the complete:
+
+.\build\publish.ps1
+
+Do not stop after compiling an individual C# project.
+
+13. The smoke test MUST show that SetupHelper receives separate values.
+
+BAD:
+
+webapp-path='C:\...\WebApp --config-dir C:\...\Config'
+
+GOOD:
+
+webapp-path='C:\...\WebApp'
+Config directory: C:\...\Config
+
+14. The smoke test must NOT write to:
+
+C:\ProgramData\Dashboard
+
+It must use only its temporary smoke-test config directory.
+
+15. Verify the BA stale-build protection still works.
+
+Print:
+
+SOURCE BA SHA256: <hash>
+STAGED BA SHA256: <hash>
+
+They must match.
+
+16. Verify the final BA no longer contains the removed installer UI.
+
+Repository ID
+Display Name
+
+must not be present as installer configuration controls.
+
+17. Only after ALL checks pass should Release\LFDashboard-Setup.exe be produced.
+
+18. Do not tell me "the code looks correct".
+Actually validate it.
+
+FINAL RESPONSE MUST INCLUDE:
+
+A. Exact syntax/root cause found at line 477.
+B. Exact syntax/root cause found around lines 761/768.
+C. Whether encoding corruption was present and what was replaced.
+D. PowerShell parser result and number of parser errors (must be 0).
+E. Exact SetupHelper argument list used by the smoke test.
+F. Smoke-test parsed values for webapp-path and config-dir.
+G. Confirmation that ProgramData was not touched by the smoke test.
+H. SOURCE BA SHA256.
+I. STAGED BA SHA256.
+J. Whether the hashes match.
+K. Full publish.ps1 result.
+L. Final Release\LFDashboard-Setup.exe path.
+
+Do not stop until publish.ps1 parses successfully and the full build pipeline passes, unless the current environment fundamentally cannot execute Windows PowerShell/WiX. If blocked by the environment, clearly state exactly what remains to be run on Windows.

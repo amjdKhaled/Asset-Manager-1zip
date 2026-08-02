@@ -1,0 +1,367 @@
+The Dashboard installer now installs successfully and the Dashboard IIS site works.
+
+However, the Laserfiche Web Client integration is NOT working.
+
+PROBLEM:
+
+During installation I enabled:
+
+"Deploy Laserfiche Web Client button (patches Browse.aspx)"
+
+But after installation, when I open Laserfiche Web Client, there is NO Dashboard button anywhere in the repository UI.
+
+The Web Client is installed locally and is working.
+
+I need you to investigate and FIX the Web Client integration end-to-end.
+
+DO NOT assume the installer succeeded just because the MSI completed.
+The Dashboard button must actually appear in Laserfiche Web Client.
+
+============================================================
+1. TRACE THE ENTIRE WEB CLIENT DEPLOYMENT PATH
+============================================================
+
+Find every piece of code related to:
+
+InstallWebButton
+Deploy Web Client button
+WebClientAction
+Browse.aspx
+LFWebClientPath
+Laserfiche Web Client
+Dashboard button
+extension.config.json
+
+Trace the complete flow:
+
+Wizard checkbox
+    ->
+BA variable
+    ->
+Burn variable
+    ->
+MSI property
+    ->
+Custom Action
+    ->
+SetupHelper
+    ->
+WebClientAction
+    ->
+Browse.aspx modification
+    ->
+actual button visible in Laserfiche Web Client
+
+Document exactly where the chain currently breaks.
+
+============================================================
+2. AUTO-DETECT THE REAL LASERFICHE WEB CLIENT PATH
+============================================================
+
+Do NOT require the user to manually know Browse.aspx location.
+
+The installer must automatically detect the actual installed Laserfiche
+Web Client.
+
+Search common Laserfiche installation locations, IIS configuration,
+and WebAdministration/IIS application configuration.
+
+On this machine Laserfiche Web Client appears in IIS as an application:
+
+/Laserfiche
+
+The installer should determine the physical path from IIS.
+
+For example, conceptually:
+
+Default Web Site
+    /Laserfiche
+        PhysicalPath = actual Laserfiche Web Access/Web Client directory
+
+Do not hardcode a developer-specific path.
+
+Detection priority should be:
+
+1. IIS application named /Laserfiche
+2. Existing Laserfiche Web Client installation path
+3. Known Laserfiche installation directories
+4. Explicit manually supplied path only as fallback
+
+============================================================
+3. VERIFY Browse.aspx EXISTS
+============================================================
+
+Before patching, resolve the exact Browse.aspx path.
+
+Log:
+
+Detected Web Client application:
+Detected Web Client physical path:
+Resolved Browse.aspx:
+Browse.aspx exists: True/False
+
+If Browse.aspx cannot be found and Web Client integration was selected,
+the installer must NOT silently report success.
+
+It must clearly report:
+
+"Laserfiche Web Client was detected, but Browse.aspx could not be found."
+
+============================================================
+4. INVESTIGATE WHETHER Browse.aspx IS ACTUALLY THE CORRECT FILE
+============================================================
+
+IMPORTANT:
+
+Do not blindly assume Browse.aspx is still the correct integration point.
+
+Inspect the installed Laserfiche Web Client structure and the existing
+project implementation.
+
+Determine whether this version of Laserfiche Web Client actually renders
+the repository toolbar through Browse.aspx or through JavaScript,
+bundled frontend files, master pages, controls, or another mechanism.
+
+If the existing Browse.aspx patch cannot create the button in this
+Laserfiche version, replace it with the correct integration mechanism.
+
+Do not preserve a broken Browse.aspx approach merely because it already
+exists in the project.
+
+============================================================
+5. BUTTON REQUIREMENT
+============================================================
+
+The final Laserfiche Web Client must visibly contain a Dashboard button.
+
+The button should be placed in a sensible toolbar/menu location.
+
+When clicked, it should open:
+
+http://<dashboard-server>:5000
+
+and preferably pass the current repository context if available, e.g.:
+
+?repository=<current repository>
+
+Do NOT hardcode TestEmployee or LFNewRepoWF.
+
+The repository must come dynamically from the currently opened
+Laserfiche repository.
+
+For example, if the user is currently inside:
+
+LFNewRepoWF
+
+Dashboard should receive:
+
+?repository=LFNewRepoWF
+
+============================================================
+6. IDEMPOTENT PATCHING
+============================================================
+
+The installer may be run multiple times.
+
+Therefore:
+
+- Never add duplicate Dashboard buttons.
+- Never inject duplicate scripts.
+- Detect an existing Dashboard patch.
+- Update it if necessary.
+- Preserve the original Laserfiche Web Client file.
+
+Create a backup before first modification.
+
+Example:
+
+Browse.aspx.dashboard-backup
+
+or equivalent.
+
+Do not overwrite the original backup during repair/update.
+
+============================================================
+7. REPAIR / UNINSTALL SUPPORT
+============================================================
+
+Repair:
+- detects existing integration
+- does not duplicate it
+- restores/reapplies only if necessary
+
+Uninstall:
+- removes Dashboard integration
+- restores original Laserfiche Web Client state
+- does not damage unrelated Laserfiche customization
+
+============================================================
+8. PERMISSIONS
+============================================================
+
+The Laserfiche Web Client directory is normally under Program Files and
+managed by IIS.
+
+Make sure the custom action runs elevated when necessary.
+
+If access is denied, log the exact path and exception.
+
+Do NOT silently continue.
+
+============================================================
+9. ADD REAL LOGGING
+============================================================
+
+Extend:
+
+C:\ProgramData\Dashboard\Logs\SetupHelper.log
+
+to include the complete Web Client deployment.
+
+I want lines similar to:
+
+WebClient integration requested: True
+Searching IIS for Laserfiche Web Client...
+IIS application found: /Laserfiche
+Physical path: ...
+Browse.aspx path: ...
+Browse.aspx exists: True
+Existing Dashboard patch detected: False
+Creating backup...
+Injecting Dashboard integration...
+Patch verification: PASS
+Dashboard marker found: True
+Web Client integration result: SUCCESS
+
+On failure include:
+
+Exception type
+Message
+HRESULT
+StackTrace
+InnerException
+
+============================================================
+10. ADD POST-INSTALL VERIFICATION
+============================================================
+
+This is important.
+
+After WebClientAction reports success, the installer must independently
+verify the integration.
+
+Do not trust exit code 0 alone.
+
+Verify that the actual deployed Web Client contains the Dashboard
+integration marker/code.
+
+If selected:
+
+InstallWebButton = 1
+
+then installation verification must confirm:
+
+Web Client detected = true
+target file detected = true
+Dashboard integration installed = true
+
+Otherwise show a warning/failure explaining exactly what was not
+installed.
+
+============================================================
+11. DO NOT BREAK THE WORKING INSTALLER
+============================================================
+
+Preserve all fixes that already work:
+
+- WiX Managed BA startup fix
+- WixToolset.Mba.Host.config fix
+- x86 BA
+- installer wizard
+- IIS Dashboard site
+- port 5000
+- SetupHelper quoting fix
+- PowerShell build guards
+- Dashboard installation
+- runtime repository/session architecture
+
+Do NOT redesign the entire installer.
+
+Fix the Web Client integration specifically.
+
+============================================================
+12. REMOVE OLD REPOSITORY INSTALL FIELDS
+============================================================
+
+Also verify the currently built BA does NOT contain the old fields:
+
+Repository ID
+Display Name
+
+The Web Client button must determine repository dynamically at runtime.
+
+============================================================
+13. TESTS
+============================================================
+
+Add tests for at least:
+
+- Detect /Laserfiche IIS application
+- Correct physical path resolution
+- Browse.aspx existence
+- First patch
+- second patch does not duplicate
+- backup creation
+- repair
+- uninstall restoration
+- repository parameter generation
+- missing Browse.aspx
+- access denied
+- malformed existing patch
+
+============================================================
+14. BUILD VALIDATION
+============================================================
+
+Run the complete Windows release pipeline:
+
+.\build\publish.ps1
+
+Do not stop at dotnet build.
+
+The final build must have:
+
+0 PowerShell parser errors
+0 C# build errors
+0 relevant test failures
+
+============================================================
+15. FINAL REPORT
+============================================================
+
+Do not just tell me "fixed".
+
+Report:
+
+1. Why the Dashboard button did not appear.
+2. Exact Web Client physical path detected.
+3. Exact file(s) modified.
+4. Whether Browse.aspx was actually the correct integration point.
+5. Exact injection mechanism used.
+6. Backup path.
+7. Verification mechanism.
+8. Whether repository context is dynamic.
+9. Example generated Dashboard URL for repository LFNewRepoWF.
+10. SetupHelper Web Client integration log output.
+11. Test results.
+12. publish.ps1 result.
+13. Any remaining limitation.
+
+IMPORTANT:
+
+Do not finish until you have traced the actual code path and fixed the
+reason the button is absent.
+
+Do not hide Web Client deployment failures as non-fatal success.
+If the checkbox is selected, either install and verify the button or
+clearly fail/report why it could not be installed.
