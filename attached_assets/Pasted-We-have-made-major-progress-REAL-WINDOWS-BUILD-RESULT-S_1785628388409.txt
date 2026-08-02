@@ -1,0 +1,354 @@
+We have made major progress.
+
+REAL WINDOWS BUILD RESULT:
+
+Step 8/11 now PASSES successfully.
+
+This means the MSI was successfully generated.
+
+The build now reaches:
+
+[Step 9/11] Building Burn Bundle (LFDashboard-Setup.exe)
+
+and fails with:
+
+Bundle.wxs(58) : error WIX6802:
+
+There must be at least one package with
+bal:PrereqPackage="yes"
+when using the ManagedBootstrapperApplicationHost.
+
+This is typically done by using the WixNetFxExtension and referencing
+one of the NetFxAsPrereq package groups.
+
+Current Bundle build uses:
+
+WiX 4.0.5
+
+Extensions currently passed:
+
+WixToolset.Bal.wixext/4.0.5
+WixToolset.Util.wixext/4.0.5
+
+Dashboard.BA targets:
+
+.NET Framework 4.8 / net48
+
+IMPORTANT:
+Do NOT change the installer architecture.
+Do NOT replace the Managed Bootstrapper Application.
+Do NOT remove the professional wizard.
+Do NOT downgrade or change WiX.
+Do NOT touch the now-working MSI unless absolutely necessary.
+
+Step 8 is now confirmed working on real Windows.
+
+============================================================
+TASK
+============================================================
+
+Fix WIX6802 correctly for WiX 4.0.5.
+
+The ManagedBootstrapperApplicationHost requires a prerequisite package
+because Dashboard.BA.dll itself requires .NET Framework 4.8 before the
+managed BA can load.
+
+Do NOT silence WIX6802 by marking an unrelated package as PrereqPackage.
+
+Implement the proper WiX 4 prerequisite architecture.
+
+============================================================
+1. .NET FRAMEWORK 4.8 PREREQUISITE
+============================================================
+
+Dashboard.BA targets net48.
+
+Use the proper WiX 4 WixNetFxExtension prerequisite package mechanism
+for .NET Framework 4.8.
+
+Research/inspect the exact WiX 4.0.5 symbols available from:
+
+WixToolset.Netfx.wixext/4.0.5
+
+Use the correct NetFxAsPrereq package group for .NET Framework 4.8.
+
+Do not guess the package group ID.
+
+Verify it against the actual WiX 4.0.5 extension.
+
+Add the NetFx extension to the local WiX build invocation in
+build/publish.ps1.
+
+The resulting Bundle must have at least one real:
+
+bal:PrereqPackage="yes"
+
+package supplied through the supported WiX NetFx prerequisite mechanism.
+
+============================================================
+2. IMPORTANT BOOTSTRAP ORDER
+============================================================
+
+Remember the dependency chain:
+
+Burn native bootstrapper
+    ↓
+.NET Framework 4.8 prerequisite
+    ↓
+ManagedBootstrapperApplicationHost
+    ↓
+Dashboard.BA.dll
+    ↓
+professional wizard
+    ↓
+Dashboard MSI
+
+The BA cannot be used to install its own runtime after the BA has already
+been loaded.
+
+The prerequisite must be handled by Burn before loading Dashboard.BA.
+
+============================================================
+3. DO NOT CONFUSE .NET 8 WITH .NET FRAMEWORK 4.8
+============================================================
+
+We have TWO separate runtime requirements:
+
+A. Dashboard.BA.dll:
+   .NET Framework 4.8
+
+B. LFPortal.Web:
+   ASP.NET Core 8 Hosting Bundle
+
+These are NOT the same prerequisite.
+
+The .NET Framework 4.8 prerequisite exists so the managed installer wizard
+can start.
+
+The ASP.NET Core 8 Hosting Bundle exists so the installed Dashboard web
+application can run under IIS.
+
+Preserve this distinction.
+
+============================================================
+4. ASP.NET CORE 8 HOSTING BUNDLE
+============================================================
+
+Audit the existing Bundle prerequisite logic for ASP.NET Core 8 Hosting
+Bundle.
+
+The customer experience requirement is:
+
+Double-click LFDashboard-Setup.exe
+→ prerequisites checked
+→ wizard opens
+→ install
+→ done.
+
+No PowerShell or CMD.
+
+If ASP.NET Core 8 Hosting Bundle is missing, determine whether the current
+Bundle:
+
+A) installs it automatically,
+B) blocks installation and gives the administrator a clear message/link,
+or
+C) incorrectly continues and leaves a broken Dashboard.
+
+Preserve the current project scope if automatic download was intentionally
+out of scope, but ensure the installer fails clearly rather than installing
+a nonfunctional Dashboard.
+
+Do NOT confuse this prerequisite with the .NET Framework 4.8 BA prerequisite.
+
+============================================================
+5. WEBVIEW2
+============================================================
+
+Also audit WebView2 Runtime handling.
+
+The Desktop Extension uses WebView2.
+
+Determine what happens if WebView2 Runtime is missing.
+
+At minimum the wizard should detect it and clearly tell the administrator
+before installation.
+
+Do not introduce an unrelated online dependency unless required.
+
+============================================================
+6. BUNDLE DEPENDENCIES
+============================================================
+
+Keep the previous fix that includes:
+
+Dashboard.BA.dll
+WixToolset.Mba.Core.dll
+
+Verify all BA runtime payloads again.
+
+Do not regress this.
+
+============================================================
+7. BUILD SCRIPT
+============================================================
+
+Update build/publish.ps1 Step 9 to include the exact WiX NetFx extension
+required by Bundle.wxs.
+
+Use the repository-local WiX 4.0.5 tool architecture already implemented.
+
+Do NOT use global WiX.
+
+Expected pattern should remain based on:
+
+dotnet tool run wix -- build ...
+
+Add the required NetFx extension alongside:
+
+WixToolset.Bal.wixext/4.0.5
+WixToolset.Util.wixext/4.0.5
+
+using the correct package/version for WiX 4.0.5.
+
+============================================================
+8. LOCAL TOOL / EXTENSION HANDLING
+============================================================
+
+If the NetFx extension needs to be added/restored, integrate that into
+publish.ps1 the same way the existing WiX extensions are handled.
+
+The developer must still only need:
+
+.\build\publish.ps1
+
+No manual:
+
+wix extension add
+dotnet tool install
+PowerShell configuration
+
+should be required before every build.
+
+============================================================
+9. DO NOT REGRESS STEP 8
+============================================================
+
+Step 8 is now confirmed working on real Windows.
+
+Preserve:
+
+118 WebApp harvested files
+11 Extension harvested files
+MSI compilation
+IIS configuration
+runtime Dashboard port
+config preservation
+Desktop Extension registration
+Web Client deployment logic
+
+Do not modify these unless strictly necessary.
+
+============================================================
+10. ACTUAL COMPILER VALIDATION
+============================================================
+
+Do not stop after editing Bundle.wxs.
+
+Run the real WiX 4.0.5 Bundle compiler if possible.
+
+Continue fixing Bundle compile/link errors until:
+
+artifacts\LFDashboard-Setup.exe
+
+is successfully generated.
+
+Then verify Step 10 and Step 11.
+
+The final expected output is:
+
+Release\
+    LFDashboard-Setup.exe
+    README.txt
+
+============================================================
+11. CUSTOMER MACHINE REQUIREMENT
+============================================================
+
+The customer must NOT need:
+
+WiX
+.NET SDK
+Visual Studio
+PowerShell commands
+CMD commands
+manual JSON editing
+source code
+
+to install the application.
+
+All of those are BUILD-machine concerns only.
+
+The final customer experience must remain:
+
+Right-click LFDashboard-Setup.exe
+→ Run as administrator
+→ follow wizard
+→ Install
+→ Done.
+
+============================================================
+12. PORTABILITY
+============================================================
+
+Do not hard-code this development machine.
+
+The installer must work on different Windows/Laserfiche machines.
+
+Keep:
+
+automatic machine-name detection
+Laserfiche Desktop Client detection
+Laserfiche Web Client path detection
+IIS detection
+WebView2 detection
+repository configuration through wizard
+Dashboard port configuration through wizard
+
+No:
+
+C:\Users\Amjad...
+specific repository names
+developer server names
+developer IP addresses
+
+may be present in runtime installer configuration.
+
+============================================================
+13. FINAL REPORT
+============================================================
+
+After fixing it, report:
+
+1. Exact reason WIX6802 occurred.
+2. Exact NetFx WiX extension added.
+3. Exact .NET Framework 4.8 prerequisite package group used.
+4. Why this prerequisite must execute before Dashboard.BA.
+5. Exact Bundle.wxs changes.
+6. Exact publish.ps1 changes.
+7. ASP.NET Core 8 Hosting Bundle behavior.
+8. WebView2 Runtime behavior.
+9. BA payload list.
+10. Bundle compiler result.
+11. Generated EXE path.
+12. Step 10 result.
+13. Step 11 result.
+14. Final Release folder contents.
+15. Any remaining runtime prerequisites or risks.
+
+Most importantly:
+
+DO NOT report "complete" merely because WIX6802 disappeared.
+
+Keep compiling the Bundle and fix every subsequent WiX 4.0.5 error until
+LFDashboard-Setup.exe is actually generated if the environment allows it.

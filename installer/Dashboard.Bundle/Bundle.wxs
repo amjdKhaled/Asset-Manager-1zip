@@ -32,7 +32,8 @@
     Windows only; requires WiX v4 local tool + WixToolset.Bal.wixext.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
   <Bundle Name="Laserfiche Dashboard"
           Version="$(BundleVersion)"
@@ -85,6 +86,25 @@
       and passed to the MSI via MsiProperty elements on the MsiPackage below.
     -->
 
+    <!--
+      .NET Framework 4.8 detection.
+      The Release DWORD in this registry key encodes the installed .NET 4.x version.
+      528040 is the minimum value indicating .NET Framework 4.8 or later:
+        528040  Windows 10 May 2019 Update (1903) and all later Win10/Win11
+        528372  Windows 10 May 2020 Update (2004)
+        528449  Windows 11 and Windows Server 2022
+      Windows Server 2019 ships with Release = 528040 pre-installed.
+      Bitness="always64" reads from the 64-bit registry view (where .NET
+      Framework Setup writes on 64-bit Windows).
+    -->
+    <util:RegistrySearch Id="NetFx48Release"
+                         Variable="NetFx48Release"
+                         Root="HKLM"
+                         Key="SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
+                         Value="Release"
+                         Result="value"
+                         Bitness="always64" />
+
     <!-- Dashboard web application settings -->
     <Variable Name="DashboardUrl"         Type="string"  Value=""     Persisted="yes" />
     <Variable Name="DashboardPort"        Type="string"  Value="5000" Persisted="yes" />
@@ -111,6 +131,60 @@
       their ExeCommand attribute (expanded at CA scheduling time).
     -->
     <Chain>
+
+      <!--
+        .NET Framework 4.8 prerequisite package.
+
+        WHY THIS EXISTS — the bootstrap dependency chain:
+          Burn native engine (x86 EXE)
+            → installs bal:PrereqPackage="yes" packages natively
+            → loads ManagedBootstrapperApplicationHost (mbahost.dll)
+            → loads Dashboard.BA.dll (the managed wizard)
+            → wizard drives installation of DashboardMsi
+
+          Dashboard.BA.dll targets net48.  If .NET Framework 4.8 is not
+          present on the machine, mbahost.dll cannot load the managed BA at
+          all — the wizard never appears and installation fails silently.
+          The managed BA therefore cannot install its own prerequisite runtime;
+          Burn's native engine must handle it first.
+
+          bal:PrereqPackage="yes" instructs the native engine (via the prereq
+          BA, mbapreq.dll) to install this package before handing control to
+          the managed BA.  Without at least one such package, WiX 4.0.5 emits
+          error WIX6802.
+
+        RUNTIME BEHAVIOUR:
+          DetectCondition="NetFx48Release >= 528040" is evaluated by the
+          native engine using the util:RegistrySearch result above.
+          On Windows Server 2019 / 2022 and Windows 10 1903+, .NET 4.8 ships
+          pre-installed and the Release DWORD is >= 528040; the package is
+          detected as already present and skipped — no download occurs.
+          On the rare older machine missing .NET 4.8, Burn downloads and
+          installs ndp48-web.exe silently before showing the wizard.
+
+        DO NOT CONFUSE WITH ASP.NET Core 8:
+          This prereq is for the installer wizard (Dashboard.BA.dll / net48).
+          The ASP.NET Core 8 Hosting Bundle is for the installed web application
+          (LFPortal.Web / net8.0) and is detected separately by the wizard's
+          DetectionService; the MSI blocks installation via its Launch condition
+          if it is absent.
+      -->
+      <!--
+        WiX 4 attribute names: InstallArguments / RepairArguments (renamed from
+        InstallCommand / RepairCommand in WiX 3).  UninstallArguments is not
+        provided; Permanent="yes" suppresses uninstall of .NET 4.8 when the
+        Dashboard bundle is removed — .NET Framework is an OS component and
+        must never be removed by an application installer.
+      -->
+      <ExePackage Id="NetFx48Prereq"
+                  Name="ndp48-web.exe"
+                  DownloadUrl="https://go.microsoft.com/fwlink/?LinkId=2085155"
+                  InstallArguments="/q /norestart /ChainingPackage &quot;[WixBundleName]&quot;"
+                  RepairArguments="/q /norestart /repair /ChainingPackage &quot;[WixBundleName]&quot;"
+                  DetectCondition="NetFx48Release >= 528040"
+                  Permanent="yes"
+                  Vital="yes"
+                  bal:PrereqPackage="yes" />
 
       <MsiPackage
           Id="DashboardMsi"
