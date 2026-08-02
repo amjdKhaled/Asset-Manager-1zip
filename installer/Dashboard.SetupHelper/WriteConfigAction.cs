@@ -40,8 +40,21 @@ namespace Dashboard.SetupHelper
             string repoId      = Opt(opts, "repo-id");
             string displayName = Opt(opts, "display-name");
             string portStr     = Opt(opts, "port", "5000");
-            string webAppPath  = Opt(opts, "webapp-path");
+            // SanitizeDir: strips stray '"' characters produced by the MSI
+            // trailing-backslash-quote (\") escaping bug and any other invalid
+            // path characters.  Without this, Path.Combine on net48 throws
+            // "Illegal characters in path." and the install rolls back (1722).
+            string webAppPath  = PathUtil.SanitizeDir(Opt(opts, "webapp-path"));
+            // Optional override of the config directory (used by the build
+            // smoke test so it never touches the real %ProgramData%).
+            string configDirOverride = PathUtil.SanitizeDir(Opt(opts, "config-dir"));
 
+            SetupLog.Info($"WriteConfig: url='{dashUrl}' lf-api='{lfApiUrl}' repo-id='{repoId}' " +
+                          $"display-name='{(string.IsNullOrEmpty(displayName) ? "<EMPTY>" : displayName)}' " +
+                          $"port='{portStr}' webapp-path='{webAppPath}'");
+
+            // --display-name "" is valid: DisplayName is OPTIONAL and defaults
+            // to the repository id.  It must never fail the installation.
             if (string.IsNullOrEmpty(displayName))
                 displayName = repoId;
 
@@ -56,7 +69,9 @@ namespace Dashboard.SetupHelper
             // Resolve %ProgramData%\Dashboard\ without hard-coding C:\ProgramData
             string programData  = Environment.GetFolderPath(
                 Environment.SpecialFolder.CommonApplicationData);
-            string dashboardDir = Path.Combine(programData, "Dashboard");
+            string dashboardDir = string.IsNullOrEmpty(configDirOverride)
+                ? Path.Combine(programData, "Dashboard")
+                : configDirOverride;
             Directory.CreateDirectory(dashboardDir);
 
             Console.WriteLine($"[SetupHelper] Config directory: {dashboardDir}");
@@ -106,6 +121,7 @@ namespace Dashboard.SetupHelper
             if (!string.IsNullOrEmpty(webAppPath))
             {
                 string appSettingsPath = Path.Combine(webAppPath, "appsettings.json");
+                SetupLog.Info($"Resolved appsettings path: {appSettingsPath} (exists: {File.Exists(appSettingsPath)})");
                 if (File.Exists(appSettingsPath))
                 {
                     try
@@ -125,24 +141,26 @@ namespace Dashboard.SetupHelper
                 }
                 else
                 {
-                    // NON-FATAL: log a warning but allow installation to continue.
-                    //
-                    // Under IIS/ANCM the IIS binding (set by the SetIisBindingPort
-                    // appcmd custom action in Product.wxs) is the authoritative port
-                    // source; appsettings.json Urls is a developer convenience that
-                    // has no effect when the app runs under IIS.  Returning rc=1 here
-                    // would cause the WriteConfig CA (Return="check") to roll back the
-                    // entire installation for a non-critical step -- a worse outcome
-                    // than leaving Urls un-patched.
-                    //
-                    // If this warning appears in the MSI log, verify that the publish
-                    // output includes appsettings.json (CopyToPublishDirectory in
-                    // LFPortal.Web.csproj), and re-run the installer.
-                    Console.Error.WriteLine(
-                        $"[SetupHelper] WARNING: {appSettingsPath} not found. " +
-                        "Urls port will not be patched in appsettings.json. " +
-                        "IIS binding (SetIisBindingPort custom action) is the " +
-                        "authoritative port source; installation will continue.");
+                    // NON-FATAL: appsettings.json missing must NEVER fail the
+                    // install.  Under IIS/ANCM the IIS binding (SetIisBindingPort
+                    // appcmd CA) is the authoritative port source.  Create a
+                    // minimal valid appsettings.json so the Urls record exists;
+                    // if even that fails, log a warning and continue.
+                    SetupLog.Warn($"{appSettingsPath} not found; creating a minimal appsettings.json.");
+                    try
+                    {
+                        string minimal =
+                            "{\r\n" +
+                            $"  \"Urls\": \"http://0.0.0.0:{port}\"\r\n" +
+                            "}\r\n";
+                        File.WriteAllText(appSettingsPath, minimal, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                        SetupLog.Info($"Created minimal appsettings.json: {appSettingsPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        SetupLog.Warn($"Could not create {appSettingsPath}: {ex.Message}. " +
+                                      "IIS binding remains the authoritative port source; installation continues.");
+                    }
                     // rc stays 0 -- installation is NOT rolled back.
                 }
             }

@@ -473,10 +473,10 @@ Write-OK "Web app published to: $webAppOut"
 
 # Post-publish guard: appsettings.json must be present in the staged WebApp
 # folder.  WriteConfigAction patches the "Urls" key in this file at install
-# time so the ASP.NET Core app binds the wizard-selected port.  If the file
-# is missing the installer will abort (WriteConfigAction now returns exit 1),
-# but catching it here at build time gives a clearer message and fails fast
-# before the MSI is assembled.
+# time so the ASP.NET Core app binds the wizard-selected port.  A missing
+# file is non-fatal at install time (the helper creates a minimal one), but
+# it should never be missing from a correct publish -- catching it here at
+# build time fails fast before the MSI is assembled.
 $stagedAppSettings = Join-Path $webAppOut "appsettings.json"
 if (-not (Test-Path $stagedAppSettings)) {
     Write-Host ""
@@ -642,6 +642,79 @@ else {
         exit 1
     }
     Write-OK "Dashboard.SetupHelper.exe confirmed present in Extension staging folder."
+
+    # ---- Stale-helper guard: staged EXE must be byte-identical to the build ----
+    # A stale Dashboard.SetupHelper.exe in staging means the MSI would package
+    # an OLD helper even though the source contains the fix.  Compare hashes.
+    $helperBuilt = Join-Path $helperOut "Dashboard.SetupHelper.exe"
+    $builtHash   = (Get-FileHash $helperBuilt      -Algorithm SHA256).Hash
+    $stagedHash  = (Get-FileHash $setupHelperStaged -Algorithm SHA256).Hash
+    if ($builtHash -ne $stagedHash) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [FAILED] Staged Dashboard.SetupHelper.exe is STALE." -ForegroundColor Red
+        Write-Host ("    Built  SHA256: {0}" -f $builtHash)  -ForegroundColor Red
+        Write-Host ("    Staged SHA256: {0}" -f $stagedHash) -ForegroundColor Red
+        Write-Host "  The MSI would package an outdated helper. Delete artifacts\," -ForegroundColor Red
+        Write-Host "  bin\ and obj\ folders and rebuild." -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK ("Dashboard.SetupHelper.exe SHA256: {0}" -f $stagedHash)
+
+    # ---- SetupHelper smoke test: replay the EXACT MSI WriteConfig command ----
+    # Reproduces the real installer invocation, including the historical
+    # trailing-backslash-plus-quote quoting ( --webapp-path "<dir>\" ) that
+    # caused Error 1722.  The helper must sanitize it and exit 0, and the
+    # patched appsettings.json must remain valid JSON.  Runs BEFORE the MSI
+    # build; failure stops the release.
+    Write-Host "     Running SetupHelper smoke test (exact MSI command line)..." -ForegroundColor Gray
+    $smokeDir    = Join-Path $env:TEMP ("DashSmoke-" + [guid]::NewGuid().ToString("N"))
+    $smokeWebApp = Join-Path $smokeDir "WebApp"
+    $smokeConfig = Join-Path $smokeDir "Config"
+    $null = New-Item -ItemType Directory -Path $smokeWebApp -Force
+    $null = New-Item -ItemType Directory -Path $smokeConfig -Force
+    @'
+{
+  "Logging": { "LogLevel": { "Default": "Information" } },
+  "AllowedHosts": "*"
+}
+'@ | Set-Content -Path (Join-Path $smokeWebApp "appsettings.json") -Encoding UTF8
+
+    # Raw argument string reproduces CommandLineToArgvW behavior exactly,
+    # including --display-name "" and the trailing \" on --webapp-path.
+    # --config-dir redirects the ProgramData writes into the temp folder so
+    # the smoke test never touches the build machine's real configuration.
+    $smokeArgs = '--write-config --url "http://desktop-k1svi53:5000" ' +
+                 '--lf-api "https://localhost/LFRepositoryAPI" --repo-id "TestEmployee" ' +
+                 '--display-name "" --port "5000" ' +
+                 '--webapp-path "' + $smokeWebApp + '\" ' +
+                 '--config-dir "' + $smokeConfig + '"'
+    $smokeProc = Start-Process -FilePath $setupHelperStaged -ArgumentList $smokeArgs `
+                     -NoNewWindow -Wait -PassThru
+    $smokeExit = $smokeProc.ExitCode
+
+    $smokeJsonOk = $false
+    try {
+        $null = (Get-Content (Join-Path $smokeWebApp "appsettings.json") -Raw) | ConvertFrom-Json
+        $smokeJsonOk = $true
+    } catch { $smokeJsonOk = $false }
+
+    Remove-Item $smokeDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    if (($smokeExit -ne 0) -or (-not $smokeJsonOk)) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [FAILED] SetupHelper smoke test." -ForegroundColor Red
+        Write-Host ("    Exit code       : {0} (expected 0)" -f $smokeExit) -ForegroundColor Red
+        Write-Host ("    appsettings.json: {0}" -f $(if ($smokeJsonOk) { 'valid JSON' } else { 'INVALID JSON' })) -ForegroundColor Red
+        Write-Host "  The MSI WriteConfig custom action would fail with Error 1722." -ForegroundColor Red
+        Write-Host "  See %ProgramData%\Dashboard\Logs\SetupHelper.log for details." -ForegroundColor Red
+        Write-Host "  The build is stopped; LFDashboard-Setup.exe was NOT produced." -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "SetupHelper smoke test passed (exit 0, valid JSON output)."
 }
 
 # =============================================================================

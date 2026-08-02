@@ -41,8 +41,10 @@ namespace Dashboard.SetupHelper
         // ----------------------------------------------------------------
         public static int Deploy(Dictionary<string, string> opts)
         {
+            // SanitizeDir strips stray '"' characters produced by MSI
+            // trailing-backslash-quote escaping (see PathUtil.cs).
             string dashUrl = Opt(opts, "url").TrimEnd('/');
-            string wcPath  = Opt(opts, "path").TrimEnd('\\', '/');
+            string wcPath  = PathUtil.SanitizeDir(Opt(opts, "path"));
 
             if (string.IsNullOrEmpty(wcPath))
             {
@@ -158,7 +160,7 @@ namespace Dashboard.SetupHelper
         // ----------------------------------------------------------------
         public static int Remove(Dictionary<string, string> opts)
         {
-            string wcPath = Opt(opts, "path").TrimEnd('\\', '/');
+            string wcPath = PathUtil.SanitizeDir(Opt(opts, "path"));
 
             if (string.IsNullOrEmpty(wcPath))
             {
@@ -203,7 +205,7 @@ namespace Dashboard.SetupHelper
         // ----------------------------------------------------------------
         public static int Rollback(Dictionary<string, string> opts)
         {
-            string wcPath = Opt(opts, "path").TrimEnd('\\', '/');
+            string wcPath = PathUtil.SanitizeDir(Opt(opts, "path"));
 
             if (string.IsNullOrEmpty(wcPath))
             {

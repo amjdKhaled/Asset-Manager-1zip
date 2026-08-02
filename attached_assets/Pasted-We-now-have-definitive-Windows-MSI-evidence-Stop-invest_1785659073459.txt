@@ -1,0 +1,428 @@
+We now have definitive Windows MSI evidence. Stop investigating ports, Burn BA architecture, WixToolset.Mba.Host.config, or the wizard UI. Those stages are working.
+
+THE CURRENT FAILURE IS CONFIRMED TO BE THE WriteConfig CUSTOM ACTION.
+
+Windows MSI log:
+
+ActionStart(Name=WriteConfig)
+
+CustomActionSchedule:
+"C:\Program Files\Dashboard\Extension\Dashboard.SetupHelper.exe"
+--write-config
+--url "http://desktop-k1svi53:5000"
+--lf-api "https://localhost/LFRepositoryAPI"
+--repo-id "TestEmployee"
+--display-name ""
+--port "5000"
+--webapp-path "C:\Program Files\Dashboard\WebApp\"
+
+Then immediately:
+
+CustomAction WriteConfig returned actual error code 1
+
+Error 1722:
+There is a problem with this Windows Installer package.
+Action WriteConfig...
+
+InstallFinalize Return value 3.
+
+IMPORTANT:
+Port 5000 was independently checked on Windows.
+
+Get-NetTCPConnection -LocalPort 5000 returned nothing.
+HTTP.SYS showed nothing on :5000.
+IIS Get-WebBinding showed nothing on :5000.
+
+Therefore DO NOT change the port and DO NOT investigate port conflicts.
+
+The MSI successfully copies the WebApp files before WriteConfig runs.
+
+Your job is now to FIX WriteConfig completely.
+
+============================================================
+PHASE 1 — TRACE THE EXACT EXECUTABLE
+============================================================
+
+Find the project that produces:
+
+Dashboard.SetupHelper.exe
+
+Inspect:
+
+- Program.cs
+- WriteConfigAction.cs
+- all command-line parsing
+- all --write-config handling
+- all return/exit codes
+- all exception handlers
+- all file reads/writes
+- appsettings.json handling
+- JSON parsing/serialization
+- directory permissions
+- WebApp path handling
+- environment-specific assumptions
+
+Search the entire repository for:
+
+"write-config"
+"WriteConfig"
+"return 1"
+"Environment.Exit"
+"ExitCode"
+"appsettings"
+"DASHBOARD_URL"
+"LF_API_URL"
+"LF_REPO_ID"
+"LF_DISPLAY_NAME"
+"DASHBOARD_PORT"
+
+Do not assume the previous fix was sufficient.
+
+============================================================
+PHASE 2 — REPRODUCE THE EXACT MSI COMMAND
+============================================================
+
+Create a local test that reproduces EXACTLY this command:
+
+Dashboard.SetupHelper.exe --write-config \
+  --url "http://desktop-k1svi53:5000" \
+  --lf-api "https://localhost/LFRepositoryAPI" \
+  --repo-id "TestEmployee" \
+  --display-name "" \
+  --port "5000" \
+  --webapp-path "C:\Program Files\Dashboard\WebApp\"
+
+Adapt paths for the development environment when necessary, but preserve
+the argument values and especially:
+
+--display-name ""
+
+Test whether an empty display name is causing command-line parsing failure.
+
+This is especially important.
+
+The MSI passes:
+
+--display-name ""
+
+The parser MUST accept an empty optional display name.
+
+DisplayName is OPTIONAL.
+
+It must NEVER cause WriteConfig to return 1.
+
+============================================================
+PHASE 3 — FIX COMMAND LINE PARSING
+============================================================
+
+Make the SetupHelper parser robust.
+
+Required arguments for --write-config:
+
+--url
+--lf-api
+--repo-id
+--port
+--webapp-path
+
+Optional:
+
+--display-name
+
+An empty display name:
+
+--display-name ""
+
+MUST be valid.
+
+Do not use simplistic argument parsing that discards empty quoted arguments
+or shifts the following arguments.
+
+Create a proper parser or implement deterministic parsing.
+
+Validate port with int.TryParse.
+
+Validate required strings.
+
+Normalize webapp-path safely.
+
+============================================================
+PHASE 4 — FIX CONFIG WRITING
+============================================================
+
+WriteConfig must locate:
+
+<webapp-path>\appsettings.json
+
+First verify what files are actually produced by publishing the Dashboard WebApp.
+
+Inspect:
+
+artifacts/staging
+publish output
+MSI harvested WebApp files
+
+Confirm whether appsettings.json actually exists.
+
+If appsettings.json exists:
+
+1. Load it.
+2. Parse JSON safely.
+3. Preserve all unrelated existing configuration.
+4. Update ONLY the Dashboard/Laserfiche configuration required by this project.
+5. Save valid UTF-8 JSON.
+6. Do not corrupt existing JSON.
+
+If appsettings.json does NOT exist:
+
+DO NOT FAIL THE INSTALLATION.
+
+Either:
+
+A) create a valid appsettings.json containing the required configuration,
+
+OR
+
+B) if the application uses another authoritative configuration mechanism,
+skip appsettings patching and log a warning.
+
+Missing appsettings.json MUST NOT return exit code 1.
+
+============================================================
+PHASE 5 — MAKE WriteConfig DIAGNOSTIC
+============================================================
+
+The current MSI only tells us:
+
+returned actual error code 1
+
+That is unacceptable.
+
+Modify Dashboard.SetupHelper.exe so every invocation writes a detailed log to:
+
+%ProgramData%\Dashboard\Logs\SetupHelper.log
+
+Create the directory automatically.
+
+Log:
+
+timestamp
+command/action
+process bitness
+current directory
+webapp path
+resolved appsettings path
+whether the file exists
+URL
+LF API URL
+Repository ID
+Display Name (including EMPTY indication)
+Port
+each operation performed
+full exception type
+exception message
+HRESULT
+stack trace
+all InnerExceptions
+final exit code
+
+DO NOT log passwords, tokens, credentials, or secrets.
+
+The logger itself must never crash the helper.
+
+============================================================
+PHASE 6 — CORRECT EXIT CODE POLICY
+============================================================
+
+WriteConfig should return non-zero ONLY when the Dashboard installation
+would genuinely be unusable.
+
+Do NOT return 1 for:
+
+- empty DisplayName
+- appsettings.json missing when it can be created
+- optional configuration missing
+- harmless warnings
+- formatting differences
+- inability to modify a non-authoritative development-only setting
+
+For recoverable situations:
+
+log WARNING
+continue
+return 0
+
+For fatal exceptions:
+
+log the COMPLETE exception first
+then return non-zero.
+
+============================================================
+PHASE 7 — VERIFY THE CORRECT SETUPHELPER IS PACKAGED
+============================================================
+
+This is critical.
+
+The source code may already contain a fix while the MSI packages an OLD
+Dashboard.SetupHelper.exe.
+
+Trace the entire pipeline:
+
+SetupHelper project
+    ->
+bin/Release output
+    ->
+publish.ps1
+    ->
+artifacts/staging
+    ->
+WiX MSI harvest/input
+    ->
+Dashboard MSI
+    ->
+LFDashboard-Setup.exe
+
+Delete ALL stale:
+
+bin
+obj
+artifacts
+Release
+
+before rebuilding.
+
+Add a build guard that compares the timestamp/hash of the freshly built
+Dashboard.SetupHelper.exe against the staged/package source.
+
+The release build MUST fail if the MSI is about to package a stale helper.
+
+Also print the SHA256 of the helper during publish.
+
+============================================================
+PHASE 8 — TEST THE HELPER BEFORE BUILDING MSI
+============================================================
+
+Add an automated smoke test to publish.ps1 BEFORE WiX builds the MSI.
+
+Create a temporary WebApp directory containing a realistic appsettings.json.
+
+Execute the newly built helper with:
+
+--write-config
+--url "http://desktop-k1svi53:5000"
+--lf-api "https://localhost/LFRepositoryAPI"
+--repo-id "TestEmployee"
+--display-name ""
+--port "5000"
+--webapp-path "<temporary path>"
+
+Requirements:
+
+ExitCode MUST equal 0.
+
+Then parse the resulting appsettings.json and confirm it is valid JSON.
+
+If either fails:
+
+STOP THE BUILD.
+
+Do not produce LFDashboard-Setup.exe.
+
+============================================================
+PHASE 9 — REVIEW MSI CUSTOM ACTION
+============================================================
+
+Inspect the WiX definition of WriteConfig.
+
+Confirm:
+
+- it executes AFTER the WebApp files have been installed
+- Dashboard.SetupHelper.exe exists before execution
+- webapp-path is correctly quoted
+- empty display-name is supported
+- deferred/elevated execution has appropriate permissions
+- the action runs with the correct architecture
+- Return="check" is only used after the helper is made reliable
+
+Do not hide a real fatal error by simply changing Return="check" to ignore.
+
+Fix the executable first.
+
+============================================================
+PHASE 10 — CHECK OTHER CUSTOM ACTIONS NOW
+============================================================
+
+Do not stop after WriteConfig.
+
+Inspect EVERY Dashboard.SetupHelper action in the MSI.
+
+For example:
+
+IIS configuration
+Desktop Client integration
+Web Client integration
+configuration writing
+cleanup/uninstall
+service/application pool operations
+
+Apply the same reliability and logging strategy.
+
+I do NOT want to fix WriteConfig and then discover another Error 1722 on
+the next custom action.
+
+Run through the complete installation sequence now.
+
+============================================================
+PHASE 11 — BUILD
+============================================================
+
+After fixing everything:
+
+dotnet clean
+dotnet restore
+dotnet build -c Release
+
+Run the SetupHelper smoke tests.
+
+Then run the complete publish pipeline.
+
+Build must complete with:
+
+0 errors
+
+Fix warnings introduced by your changes.
+
+============================================================
+FINAL RESPONSE
+============================================================
+
+Do NOT give me another investigation-only response.
+
+Do NOT tell me what I should manually edit.
+
+Make the changes yourself.
+
+Do not stop at "I found the likely problem."
+
+Continue until the source code, build pipeline, staging, MSI custom actions,
+and smoke tests are corrected.
+
+At the end report:
+
+1. Exact root cause of WriteConfig exit code 1.
+2. Exact file and line/code responsible.
+3. Every file modified.
+4. What was changed.
+5. Whether --display-name "" was part of the problem.
+6. Whether appsettings.json existed in the packaged WebApp.
+7. Whether the MSI was packaging a stale SetupHelper.
+8. SetupHelper smoke-test result.
+9. Exit code from the exact WriteConfig test.
+10. SHA256 of the helper that is being packaged.
+11. Build result.
+12. Any remaining issue that could still make installation fail.
+
+The goal is not merely to compile.
+
+The goal is for LFDashboard-Setup.exe to complete installation successfully
+on a clean Windows machine without Visual Studio installed.

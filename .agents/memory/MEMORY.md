@@ -28,4 +28,5 @@
 - [WiX 4 IIS port runtime config](wix4-iis-port-runtime.md) — iis:WebAddress/@Port is compile-time only; use appcmd CA + Secure="yes" property for runtime port; Shortcut/@Arguments IS formatted.
 - [WiX 4 managed BA Payload deps](wix4-ba-payload-deps.md) — WixToolset.Mba.Core.dll must be an explicit Payload; pass as -d define not backslash concat in WXS.
 - [WiX 4 Mba.Host.config assemblyName](wix4-mba-host-config.md) — config MUST have <wix.bootstrapper> with assemblyName; <startup> alone → 0x80070490.
+- [MSI ExeCommand trailing-backslash quoting](msi-execommand-trailing-backslash.md) — never quote "[DIRPROP]" in ExeCommand; \" escapes the quote, corrupts the path arg, rolls back install (1722).
 - [WiX 4 MBA prereq package WIX6802](wix4-mba-prereq-package.md) — NetFx wixext has NO package groups in 4.0.5; define inline ExePackage with bal:PrereqPackage="yes"; ExeCommand→InstallArguments rename; Permanent="yes" avoids WIX0408.

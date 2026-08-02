@@ -32,6 +32,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Dashboard.SetupHelper
 {
@@ -39,10 +40,22 @@ namespace Dashboard.SetupHelper
     {
         static int Main(string[] args)
         {
+            // Persistent diagnostics: %ProgramData%\Dashboard\Logs\SetupHelper.log.
+            // The MSI log only shows "returned actual error code 1"; this log
+            // captures the full command, environment, and any exception chain.
+            SetupLog.Init();
+            SetupLog.Info("============================================================");
+            SetupLog.Info($"Invoked: {string.Join(" ", args.Select(a => a.Length == 0 ? "<EMPTY>" : a))}");
+            SetupLog.Info($"Process bitness: {(Environment.Is64BitProcess ? "x64" : "x86")}");
+            try { SetupLog.Info($"Current directory: {Environment.CurrentDirectory}"); } catch { }
+
+            int rc;
             if (args.Length == 0)
             {
                 Console.Error.WriteLine("Usage: Dashboard.SetupHelper.exe <command> [--key value ...]");
                 Console.Error.WriteLine("Commands: --write-config, --deploy-webclient, --remove-webclient, --rollback-webclient");
+                SetupLog.Error("No command supplied.");
+                SetupLog.Info("Final exit code: 1");
                 return 1;
             }
 
@@ -54,27 +67,38 @@ namespace Dashboard.SetupHelper
                 switch (command)
                 {
                     case "--write-config":
-                        return WriteConfigAction.Execute(opts);
+                        rc = WriteConfigAction.Execute(opts);
+                        break;
 
                     case "--deploy-webclient":
-                        return WebClientAction.Deploy(opts);
+                        rc = WebClientAction.Deploy(opts);
+                        break;
 
                     case "--remove-webclient":
-                        return WebClientAction.Remove(opts);
+                        rc = WebClientAction.Remove(opts);
+                        break;
 
                     case "--rollback-webclient":
-                        return WebClientAction.Rollback(opts);
+                        rc = WebClientAction.Rollback(opts);
+                        break;
 
                     default:
                         Console.Error.WriteLine($"Unknown command: {command}");
-                        return 1;
+                        SetupLog.Error($"Unknown command: {command}");
+                        rc = 1;
+                        break;
                 }
             }
             catch (Exception ex)
             {
+                // Log the COMPLETE exception chain before returning non-zero.
+                SetupLog.Error(ex);
                 Console.Error.WriteLine($"[ERROR] {ex.GetType().Name}: {ex.Message}");
-                return 1;
+                rc = 1;
             }
+
+            SetupLog.Info($"Final exit code: {rc}");
+            return rc;
         }
 
         // Parses "--key value" pairs from args starting at startIndex.

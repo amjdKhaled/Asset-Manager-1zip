@@ -223,9 +223,19 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
       No passwords or credentials are passed to any SetupHelper command.
     -->
 
+    <!--
+      QUOTING NOTE (root cause of the 0x80070643 / Error 1722 failure):
+      [WEBAPPFOLDER] expands WITH a trailing backslash.  Writing
+      ...webapp-path "[WEBAPPFOLDER]" produced ..."C:\...\WebApp\" where the
+      final \" is parsed by CommandLineToArgvW as an ESCAPED LITERAL QUOTE,
+      so the helper received a path containing a '"' character and
+      Path.Combine threw "Illegal characters in path" (exit 1 -> rollback).
+      "[WEBAPPFOLDER]." appends a dot after the backslash so the closing
+      quote is no longer escaped; the helper normalizes the trailing "\.".
+    -->
     <CustomAction Id="WriteConfig"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --repo-id "[LF_REPO_ID]" --display-name "[LF_DISPLAY_NAME]" --port "[DASHBOARD_PORT]" --webapp-path "[WEBAPPFOLDER]"'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --repo-id "[LF_REPO_ID]" --display-name "[LF_DISPLAY_NAME]" --port "[DASHBOARD_PORT]" --webapp-path "[WEBAPPFOLDER]."'
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />
