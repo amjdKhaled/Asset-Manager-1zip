@@ -1,0 +1,420 @@
+CRITICAL REGRESSION.
+
+The Dashboard button in Laserfiche Web Client WAS WORKING before the latest reinstall.
+
+After rebuilding/reinstalling LFDashboard-Setup.exe, the Dashboard button has COMPLETELY DISAPPEARED from Laserfiche Web Client.
+
+This is confirmed visually.
+
+DO NOT touch Dashboard authentication.
+DO NOT touch repository passing.
+DO NOT touch LaserficheAuthService.
+DO NOT redesign the installer.
+DO NOT modify working Dashboard/IIS functionality.
+
+We are investigating ONLY the Web Client Dashboard button deployment regression.
+
+============================================================
+KNOWN HISTORY
+============================================================
+
+Previously:
+
+- Dashboard installer completed successfully.
+- Dashboard IIS site worked.
+- Dashboard button appeared in Laserfiche Web Client.
+- Clicking the button opened Dashboard.
+- Active repository LFNewRepoWF was passed correctly.
+
+Therefore the JavaScript/button implementation itself is proven capable of working.
+
+After reinstalling the project:
+
+- Dashboard website still exists.
+- Laserfiche Web Client still works.
+- But the Dashboard button is completely absent.
+
+Find exactly WHY the reinstall stopped deploying/injecting the button.
+
+============================================================
+PHASE 1 - TRACE THE INSTALLATION CHAIN
+============================================================
+
+Trace the complete chain:
+
+BA checkbox
+-> Burn variable
+-> MSI property
+-> Product.wxs condition
+-> Dashboard.SetupHelper
+-> WebClientAction.Deploy()
+-> detected Web Client physical path
+-> Browse.aspx modification
+-> JavaScript/CSS/assets copied
+-> resulting Laserfiche Web Client HTML
+
+Do not assume any stage worked.
+
+For every stage determine:
+
+- expected value
+- actual value
+- condition that enables it
+- failure behavior
+
+============================================================
+PHASE 2 - CHECK THE MOST IMPORTANT CONDITION
+============================================================
+
+Inspect Product.wxs.
+
+Find the custom action that deploys the Web Client button.
+
+Specifically verify whether something like:
+
+LF_WEB_CLIENT_PATH <> ""
+
+controls execution.
+
+Then inspect how LF_WEB_CLIENT_PATH gets populated.
+
+If Web Client detection fails and LF_WEB_CLIENT_PATH is empty, the custom action may silently never run.
+
+That would exactly explain:
+
+Installer succeeds
+Dashboard installs
+Web Client works
+Dashboard button absent
+
+Do not make the custom action silently optional without logging why it was skipped.
+
+============================================================
+PHASE 3 - VERIFY IIS DETECTION
+============================================================
+
+This machine has Laserfiche Web Client installed in IIS as:
+
+IIS application:
+
+/Laserfiche
+
+We previously confirmed this using:
+
+Get-WebApplication
+
+The physical path is the Laserfiche Web Access/Web Client installation.
+
+DetectionService was previously modified to inspect IIS/applicationHost.config.
+
+Verify that code STILL EXISTS in the exact Dashboard.BA.dll being packaged.
+
+Check:
+
+DetectWebClientViaIis()
+
+and verify it detects:
+
+/Laserfiche
+
+Then verify the physical path contains:
+
+Browse.aspx
+
+Do not rely only on registry detection.
+
+============================================================
+PHASE 4 - VERIFY THE ACTUAL INSTALLED FILE
+============================================================
+
+The critical question:
+
+WAS Browse.aspx ACTUALLY PATCHED AFTER THE LATEST INSTALL?
+
+Determine the physical path of the /Laserfiche IIS application.
+
+Then inspect:
+
+<physical path>\Browse.aspx
+
+Search for every Dashboard marker used by WebClientAction.
+
+For example:
+
+Dashboard
+lf-webclient-button
+lf-dashboard
+dashboardUrl
+LFDashboard
+
+Use the actual markers from the code.
+
+If NONE exist:
+
+the deployment custom action did not run or failed.
+
+If the markers exist:
+
+then investigate JS loading/runtime failure instead.
+
+This distinction MUST be established before changing code.
+
+============================================================
+PHASE 5 - VERIFY DEPLOYED ASSETS
+============================================================
+
+Inspect WebClientAction.Deploy() and determine every file it is supposed to install.
+
+Verify each file exists after installation.
+
+For example, if the implementation deploys:
+
+lf-webclient-button.js
+CSS
+icons
+config files
+
+check their exact expected destination.
+
+Do not guess filenames; derive them from source.
+
+For every required asset report:
+
+SOURCE:
+<installer payload path>
+
+DESTINATION:
+<Laserfiche Web Client path>
+
+EXISTS AFTER INSTALL:
+true/false
+
+============================================================
+PHASE 6 - CHECK SETUPHELPER LOG
+============================================================
+
+We already added deterministic SetupHelper logging.
+
+Inspect:
+
+C:\ProgramData\Dashboard\Logs\SetupHelper.log
+
+Find the LAST installation.
+
+I want explicit logging for:
+
+WebClient Deploy started
+Received --path
+Sanitized path
+Browse.aspx resolved path
+Browse.aspx exists
+Backup created
+JS asset copied
+Injection marker inserted
+Verification result
+Deploy exit code
+
+If these log messages do not currently exist, add them.
+
+WebClient deployment must NEVER fail silently again.
+
+============================================================
+PHASE 7 - REINSTALL / REPAIR BEHAVIOR
+============================================================
+
+This is extremely important.
+
+The button worked before reinstall and disappeared AFTER reinstall.
+
+Inspect uninstall/rollback/repair sequencing.
+
+Potential scenario:
+
+Old installation:
+Browse.aspx patched.
+
+New installer starts:
+RemoveWebClient or rollback restores original Browse.aspx.
+
+Then new DeployWebClient fails/skips.
+
+Final result:
+original Browse.aspx remains
+button disappears.
+
+Trace:
+
+RemoveWebClient
+RollbackWebClient
+DeployWebClient
+
+and their MSI sequencing/conditions.
+
+Verify reinstall/upgrade behavior.
+
+Make deployment IDEMPOTENT.
+
+Running installer repeatedly must result in exactly ONE Dashboard button.
+
+Expected behavior:
+
+Fresh install:
+0 -> 1 button
+
+Repair:
+1 -> 1 button
+
+Reinstall:
+1 -> 1 button
+
+Upgrade:
+1 -> 1 button
+
+Uninstall:
+1 -> 0 button
+
+Never:
+
+1 -> 0 after reinstall
+
+and never:
+
+1 -> 2
+
+============================================================
+PHASE 8 - DO NOT USE FRAGILE FULL-FILE RESTORE
+============================================================
+
+Inspect how Browse.aspx backup/restore works.
+
+If uninstall/reinstall restores an old entire Browse.aspx backup, verify it cannot overwrite newer Laserfiche changes.
+
+Prefer marker-based insertion/removal if the current architecture allows it:
+
+<!-- LFDASHBOARD-BEGIN -->
+...
+<!-- LFDASHBOARD-END -->
+
+or equivalent safe markers.
+
+Deployment:
+remove existing Dashboard marker block if present,
+then insert one fresh block.
+
+Removal:
+remove ONLY the Dashboard marker block.
+
+Do not overwrite unrelated Laserfiche Web Client changes.
+
+Do not implement this blindly if the current code already has a safer mechanism; inspect first.
+
+============================================================
+PHASE 9 - VERIFY INSTALLER PAYLOAD
+============================================================
+
+Confirm the FINAL MSI/Bundle actually contains the current versions of:
+
+Dashboard.SetupHelper.exe
+Web Client JS asset(s)
+Web Client CSS/icon asset(s), if applicable
+current Dashboard.BA.dll
+
+Check hashes source vs staging where practical.
+
+We already had stale BA problems before.
+
+Do not allow another stale binary.
+
+============================================================
+PHASE 10 - ADD POST-INSTALL VERIFICATION
+============================================================
+
+After DeployWebClient runs, SetupHelper must verify the deployment.
+
+At minimum:
+
+1. Browse.aspx exists.
+2. Dashboard injection marker exists exactly once.
+3. Required JS asset exists.
+4. Required configuration contains Dashboard URL if applicable.
+
+If deployment was REQUESTED by the user and verification fails:
+
+RETURN NON-ZERO.
+
+Do not report successful deployment when the button was not installed.
+
+If Web Client integration was not selected, skipping it is fine.
+
+============================================================
+PHASE 11 - GIVE ME A WINDOWS DIAGNOSTIC COMMAND
+============================================================
+
+Create ONE PowerShell diagnostic block I can run after installation that prints:
+
+1. /Laserfiche IIS physical path
+2. Browse.aspx exists
+3. Dashboard marker count
+4. Dashboard JS exists
+5. last SetupHelper WebClient deployment log
+6. whether installer configuration requested Web Client integration
+
+It must be copy/paste ready for Windows PowerShell 5.1.
+
+============================================================
+IMPORTANT
+============================================================
+
+DO NOT FIX THIS BY HARDCODING MY CURRENT:
+
+C:\Program Files\Laserfiche\...
+
+path.
+
+The installer must work on OTHER MACHINES.
+
+It must dynamically detect the /Laserfiche IIS application's physical path.
+
+DO NOT hardcode LFNewRepoWF.
+
+Repository is runtime context and is unrelated to this regression.
+
+DO NOT change Dashboard authentication in this task.
+
+============================================================
+SUCCESS CRITERIA
+============================================================
+
+Do not stop because the project builds.
+
+The implementation is correct only when the deployment logic guarantees:
+
+Fresh install -> Dashboard button present
+Reinstall -> Dashboard button still present exactly once
+Repair -> Dashboard button present exactly once
+Uninstall -> Dashboard button removed
+
+And Web Client detection works from IIS even when registry/default-path detection fails.
+
+============================================================
+FINAL REPORT REQUIRED
+============================================================
+
+Return ONLY after investigation and fixes with:
+
+1. Exact reason the button disappeared after reinstall.
+2. Whether DeployWebClient ran.
+3. Value of LF_WEB_CLIENT_PATH.
+4. Detected /Laserfiche physical path.
+5. Whether Browse.aspx contained the Dashboard marker before fix.
+6. Exact reinstall sequencing bug, if any.
+7. Files changed.
+8. How idempotent deployment now works.
+9. Post-deploy verification behavior.
+10. Build/test results.
+11. The Windows PowerShell diagnostic command.
+12. Any remaining risk.
+
+DO NOT GUESS.
+
+TRACE THE ACTUAL INSTALLATION PATH AND FIX THE REGRESSION.

@@ -44,8 +44,12 @@ namespace Dashboard.SetupHelper
             // SanitizeDir strips stray '"' characters produced by MSI
             // trailing-backslash-quote escaping (see PathUtil.cs).
             string dashUrl = Opt(opts, "url").TrimEnd('/');
-            string wcPath  = PathUtil.SanitizeDir(Opt(opts, "path"));
+            string rawPath = Opt(opts, "path");
+            string wcPath  = PathUtil.SanitizeDir(rawPath);
 
+            SetupLog.Info("WebClient Deploy started.");
+            SetupLog.Info($"Received --path: '{rawPath}'");
+            SetupLog.Info($"Sanitized path: '{wcPath}'");
             SetupLog.Info($"DeployWebClient: url='{dashUrl}' path='{wcPath}'");
 
             if (string.IsNullOrEmpty(wcPath))
@@ -55,9 +59,11 @@ namespace Dashboard.SetupHelper
             }
 
             string browseAspx = Path.Combine(wcPath, "Browse.aspx");
+            SetupLog.Info($"Browse.aspx resolved path: {browseAspx} (exists: {File.Exists(browseAspx)})");
             if (!File.Exists(browseAspx))
             {
                 SetupLog.Error($"Browse.aspx not found at: {browseAspx}");
+                SetupLog.Info("Deploy exit code: 1");
                 return 1;
             }
 
@@ -72,6 +78,7 @@ namespace Dashboard.SetupHelper
             if (jsSource == null)
             {
                 SetupLog.Error("lf-webclient-button.js not found relative to this EXE.");
+                SetupLog.Info("Deploy exit code: 1");
                 return 1;
             }
 
@@ -104,7 +111,12 @@ namespace Dashboard.SetupHelper
             string browseContent = File.ReadAllText(browseAspx, Encoding.UTF8);
             if (browseContent.Contains(ScriptTagFragment))
             {
-                SetupLog.Info("Script tag already present in Browse.aspx; skipping insertion.");
+                int existingCount = CountOccurrences(browseContent, ScriptTagFragment);
+                SetupLog.Info($"Script tag already present in Browse.aspx (count: {existingCount}); skipping insertion.");
+                if (existingCount != 1)
+                    SetupLog.Warn($"Unexpected pre-existing tag count {existingCount}; manual review recommended.");
+                SetupLog.Info("Verification result: PASS (tag present, JS refreshed).");
+                SetupLog.Info("Deploy exit code: 0");
                 return 0;
             }
 
@@ -151,17 +163,19 @@ namespace Dashboard.SetupHelper
             // Step 6: Verify
             string finalContent = File.ReadAllText(browseAspx, Encoding.UTF8);
             int tagCount = CountOccurrences(finalContent, ScriptTagFragment);
-            SetupLog.Info($"Verification: script tag count in Browse.aspx = {tagCount} (expected 1).");
-            if (tagCount != 1)
+            bool jsOk    = File.Exists(jsDest);
+            SetupLog.Info($"Verification: script tag count in Browse.aspx = {tagCount} (expected 1); JS asset exists = {jsOk}.");
+            if (tagCount == 0 || !jsOk)
             {
-                SetupLog.Warn($"Unexpected script tag count {tagCount} in Browse.aspx; manual review recommended.");
-                if (tagCount == 0)
-                {
-                    SetupLog.Error("Script tag was not inserted -- deployment failed.");
-                    return 1;
-                }
+                SetupLog.Error("Post-deploy verification FAILED -- Dashboard button was not installed.");
+                SetupLog.Info("Deploy exit code: 1");
+                return 1;
             }
+            if (tagCount != 1)
+                SetupLog.Warn($"Unexpected script tag count {tagCount} in Browse.aspx; manual review recommended.");
 
+            SetupLog.Info("Verification result: PASS.");
+            SetupLog.Info("Deploy exit code: 0");
             return 0;
         }
 
@@ -206,6 +220,22 @@ namespace Dashboard.SetupHelper
             File.WriteAllLines(browseAspx, newLines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             SetupLog.Info($"Dashboard script tag removed from: {browseAspx}");
             SetupLog.Info($"Pre-removal backup: {backupPath}");
+
+            // Clean up the deployed JS asset (marker-based removal only touches
+            // Dashboard-owned artifacts; Browse.aspx content is otherwise untouched).
+            try
+            {
+                string jsDeployed = Path.Combine(wcPath, "assets", "custom", "lf-dashboard-button.js");
+                if (File.Exists(jsDeployed))
+                {
+                    File.Delete(jsDeployed);
+                    SetupLog.Info($"Removed deployed JS: {jsDeployed}");
+                }
+            }
+            catch (Exception ex)
+            {
+                SetupLog.Warn($"Could not remove deployed JS: {ex.Message}");
+            }
 
             return 0;
         }

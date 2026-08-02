@@ -34,4 +34,5 @@
 - [Smoke test WriteConfig validation](smoke-test-writecofig-validation.md) — parse WriteConfig log line for VALUES not raw stdout; Invoked: line legitimately contains both --webapp-path and --config-dir tokens.
 - [IIS Web Client detection](iis-webclient-detection.md) — DetectionService now checks applicationHost.config + appcmd before registry; covers non-default /Laserfiche IIS app paths.
 - [SetupHelper smoke test quoting](setuphelper-smoke-quoting.md) — use Start-Process -ArgumentList array (not string) with trailing \. to avoid CommandLineToArgvW consuming --config-dir into --webapp-path.
+- [Burn same-version reinstall](burn-same-version-reinstall.md) — AllowSameVersionUpgrades + NOT UPGRADINGPRODUCTCODE required, or old bundle's late uninstall strips the Web Client button (1->0).
 - [WiX 4 MBA prereq package WIX6802](wix4-mba-prereq-package.md) — NetFx wixext has NO package groups in 4.0.5; define inline ExePackage with bal:PrereqPackage="yes"; ExeCommand→InstallArguments rename; Permanent="yes" avoids WIX0408.

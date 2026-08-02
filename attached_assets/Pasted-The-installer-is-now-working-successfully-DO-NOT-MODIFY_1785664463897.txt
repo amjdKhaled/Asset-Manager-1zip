@@ -1,0 +1,418 @@
+The installer is now working successfully.
+
+DO NOT MODIFY:
+- WiX installer
+- Burn BA
+- Dashboard button deployment
+- Web Client integration
+- publish.ps1
+- repository passing logic
+- IIS Dashboard site creation
+
+These parts are confirmed working.
+
+The Web Client Dashboard button now appears and correctly passes the active repository dynamically.
+
+Example:
+
+Web Client repository:
+LFNewRepoWF
+
+Dashboard login page receives:
+LFNewRepoWF
+
+So repository context passing is WORKING.
+
+============================================================
+ONLY REMAINING BUG
+============================================================
+
+Login always shows:
+
+"Could not reach the Laserfiche server.
+Check your network connection and try again."
+
+Known facts from the Windows machine:
+
+Dashboard:
+http://desktop-k1svi53:5000
+
+Laserfiche Repository API:
+https://localhost/LFRepositoryAPI
+
+PowerShell test from the SAME machine:
+
+Invoke-WebRequest "https://localhost/LFRepositoryAPI"
+
+returns:
+
+HTTP 200
+
+and redirects successfully to:
+
+https://localhost/LFRepositoryAPI/swagger/index.html
+
+IIS application exists:
+
+/LFRepositoryAPI
+
+Physical path:
+
+C:\Program Files\Laserfiche\API Server\LFRepositoryAPI
+
+Application pool:
+
+LFRepositoryAPI
+
+Therefore DO NOT assume the API is simply offline.
+
+============================================================
+TASK 1 - TRACE THE EXACT LOGIN REQUEST
+============================================================
+
+Inspect the complete login path:
+
+LoginController
+-> LaserficheAuthService
+-> HttpClient configuration
+-> token/authentication request
+-> LFRepositoryAPI
+
+Find the EXACT URL being requested during login.
+
+I want logging immediately before the HTTP request containing:
+
+- configured ServerUrl
+- configured ApiBasePath
+- ApiVersion
+- repository
+- final absolute request URI
+- HTTP method
+
+DO NOT LOG PASSWORDS.
+
+Example:
+
+[LF AUTH]
+ServerUrl=https://localhost/LFRepositoryAPI
+Repository=LFNewRepoWF
+Method=POST
+FinalUri=https://localhost/LFRepositoryAPI/v1/Repositories/LFNewRepoWF/Token
+
+Use the actual endpoint produced by the code.
+
+Do not invent the endpoint.
+
+============================================================
+TASK 2 - LOG THE REAL FAILURE
+============================================================
+
+The current UI message is hiding the real exception.
+
+For the authentication request log:
+
+- HTTP status code
+- reason phrase
+- response body (sanitize secrets)
+- exception type
+- exception message
+- inner exception type/message
+- HResult
+- SocketException.SocketErrorCode if present
+- HttpRequestException details
+- AuthenticationException details
+- TLS/certificate errors
+- timeout errors
+
+Write diagnostics to:
+
+C:\ProgramData\Dashboard\Logs\Dashboard.log
+
+or another deterministic file under:
+
+C:\ProgramData\Dashboard\Logs\
+
+The IIS-hosted application MUST be able to write there.
+
+Do not rely only on console logging.
+
+============================================================
+TASK 3 - CHECK URL CONSTRUCTION FOR DOUBLE LFRepositoryAPI
+============================================================
+
+Current config is:
+
+{
+  "Laserfiche": {
+    "ServerUrl": "https://localhost/LFRepositoryAPI",
+    "ApiBasePath": "/LFRepositoryAPI",
+    "ApiVersion": "v1",
+    "TimeoutSeconds": 30,
+    "CredentialProvider": "DPAPI"
+  }
+}
+
+THIS IS SUSPICIOUS.
+
+ServerUrl already contains:
+
+/LFRepositoryAPI
+
+and ApiBasePath ALSO contains:
+
+/LFRepositoryAPI
+
+Inspect URL construction carefully.
+
+Make absolutely sure the code is NOT generating something like:
+
+https://localhost/LFRepositoryAPI/LFRepositoryAPI/...
+
+If ServerUrl represents the complete API base URL, ApiBasePath must NOT be appended again.
+
+Define ONE clear contract.
+
+Preferred contract if compatible with the existing code:
+
+ServerUrl =
+https://localhost
+
+ApiBasePath =
+/LFRepositoryAPI
+
+OR:
+
+ServerUrl =
+https://localhost/LFRepositoryAPI
+
+ApiBasePath =
+empty / informational only
+
+Do NOT keep two independent path components if both are being concatenated.
+
+Add unit tests proving the final API URL contains LFRepositoryAPI exactly ONCE.
+
+============================================================
+TASK 4 - CHECK THE REAL LASERFICHE TOKEN ENDPOINT
+============================================================
+
+Do not guess the Laserfiche authentication URL.
+
+Inspect the existing implementation and, if necessary, Laserfiche Repository API v1 Swagger/API contract.
+
+Determine the exact authentication endpoint expected by the installed on-prem LFRepositoryAPI.
+
+Check:
+
+- endpoint path
+- repository parameter location
+- HTTP method
+- Content-Type
+- request body format
+- username/password fields
+- API version path
+
+Then compare that contract with LaserficheAuthService.
+
+If the code is calling the wrong endpoint, FIX IT.
+
+============================================================
+TASK 5 - IIS SERVICE ACCOUNT VS INTERACTIVE USER
+============================================================
+
+PowerShell reaching:
+
+https://localhost/LFRepositoryAPI
+
+does NOT prove that the Dashboard IIS worker process can successfully establish the same HTTPS connection.
+
+Determine the Dashboard application pool identity.
+
+Test connectivity FROM THE APPLICATION itself.
+
+Add a temporary diagnostic endpoint, for example:
+
+GET /api/diagnostics/laserfiche
+
+It should perform a server-side request to the configured LFRepositoryAPI and return ONLY safe diagnostic information:
+
+{
+  "configuredServerUrl": "...",
+  "resolvedApiUrl": "...",
+  "reachable": true/false,
+  "statusCode": ...,
+  "exceptionType": "...",
+  "exceptionMessage": "..."
+}
+
+NO credentials.
+NO tokens.
+NO passwords.
+
+This endpoint should be development/admin diagnostic functionality and should not expose secrets.
+
+============================================================
+TASK 6 - CHECK TLS CERTIFICATE VALIDATION
+============================================================
+
+This is especially important because the API uses:
+
+https://localhost
+
+Check whether the certificate presented by LFRepositoryAPI:
+
+- is trusted by the machine
+- matches localhost
+- has a valid chain
+- is accepted by the Dashboard IIS process
+
+If HttpClient throws:
+
+AuthenticationException
+"The remote certificate is invalid..."
+
+then report that EXACTLY.
+
+DO NOT globally disable TLS validation.
+
+DO NOT add:
+
+ServerCertificateCustomValidationCallback = ... => true
+
+as a production fix.
+
+If this is a development/self-signed certificate issue, provide a safe development-only solution or fix the certificate/trust configuration.
+
+============================================================
+TASK 7 - IMPROVE ERROR CLASSIFICATION
+============================================================
+
+The UI must stop turning every exception into:
+
+"Could not reach the Laserfiche server."
+
+Distinguish at least:
+
+401:
+Invalid username or password.
+
+403:
+The account does not have permission.
+
+404:
+Repository or API endpoint not found.
+
+TLS:
+Could not establish a trusted HTTPS connection to Laserfiche.
+
+Connection refused:
+Laserfiche Repository API is unreachable.
+
+Timeout:
+Laserfiche Repository API timed out.
+
+5xx:
+Laserfiche Repository API returned a server error.
+
+Malformed URL:
+Dashboard Laserfiche API configuration is invalid.
+
+Unknown repository:
+Repository 'LFNewRepoWF' was not found.
+
+Only use the generic network message when it is genuinely a network failure.
+
+============================================================
+TASK 8 - VERIFY REPOSITORY CASING
+============================================================
+
+The Web Client currently passes:
+
+LFNewRepoWF
+
+Verify the repository identifier expected by LFRepositoryAPI is exactly:
+
+LFNewRepoWF
+
+Do not lowercase it unless Laserfiche explicitly treats repository identifiers case-insensitively.
+
+The screenshots prove dynamic repository passing is working, so DO NOT redesign this mechanism.
+
+============================================================
+TASK 9 - TEST URL BUILDER
+============================================================
+
+Add automated tests for at least:
+
+ServerUrl:
+https://localhost/LFRepositoryAPI
+
+Repository:
+LFNewRepoWF
+
+The resulting authentication URL must:
+
+- be absolute
+- use HTTPS
+- contain LFRepositoryAPI exactly once
+- contain the correct API version
+- contain the correct repository
+- contain no duplicate slashes/path segments
+
+Also test:
+
+https://localhost/
+
++
+
+/LFRepositoryAPI
+
+to ensure the URL builder normalizes both configurations safely.
+
+============================================================
+TASK 10 - DO NOT TOUCH INSTALLER
+============================================================
+
+Again:
+
+DO NOT MODIFY THE INSTALLER.
+
+The installer works.
+
+DO NOT modify:
+Dashboard.BA
+Bundle.wxs
+Product.wxs
+publish.ps1
+Web Client button deployment
+
+unless you discover that the generated Laserfiche URL configuration itself is objectively wrong.
+
+If config generation is wrong, make the SMALLEST possible correction only.
+
+============================================================
+SUCCESS CRITERIA
+============================================================
+
+Do not stop at "build succeeded."
+
+The fix is complete only when the code can demonstrate the exact server-side authentication request and classify its response correctly.
+
+Final report must contain:
+
+1. Exact final authentication URL before the fix.
+2. Exact final authentication URL after the fix.
+3. Whether LFRepositoryAPI appeared twice in the old URL.
+4. Exact HTTP status or exception causing the current red message.
+5. Whether TLS validation was involved.
+6. Whether LFNewRepoWF was passed correctly.
+7. Files changed.
+8. Tests added.
+9. Build result.
+10. Exact log file path on Windows.
+11. PowerShell command I can run after installation to read the latest authentication diagnostics.
+
+DO NOT speculate.
+TRACE THE REQUEST.
+FIND THE ACTUAL FAILURE.
+FIX THE ACTUAL FAILURE.

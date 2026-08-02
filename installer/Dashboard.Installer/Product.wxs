@@ -32,7 +32,22 @@
       Configuration in %ProgramData%\Dashboard\ is preserved because those
       components use NeverOverwrite="yes" + Permanent="yes" in Configuration.wxs.
     -->
+    <!--
+      AllowSameVersionUpgrades="yes" (REGRESSION FIX):
+        publish.ps1 builds every release as the same ProductVersion (1.0.0 by
+        default) with an auto-generated ProductCode.  Without this flag,
+        FindRelatedProducts does NOT treat a same-version rebuild as an upgrade,
+        so a reinstall left the OLD MSI installed side-by-side.  Burn then
+        uninstalled the old bundle AFTER the new chain completed; the old MSI's
+        RemoveWebClient ran with its persisted LF_WEB_CLIENT_PATH and stripped
+        the Dashboard button that the new install had just verified (1 -> 0).
+        With this flag the new MSI removes the old MSI early (RemoveExistingProducts
+        afterInstallInitialize, where LF_WEB_CLIENT_PATH is empty so the old
+        RemoveWebClient is skipped); when Burn later uninstalls the old bundle the
+        MSI package is already absent, so nothing strips the button.
+    -->
     <MajorUpgrade
+      AllowSameVersionUpgrades="yes"
       DowngradeErrorMessage="A newer version of Dashboard is already installed. Downgrade is not supported. Please uninstall the current version first."
       Schedule="afterInstallInitialize" />
 
@@ -240,12 +255,18 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
                   Impersonate="no"
                   Return="check" />
 
+    <!--
+      Return="check" (was "ignore"): DeployWebClient only runs when the user
+      explicitly requested Web Client integration (INSTALL_WEB_BUTTON=1 AND
+      LF_WEB_CLIENT_PATH<>"").  A requested deployment that fails verification
+      must fail the install loudly instead of reporting success with no button.
+    -->
     <CustomAction Id="DeployWebClient"
                   Directory="EXTENSIONFOLDER"
                   ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --deploy-webclient --url "[DASHBOARD_URL]" --path "[LF_WEB_CLIENT_PATH]."'
                   Execute="deferred"
                   Impersonate="no"
-                  Return="ignore" />
+                  Return="check" />
 
     <CustomAction Id="RollbackWebClient"
                   Directory="EXTENSIONFOLDER"
@@ -361,9 +382,14 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
               Condition="NOT REMOVE~=&quot;ALL&quot; AND INSTALL_WEB_BUTTON=&quot;1&quot; AND LF_WEB_CLIENT_PATH&lt;&gt;&quot;&quot;" />
 
       <!-- Uninstall actions -->
+      <!--
+        NOT UPGRADINGPRODUCTCODE (defense in depth): never strip the Dashboard
+        button when this product is being removed as part of an upgrade -- the
+        replacing product owns the button from that point on.
+      -->
       <Custom Action="RemoveWebClient"
               Before="UnregisterExtension"
-              Condition="REMOVE~=&quot;ALL&quot; AND LF_WEB_CLIENT_PATH&lt;&gt;&quot;&quot;" />
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND LF_WEB_CLIENT_PATH&lt;&gt;&quot;&quot;" />
       <Custom Action="UnregisterExtension"
               Before="RemoveFiles"
               Condition="REMOVE~=&quot;ALL&quot;" />
