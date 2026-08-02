@@ -50,8 +50,16 @@ namespace Dashboard.BA
         public DashboardBA(IEngine engine, IBootstrapperCommand command)
             : base(engine)       // required by BootstrapperApplication base ctor
         {
+            // NOTE: StartupLogger.Log cannot be called BEFORE base(engine) because
+            // C# requires the base initialiser to run first.  We log immediately after
+            // the base constructor returns so any failure in base(engine) is caught
+            // by the try/catch in BAFactory.Create() which wraps this constructor call.
+            StartupLogger.Log("DashboardBA constructor: base(engine) completed");
+
             _engine  = engine;
             _command = command;
+
+            StartupLogger.Log("DashboardBA constructor: completed");
         }
 
         // ----------------------------------------------------------------
@@ -70,13 +78,30 @@ namespace Dashboard.BA
         // ----------------------------------------------------------------
         protected override void Run()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
+            StartupLogger.Log("DashboardBA.Run entered");
+            try
+            {
+                StartupLogger.Log("  Calling Application.EnableVisualStyles()");
+                Application.EnableVisualStyles();
 
-            _form = new WizardForm(this);
-            Application.Run(_form);
+                StartupLogger.Log("  Calling Application.SetCompatibleTextRenderingDefault(false)");
+                Application.SetCompatibleTextRenderingDefault(false);
 
-            _engine.Quit(0);
+                StartupLogger.Log("  Creating WizardForm...");
+                _form = new WizardForm(this);
+                StartupLogger.Log("  WizardForm created successfully");
+
+                StartupLogger.Log("  Calling Application.Run(_form)...");
+                Application.Run(_form);
+                StartupLogger.Log("  Application.Run returned");
+
+                _engine.Quit(0);
+            }
+            catch (Exception ex)
+            {
+                StartupLogger.LogException("DashboardBA.Run FAILED", ex);
+                throw;
+            }
         }
 
         // ----------------------------------------------------------------

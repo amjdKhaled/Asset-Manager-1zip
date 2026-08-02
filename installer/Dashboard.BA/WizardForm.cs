@@ -123,10 +123,23 @@ namespace Dashboard.BA
 
         public WizardForm(DashboardBA ba)
         {
+            StartupLogger.Log("WizardForm constructor entered");
+
             _ba = ba;
             _ba.ProgressUpdated += OnProgressUpdated;
             _ba.InstallFinished += OnInstallFinished;
-            BuildForm();
+
+            StartupLogger.Log("WizardForm: event subscriptions done, calling BuildForm()");
+            try
+            {
+                BuildForm();
+                StartupLogger.Log("WizardForm: BuildForm() completed successfully");
+            }
+            catch (Exception ex)
+            {
+                StartupLogger.LogException("WizardForm.BuildForm() FAILED", ex);
+                throw;
+            }
         }
 
         private void BuildForm()

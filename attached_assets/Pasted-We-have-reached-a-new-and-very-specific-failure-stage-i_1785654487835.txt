@@ -1,0 +1,497 @@
+We have reached a new and very specific failure stage in our WiX 4.0.5 managed Bootstrapper Application.
+
+DO NOT make speculative changes.
+DO NOT change .NET prerequisite detection.
+DO NOT change the MSI.
+DO NOT change the web application.
+DO NOT change Dashboard.SetupHelper.
+DO NOT change the Desktop Extension.
+DO NOT change Bundle architecture unless direct evidence proves it is necessary.
+DO NOT add .NET 8 as a prerequisite.
+DO NOT revert the existing WixToolset.Mba.Host.config work.
+
+Current Windows runtime log:
+
+Burn x86 v4.0.5
+
+Loading managed bootstrapper application.
+
+Error 0x80131902: Failed to create the bootstrapper application.
+Error 0x80131902: Failed to create the managed bootstrapper application.
+Error 0x80131902: Failed to create BA.
+Error 0x80131902: Failed to load BA.
+Error 0x80131902: Failed while running
+
+.NET Framework detection succeeds:
+
+NetFx48Release = 533509
+Condition 'NetFx48Release >= 528040' evaluates to true.
+Detected package: NetFx48Prereq, state: Present
+
+Important history:
+
+1. Originally Burn failed with:
+
+0x8007006e
+Failed to load bootstrapper config file:
+.ba\WixToolset.Mba.Host.config
+
+That has been FIXED.
+
+2. After fixing WixToolset.Mba.Host.config, Burn progressed to:
+
+Loading managed bootstrapper application.
+
+Therefore CLR activation now succeeds.
+
+3. Dashboard.BA.dll has already been independently loaded using PowerShell reflection successfully.
+
+Reflection proved:
+
+Dashboard.BA.dll loads successfully.
+WixToolset.Mba.Core.dll loads successfully.
+
+Public types include:
+
+Dashboard.BA.BAFactory
+Dashboard.BA.DashboardBA
+
+Assembly attributes include:
+
+WixToolset.Mba.Core.BootstrapperApplicationFactoryAttribute
+
+4. Current staged BA files are:
+
+Dashboard.BA.dll
+WixToolset.Mba.Core.dll
+WixToolset.Mba.Host.config
+mbanative.dll
+
+5. WixToolset.Mba.Host.config currently specifies:
+
+assemblyName="Dashboard.BA"
+
+6. mbanative.dll is the win-x86 version from:
+
+WixToolset.Mba.Core 4.0.5
+runtimes/win-x86/native/mbanative.dll
+
+7. Dashboard.BA.csproj was changed from AnyCPU to x86 and its PE machine
+was verified as IMAGE_FILE_MACHINE_I386 / 0x014C.
+
+The exact same 0x80131902 still occurs.
+
+Therefore DO NOT assume architecture was the root cause.
+
+============================================================
+PRIMARY OBJECTIVE
+============================================================
+
+Find the ACTUAL managed exception occurring while WiX creates
+Dashboard.BA.DashboardBA.
+
+We need to stop guessing based only on Burn's HRESULT.
+
+Perform a complete code-level audit of:
+
+installer/Dashboard.BA/BAFactory.cs
+installer/Dashboard.BA/DashboardBA.cs
+installer/Dashboard.BA/WizardForm.cs
+installer/Dashboard.BA/DetectionService.cs
+installer/Dashboard.BA/InstallConfig.cs
+installer/Dashboard.BA/Dashboard.BA.csproj
+installer/Dashboard.BA/WixToolset.Mba.Host.config
+installer/Dashboard.Bundle/Bundle.wxs
+
+Also inspect any other source file executed from:
+
+BAFactory.Create(...)
+DashboardBA constructor
+BootstrapperApplication base constructor
+DashboardBA.Run()
+WizardForm constructor
+
+============================================================
+TASK 1 — TRACE THE COMPLETE STARTUP PATH
+============================================================
+
+Determine the exact execution sequence from:
+
+WixToolset.Mba.Host.dll
+
+to:
+
+BootstrapperApplicationFactoryAttribute
+
+to:
+
+BAFactory.Create(IEngine, IBootstrapperCommand)
+
+to:
+
+new DashboardBA(engine, command)
+
+to:
+
+DashboardBA constructor
+
+to:
+
+DashboardBA.Run()
+
+to:
+
+WizardForm creation/showing.
+
+List EVERY operation that executes before the first UI window becomes visible.
+
+Pay special attention to anything executed in:
+
+constructors
+field initializers
+static constructors
+property initializers
+
+because an exception there would explain why Burn disappears before showing UI.
+
+============================================================
+TASK 2 — AUDIT BAFactory
+============================================================
+
+Read the actual compiled-source BAFactory.cs.
+
+Verify against WixToolset.Mba.Core 4.0.5 API.
+
+Do NOT rely on memory of WiX 3 APIs.
+
+Inspect the installed NuGet package/reflection metadata if necessary.
+
+Verify:
+
+[assembly: BootstrapperApplicationFactory(...)]
+
+BAFactory inheritance
+
+Create method signature
+
+visibility
+
+return type
+
+constructor invocation
+
+IEngine handling
+
+IBootstrapperCommand handling
+
+Confirm that WiX 4.0.5 can instantiate this exact factory.
+
+============================================================
+TASK 3 — AUDIT DashboardBA CONSTRUCTOR
+============================================================
+
+This is the highest-priority area.
+
+Read every statement executed by:
+
+new DashboardBA(engine, command)
+
+including:
+
+base(engine)
+
+field initializers
+
+event subscriptions
+
+Engine property usage
+
+command usage
+
+DetectionService initialization
+
+InstallConfig initialization
+
+Windows Forms initialization
+
+registry access
+
+file-system access
+
+environment-variable access
+
+Laserfiche detection
+
+IIS detection
+
+service detection
+
+anything else.
+
+Look specifically for code capable of throwing:
+
+ConfigurationErrorsException
+FileNotFoundException
+FileLoadException
+DllNotFoundException
+BadImageFormatException
+TypeInitializationException
+MissingMethodException
+EntryPointNotFoundException
+InvalidOperationException
+NullReferenceException
+ArgumentException
+COMException
+SecurityException
+
+============================================================
+TASK 4 — CHECK WixToolset.Mba.Core VERSION/API COMPATIBILITY
+============================================================
+
+The project uses:
+
+WixToolset.Mba.Core 4.0.5
+
+Inspect the actual 4.0.5 assembly API via reflection or metadata.
+
+Confirm that DashboardBA and BAFactory are using the exact API expected
+by version 4.0.5.
+
+Do not use documentation for another WiX version.
+
+Pay special attention to:
+
+BaseBootstrapperApplicationFactory
+BootstrapperApplication
+IEngine
+IBootstrapperCommand
+Run()
+Create()
+event registration
+
+============================================================
+TASK 5 — INVESTIGATE HRESULT 0x80131902
+============================================================
+
+Determine what .NET exception/HRESULT 0x80131902 represents in this
+specific WiX MBA creation path.
+
+Do not simply state that it is a CLR error.
+
+Trace where WixToolset.Mba.Host.dll converts the managed exception into
+this HRESULT.
+
+If possible inspect/decompile:
+
+WixToolset.Mba.Host.dll
+WixToolset.Mba.Core.dll
+
+from WiX 4.0.5.
+
+Determine whether the underlying exception is being swallowed.
+
+============================================================
+TASK 6 — ADD EARLY STARTUP DIAGNOSTICS
+============================================================
+
+This is mandatory.
+
+Burn's log only reports the HRESULT and is hiding the real managed
+exception.
+
+Add a minimal crash diagnostic that works BEFORE the UI exists.
+
+Create a log such as:
+
+%TEMP%\LFDashboard-BA-startup.log
+
+The log must capture:
+
+timestamp
+process bitness
+CLR version
+AppDomain base directory
+BAFactory.Create entered
+DashboardBA constructor entered
+DashboardBA constructor completed
+DashboardBA.Run entered
+WizardForm constructor entered
+WizardForm constructor completed
+
+Most importantly, surround the earliest managed startup boundaries with
+try/catch and write:
+
+exception.GetType().FullName
+exception.Message
+exception.StackTrace
+exception.ToString()
+
+and recursively dump InnerException.
+
+Example intent:
+
+try
+{
+    Log("BAFactory.Create entered");
+    var ba = new DashboardBA(engine, command);
+    Log("DashboardBA created");
+    return ba;
+}
+catch (Exception ex)
+{
+    LogException("BAFactory.Create FAILED", ex);
+    throw;
+}
+
+The diagnostic logger MUST:
+
+- use only System.IO and framework APIs
+- not depend on Wix engine logging
+- not depend on the UI
+- not depend on third-party libraries
+- never throw if logging itself fails
+- write to Path.GetTempPath()
+
+This is critical because Burn's log is swallowing the managed exception.
+
+============================================================
+TASK 7 — TEST CONFIG PARSING DIRECTLY
+============================================================
+
+Validate WixToolset.Mba.Host.config using the actual
+WixToolset.Mba.Host 4.0.5 implementation.
+
+Our current file contains custom:
+
+<configSections>
+<sectionGroup name="wix.bootstrapper" ...>
+...
+<wix.bootstrapper>
+    <host assemblyName="Dashboard.BA">
+        ...
+    </host>
+</wix.bootstrapper>
+
+Do not assume this XML is correct merely because CLR activation succeeds.
+
+Compare it against the EXACT configuration schema expected by
+WixToolset.Mba.Host.dll 4.0.5.
+
+Pay particular attention to:
+
+assemblyName format
+
+whether it expects:
+Dashboard.BA
+or
+Dashboard.BA.dll
+or
+Dashboard.BA, Version=...
+
+supportedFrameworks syntax
+
+version value
+
+sku value
+
+section type assembly qualification
+
+configuration section ordering
+
+If the current file is wrong, fix it based on actual WiX 4.0.5 evidence.
+
+============================================================
+TASK 8 — RECONSIDER mbanative.dll
+============================================================
+
+Do not assume our manually bundled mbanative.dll is correct just because
+it exists.
+
+Determine from WixToolset.Mba.Core 4.0.5 implementation whether
+mbanative.dll:
+
+A) must be explicitly deployed next to the BA,
+
+B) is supplied/loaded by the WiX host itself,
+
+or
+
+C) should not be manually included.
+
+Inspect P/Invoke declarations and native loading behavior.
+
+If our manual payload is unnecessary or wrong, explain why before
+removing it.
+
+============================================================
+TASK 9 — DO NOT MAKE LARGE CHANGES YET
+============================================================
+
+First diagnose.
+
+The only unconditional modification you should make initially is the
+early startup diagnostic logging.
+
+After that, make a functional fix ONLY if static inspection provides
+strong evidence of the actual failure.
+
+Do not rewrite the installer architecture.
+
+Do not replace the managed BA.
+
+Do not migrate to another WiX version.
+
+Do not downgrade WiX.
+
+Do not replace Burn with a different installer.
+
+============================================================
+TASK 10 — BUILD-TIME VALIDATION
+============================================================
+
+Preserve all existing publish.ps1 guards.
+
+Do not remove:
+
+Dashboard.BA.dll existence check
+WixToolset.Mba.Core.dll check
+WixToolset.Mba.Host.config check
+mbanative.dll check
+BootstrapperApplicationFactoryAttribute check
+PE architecture check
+
+If useful, add additional deterministic checks.
+
+============================================================
+EXPECTED OUTPUT
+============================================================
+
+After investigation provide:
+
+1. Exact startup sequence.
+2. Exact location where failure can occur.
+3. Actual interpretation of 0x80131902.
+4. Whether BAFactory is correct.
+5. Whether DashboardBA constructor is safe.
+6. Whether WixToolset.Mba.Host.config is exactly correct for WiX 4.0.5.
+7. Whether mbanative.dll deployment is correct.
+8. Every file modified.
+9. Exact code changes.
+10. Build result.
+11. Exact Windows commands to rebuild.
+12. Exact Windows command to run the bundle.
+13. Exact command to read:
+
+%TEMP%\LFDashboard-BA-startup.log
+
+Most importantly:
+
+DO NOT claim the issue is fixed solely because the project builds.
+
+The authoritative runtime test is:
+
+Release\LFDashboard-Setup.exe
+
+If it still fails, the newly added startup log must expose the actual
+managed exception so the next diagnosis is based on evidence rather
+than another guessed dependency.
