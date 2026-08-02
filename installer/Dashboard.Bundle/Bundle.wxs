@@ -98,6 +98,31 @@
       -->
       <Payload SourceFile="$(var.MbaHostConfig)"
                Name="WixToolset.Mba.Host.config" />
+      <!--
+        mbanative.dll: native bridge that WixToolset.Mba.Core.dll P/Invokes into.
+
+        WixToolset.Mba.Core.dll calls into mbanative.dll for every Burn engine
+        API call (Detect, Plan, Apply, Quit, etc.).  Without it the very first
+        managed call after BA creation throws a DllNotFoundException and Burn
+        reports:
+          Error 0x80070490: Failed to create the managed bootstrapper application.
+
+        ARCHITECTURE: win-x86.
+          Burn 4.0.5 is an x86 process; native DLLs must match the process
+          bitness.  The win-x64 variant (174 KB) cannot be loaded from an x86
+          process — only the win-x86 variant (140 KB) is correct.
+
+        SOURCE: WixToolset.Mba.Core 4.0.5 NuGet package,
+          runtimes\win-x86\native\mbanative.dll.
+          Copied to the BA build output by the CopyMbaNativeDll MSBuild Target
+          in Dashboard.BA.csproj, staged to artifacts\staging\BA\ by Step 6,
+          and embedded here.
+
+        Name="mbanative.dll" is set explicitly to guarantee the extracted
+        filename inside the bundle.  $(var.MbaNative) is set by Step 9 via -d.
+      -->
+      <Payload SourceFile="$(var.MbaNative)"
+               Name="mbanative.dll" />
     </BootstrapperApplication>
 
     <!--

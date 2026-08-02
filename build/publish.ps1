@@ -770,6 +770,40 @@ else {
         exit 1
     }
     Write-OK "WixToolset.Mba.Host.config confirmed present in BA staging folder."
+
+    # ---- Guard 4: mbanative.dll (win-x86) ----
+    # WixToolset.Mba.Core.dll P/Invokes into mbanative.dll for every Burn engine
+    # API call.  Without it the first managed API call after BA creation throws a
+    # DllNotFoundException and Burn reports:
+    #   Error 0x80070490: Failed to create the managed bootstrapper application.
+    # Burn 4.0.5 is x86; only the win-x86 variant (140 KB) can be loaded.
+    # Source: WixToolset.Mba.Core 4.0.5 NuGet, runtimes\win-x86\native\mbanative.dll,
+    #         copied by the CopyMbaNativeDll MSBuild Target in Dashboard.BA.csproj.
+    $mbaNativeStaged = Join-Path $baStaging "mbanative.dll"
+    if (-not (Test-Path $mbaNativeStaged)) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] mbanative.dll is missing from BA staging:" `
+            -ForegroundColor Red
+        Write-Host ("    MISSING: {0}" -f $mbaNativeStaged) -ForegroundColor Red
+        Write-Host "" -ForegroundColor Red
+        Write-Host "  mbanative.dll must be copied to Dashboard.BA\bin\Release\net48\" -ForegroundColor Red
+        Write-Host "  by the CopyMbaNativeDll MSBuild Target in Dashboard.BA.csproj." -ForegroundColor Red
+        Write-Host "  Possible causes:" -ForegroundColor Red
+        Write-Host "    - The CopyMbaNativeDll Target was removed from Dashboard.BA.csproj" -ForegroundColor Red
+        Write-Host "    - The WixToolset.Mba.Core NuGet package is not restored" -ForegroundColor Red
+        Write-Host "    - The package version in the Target path does not match the" -ForegroundColor Red
+        Write-Host "      <PackageReference> (both must be 4.0.5)" -ForegroundColor Red
+        Write-Host "    - NuGet global packages folder is not at: `$(NuGetPackageRoot)" -ForegroundColor Red
+        Write-Host "      Check: dotnet nuget locals global-packages --list" -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    if ((Get-Item $mbaNativeStaged).Length -eq 0) {
+        Write-Host "  [PREFLIGHT FAILED] mbanative.dll is zero bytes: $mbaNativeStaged" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK ("mbanative.dll (win-x86) confirmed present in BA staging folder ({0:N0} bytes)." -f (Get-Item $mbaNativeStaged).Length)
 }
 
 # =============================================================================
@@ -1131,6 +1165,7 @@ else {
         "-d",      "BAAssembly=$baAssemblyPath",
         "-d",      "MbaCoreAssembly=$(Join-Path $baStagingDir 'WixToolset.Mba.Core.dll')",
         "-d",      "MbaHostConfig=$(Join-Path $baStagingDir 'WixToolset.Mba.Host.config')",
+        "-d",      "MbaNative=$(Join-Path $baStagingDir 'mbanative.dll')",
         "-d",      "MsiPath=$msiPath",
         "-d",      "BundleVersion=$Version",
         "-d",      "NetFx48Installer=$netFx48Installer",

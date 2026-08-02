@@ -1,0 +1,217 @@
+We now have definitive Windows runtime evidence from the WiX 4.0.5 Burn log.
+
+CURRENT STATUS
+==============
+
+The previous WixToolset.Mba.Host.config fix worked.
+
+The current Burn log contains:
+
+    Loading managed bootstrapper application.
+
+followed immediately by:
+
+    Error 0x80070490: Failed to create the bootstrapper application.
+    Error 0x80070490: Failed to create the managed bootstrapper application.
+    Error 0x80070490: Failed to create BA.
+    Error 0x80070490: Failed to load BA.
+
+.NET Framework detection is successful:
+
+    NetFx48Release = 533509
+    Condition 'NetFx48Release >= 528040' evaluates to true.
+
+Therefore:
+
+DO NOT modify the .NET Framework prerequisite logic.
+DO NOT rename WixToolset.Mba.Host.config.
+DO NOT modify the MSI.
+DO NOT guess.
+
+The CLR host/config problem is fixed.
+
+The failure is now specifically during creation/loading of the managed BootstrapperApplication.
+
+IMPORTANT WIX 4 REQUIREMENT
+===========================
+
+According to the WiX 4 Managed BA migration documentation:
+
+The Bal WiX extension does NOT automatically add:
+
+    WixToolset.Mba.Core.dll
+    mbanative.dll
+
+Both must be included with the managed BA dependencies.
+
+The WixToolset.Mba.Core 4.0.5 NuGet package contains architecture-specific native files such as:
+
+    runtimes\win-x86\native\mbanative.dll
+    runtimes\win-x64\native\mbanative.dll
+
+The current Burn log explicitly says:
+
+    Burn x86 v4.0.5
+
+So investigate which mbanative.dll must accompany this BA.
+
+TASK
+====
+
+Perform a complete WiX 4.0.5 Managed BootstrapperApplication runtime audit.
+
+Read before modifying:
+
+    installer/Dashboard.BA/Dashboard.BA.csproj
+    installer/Dashboard.BA/BAFactory.cs
+    installer/Dashboard.BA/DashboardBA.cs
+    installer/Dashboard.BA/WixToolset.Mba.Host.config
+    installer/Dashboard.Bundle/Bundle.wxs
+    build/publish.ps1
+
+Also inspect the restored WixToolset.Mba.Core/4.0.5 NuGet package directly.
+
+1. Confirm the exact location of:
+
+       runtimes\win-x86\native\mbanative.dll
+       runtimes\win-x64\native\mbanative.dll
+
+2. Determine from WiX 4.0.5 documentation/source/examples which architecture is required for an x86 Burn engine using:
+
+       bal:WixManagedBootstrapperApplicationHost
+
+3. Inspect Dashboard.BA.csproj.
+
+Do NOT assume AnyCPU is correct.
+
+WiX 4 documentation says Managed BAs should be SDK-style projects built for a specific RID.
+
+Determine whether Dashboard.BA should target:
+
+       win-x86
+
+or another architecture for this exact Bundle.
+
+4. Inspect the actual BA output directory after build.
+
+List every runtime file.
+
+Verify whether mbanative.dll is currently absent.
+
+5. Fix Dashboard.BA.csproj so the correct mbanative.dll is available in the BA build/staging output.
+
+Prefer the normal NuGet/runtime asset mechanism if WixToolset.Mba.Core supports it.
+
+Do NOT hard-code a developer-specific NuGet path.
+
+If RuntimeIdentifier is required, configure it correctly in the project.
+
+6. Update build/publish.ps1 Step 6.
+
+After staging Dashboard.BA, explicitly verify all required BA runtime files:
+
+       Dashboard.BA.dll
+       WixToolset.Mba.Core.dll
+       WixToolset.Mba.Host.config
+       mbanative.dll
+
+Each must:
+
+       exist
+       have Length > 0
+
+Fail immediately with a precise message otherwise.
+
+7. Update Bundle.wxs.
+
+The BootstrapperApplication payload set must include every runtime dependency required by the managed BA.
+
+Expected shape, subject to verification:
+
+    <BootstrapperApplication>
+        <bal:WixManagedBootstrapperApplicationHost />
+
+        <Payload SourceFile="$(var.BAAssembly)" />
+        <Payload SourceFile="$(var.MbaCoreAssembly)" />
+
+        <Payload SourceFile="$(var.MbaHostConfig)"
+                 Name="WixToolset.Mba.Host.config" />
+
+        <Payload SourceFile="$(var.MbaNative)"
+                 Name="mbanative.dll" />
+    </BootstrapperApplication>
+
+Do not blindly use this example.
+Verify against WiX 4.0.5 first.
+
+8. Update publish.ps1 Step 9 to pass the corresponding:
+
+       -d MbaNative=<absolute staged mbanative.dll path>
+
+if required.
+
+9. Audit BAFactory.
+
+Verify against WixToolset.Mba.Core 4.0.5:
+
+       [assembly: BootstrapperApplicationFactory(...)]
+       BaseBootstrapperApplicationFactory
+       Create(...)
+       IBootstrapperApplication return type
+       DashboardBA constructor
+
+Do not rewrite it unless there is an actual incompatibility.
+
+10. Check for hidden runtime dependencies.
+
+Inspect Dashboard.BA.dll references and determine whether any other non-framework DLL is required.
+
+Do not assume WixToolset.Mba.Core.dll is the only managed dependency.
+
+11. VERY IMPORTANT:
+
+Do not change the following because the runtime log proves they work:
+
+       WixToolset.Mba.Host.config
+       .NET Framework 4.8 prerequisite
+       NetFx48Release
+       ndp48-web.exe
+       DetectCondition
+       bal:PrereqPackage="yes"
+
+12. After fixing, report:
+
+       - exact root cause
+       - BA target architecture/RID before
+       - BA target architecture/RID after
+       - exact mbanative.dll architecture selected
+       - exact NuGet source path
+       - every BA payload in Bundle.wxs
+       - every BA runtime dependency
+       - every file changed
+       - Step 6 validation added
+       - whether BAFactory required changes
+       - whether any other dependency was missing
+
+13. Then run:
+
+       .\build\publish.ps1
+
+or, if Windows execution is unavailable, perform the strongest possible static/compiler validation.
+
+SUCCESS CRITERIA
+================
+
+The rebuilt Release\LFDashboard-Setup.exe must get past:
+
+    Loading managed bootstrapper application.
+
+without:
+
+    0x80070490
+    Failed to create the managed bootstrapper application
+    Failed to create BA
+    Failed to load BA
+
+Do not declare success from Linux compilation alone.
+The final confirmation must come from the Windows Burn runtime log.

@@ -1,35 +1,72 @@
 ---
-name: WiX 4 MBA host config filename
-description: WiX 4.0.5 mbahost.dll looks for WixToolset.Mba.Host.config (NOT BootstrapperCore.config which was the WiX 3 name). File not in any NuGet package; must be hand-authored and added as an explicit Bundle Payload.
+name: WiX 4 MBA required payload files
+description: WiX 4.0.5 managed BA needs four explicit Bundle Payloads. Config file renamed WixToolset.Mba.Host.config (not BootstrapperCore.config). mbanative.dll (win-x86) must be copied via MSBuild Target using $(NuGetPackageRoot).
 ---
 
 ## Rule
 
-WiX 4.0.5 `mbahost.dll` looks for `WixToolset.Mba.Host.config` — NOT `BootstrapperCore.config`.
-`BootstrapperCore.config` was the WiX 3 name and does nothing in WiX 4.
+WiX 4.0.5 managed BA requires FOUR explicit Bundle Payloads. None are added automatically.
 
-**Confirmed from the real Burn 4.0.5 runtime log:**
+| File | Source | Why |
+|---|---|---|
+| `Dashboard.BA.dll` | BA build output | The managed wizard |
+| `WixToolset.Mba.Core.dll` | NuGet `lib/net20/` (CopyLocal) | Burn managed API |
+| `WixToolset.Mba.Host.config` | Hand-authored source file | CLR activation spec for mbahost.dll |
+| `mbanative.dll` (win-x86) | NuGet `runtimes/win-x86/native/` via MSBuild Target | Native P/Invoke bridge used by Mba.Core |
+
+## Why each file matters
+
+**`WixToolset.Mba.Host.config`** — WiX 4.0.5 renamed from `BootstrapperCore.config`.
+mbahost.dll reads `.ba\WixToolset.Mba.Host.config` to activate the CLR.
+Without it: `Error 0x8007006e: Failed to load bootstrapper config file`.
+
+**`mbanative.dll` (win-x86)** — `WixToolset.Mba.Core.dll` P/Invokes into this native bridge.
+Burn 4.0.5 is x86 → ONLY `win-x86` (140 KB) works; `win-x64` (174 KB) cannot be loaded by an x86 process.
+Without it: `Error 0x80070490: Failed to create the managed bootstrapper application`.
+
+## How to get mbanative.dll into the build output
+
+`RuntimeIdentifier=win-x86` risks moving the output path for net48 projects.
+Use an explicit MSBuild Target instead:
+
+```xml
+<Target Name="CopyMbaNativeDll" AfterTargets="Build">
+  <PropertyGroup>
+    <_MbaNativeSrc>$(NuGetPackageRoot)wixtoolset.mba.core/4.0.5/runtimes/win-x86/native/mbanative.dll</_MbaNativeSrc>
+  </PropertyGroup>
+  <Copy SourceFiles="$(_MbaNativeSrc)"
+        DestinationFolder="$(OutputPath)"
+        SkipUnchangedFiles="true"
+        Condition="Exists('$(_MbaNativeSrc)')" />
+  <Warning Text="mbanative.dll not found — bundle will fail at runtime with 0x80070490."
+           Condition="!Exists('$(_MbaNativeSrc)')" />
+</Target>
 ```
-Error 0x8007006e: Failed to load bootstrapper config file from path:
-...\.ba\WixToolset.Mba.Host.config
+
+`$(NuGetPackageRoot)` is the NuGet global packages folder — NOT developer-specific.
+Update the version (4.0.5) in the path if WixToolset.Mba.Core is upgraded.
+
+## Bundle.wxs Payload block (complete)
+
+```xml
+<BootstrapperApplication>
+  <bal:WixManagedBootstrapperApplicationHost />
+  <Payload SourceFile="$(var.BAAssembly)" />
+  <Payload SourceFile="$(var.MbaCoreAssembly)" />
+  <Payload SourceFile="$(var.MbaHostConfig)" Name="WixToolset.Mba.Host.config" />
+  <Payload SourceFile="$(var.MbaNative)"     Name="mbanative.dll" />
+</BootstrapperApplication>
 ```
 
-The `WixToolset.Mba.Core` 4.0.5 NuGet package does NOT ship `WixToolset.Mba.Host.config`.
-The file must be hand-authored in the BA project, set `CopyToOutputDirectory=Always`,
-and included as an explicit `<Payload>` in Bundle.wxs.
+`Name=` is set explicitly on both config and native DLL to guarantee extracted filenames.
 
-## Why
+## publish.ps1 Step 6 guards
 
-`mbahost.dll` (the WiX native managed-BA host) reads `WixToolset.Mba.Host.config`
-at startup to know which CLR version to activate before loading the managed BA DLL.
-Without it, the host cannot identify a supported runtime, falls back to `mbapreq.dll`,
-and shows the prereq-BA error screen:
-  "failed to load the .NET Framework runtime even though all prerequisites are installed."
-.NET 4.8 may be fully present on the machine — this file is the instruction to use CLR v4.
+Four guards: `WixToolset.Mba.Core.dll`, `Dashboard.BA.dll`, `WixToolset.Mba.Host.config`, `mbanative.dll`.
+Each checks existence AND non-zero file size.
 
-## How to apply
+## WixToolset.Mba.Host.config content
 
-1. Create `installer/Dashboard.BA/WixToolset.Mba.Host.config`:
 ```xml
 <?xml version="1.0" encoding="utf-8" ?>
 <configuration>
@@ -38,32 +75,5 @@ and shows the prereq-BA error screen:
   </startup>
 </configuration>
 ```
-   `useLegacyV2RuntimeActivationPolicy="true"` is required because
-   `WixToolset.Mba.Core.dll` targets net20; this lets CLR 4 load it.
 
-2. In `Dashboard.BA.csproj`:
-```xml
-<None Include="WixToolset.Mba.Host.config">
-  <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-</None>
-```
-
-3. In `Bundle.wxs` inside `<BootstrapperApplication>`, with explicit `Name`:
-```xml
-<Payload SourceFile="$(var.MbaHostConfig)"
-         Name="WixToolset.Mba.Host.config" />
-```
-The explicit `Name` guarantees the extracted filename regardless of source path.
-
-4. In `publish.ps1` Step 9 wix build args:
-```
-"-d", "MbaHostConfig=$(Join-Path $baStagingDir 'WixToolset.Mba.Host.config')",
-```
-
-5. In `publish.ps1` Step 6: guard checks existence + non-zero size for all three:
-   `WixToolset.Mba.Core.dll`, `Dashboard.BA.dll`, `WixToolset.Mba.Host.config`.
-
-## Filename
-
-Must be exactly `WixToolset.Mba.Host.config` — mbahost.dll 4.0.5 hardcodes this name.
-`BootstrapperCore.config` will be silently ignored in WiX 4.
+`useLegacyV2RuntimeActivationPolicy="true"` is required because Mba.Core targets net20.

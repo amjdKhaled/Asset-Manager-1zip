@@ -34,6 +34,47 @@
     <PackageReference Include="WixToolset.Mba.Core" Version="4.0.5" />
   </ItemGroup>
 
+  <!--
+    Copy mbanative.dll (win-x86) to the build output so publish.ps1 Stage 6
+    picks it up alongside Dashboard.BA.dll and WixToolset.Mba.Core.dll.
+
+    WHY mbanative.dll IS REQUIRED:
+      WixToolset.Mba.Core.dll P/Invokes into mbanative.dll to communicate with
+      the Burn engine.  Without it the managed BA object creation throws a
+      DllNotFoundException, causing Burn to report:
+        Error 0x80070490: Failed to create the managed bootstrapper application.
+      .NET 4.8 and the CLR host may both load successfully — this DLL is needed
+      for the very first managed call into the Burn engine API.
+
+    WHY win-x86 SPECIFICALLY:
+      Burn 4.0.5 runs as an x86 process ("Burn x86 v4.0.5" in the runtime log).
+      A native DLL must match the host process bitness.  The win-x64 variant
+      cannot be loaded by the x86 process.
+
+    WHY $(NuGetPackageRoot) IS NOT DEVELOPER-SPECIFIC:
+      $(NuGetPackageRoot) is an MSBuild property set by NuGet to the global
+      packages folder (%USERPROFILE%\.nuget\packages\ on Windows), which is the
+      same for every developer and CI agent.  It is NOT a hardcoded user path.
+      The version (4.0.5) matches the pinned <PackageReference> above; update
+      both together if the WixToolset.Mba.Core version changes.
+
+    WHY NOT RuntimeIdentifier:
+      Adding RuntimeIdentifier=win-x86 to a net48 SDK project moves the output
+      path to bin\Release\net48\win-x86\, breaking the staging path in
+      publish.ps1.  An explicit copy target is simpler and deterministic.
+  -->
+  <Target Name="CopyMbaNativeDll" AfterTargets="Build">
+    <PropertyGroup>
+      <_MbaNativeSrc>$(NuGetPackageRoot)wixtoolset.mba.core/4.0.5/runtimes/win-x86/native/mbanative.dll</_MbaNativeSrc>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_MbaNativeSrc)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(_MbaNativeSrc)')" />
+    <Warning Text="mbanative.dll not found at $(_MbaNativeSrc) — mbanative.dll will be missing from the BA output and the bundle will fail at runtime with 0x80070490."
+             Condition="!Exists('$(_MbaNativeSrc)')" />
+  </Target>
+
   <ItemGroup>
     <!--
       WixToolset.Mba.Host.config: mbahost.dll reads this file at bundle startup
