@@ -532,9 +532,44 @@ else {
         Write-OK "Extension binaries staged to: $extStaging"
     }
     else {
-        Write-Warn "Extension build output not found at: $extOut"
-        Write-Warn "The MSI will be built without the extension binaries."
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] Desktop Extension build output folder is missing:" `
+            -ForegroundColor Red
+        Write-Host ("    MISSING: {0}" -f $extOut) -ForegroundColor Red
+        Write-Host "" -ForegroundColor Red
+        Write-Host "  The MSI cannot be built without the extension binaries." -ForegroundColor Red
+        Write-Host "  Possible causes:" -ForegroundColor Red
+        Write-Host "    - The Desktop Extension build failed silently (check output above)" -ForegroundColor Red
+        Write-Host "    - The project target framework is no longer net48" -ForegroundColor Red
+        Write-Host "    - The output path changed from: $extOut" -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
     }
+
+    # Post-staging guard: Dashboard.DesktopExtension.dll must be present in the
+    # Extension staging folder before the MSI build (Step 8) references it as
+    # a source file.  If it is absent the WiX linker fails with an opaque
+    # "file not found" error; catch it here with a clear message instead.
+    $extDllStaged = Join-Path $StagingDir "Extension\Dashboard.DesktopExtension.dll"
+    if (-not (Test-Path $extDllStaged)) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] Required Extension DLL is missing after staging:" `
+            -ForegroundColor Red
+        Write-Host ("    MISSING: {0}" -f $extDllStaged) -ForegroundColor Red
+        Write-Host "" -ForegroundColor Red
+        Write-Host "  Dashboard.DesktopExtension.dll must be produced by the Extension" -ForegroundColor Red
+        Write-Host "  build and copied to artifacts\staging\Extension\ before the" -ForegroundColor Red
+        Write-Host "  MSI (Step 8) can link.  Possible causes:" -ForegroundColor Red
+        Write-Host "    - The Desktop Extension build failed silently (check output above)" -ForegroundColor Red
+        Write-Host "    - The output DLL name changed (check Dashboard.DesktopExtension.csproj)" -ForegroundColor Red
+        Write-Host "    - The Laserfiche SDK DLLs were missing, causing a partial build" -ForegroundColor Red
+        Write-Host "    - The project target framework is no longer net48" -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "Dashboard.DesktopExtension.dll confirmed present in Extension staging folder."
 }
 
 # =============================================================================
