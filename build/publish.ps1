@@ -547,29 +547,41 @@ else {
         exit 1
     }
 
-    # Post-staging guard: Dashboard.DesktopExtension.dll must be present in the
-    # Extension staging folder before the MSI build (Step 8) references it as
-    # a source file.  If it is absent the WiX linker fails with an opaque
-    # "file not found" error; catch it here with a clear message instead.
-    $extDllStaged = Join-Path $StagingDir "Extension\Dashboard.DesktopExtension.dll"
-    if (-not (Test-Path $extDllStaged)) {
+    # Post-staging guard: Dashboard.DesktopExtension.exe must be present in the
+    # Extension staging folder before the MSI build (Step 8) harvests it.
+    # OutputType=WinExe → the primary artifact is always an EXE, never a DLL.
+    # If it is absent the WiX harvester silently ships an empty Extension
+    # component; catch it here with a clear message instead.
+    $extExeStaged = Join-Path $StagingDir "Extension\Dashboard.DesktopExtension.exe"
+    if (-not (Test-Path $extExeStaged)) {
         Write-Host ""
         Write-Host "  ============================================================" -ForegroundColor Red
-        Write-Host "  [PREFLIGHT FAILED] Required Extension DLL is missing after staging:" `
+        Write-Host "  [PREFLIGHT FAILED] Required Extension EXE is missing after staging:" `
             -ForegroundColor Red
-        Write-Host ("    MISSING: {0}" -f $extDllStaged) -ForegroundColor Red
+        Write-Host ("    MISSING: {0}" -f $extExeStaged) -ForegroundColor Red
         Write-Host "" -ForegroundColor Red
-        Write-Host "  Dashboard.DesktopExtension.dll must be produced by the Extension" -ForegroundColor Red
+        Write-Host "  Dashboard.DesktopExtension.exe must be produced by the Extension" -ForegroundColor Red
         Write-Host "  build and copied to artifacts\staging\Extension\ before the" -ForegroundColor Red
         Write-Host "  MSI (Step 8) can link.  Possible causes:" -ForegroundColor Red
         Write-Host "    - The Desktop Extension build failed silently (check output above)" -ForegroundColor Red
-        Write-Host "    - The output DLL name changed (check Dashboard.DesktopExtension.csproj)" -ForegroundColor Red
+        Write-Host "    - The AssemblyName changed (check Dashboard.DesktopExtension.csproj)" -ForegroundColor Red
         Write-Host "    - The Laserfiche SDK DLLs were missing, causing a partial build" -ForegroundColor Red
         Write-Host "    - The project target framework is no longer net48" -ForegroundColor Red
         Write-Host "  ============================================================" -ForegroundColor Red
         exit 1
     }
-    Write-OK "Dashboard.DesktopExtension.dll confirmed present in Extension staging folder."
+    $extExeBytes = (Get-Item $extExeStaged).Length
+    if ($extExeBytes -eq 0) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] Dashboard.DesktopExtension.exe is zero bytes:" `
+            -ForegroundColor Red
+        Write-Host ("    PATH: {0}" -f $extExeStaged) -ForegroundColor Red
+        Write-Host "  The Extension build produced an empty file.  Check the build output above." -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK ("Dashboard.DesktopExtension.exe confirmed in Extension staging ({0:N0} bytes)." -f $extExeBytes)
 }
 
 # =============================================================================
@@ -694,7 +706,7 @@ else {
     # folder before the Bundle build (Step 9) embeds it as the managed
     # bootstrapper payload.  If it is absent the Bundle ships without a UI and
     # fails silently at runtime; catch it here with a clear message instead.
-    # Mirrors the guard added to Step 4 for Dashboard.DesktopExtension.dll.
+    # Mirrors the guard added to Step 4 for Dashboard.DesktopExtension.exe.
     $baDllStaged = Join-Path $baStaging "Dashboard.BA.dll"
     if (-not (Test-Path $baDllStaged)) {
         Write-Host ""
