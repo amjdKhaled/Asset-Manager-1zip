@@ -1,0 +1,19 @@
+[Step 8/11] Building MSI installer (WiX 4.0.5 via local tool)
+     [OK] Tool manifest: C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\.config\dotnet-tools.json
+  Restoring local tools ...
+Tool 'wix' (version '4.0.5') was restored. Available commands: wix
+
+Restore was successful.
+     [OK] Local tools restored.
+     [OK] Local WiX: 4.0.5+b9b2f1b4  (global WiX, if any, is ignored)
+     [OK] WiX extensions ready.
+     [OK] Harvested WebApp: 118 files -> C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\staging\Harvest\WebAppComponents.wxs
+     [OK] Harvested Extension: 11 files -> C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\staging\Harvest\ExtensionComponents.wxs
+C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\installer\Dashboard.Installer\Product.wxs(387) : error WIX0104: Not a valid source file; detail: An XML comment cannot contain '--', and '-' cannot be the last character. Line 387, position 73.
+
+  ============================================================
+  [FAILED] wix build (MSI)
+           Executable : dotnet
+           Arguments  : tool run wix -- build C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\installer\Dashboard.Installer\Product.wxs C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\installer\Dashboard.Installer\WebApplication.wxs C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\installer\Dashboard.Installer\DesktopExtension.wxs C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\installer\Dashboard.Installer\Configuration.wxs C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\installer\Dashboard.Installer\Shortcuts.wxs C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\staging\Harvest\WebAppComponents.wxs C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\staging\Harvest\ExtensionComponents.wxs -arch x64 -ext WixToolset.UI.wixext/4.0.5 -ext WixToolset.Iis.wixext/4.0.3 -ext WixToolset.Util.wixext/4.0.5 -d ProductVersion=1.0.0 -d DashboardPort=5000 -d ConfigTemplateDir=C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\staging\ConfigTemplate -b C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\installer\Dashboard.Installer -intermediatefolder C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\obj\MSI -pdbtype none -out C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip\artifacts\Dashboard-1.0.0-Setup.msi
+           Exit code  : 104
+  ============================================================

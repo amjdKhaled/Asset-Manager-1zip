@@ -1,0 +1,96 @@
+Fix the current WiX build failure immediately and do not make unrelated changes.
+
+The Windows build reaches Step 8/11 and fails with:
+
+installer\Dashboard.Installer\Product.wxs(387) :
+error WIX0104:
+Not a valid source file;
+An XML comment cannot contain '--', and '-' cannot be the last character.
+Line 387, position 73.
+
+This is an XML/WiX source syntax error introduced by the recent changes.
+
+Your task:
+
+1. Open:
+   installer/Dashboard.Installer/Product.wxs
+
+2. Inspect line 387 and the surrounding section.
+
+3. Find the XML comment containing "--".
+   XML comments must never contain a double hyphen inside:
+
+   INVALID:
+   <!-- something -- something -->
+
+   VALID:
+   <!-- something - something -->
+
+   or:
+   <!-- something: something -->
+
+4. Fix that comment without changing the meaning of the code.
+
+5. IMPORTANT:
+   Search ALL WiX/XML files in the project for the same problem, not only line 387.
+
+   Search at minimum:
+   - installer/**/*.wxs
+   - installer/**/*.wxi
+   - installer/**/*.wxl
+   - installer/**/*.xml
+   - generated/static WiX source files that are part of the build
+
+   Find every XML comment whose body contains "--" or ends with "-".
+   Fix all of them now so the build does not fail again at the next file.
+
+6. Do NOT remove or revert the functional fixes that were just implemented:
+   - AllowSameVersionUpgrades="yes"
+   - NOT UPGRADINGPRODUCTCODE protection
+   - Web Client deployment verification
+   - Return="check"
+   - trailing-dot path protection
+   - Web Client IIS detection
+   - SetupHelper logging
+   - dynamic repository behavior
+
+   This task is specifically to repair invalid XML syntax.
+
+7. After fixing the comments, validate Product.wxs as XML BEFORE claiming success.
+
+   Use an XML parser or another reliable validation method.
+
+8. Then validate ALL .wxs/.wxi/.wxl XML files that participate in the installer.
+
+9. Search again for XML comments containing illegal "--" sequences and prove that zero remain.
+
+10. If WiX 4.0.5 is available, run the same MSI build command/build stage that previously failed.
+
+11. Do not stop merely because Product.wxs parses.
+    Continue until Step 8 MSI compilation passes or you encounter a genuinely different error.
+
+12. If another error appears after fixing WIX0104, investigate and fix that new error too.
+    Do not tell me to rerun after every tiny syntax error.
+    Fix all directly discoverable installer-source errors in this pass.
+
+13. Do not redesign the installer.
+    Do not modify authentication.
+    Do not modify Dashboard functionality.
+    Do not change repository logic.
+    Do not change ProductVersion.
+    Do not weaken any existing validation/guards.
+
+At the end report:
+
+A. Exact text of the invalid comment at Product.wxs line 387.
+B. Corrected comment.
+C. Every other XML comment with the same problem that was found.
+D. Files modified.
+E. XML validation result for Product.wxs.
+F. XML validation result for all installer XML/WiX files.
+G. Number of remaining illegal "--" sequences inside XML comments (must be 0).
+H. WiX MSI build result.
+I. Whether Step 8/11 now passes.
+J. Any NEW error encountered after WIX0104 and how it was fixed.
+
+Do not claim the installer is fixed unless the XML validation passes and the WiX MSI build gets past this WIX0104 error.

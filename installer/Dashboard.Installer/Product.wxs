@@ -384,7 +384,7 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
       <!-- Uninstall actions -->
       <!--
         NOT UPGRADINGPRODUCTCODE (defense in depth): never strip the Dashboard
-        button when this product is being removed as part of an upgrade -- the
+        button when this product is being removed as part of an upgrade: the
         replacing product owns the button from that point on.
       -->
       <Custom Action="RemoveWebClient"
