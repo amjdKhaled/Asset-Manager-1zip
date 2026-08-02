@@ -1,0 +1,187 @@
+Fix the WiX 4 managed Bootstrapper Application architecture issue in this project.
+
+IMPORTANT:
+Do not redesign the installer.
+Do not modify the MSI installation logic, IIS configuration, WebApp, Desktop Extension, prerequisite detection, Wizard UI, or application code unless strictly required for this architecture fix.
+
+Current runtime evidence:
+
+Burn reports:
+
+Burn x86 v4.0.5
+
+The current Dashboard.BA project still contains:
+
+<PlatformTarget>AnyCPU</PlatformTarget>
+
+The BA also bundles the x86 native WiX bridge:
+
+WixToolset.Mba.Core 4.0.5
+runtimes/win-x86/native/mbanative.dll
+
+The current runtime failure is:
+
+Error 0x80131902: Failed to create the bootstrapper application.
+Error 0x80131902: Failed to create the managed bootstrapper application.
+Error 0x80131902: Failed to create BA.
+Error 0x80131902: Failed to load BA.
+
+The previous CLR/config problems have already been fixed.
+
+Current BA staging contains:
+
+Dashboard.BA.dll
+WixToolset.Mba.Core.dll
+WixToolset.Mba.Host.config
+mbanative.dll
+
+Dashboard.BA.dll also successfully loads through reflection and contains:
+
+Dashboard.BA.BAFactory
+Dashboard.BA.DashboardBA
+
+and the assembly attribute:
+
+WixToolset.Mba.Core.BootstrapperApplicationFactoryAttribute
+
+Therefore DO NOT remove or redesign the existing BA factory/config/native dependency fixes.
+
+TASK
+====
+
+1. Open:
+
+installer/Dashboard.BA/Dashboard.BA.csproj
+
+Find:
+
+<PlatformTarget>AnyCPU</PlatformTarget>
+
+Replace it with:
+
+<PlatformTarget>x86</PlatformTarget>
+<Prefer32Bit>true</Prefer32Bit>
+
+Remove/update any nearby comments claiming that AnyCPU is intentionally required for the Burn host.
+
+The BA architecture must explicitly match:
+
+Burn = x86
+Dashboard.BA.dll = x86
+mbanative.dll = win-x86
+
+2. Keep the existing mbanative.dll copy target.
+
+It MUST continue using:
+
+$(NuGetPackageRoot)wixtoolset.mba.core/4.0.5/runtimes/win-x86/native/mbanative.dll
+
+Do NOT change it to win-x64.
+
+Do NOT add RuntimeIdentifier unless absolutely necessary.
+
+3. Keep WixToolset.Mba.Host.config.
+
+Do NOT rename it.
+
+Do NOT revert it to BootstrapperCore.config.
+
+Keep the existing wix.bootstrapper/host configuration and:
+
+assemblyName="Dashboard.BA"
+
+4. Keep the existing Bundle.wxs payloads for:
+
+Dashboard.BA.dll
+WixToolset.Mba.Core.dll
+WixToolset.Mba.Host.config
+mbanative.dll
+
+Do not remove any of them.
+
+5. Add a build-time validation to build/publish.ps1 that verifies the compiled Dashboard.BA.dll PE architecture after Step 6.
+
+Read the PE Machine field from Dashboard.BA.dll.
+
+Expected value:
+
+0x014C
+
+which means IMAGE_FILE_MACHINE_I386 / x86.
+
+If Dashboard.BA.dll is not x86, fail the build immediately with a clear error such as:
+
+Dashboard.BA.dll is not x86. WiX Burn 4.0.5 is running as x86 and requires the BA architecture to match.
+
+If it is x86, print:
+
+[OK] Dashboard.BA.dll architecture confirmed: x86 (0x014C).
+
+Implement this using PowerShell/.NET only.
+Do not require external utilities such as dumpbin.
+
+6. Preserve all existing Step 6 validations for:
+
+WixToolset.Mba.Core.dll
+Dashboard.BA.dll
+WixToolset.Mba.Host.config
+mbanative.dll
+BootstrapperApplicationFactoryAttribute
+
+Do not remove those guards.
+
+7. After making the changes, search the repository for:
+
+<PlatformTarget>AnyCPU</PlatformTarget>
+
+Make sure Dashboard.BA.csproj no longer uses AnyCPU.
+
+Do not blindly change unrelated projects such as the Desktop Extension.
+
+8. Build the BA project and verify the resulting DLL.
+
+Run the equivalent of:
+
+dotnet restore installer/Dashboard.BA/Dashboard.BA.csproj
+
+dotnet build installer/Dashboard.BA/Dashboard.BA.csproj --configuration Release
+
+Verify that:
+
+installer/Dashboard.BA/bin/Release/net48/Dashboard.BA.dll
+
+exists and is x86.
+
+Also verify these files remain in the BA output:
+
+Dashboard.BA.dll
+WixToolset.Mba.Core.dll
+WixToolset.Mba.Host.config
+mbanative.dll
+
+9. Do not claim the installer runtime issue is solved merely because compilation succeeds.
+
+The final authoritative test will be performed on Windows by running:
+
+Release/LFDashboard-Setup.exe
+
+10. At the end give me a concise report containing:
+
+- Files modified
+- Exact csproj changes
+- Dashboard.BA.dll detected architecture
+- Whether mbanative.dll is still win-x86
+- Whether WixToolset.Mba.Host.config is still present
+- Whether BootstrapperApplicationFactoryAttribute validation remains
+- Build result
+- Any warnings/errors
+- Exact Windows command I should run next:
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+.\build\publish.ps1
+
+Then tell me to test:
+
+.\Release\LFDashboard-Setup.exe
+
+Do not make speculative fixes beyond the requested architecture correction.

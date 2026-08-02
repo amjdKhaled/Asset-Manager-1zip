@@ -838,6 +838,35 @@ else {
         exit 1
     }
     Write-OK "BootstrapperApplicationFactory attribute confirmed in Dashboard.BA.dll."
+
+    # ---- Guard 6: Dashboard.BA.dll PE architecture must be x86 (0x014C) ----
+    # Burn 4.0.5 is an x86 process.  Loading an AnyCPU or x64 managed BA into
+    # an x86 Burn host produces:
+    #   Error 0x80131902: Failed to create the managed bootstrapper application.
+    # The PE Machine field at bytes [peOffset+4 .. peOffset+5] must equal 0x014C
+    # (IMAGE_FILE_MACHINE_I386).  Dashboard.BA.csproj sets PlatformTarget=x86 and
+    # Prefer32Bit=true to guarantee this; this guard catches any accidental revert.
+    $baPeBytes  = [System.IO.File]::ReadAllBytes($baDllStaged)
+    $baPeOffset = [System.BitConverter]::ToInt32($baPeBytes, 0x3C)
+    $baMachine  = [System.BitConverter]::ToUInt16($baPeBytes, $baPeOffset + 4)
+    if ($baMachine -ne 0x014C) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] Dashboard.BA.dll is not x86." -ForegroundColor Red
+        Write-Host ("    PE Machine: 0x{0:X4} (expected 0x014C = x86)" -f $baMachine) -ForegroundColor Red
+        Write-Host ("    FILE: {0}" -f $baDllStaged) -ForegroundColor Red
+        Write-Host "" -ForegroundColor Red
+        Write-Host "  WiX Burn 4.0.5 is an x86 process and requires the BA" -ForegroundColor Red
+        Write-Host "  architecture to match.  AnyCPU or x64 DLLs cannot be" -ForegroundColor Red
+        Write-Host "  loaded; Burn reports:" -ForegroundColor Red
+        Write-Host "    Error 0x80131902: Failed to create the managed" -ForegroundColor Red
+        Write-Host "    bootstrapper application." -ForegroundColor Red
+        Write-Host "  Fix: set <PlatformTarget>x86</PlatformTarget> and" -ForegroundColor Red
+        Write-Host "  <Prefer32Bit>true</Prefer32Bit> in Dashboard.BA.csproj." -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK ("Dashboard.BA.dll architecture confirmed: x86 (0x014C).")
 }
 
 # =============================================================================
