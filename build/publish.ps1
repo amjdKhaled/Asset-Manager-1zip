@@ -573,6 +573,28 @@ else {
     else {
         Write-Warn "SetupHelper build output not found at: $helperOut"
     }
+
+    # Post-staging guard: Dashboard.SetupHelper.exe must be present in the
+    # Extension staging folder before the MSI build (Step 8) references it as
+    # a source file.  If it is absent the WiX linker fails with an opaque
+    # "file not found" error; catch it here with a clear message instead.
+    $setupHelperStaged = Join-Path $StagingDir "Extension\Dashboard.SetupHelper.exe"
+    if (-not (Test-Path $setupHelperStaged)) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] Required SetupHelper file is missing:" -ForegroundColor Red
+        Write-Host ("    MISSING: {0}" -f $setupHelperStaged) -ForegroundColor Red
+        Write-Host "" -ForegroundColor Red
+        Write-Host "  Dashboard.SetupHelper.exe must be produced by the SetupHelper" -ForegroundColor Red
+        Write-Host "  build and copied to artifacts\staging\Extension\ before the" -ForegroundColor Red
+        Write-Host "  MSI (Step 8) can link.  Possible causes:" -ForegroundColor Red
+        Write-Host "    - The SetupHelper build failed silently (check output above)" -ForegroundColor Red
+        Write-Host "    - The SetupHelper output path has changed from: $helperOut" -ForegroundColor Red
+        Write-Host "    - The project target framework is no longer net48" -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "Dashboard.SetupHelper.exe confirmed present in Extension staging folder."
 }
 
 # =============================================================================
