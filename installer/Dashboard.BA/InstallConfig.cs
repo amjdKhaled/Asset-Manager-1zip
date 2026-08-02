@@ -54,6 +54,15 @@ namespace Dashboard.BA
         // Pre-computed suggested Dashboard URL: http://MACHINENAME:5000
         public string SuggestedDashboardUrl { get; set; } = "";
 
+        // Certificate-valid Laserfiche API URL detected from the IIS
+        // /LFRepositoryAPI application's HTTPS binding and certificate SAN.
+        // Empty when no certificate-valid host could be determined.
+        public string LaserficheApiUrl { get; set; } = "";
+
+        // Non-fatal warning about the API certificate (untrusted chain,
+        // expired, no hostname match, ...) to surface in the wizard/log.
+        public string LaserficheApiWarning { get; set; } = "";
+
         // True if all components required for the Dashboard web app are present.
         public bool AllRequiredPresent => IisInstalled && AspNetCore8Installed;
     }

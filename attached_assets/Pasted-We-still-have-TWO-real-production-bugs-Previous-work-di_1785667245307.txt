@@ -1,0 +1,541 @@
+We still have TWO real production bugs. Previous work did NOT finish them.
+
+Do not give me another speculative report.
+Investigate the actual execution paths, implement the fixes, and add regression guards/tests.
+
+============================================================
+BUG 1 - INSTALLER OPENS DASHBOARD CONFIGURATION TWICE
+============================================================
+
+Observed behavior on the real Windows machine:
+
+The installer starts normally.
+
+The user completes:
+
+Dashboard Configuration
+-> Ready
+-> Install
+
+Then the progress window appears.
+
+At approximately 50%:
+
+Installing Dashboard...
+Progress: 50%
+
+a SECOND "Laserfiche Dashboard Setup" window suddenly opens showing:
+
+Dashboard Configuration
+Enter your Laserfiche connection details.
+
+The first installer is STILL running behind it.
+
+This happens consistently around 50%.
+
+THIS IS A REAL BUG.
+
+The installer must NEVER create another WizardForm after installation
+has started.
+
+Expected lifecycle:
+
+ONE process
+ONE BootstrapperApplication
+ONE WizardForm
+
+Welcome
+-> Configuration
+-> Ready
+-> Progress
+-> Complete
+-> Close
+
+There must never be:
+
+Progress
+-> new Configuration window
+
+============================================================
+PHASE 1 - PROVE WHERE SECOND WINDOW COMES FROM
+============================================================
+
+Do not assume it is stale binaries again.
+
+Instrument the BA.
+
+At the earliest possible point log:
+
+- process ID
+- process start time
+- BA instance ID
+- DashboardBA constructor
+- Run() entry
+- WizardForm constructor
+- WizardForm HandleCreated
+- WizardForm Shown
+- current page
+- Burn Apply() invocation
+- Plan begin/end
+- Apply begin/end
+- Detect begin/end
+- ExecutePackageBegin
+- ExecutePackageComplete
+- Shutdown
+- form close/dispose
+
+Log to:
+
+%ProgramData%\Dashboard\Logs\BA-runtime.log
+
+Every WizardForm instance must have a GUID.
+
+Example:
+
+PID=1234 BA=... FORM=... EVENT=WizardForm.Constructor
+
+This will prove whether the second window is:
+
+A. a second WizardForm in the same BA process
+B. a second BA instance
+C. a second LFDashboard-Setup.exe process
+D. the MSI launching something that accidentally starts the BA
+E. repair/upgrade related bundle execution
+F. some callback incorrectly navigating/recreating UI
+
+============================================================
+PHASE 2 - SEARCH EVERY WINDOW CREATION PATH
+============================================================
+
+Search the ENTIRE repository for:
+
+new WizardForm
+Application.Run
+Show(
+ShowDialog(
+Process.Start
+LFDashboard-Setup.exe
+Dashboard.BA
+BootstrapperApplication
+Engine.Apply
+Engine.Plan
+LaunchAction
+Detect
+ApplyComplete
+PlanComplete
+ExecutePackage
+Command.Action
+Repair
+Modify
+
+There must be exactly ONE legitimate production construction path for
+WizardForm.
+
+Do not merely add another static counter and hope.
+
+Find WHY it is being constructed twice.
+
+============================================================
+PHASE 3 - CHECK BURN RE-ENTRY
+============================================================
+
+Inspect DashboardBA.Run() carefully.
+
+Run() must not recreate UI when Burn transitions through:
+
+Detect
+Plan
+Apply
+ExecutePackage
+ApplyComplete
+
+Event handlers must update the EXISTING WizardForm only.
+
+No event handler may call:
+
+new WizardForm(...)
+Application.Run(new WizardForm(...))
+ShowDialog(new WizardForm(...))
+
+Check whether Detect/Plan is being called again at 50%.
+
+Check whether ApplyComplete or package events trigger NavigateTo() in a
+way that rebuilds the form.
+
+============================================================
+PHASE 4 - CHECK MSI FOR ACCIDENTAL BA EXECUTION
+============================================================
+
+Search Product.wxs and all harvested components/custom actions.
+
+Ensure the MSI does NOT execute:
+
+LFDashboard-Setup.exe
+Dashboard.BA.dll
+mbahost
+Burn bundle
+or any setup launcher
+
+during installation.
+
+SetupHelper.exe is allowed.
+
+The MSI should NEVER launch the Burn bootstrapper that launched it.
+
+Check all:
+
+CustomAction
+ExeCommand
+FileKey
+BinaryKey
+QuietExec
+Process.Start
+shortcuts
+registry launch commands
+
+============================================================
+PHASE 5 - CHECK SAME-VERSION UPGRADE BEHAVIOR
+============================================================
+
+We recently changed same-version upgrade handling.
+
+Verify whether the second window is actually an older related bundle
+being invoked during upgrade/uninstall.
+
+Log:
+
+Engine.Command.Action
+Engine.Command.Display
+Engine.Command.Resume
+Engine.Command.Relation
+Engine.Command.Passthrough
+
+if available in WiX 4 APIs.
+
+Also log PID so we can distinguish processes.
+
+If an old related bundle is responsible, fix the Burn upgrade chain
+correctly rather than hiding the second form.
+
+============================================================
+PHASE 6 - HARD UI INVARIANT
+============================================================
+
+After identifying the root cause, enforce this invariant:
+
+Once installation enters PAGE_PROGRESS:
+
+NO code path may navigate backwards to PAGE_CONFIG.
+
+NO second WizardForm may be created.
+
+NO second BA UI may be shown.
+
+The Progress form must remain the only visible installer UI until
+Complete.
+
+If a second form construction is attempted in the same process, log it
+as FATAL and do not display it.
+
+But this guard is SECONDARY.
+You still must fix the root cause.
+
+============================================================
+BUG 2 - LASERFICHE TLS LOGIN STILL FAILS
+============================================================
+
+Current real production error:
+
+"A secure (TLS) connection to the Laserfiche server could not be
+established. The server's certificate may be invalid or untrusted on
+this machine."
+
+Current configured API URL shown by installer:
+
+https://localhost/LFRepositoryAPI
+
+Repository is correctly inherited dynamically:
+
+LFNewRepoWF
+
+Dashboard itself runs at:
+
+http://localhost:5000/Login
+
+The diagnostic work from the previous task did NOT fix production.
+It only added tools/Test-LaserficheApiTls.ps1.
+
+That is not sufficient.
+
+============================================================
+PHASE 7 - GET THE REAL CERTIFICATE FAILURE FROM WINDOWS
+============================================================
+
+We need production diagnostics automatically.
+
+When HttpClient TLS fails, log to:
+
+%ProgramData%\Dashboard\Logs\dashboard-*.log
+
+the COMPLETE exception chain:
+
+Type
+Message
+HResult
+InnerException Type
+InnerException Message
+
+Also log:
+
+Configured ServerUrl
+Final request URL
+Request host
+Repository
+
+Never log password.
+Never log access token.
+
+Additionally, when the failure is TLS-related, perform a SAFE diagnostic
+certificate inspection for the configured host and log:
+
+certificate subject
+issuer
+thumbprint
+NotBefore
+NotAfter
+SslPolicyErrors if obtainable
+
+Do not disable validation for the actual authentication request.
+
+============================================================
+PHASE 8 - FIX INSTALLER API URL DETECTION
+============================================================
+
+The installer currently defaults to:
+
+https://localhost/LFRepositoryAPI
+
+This is unsafe as a default because the IIS certificate may not contain
+localhost.
+
+The installer already detects IIS for the Laserfiche Web Client.
+
+Do the equivalent for LFRepositoryAPI.
+
+Locate the IIS application whose path is:
+
+/LFRepositoryAPI
+
+Determine:
+
+- parent IIS site
+- HTTPS binding
+- binding hostname
+- port
+- certificate thumbprint
+- certificate Subject Alternative Names
+
+Select the URL whose hostname matches the certificate.
+
+Preferred selection:
+
+1. HTTPS binding hostname, if configured and certificate-valid.
+2. Machine FQDN, if present in certificate SAN.
+3. Machine name, if present in certificate SAN/CN.
+4. localhost ONLY if localhost is explicitly valid for the certificate.
+
+DO NOT default blindly to localhost.
+
+Pre-fill the wizard's LF API URL with the detected valid URL.
+
+Examples:
+
+https://DESKTOP-K1SVI53/LFRepositoryAPI
+
+or
+
+https://server.domain.local/LFRepositoryAPI
+
+depending on the actual certificate.
+
+============================================================
+PHASE 9 - TRUST PROBLEM
+============================================================
+
+Hostname match and trust are separate.
+
+If the certificate identity matches but the chain is untrusted:
+
+DO NOT use:
+
+DangerousAcceptAnyServerCertificateValidator
+
+DO NOT globally disable SSL verification.
+
+Instead determine whether the certificate/root exists in:
+
+LocalMachine\Root
+LocalMachine\CA
+CurrentUser\Root
+
+Dashboard runs under IIS, so CurrentUser trust is not sufficient.
+
+If the cert is trusted only for the interactive user, provide a clear
+installer warning:
+
+"The Laserfiche HTTPS certificate is not trusted by the local machine.
+Install/trust the issuing certificate in LocalMachine before continuing."
+
+Do not silently weaken TLS.
+
+============================================================
+PHASE 10 - INSTALLER VALIDATION
+============================================================
+
+When the user clicks Next on Dashboard Configuration:
+
+Perform a real HTTPS validation of LF API URL.
+
+Do NOT require credentials.
+
+At minimum establish TLS and request:
+
+<ServerUrl>
+
+or its Swagger/root endpoint.
+
+If TLS certificate validation fails:
+
+DO NOT allow the installer to silently continue.
+
+Show:
+
+"Laserfiche API TLS validation failed."
+
+and the actual reason:
+
+Certificate name mismatch
+Untrusted root
+Expired certificate
+etc.
+
+Provide the detected recommended URL if one exists.
+
+This prevents installing a Dashboard configuration that is known to be
+broken.
+
+============================================================
+PHASE 11 - VERIFY TOKEN REQUEST
+============================================================
+
+After fixing ServerUrl/TLS, verify the real token endpoint construction:
+
+https://<VALID-HOST>/LFRepositoryAPI/v1/Repositories/LFNewRepoWF/Token
+
+Do not hardcode LFNewRepoWF.
+
+Repository remains runtime context.
+
+Verify that TLS reaches the HTTP layer.
+
+A 400/401/403 is acceptable evidence that TLS succeeded.
+
+It must then be classified as credentials/authentication, NOT TLS.
+
+============================================================
+PHASE 12 - REGRESSION TESTS
+============================================================
+
+Add tests/guards for:
+
+INSTALLER:
+1. WizardForm production constructor has one legitimate call site.
+2. Progress cannot navigate back to Config.
+3. Apply callbacks do not create UI.
+4. MSI custom actions cannot execute LFDashboard-Setup.exe.
+5. same-version upgrade does not launch another BA UI.
+
+TLS:
+6. localhost is rejected as automatic choice if cert does not match it.
+7. machine hostname selected when certificate matches.
+8. FQDN selected when certificate matches.
+9. untrusted chain does not trigger certificate bypass.
+10. expired certificate rejected.
+11. TLS failure classified correctly.
+12. 401 after successful TLS classified as credentials.
+13. URL has /LFRepositoryAPI exactly once.
+14. repository remains runtime/session context.
+
+============================================================
+PHASE 13 - BUILD AND STATIC VERIFICATION
+============================================================
+
+Run all relevant builds/tests.
+
+Also add publish-time guards that fail if:
+
+- more than one production `new WizardForm` call site exists
+- MSI sources reference LFDashboard-Setup.exe as an executable custom action
+- dangerous certificate validation bypass is present
+
+Do NOT break the currently working Web Client button.
+
+Known-good baseline that MUST survive:
+
+Laserfiche Path:
+C:\Program Files\Laserfiche\Web Access\Web Files
+
+Browse.aspx = True
+Dashboard JS = True
+Button Injection Count = 1
+latest DeployWebClient exit code = 0
+
+============================================================
+FINAL REPORT
+============================================================
+
+I want ACTUAL root causes, not "most likely".
+
+Report:
+
+INSTALLER:
+A. PID of first wizard.
+B. PID of second wizard/re-entry from diagnostics.
+C. Whether same process or different process.
+D. Exact code/path that created second window.
+E. Why it happened specifically around 50%.
+F. Exact fix.
+G. Proof only one WizardForm can now appear.
+
+TLS:
+H. Actual configured ServerUrl before fix.
+I. IIS site hosting LFRepositoryAPI.
+J. HTTPS binding.
+K. Certificate subject.
+L. SAN names.
+M. Chain status.
+N. Whether localhost matches.
+O. Whether machine name matches.
+P. Correct ServerUrl selected.
+Q. Exact token URL after fix.
+R. TLS result after fix.
+S. HTTP result from Token endpoint.
+T. Dashboard login result.
+
+GENERAL:
+U. Files modified.
+V. Tests passed.
+W. Build result.
+X. Confirmation Web Client button integration was not regressed.
+
+IMPORTANT:
+
+Do not claim either bug fixed merely because code compiles.
+
+For the double-wizard issue, the implementation must identify and remove
+the re-entry/second-window path.
+
+For TLS, production must use a certificate-valid hostname or clearly
+identify the machine trust configuration preventing that.
+
+Do not add insecure certificate bypasses.

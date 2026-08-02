@@ -96,6 +96,12 @@ function Write-Warn {
     Write-Host ("  [WARN] {0}" -f $Msg) -ForegroundColor Yellow
 }
 
+function Fail {
+    param([string]$Msg)
+    Write-Host ("  [FAILED] {0}" -f $Msg) -ForegroundColor Red
+    exit 1
+}
+
 # Invoke-NativeCommand: runs a native executable and captures the exit code
 # IMMEDIATELY after the call -- never reads a stale or undefined $LASTEXITCODE.
 #
@@ -486,6 +492,49 @@ $null = New-Item -ItemType Directory -Path (Join-Path $StagingDir "BA")         
 $null = New-Item -ItemType Directory -Path $ReleaseDir                              -Force
 
 Write-OK "artifacts\staging\ created."
+
+# -----------------------------------------------------------------------------
+# Static source guards (fail fast, before anything is built):
+#   G1: exactly ONE production 'new WizardForm(' call site may exist.
+#   G2: MSI/Bundle sources must never execute LFDashboard-Setup.exe as a
+#       custom action (the MSI must not relaunch its own bootstrapper).
+#   G3: no dangerous certificate-validation bypass anywhere in the sources.
+# -----------------------------------------------------------------------------
+
+$baCsFiles = Get-ChildItem (Join-Path $RepoRoot "installer\Dashboard.BA") -Filter *.cs -Recurse |
+             Where-Object { $_.FullName -notmatch "\\(bin|obj)\\" }
+$wizardCallSites = 0
+foreach ($f in $baCsFiles) {
+    foreach ($line in (Get-Content $f.FullName)) {
+        $t = $line.TrimStart()
+        if ($t.StartsWith("//") -or $t.StartsWith("*")) { continue }
+        if ($t -match "new\s+WizardForm\s*\(") { $wizardCallSites++ }
+    }
+}
+if ($wizardCallSites -ne 1) {
+    Fail ("GUARD G1: expected exactly 1 production 'new WizardForm(' call site, found {0}. A second construction path can open a duplicate installer window." -f $wizardCallSites)
+}
+Write-OK "Guard G1: exactly one 'new WizardForm(' call site."
+
+$wxsFiles = Get-ChildItem (Join-Path $RepoRoot "installer") -Filter *.wxs -Recurse |
+            Where-Object { $_.FullName -notmatch "\\(bin|obj)\\" }
+foreach ($f in $wxsFiles) {
+    $content = Get-Content $f.FullName -Raw
+    # Strip XML comments, then look for the bootstrapper EXE in executable contexts.
+    $stripped = [regex]::Replace($content, "(?s)<!--.*?-->", "")
+    if ($stripped -match "LFDashboard-Setup\.exe") {
+        Fail ("GUARD G2: {0} references LFDashboard-Setup.exe. The MSI/Bundle must never execute its own bootstrapper." -f $f.Name)
+    }
+}
+Write-OK "Guard G2: no MSI/Bundle source references LFDashboard-Setup.exe."
+
+$bypassHits = Get-ChildItem @((Join-Path $RepoRoot "src"), (Join-Path $RepoRoot "installer")) -Include *.cs -Recurse |
+              Where-Object { $_.FullName -notmatch "\\(bin|obj)\\" } |
+              Select-String -Pattern "DangerousAcceptAnyServerCertificateValidator" -SimpleMatch
+if ($bypassHits) {
+    Fail ("GUARD G3: dangerous certificate validation bypass found: {0}" -f (($bypassHits | ForEach-Object { $_.Path }) -join ", "))
+}
+Write-OK "Guard G3: no certificate-validation bypass in sources."
 
 # =============================================================================
 # STEP 2 -- Restore NuGet packages

@@ -59,8 +59,41 @@ namespace Dashboard.BA
             _engine  = engine;
             _command = command;
 
-            StartupLogger.Log("DashboardBA constructor: completed");
+            // Diagnostic identity + launch context: proves which process/BA
+            // instance did what, and WHY Burn launched this BA (a related
+            // bundle executed during an upgrade arrives with Display!=Full
+            // and/or Relation!=None -- that combination must NEVER show UI).
+            RuntimeLog.Log("DashboardBA.Constructor",
+                $"Action={command.Action} Display={command.Display} " +
+                $"Resume={command.Resume} Relation={command.Relation}");
+
+            StartupLogger.Log(
+                $"DashboardBA constructor: completed  Action={command.Action} " +
+                $"Display={command.Display} Resume={command.Resume} Relation={command.Relation}");
         }
+
+        // True when this BA execution must show NO UI.  This is the root-cause
+        // fix for the "second Dashboard Configuration window at ~50%" bug:
+        // during a same-version upgrade Burn executes the previously installed
+        // RELATED bundle mid-Apply (Relation=Upgrade, Display=Embedded), and
+        // its BA used to open a full wizard on top of the active installer.
+        //
+        // Criteria are deliberately NARROW so direct user launches keep the
+        // exact previous behavior:
+        //   - Relation != None  : this process is a related-bundle execution
+        //                         driven by another Burn engine.  Never UI.
+        //   - Display == Embedded: this process is hosted by another Burn
+        //                         engine.  Never UI.
+        // Passive/None/Unknown DIRECT launches remain interactive as before --
+        // a headless first-time install would produce a broken configuration
+        // because required wizard values would never be collected.
+        private bool IsSilentExecution =>
+            _command.Relation != RelationType.None ||
+            _command.Display  == Display.Embedded;
+
+        // Signalled when the headless (silent) chain finishes.
+        private System.Threading.ManualResetEvent? _silentDone;
+        private int _silentExitCode;
 
         // ----------------------------------------------------------------
         // Events raised on the UI thread (via BeginInvoke) so that
@@ -79,8 +112,42 @@ namespace Dashboard.BA
         protected override void Run()
         {
             StartupLogger.Log("DashboardBA.Run entered");
+            RuntimeLog.Log("Run.Entry",
+                $"Silent={IsSilentExecution} Action={_command.Action} Display={_command.Display} Relation={_command.Relation}");
             try
             {
+                if (IsSilentExecution)
+                {
+                    // HARD INVARIANT: no WizardForm, no message loop, no UI of
+                    // any kind for embedded/passive/quiet/related executions.
+                    RuntimeLog.Log("Run.SilentMode",
+                        "Running headless Detect->Plan->Apply; no UI will be created.");
+                    _silentDone = new System.Threading.ManualResetEvent(false);
+                    try
+                    {
+                        _engine.Detect(IntPtr.Zero);
+                    }
+                    catch (Exception ex)
+                    {
+                        RuntimeLog.Log("Run.SilentDetectFailed", ex.Message);
+                        _silentExitCode = ex.HResult != 0 ? ex.HResult : unchecked((int)0x80004005);
+                        _silentDone.Set();
+                    }
+                    // Fail-safe timeout: a related-bundle uninstall/upgrade must
+                    // never hang the parent installer forever if a completion
+                    // callback is skipped.  60 minutes is far beyond any
+                    // legitimate chain execution.
+                    if (!_silentDone.WaitOne(TimeSpan.FromMinutes(60)))
+                    {
+                        RuntimeLog.Log("Run.SilentTimeout",
+                            "Headless chain did not complete within 60 minutes.");
+                        _silentExitCode = unchecked((int)0x800705B4); // ERROR_TIMEOUT
+                    }
+                    RuntimeLog.Log("Run.SilentComplete", $"ExitCode=0x{_silentExitCode:X8}");
+                    _engine.Quit(_silentExitCode);
+                    return;
+                }
+
                 StartupLogger.Log("  Calling Application.EnableVisualStyles()");
                 Application.EnableVisualStyles();
 
@@ -152,18 +219,70 @@ namespace Dashboard.BA
         // All called on the engine thread -- UI updates MUST use BeginInvoke.
         // ----------------------------------------------------------------
 
+        protected override void OnDetectBegin(DetectBeginEventArgs e)
+        {
+            RuntimeLog.Log("Detect.Begin");
+            base.OnDetectBegin(e);
+        }
+
         protected override void OnDetectComplete(DetectCompleteEventArgs e)
         {
-            // Environment detection is done by DetectionService (BackgroundWorker).
-            // Burn's own detection tracks package state (installed/absent) for Plan.
-            // Nothing extra needed here.
+            RuntimeLog.Log("Detect.Complete", $"Status=0x{e.Status:X8}");
+
+            if (IsSilentExecution)
+            {
+                if (e.Status >= 0)
+                {
+                    try
+                    {
+                        // Headless chain: plan the action Burn asked for.
+                        _engine.Plan(_command.Action);
+                    }
+                    catch (Exception ex)
+                    {
+                        RuntimeLog.Log("Detect.SilentPlanFailed", ex.Message);
+                        _silentExitCode = ex.HResult != 0 ? ex.HResult : unchecked((int)0x80004005);
+                        _silentDone?.Set();
+                    }
+                }
+                else
+                {
+                    _silentExitCode = e.Status;
+                    _silentDone?.Set();
+                }
+                return;
+            }
+            // Interactive: environment detection is done by DetectionService
+            // (BackgroundWorker).  Burn's own detection tracks package state
+            // (installed/absent) for Plan.  Nothing extra needed here.
+        }
+
+        protected override void OnPlanBegin(PlanBeginEventArgs e)
+        {
+            RuntimeLog.Log("Plan.Begin");
+            base.OnPlanBegin(e);
         }
 
         protected override void OnPlanComplete(PlanCompleteEventArgs e)
         {
+            RuntimeLog.Log("Plan.Complete", $"Status=0x{e.Status:X8}");
             if (e.Status >= 0) // S_OK (HRESULT >= 0 means success)
             {
-                _engine.Apply(_hwnd);
+                try
+                {
+                    _engine.Apply(_hwnd);
+                }
+                catch (Exception ex) when (IsSilentExecution)
+                {
+                    RuntimeLog.Log("Plan.SilentApplyFailed", ex.Message);
+                    _silentExitCode = ex.HResult != 0 ? ex.HResult : unchecked((int)0x80004005);
+                    _silentDone?.Set();
+                }
+            }
+            else if (IsSilentExecution)
+            {
+                _silentExitCode = e.Status;
+                _silentDone?.Set();
             }
             else
             {
@@ -172,13 +291,37 @@ namespace Dashboard.BA
             }
         }
 
+        protected override void OnApplyBegin(ApplyBeginEventArgs e)
+        {
+            RuntimeLog.Log("Apply.Begin");
+            base.OnApplyBegin(e);
+        }
+
         protected override void OnApplyComplete(ApplyCompleteEventArgs e)
         {
+            RuntimeLog.Log("Apply.Complete", $"Status=0x{e.Status:X8}");
+
+            if (IsSilentExecution)
+            {
+                _silentExitCode = e.Status >= 0 ? 0 : e.Status;
+                _silentDone?.Set();
+                return;
+            }
+
             bool   ok  = e.Status >= 0;
             string msg = ok
                 ? "Installation completed successfully."
                 : string.Format("Installation failed (HRESULT 0x{0:X8}).", e.Status);
             SafeInvoke(() => InstallFinished?.Invoke(ok, msg));
+        }
+
+        protected override void OnShutdown(ShutdownEventArgs e)
+        {
+            RuntimeLog.Log("Shutdown");
+            // Last-resort unblock for the headless chain: if the engine shuts
+            // down without ApplyComplete having fired, never leave Run() waiting.
+            _silentDone?.Set();
+            base.OnShutdown(e);
         }
 
         protected override void OnExecuteProgress(ExecuteProgressEventArgs e)
@@ -188,8 +331,16 @@ namespace Dashboard.BA
 
         protected override void OnExecutePackageBegin(ExecutePackageBeginEventArgs e)
         {
+            RuntimeLog.Log("ExecutePackage.Begin", $"Package={e.PackageId}");
             string msg = string.Format("Installing: {0}...", e.PackageId);
             SafeInvoke(() => ProgressUpdated?.Invoke(-1, msg));
+        }
+
+        protected override void OnExecutePackageComplete(ExecutePackageCompleteEventArgs e)
+        {
+            RuntimeLog.Log("ExecutePackage.Complete",
+                $"Package={e.PackageId} Status=0x{e.Status:X8}");
+            base.OnExecutePackageComplete(e);
         }
 
         protected override void OnCacheAcquireProgress(CacheAcquireProgressEventArgs e)

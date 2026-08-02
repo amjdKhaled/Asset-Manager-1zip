@@ -35,4 +35,6 @@
 - [IIS Web Client detection](iis-webclient-detection.md) — DetectionService now checks applicationHost.config + appcmd before registry; covers non-default /Laserfiche IIS app paths.
 - [SetupHelper smoke test quoting](setuphelper-smoke-quoting.md) — use Start-Process -ArgumentList array (not string) with trailing \. to avoid CommandLineToArgvW consuming --config-dir into --webapp-path.
 - [Burn same-version reinstall](burn-same-version-reinstall.md) — AllowSameVersionUpgrades + NOT UPGRADINGPRODUCTCODE required, or old bundle's late uninstall strips the Web Client button (1->0).
+- [Burn related-bundle BA UI](burn-related-bundle-ui.md) — BA must run headless when Relation!=None or Display==Embedded, or related-bundle execution opens a second wizard mid-Apply.
+- [Installer API host selection](installer-api-host-selection.md) — never default to localhost; pick binding-host>FQDN>machine name by cert SAN match; pure ApiHostSelector is compile-linked into net8 tests.
 - [WiX 4 MBA prereq package WIX6802](wix4-mba-prereq-package.md) — NetFx wixext has NO package groups in 4.0.5; define inline ExePackage with bal:PrereqPackage="yes"; ExeCommand→InstallArguments rename; Permanent="yes" avoids WIX0408.

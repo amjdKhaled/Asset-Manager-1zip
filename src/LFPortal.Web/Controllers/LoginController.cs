@@ -145,9 +145,26 @@ public sealed class LoginController : Controller
         }
         catch (Exception ex)
         {
+            // Full exception chain (type/message/HResult per level) is emitted
+            // by the logging provider; add the request context an administrator
+            // needs: configured server, request host, and repository.
             _logger.LogError(ex,
-                "Login: error while authenticating for repository {RepoId}: {ErrorType}.",
-                repoId, ex.GetType().Name);
+                "Login: error while authenticating for repository {RepoId}: {ErrorType} " +
+                "(HResult=0x{HResult:X8}). ServerUrl={ServerUrl} Host={Host}.",
+                repoId, ex.GetType().Name, ex.HResult,
+                targetRepo.ServerUrl,
+                Uri.TryCreate(targetRepo.ServerUrl, UriKind.Absolute, out var su) ? su.Host : "(invalid)");
+
+            var classification = Diagnostics.LaserficheErrorClassifier.Classify(ex);
+            if (classification.Code == "tls-error" &&
+                Uri.TryCreate(targetRepo.ServerUrl, UriKind.Absolute, out var serverUri))
+            {
+                // Diagnostic-only certificate inspection: logs subject, issuer,
+                // thumbprint, validity, SAN, and SslPolicyErrors. Never affects
+                // the (already failed) authentication request.
+                await Diagnostics.TlsCertificateInspector.InspectAndLogAsync(
+                    serverUri, _logger, cancellationToken);
+            }
 
             return View(ViewWithError(ClassifyLoginError(ex, repoId)));
         }

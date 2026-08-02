@@ -21,4 +21,12 @@
     <ProjectReference Include="..\LFPortal.Web\LFPortal.Web.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Compile-link the installer's pure host-selection logic so the TLS
+         regression tests run against the REAL production code, not a copy.
+         ApiHostSelector.cs is intentionally dependency-free (no WinForms/WiX). -->
+    <Compile Include="..\..\installer\Dashboard.BA\ApiHostSelector.cs"
+             Link="Installer\ApiHostSelector.cs" />
+  </ItemGroup>
+
 </Project>
