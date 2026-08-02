@@ -791,15 +791,18 @@ else {
         catch { $smokeErrors.Add("appsettings.json is not valid JSON.") }
     }
 
-    # 4. appsettings.json contains Urls key (patched by WriteConfig) with expected value
+    # 4. appsettings.json contains Urls key (patched by WriteConfig) with expected value.
+    #    CONTRACT (WriteConfigAction.cs): Urls is ALWAYS "http://0.0.0.0:<port>" --
+    #    the Kestrel bind-all listen address.  It is intentionally NOT the public
+    #    Dashboard URL; those are different by design (bind address vs public URL).
     if ($smokeJsonOk) {
         $appSettingsObj = (Get-Content $smokeAppSettings -Raw) | ConvertFrom-Json
         if (-not ($appSettingsObj.PSObject.Properties.Name -contains "Urls")) {
             $smokeErrors.Add("appsettings.json is missing the Urls key -- WriteConfig did not patch it.")
         } else {
-            $expectedUrl = "http://desktop-k1svi53:5000"
-            if ($appSettingsObj.Urls -ne $expectedUrl) {
-                $smokeErrors.Add("appsettings.json Urls value mismatch. Expected: $expectedUrl -- Actual: $($appSettingsObj.Urls)")
+            $expectedUrls = "http://0.0.0.0:5000"
+            if ($appSettingsObj.Urls -ne $expectedUrls) {
+                $smokeErrors.Add("appsettings.json Urls value mismatch. Expected: $expectedUrls -- Actual: $($appSettingsObj.Urls)")
             }
         }
     }
@@ -817,22 +820,38 @@ else {
         catch { $smokeErrors.Add("laserfiche.config.json is not valid JSON.") }
     }
 
-    # 6b-6d. laserfiche.config.json content checks: ServerUrl value, no RepositoryId, no DisplayName
+    # 6b-6d. laserfiche.config.json content checks.
+    #    CONTRACT (WriteConfigAction.BuildLaserficheConfig): the file is a single
+    #    nested object:  { "Laserfiche": { "ServerUrl": ..., "ApiBasePath": ...,
+    #    "ApiVersion": ..., "TimeoutSeconds": ..., "CredentialProvider": ... } }
+    #    ServerUrl lives under .Laserfiche, NOT at the top level.
+    #    RepositoryId / DisplayName must never appear anywhere in the file.
     if ($smokeLfJsonOk) {
-        $lfObj       = (Get-Content $smokeLfConfig -Raw) | ConvertFrom-Json
-        $lfPropNames = @($lfObj.PSObject.Properties.Name)
-        $expectedLfApi = "https://localhost/LFRepositoryAPI"
-        if ($lfPropNames -contains "ServerUrl") {
-            if ($lfObj.ServerUrl -ne $expectedLfApi) {
-                $smokeErrors.Add("laserfiche.config.json ServerUrl mismatch. Expected: $expectedLfApi -- Actual: $($lfObj.ServerUrl)")
-            }
+        $lfRaw = Get-Content $smokeLfConfig -Raw
+        Write-Host "     Generated laserfiche.config.json:" -ForegroundColor Gray
+        $lfRaw -split "`n" | ForEach-Object { Write-Host ("       {0}" -f $_.TrimEnd()) -ForegroundColor DarkGray }
+
+        $lfObj = $lfRaw | ConvertFrom-Json
+        if (-not ($lfObj.PSObject.Properties.Name -contains "Laserfiche")) {
+            $smokeErrors.Add("laserfiche.config.json is missing the top-level Laserfiche object.")
         } else {
-            $smokeErrors.Add("laserfiche.config.json is missing ServerUrl field.")
+            $lfSection   = $lfObj.Laserfiche
+            $lfPropNames = @($lfSection.PSObject.Properties.Name)
+            $expectedLfApi = "https://localhost/LFRepositoryAPI"
+            if ($lfPropNames -contains "ServerUrl") {
+                if ($lfSection.ServerUrl -ne $expectedLfApi) {
+                    $smokeErrors.Add("Laserfiche.ServerUrl mismatch. Expected: $expectedLfApi -- Actual: $($lfSection.ServerUrl)")
+                }
+            } else {
+                $smokeErrors.Add("laserfiche.config.json is missing Laserfiche.ServerUrl.")
+            }
         }
-        if ($lfPropNames -contains "RepositoryId") {
+        # RepositoryId / DisplayName must not appear anywhere in the file
+        # (raw text scan covers both top-level and nested placement).
+        if ($lfRaw -match '"RepositoryId"') {
             $smokeErrors.Add("laserfiche.config.json must not contain RepositoryId (repository is runtime context, not install config).")
         }
-        if ($lfPropNames -contains "DisplayName") {
+        if ($lfRaw -match '"DisplayName"') {
             $smokeErrors.Add("laserfiche.config.json must not contain DisplayName (repository is runtime context, not install config).")
         }
     }

@@ -1,0 +1,29 @@
+ [Step 5/11] Building Dashboard.SetupHelper (net48, x64, Release)
+Restore complete (0.3s)
+  Dashboard.SetupHelper succeeded (0.3s) → installer\Dashboard.SetupHelper\bin\Release\net48\Dashboard.SetupHelper.exe
+
+Build succeeded in 1.1s
+     [OK] Dashboard.SetupHelper.exe staged to Extension folder.
+     [OK] Dashboard.SetupHelper.exe confirmed present in Extension staging folder.
+     [OK] Dashboard.SetupHelper.exe SHA256: F90F85FDDB3F2AF5714D9627B4D7757C985A0306F063E3A9B4564AA91B49340B
+     Running SetupHelper smoke test (exact MSI command line)...
+     SetupHelper output:
+       [SetupHelper] ============================================================
+       [SetupHelper] Invoked: --write-config --url http://desktop-k1svi53:5000 --lf-api https://localhost/LFRepositoryAPI --port 5000 --webapp-path C:\Users\AMJADA~1\AppData\Local\Temp\DashSmoke-77e6075b868846b191e9c3eae0e92570\WebApp\. --config-dir C:\Users\AMJADA~1\AppData\Local\Temp\DashSmoke-77e6075b868846b191e9c3eae0e92570\Config
+       [SetupHelper] Process bitness: x64
+       [SetupHelper] Current directory: C:\Users\AmjadAlhawaseh\ChatBotProject\Asset-Manager-1zip
+       [SetupHelper] WriteConfig: url='http://desktop-k1svi53:5000' lf-api='https://localhost/LFRepositoryAPI' port='5000' webapp-path='C:\Users\AMJADA~1\AppData\Local\Temp\DashSmoke-77e6075b868846b191e9c3eae0e92570\WebApp' config-dir='C:\Users\AMJADA~1\AppData\Local\Temp\DashSmoke-77e6075b868846b191e9c3eae0e92570\Config'
+       [SetupHelper] Config directory: C:\Users\AMJADA~1\AppData\Local\Temp\DashSmoke-77e6075b868846b191e9c3eae0e92570\Config
+       [SetupHelper] Port: 5000
+       [SetupHelper] Wrote: C:\Users\AMJADA~1\AppData\Local\Temp\DashSmoke-77e6075b868846b191e9c3eae0e92570\Config\extension.config.json
+       [SetupHelper] Wrote: C:\Users\AMJADA~1\AppData\Local\Temp\DashSmoke-77e6075b868846b191e9c3eae0e92570\Config\laserfiche.config.json
+       [SetupHelper] Resolved appsettings path: C:\Users\AMJADA~1\AppData\Local\Temp\DashSmoke-77e6075b868846b191e9c3eae0e92570\WebApp\appsettings.json (exists: True)
+       [SetupHelper] Patched Urls in: C:\Users\AMJADA~1\AppData\Local\Temp\DashSmoke-77e6075b868846b191e9c3eae0e92570\WebApp\appsettings.json
+       [SetupHelper] Final exit code: 0
+
+  ============================================================
+  [FAILED] SetupHelper smoke test -- 2 condition(s) failed:
+    * appsettings.json Urls value mismatch. Expected: http://desktop-k1svi53:5000 -- Actual: http://0.0.0.0:5000
+    * laserfiche.config.json is missing ServerUrl field.
+  The build is stopped; LFDashboard-Setup.exe was NOT produced.
+  ============================================================

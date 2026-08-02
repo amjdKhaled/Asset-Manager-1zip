@@ -1,0 +1,282 @@
+STOP MAKING ARCHITECTURAL CHANGES.
+
+The actual SetupHelper execution is now successful on Windows.
+
+Real Windows output proves:
+
+- Dashboard.SetupHelper build succeeds.
+- SetupHelper exit code = 0.
+- --webapp-path is parsed correctly.
+- --config-dir is parsed correctly.
+- extension.config.json is created.
+- laserfiche.config.json is created.
+- appsettings.json is found.
+- appsettings.json is patched successfully.
+
+The build is now being blocked ONLY by two incorrect/overly-strict smoke-test assertions:
+
+1)
+Expected:
+http://desktop-k1svi53:5000
+
+Actual:
+http://0.0.0.0:5000
+
+2)
+The smoke test reports:
+laserfiche.config.json is missing ServerUrl field.
+
+DO NOT redesign the installer.
+DO NOT modify the BA architecture.
+DO NOT modify WiX hosting.
+DO NOT modify repository runtime architecture.
+DO NOT modify the working SetupHelper argument parsing.
+DO NOT modify PathUtil.
+DO NOT add more speculative guards.
+DO NOT touch working installation code unless inspection proves an actual bug.
+
+Your job is ONLY to repair the smoke-test validation in build/publish.ps1 so that it validates the real configuration contract correctly.
+
+============================================================
+TASK 1 — FIX THE APPSETTINGS URL TEST
+============================================================
+
+Inspect:
+
+- installer/Dashboard.SetupHelper/WriteConfigAction.cs
+- src/LFPortal.Web/Program.cs
+- appsettings.json
+- build/publish.ps1
+- IIS installer configuration
+
+Determine what the Urls value is SUPPOSED to be after WriteConfig.
+
+The real Windows execution currently produces:
+
+"Urls": "http://0.0.0.0:5000"
+
+This may be intentional because Kestrel binds to all interfaces while the public Dashboard URL is:
+
+http://desktop-k1svi53:5000
+
+These are NOT necessarily supposed to be identical.
+
+Do NOT blindly change production code to satisfy the test.
+
+If 0.0.0.0 is the intended listen address, change the smoke test so it validates:
+
+- correct port = 5000
+- valid HTTP URL
+- expected Kestrel binding semantics
+
+For example, if production contract is 0.0.0.0:
+
+Expected Urls:
+http://0.0.0.0:5000
+
+The smoke test MUST NOT require DashboardUrl and Kestrel Urls to be identical unless the application contract explicitly requires that.
+
+============================================================
+TASK 2 — FIX THE ServerUrl TEST
+============================================================
+
+The SetupHelper successfully writes:
+
+laserfiche.config.json
+
+Inspect the ACTUAL generated JSON structure.
+
+Do not guess.
+
+After SetupHelper runs, print the generated file in the smoke test:
+
+Write-Host "Generated laserfiche.config.json:"
+Get-Content $smokeLfConfig -Raw | Write-Host
+
+Then parse it:
+
+$lfConfig = Get-Content $smokeLfConfig -Raw | ConvertFrom-Json
+
+Inspect the exact schema produced by WriteConfigAction.cs.
+
+If the structure is:
+
+{
+  "Laserfiche": {
+    "ServerUrl": "https://localhost/LFRepositoryAPI",
+    ...
+  }
+}
+
+then the correct assertion is:
+
+$lfConfig.Laserfiche.ServerUrl
+
+NOT:
+
+$lfConfig.ServerUrl
+
+The expected value for this Windows smoke test is:
+
+https://localhost/LFRepositoryAPI
+
+Fix the assertion according to the ACTUAL JSON schema.
+
+Also verify:
+
+$lfConfig.Laserfiche.ApiBasePath
+$lfConfig.Laserfiche.ApiVersion
+
+if those fields are part of the current contract.
+
+Do NOT reintroduce RepositoryId or DisplayName.
+
+============================================================
+TASK 3 — MAKE THE SMOKE TEST TEST REAL FAILURES ONLY
+============================================================
+
+The smoke test should fail only for conditions that would actually make the installed application unusable.
+
+Required checks:
+
+1. SetupHelper exit code == 0
+
+2. extension.config.json exists
+
+3. laserfiche.config.json exists
+
+4. appsettings.json exists
+
+5. all three JSON files parse successfully where applicable
+
+6. parsed --webapp-path equals $smokeWebApp
+
+7. parsed --config-dir equals $smokeConfig
+
+8. laserfiche.config.json contains the correct nested:
+   Laserfiche.ServerUrl
+
+9. Laserfiche.ServerUrl equals:
+   https://localhost/LFRepositoryAPI
+
+10. appsettings Urls uses port 5000.
+
+If the intended Kestrel binding is 0.0.0.0, accept:
+
+http://0.0.0.0:5000
+
+Do NOT require:
+
+http://desktop-k1svi53:5000
+
+unless source code proves that is actually required.
+
+11. RepositoryId must NOT be written by the installer.
+
+12. DisplayName must NOT be written by the installer.
+
+============================================================
+TASK 4 — REMOVE BAD LEGACY ASSERTIONS
+============================================================
+
+Search the entire publish.ps1 smoke-test section for assertions left over from previous installer architectures.
+
+Remove or correct assertions that expect:
+
+RepositoryId
+DisplayName
+DashboardUrl == Kestrel Urls
+top-level ServerUrl
+old repository installation settings
+
+The current architecture is:
+
+Installer:
+configures Dashboard/IIS/Laserfiche API endpoint.
+
+Runtime:
+repository is determined dynamically.
+
+Do not mix the two.
+
+============================================================
+TASK 5 — DO NOT CREATE ANOTHER REGRESSION
+============================================================
+
+Before editing anything, read the current implementation.
+
+After editing:
+
+1. Parse publish.ps1 using the PowerShell parser.
+
+2. Build Dashboard.SetupHelper.
+
+3. Run SetupHelper tests.
+
+4. Run the smoke-test logic.
+
+5. Build LFPortal.Web.
+
+6. Build Dashboard.BA.
+
+Do not claim success just because Linux compilation succeeds.
+
+The important validation is that publish.ps1 is logically compatible with Windows PowerShell 5.1.
+
+Use ASCII-only text inside publish.ps1.
+No em dash.
+No Unicode arrows.
+No smart quotes.
+
+============================================================
+IMPORTANT
+============================================================
+
+DO NOT ADD MORE GUARDS JUST FOR THE SAKE OF GUARDS.
+
+We have already wasted significant time because the build script itself has repeatedly blocked a working build due to incorrect assertions.
+
+The smoke test must validate the production contract, not assumptions.
+
+The current real Windows execution is:
+
+SetupHelper Final exit code: 0
+
+webapp-path:
+C:\...\WebApp
+
+config-dir:
+C:\...\Config
+
+appsettings.json:
+exists and is patched
+
+laserfiche.config.json:
+created
+
+extension.config.json:
+created
+
+Use THAT evidence.
+
+============================================================
+FINAL RESPONSE REQUIRED
+============================================================
+
+Do not give me a long speculative explanation.
+
+Return:
+
+1. Root cause of Urls mismatch.
+2. Root cause of ServerUrl false failure.
+3. Exact lines/conditions changed in publish.ps1.
+4. Actual generated laserfiche.config.json schema.
+5. Actual appsettings.json Urls value.
+6. SetupHelper test result.
+7. PowerShell parser result.
+8. Whether smoke test now passes.
+9. Whether full publish.ps1 is ready to run on Windows.
+
+Most importantly:
+
+DO NOT STOP until the smoke-test logic itself passes against the exact output shown above.
