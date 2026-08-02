@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
+using System.IO;
 using System.Net;
 using System.Text;
 using System.Windows.Forms;
@@ -66,6 +67,14 @@ namespace Dashboard.BA
         private CheckBox _chkWebClient     = null!;
         private TextBox  _txtWebClientPath = null!;
         private Panel    _pnlWebClientPath = null!;
+        private Label    _lblWebClientDetected = null!;
+
+        // True only when the IIS-detected Web Client path still contains
+        // Browse.aspx at the time detection results are applied.  A stale
+        // persisted path (Web Client moved/uninstalled) leaves this false so
+        // the wizard falls back to manual entry instead of letting the MSI
+        // DeployWebClient action fail later.
+        private bool _webClientDetectedValid = false;
 
         // ---------------------------------------------------------------- Ready page controls
         private Label _lblReadySummary = null!;
@@ -504,6 +513,20 @@ namespace Dashboard.BA
             grp.Controls.Add(_chkWebClient);
             gy += 22;
 
+            // Detected-path label (filled in when detection results are applied)
+            _lblWebClientDetected = new Label
+            {
+                Text      = "",
+                AutoSize  = false,
+                Size      = new Size(GRP_W - G_LBL_X - 32, 28),
+                Location  = new Point(G_LBL_X + 16, gy),
+                ForeColor = Color.FromArgb(100, 100, 100),
+                Font      = new Font("Segoe UI", 7.5F),
+                Visible   = false
+            };
+            grp.Controls.Add(_lblWebClientDetected);
+            gy += 32;
+
             // Manual path entry (shown when checked but Web Client not auto-detected)
             _pnlWebClientPath = new Panel
             {
@@ -549,7 +572,7 @@ namespace Dashboard.BA
 
             _chkWebClient.CheckedChanged += (s, e) =>
             {
-                _pnlWebClientPath.Visible = _chkWebClient.Checked && !_detection.WebClientFound;
+                _pnlWebClientPath.Visible = _chkWebClient.Checked && !_webClientDetectedValid;
             };
 
             // ---- Size GroupBox to fit its content ----
@@ -837,12 +860,58 @@ namespace Dashboard.BA
             }
 
             // Web Client path / checkbox
+            //
+            // Re-verify the detected path RIGHT NOW: detection may have surfaced a
+            // stale persisted path (Web Client moved or uninstalled since the last
+            // install).  Only a path that still contains Browse.aspx pre-checks the
+            // deploy checkbox; otherwise fall back to manual entry.
             if (_detection.WebClientFound)
             {
+                _webClientDetectedValid = IsValidWebClientPath(_detection.WebClientPath);
+
                 if (string.IsNullOrEmpty(_txtWebClientPath.Text))
                     _txtWebClientPath.Text = _detection.WebClientPath;
-                _chkWebClient.Checked = true;
+
+                if (_webClientDetectedValid)
+                {
+                    _lblWebClientDetected.Text =
+                        $"Detected Web Client: {_detection.WebClientPath}  (Browse.aspx verified)";
+                    _lblWebClientDetected.ForeColor = Color.FromArgb(100, 100, 100);
+                    _chkWebClient.Checked = true;
+                }
+                else
+                {
+                    _lblWebClientDetected.Text =
+                        $"Detected path is invalid \u2014 Browse.aspx not found in: {_detection.WebClientPath}. " +
+                        "Enter the Web Files path manually to deploy the button.";
+                    _lblWebClientDetected.ForeColor = Color.FromArgb(180, 80, 0);
+                    _chkWebClient.Checked = false;
+                }
+                _lblWebClientDetected.Visible = true;
             }
+        }
+
+        // A Web Client path is valid only if Browse.aspx exists inside it.
+        private static bool IsValidWebClientPath(string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path)) return false;
+                return File.Exists(Path.Combine(path.Trim().TrimEnd('\\', '/'), "Browse.aspx"));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // The Web Client path that will actually be used: the verified detected
+        // path, or whatever the user typed into the manual entry box.
+        private string GetEffectiveWebClientPath()
+        {
+            return _webClientDetectedValid
+                ? _detection.WebClientPath
+                : _txtWebClientPath.Text.Trim().TrimEnd('\\', '/');
         }
 
         // Updates the Dashboard URL when the port field changes, but only while
@@ -891,6 +960,17 @@ namespace Dashboard.BA
             if (!int.TryParse(_txtPort.Text.Trim(), out int port) || port < 1 || port > 65535)
                 errors.Add("IIS Port must be a number between 1 and 65535 (in Advanced Settings).");
 
+            if (_chkWebClient.Checked)
+            {
+                string wcPath = GetEffectiveWebClientPath();
+                if (string.IsNullOrWhiteSpace(wcPath))
+                    errors.Add("Web Client deployment is selected, but no Web Files path was provided.");
+                else if (!IsValidWebClientPath(wcPath))
+                    errors.Add($"Browse.aspx was not found in \"{wcPath}\". " +
+                               "Select the Laserfiche Web Files directory that contains Browse.aspx, " +
+                               "or uncheck the Web Client button option.");
+            }
+
             if (errors.Count > 0)
             {
                 MessageBox.Show(this,
@@ -916,9 +996,7 @@ namespace Dashboard.BA
 
             if (_chkWebClient.Checked)
             {
-                _config.LFWebClientPath = _detection.WebClientFound
-                    ? _detection.WebClientPath
-                    : _txtWebClientPath.Text.Trim().TrimEnd('\\', '/');
+                _config.LFWebClientPath = GetEffectiveWebClientPath();
             }
             else
             {
