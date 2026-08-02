@@ -46,16 +46,18 @@ namespace Dashboard.SetupHelper
             string dashUrl = Opt(opts, "url").TrimEnd('/');
             string wcPath  = PathUtil.SanitizeDir(Opt(opts, "path"));
 
+            SetupLog.Info($"DeployWebClient: url='{dashUrl}' path='{wcPath}'");
+
             if (string.IsNullOrEmpty(wcPath))
             {
-                Console.WriteLine("[SetupHelper] --path not provided; skipping Web Client deployment.");
+                SetupLog.Warn("--path not provided; skipping Web Client deployment.");
                 return 0;
             }
 
             string browseAspx = Path.Combine(wcPath, "Browse.aspx");
             if (!File.Exists(browseAspx))
             {
-                Console.Error.WriteLine($"[SetupHelper] Browse.aspx not found at: {browseAspx}");
+                SetupLog.Error($"Browse.aspx not found at: {browseAspx}");
                 return 1;
             }
 
@@ -63,19 +65,20 @@ namespace Dashboard.SetupHelper
             string timestamp  = DateTime.Now.ToString("yyyyMMdd-HHmmss");
             string backupPath = browseAspx + ".bak-" + timestamp;
             File.Copy(browseAspx, backupPath, overwrite: true);
-            Console.WriteLine($"[SetupHelper] Backup created: {backupPath}");
+            SetupLog.Info($"Backup created: {backupPath}");
 
             // Step 2: Locate source JS (installed by the MSI alongside this EXE).
             string? jsSource = FindSourceJs();
             if (jsSource == null)
             {
-                Console.Error.WriteLine("[SetupHelper] lf-webclient-button.js not found relative to this EXE.");
+                SetupLog.Error("lf-webclient-button.js not found relative to this EXE.");
                 return 1;
             }
 
             // Step 3: Create assets/custom/ directory.
             string customDir = Path.Combine(wcPath, "assets", "custom");
             Directory.CreateDirectory(customDir);
+            SetupLog.Info($"Ensured assets/custom directory: {customDir}");
 
             // Step 4: Copy and patch the JS.
             string jsDest    = Path.Combine(customDir, "lf-dashboard-button.js");
@@ -89,19 +92,19 @@ namespace Dashboard.SetupHelper
                     m => m.Groups[1].Value + "'" + dashUrl + "'"
                 );
                 if (patched == jsContent)
-                    Console.WriteLine("[SetupHelper] Warning: DASHBOARD_BASE_URL pattern not found in JS; URL not patched.");
+                    SetupLog.Warn("DASHBOARD_BASE_URL pattern not found in JS; URL not patched.");
                 else
                     jsContent = patched;
             }
 
             File.WriteAllText(jsDest, jsContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            Console.WriteLine($"[SetupHelper] Deployed: {jsDest}");
+            SetupLog.Info($"Deployed JS: {jsDest}");
 
             // Step 5: Insert script tag into Browse.aspx (idempotent).
             string browseContent = File.ReadAllText(browseAspx, Encoding.UTF8);
             if (browseContent.Contains(ScriptTagFragment))
             {
-                Console.WriteLine("[SetupHelper] Script tag already present in Browse.aspx; skipping insertion.");
+                SetupLog.Info("Script tag already present in Browse.aspx; skipping insertion.");
                 return 0;
             }
 
@@ -136,21 +139,28 @@ namespace Dashboard.SetupHelper
                     newLines.Add(line);
                 }
                 if (!inserted)
-                    Console.WriteLine("[SetupHelper] Warning: could not find anchor or </head>; script tag NOT inserted.");
+                    SetupLog.Warn("Could not find anchor or </head>; script tag NOT inserted.");
             }
 
             if (inserted)
             {
                 File.WriteAllLines(browseAspx, newLines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-                Console.WriteLine($"[SetupHelper] Script tag inserted into: {browseAspx}");
+                SetupLog.Info($"Script tag inserted into: {browseAspx}");
             }
 
             // Step 6: Verify
             string finalContent = File.ReadAllText(browseAspx, Encoding.UTF8);
             int tagCount = CountOccurrences(finalContent, ScriptTagFragment);
-            Console.WriteLine($"[SetupHelper] Verification: script tag count in Browse.aspx = {tagCount} (expected 1).");
-            if (tagCount > 1)
-                Console.WriteLine("[SetupHelper] Warning: more than one script tag found. Manual review recommended.");
+            SetupLog.Info($"Verification: script tag count in Browse.aspx = {tagCount} (expected 1).");
+            if (tagCount != 1)
+            {
+                SetupLog.Warn($"Unexpected script tag count {tagCount} in Browse.aspx; manual review recommended.");
+                if (tagCount == 0)
+                {
+                    SetupLog.Error("Script tag was not inserted -- deployment failed.");
+                    return 1;
+                }
+            }
 
             return 0;
         }
@@ -162,16 +172,18 @@ namespace Dashboard.SetupHelper
         {
             string wcPath = PathUtil.SanitizeDir(Opt(opts, "path"));
 
+            SetupLog.Info($"RemoveWebClient: path='{wcPath}'");
+
             if (string.IsNullOrEmpty(wcPath))
             {
-                Console.WriteLine("[SetupHelper] --path not provided; skipping Web Client removal.");
+                SetupLog.Warn("--path not provided; skipping Web Client removal.");
                 return 0;
             }
 
             string browseAspx = Path.Combine(wcPath, "Browse.aspx");
             if (!File.Exists(browseAspx))
             {
-                Console.WriteLine($"[SetupHelper] Browse.aspx not found at: {browseAspx}; nothing to remove.");
+                SetupLog.Info($"Browse.aspx not found at: {browseAspx}; nothing to remove.");
                 return 0;
             }
 
@@ -182,7 +194,7 @@ namespace Dashboard.SetupHelper
 
             if (newLines.Length == lines.Length)
             {
-                Console.WriteLine("[SetupHelper] Dashboard script tag not present in Browse.aspx; nothing to remove.");
+                SetupLog.Info("Dashboard script tag not present in Browse.aspx; nothing to remove.");
                 return 0;
             }
 
@@ -192,8 +204,8 @@ namespace Dashboard.SetupHelper
             File.Copy(browseAspx, backupPath, overwrite: true);
 
             File.WriteAllLines(browseAspx, newLines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            Console.WriteLine($"[SetupHelper] Dashboard script tag removed from: {browseAspx}");
-            Console.WriteLine($"[SetupHelper] Pre-removal backup: {backupPath}");
+            SetupLog.Info($"Dashboard script tag removed from: {browseAspx}");
+            SetupLog.Info($"Pre-removal backup: {backupPath}");
 
             return 0;
         }
@@ -207,16 +219,18 @@ namespace Dashboard.SetupHelper
         {
             string wcPath = PathUtil.SanitizeDir(Opt(opts, "path"));
 
+            SetupLog.Info($"RollbackWebClient: path='{wcPath}'");
+
             if (string.IsNullOrEmpty(wcPath))
             {
-                Console.WriteLine("[SetupHelper] --path not provided; skipping rollback.");
+                SetupLog.Warn("--path not provided; skipping rollback.");
                 return 0;
             }
 
             string browseAspx = Path.Combine(wcPath, "Browse.aspx");
             if (!Directory.Exists(wcPath))
             {
-                Console.WriteLine("[SetupHelper] Web client directory not found; skipping rollback.");
+                SetupLog.Warn("Web client directory not found; skipping rollback.");
                 return 0;
             }
 
@@ -226,13 +240,13 @@ namespace Dashboard.SetupHelper
 
             if (backups.Length == 0)
             {
-                Console.WriteLine("[SetupHelper] No Browse.aspx backup found; rollback skipped.");
+                SetupLog.Warn("No Browse.aspx backup found; rollback skipped.");
                 return 0;
             }
 
             string latest = backups[0];
             File.Copy(latest, browseAspx, overwrite: true);
-            Console.WriteLine($"[SetupHelper] Browse.aspx restored from: {latest}");
+            SetupLog.Info($"Browse.aspx restored from: {latest}");
 
             return 0;
         }
@@ -270,7 +284,7 @@ namespace Dashboard.SetupHelper
                 string fullPath = Path.GetFullPath(c);
                 if (File.Exists(fullPath))
                 {
-                    Console.WriteLine($"[SetupHelper] Found source JS: {fullPath}");
+                    SetupLog.Info($"Found source JS: {fullPath}");
                     return fullPath;
                 }
             }

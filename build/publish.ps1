@@ -312,6 +312,43 @@ $DbPropsPath     = Join-Path $RepoRoot "Directory.Build.props"
 $ToolManifest    = Join-Path $RepoRoot ".config\dotnet-tools.json"
 
 # =============================================================================
+# POWERSHELL PARSER SELF-CHECK
+# =============================================================================
+# Validates this script's own syntax using the PowerShell language parser.
+# Uses $PSCommandPath so the check is independent of the caller's working directory.
+# Runs before any build work; a syntax error fails fast rather than mid-build.
+if ($PSCommandPath) {
+    try {
+        $parseErrors = $null
+        $parseTokens = $null
+        [System.Management.Automation.Language.Parser]::ParseFile(
+            $PSCommandPath,
+            [ref]$parseTokens,
+            [ref]$parseErrors
+        ) | Out-Null
+        $parseErrorCount = if ($null -ne $parseErrors) { @($parseErrors).Count } else { 0 }
+        if ($parseErrorCount -eq 0) {
+            Write-OK "PowerShell parser check: PASS"
+            Write-Host "     Parser errors: 0" -ForegroundColor DarkGray
+        } else {
+            Write-Host ""
+            Write-Host "  ============================================================" -ForegroundColor Red
+            Write-Host "  [FAILED] PowerShell parser check: $parseErrorCount error(s)" -ForegroundColor Red
+            foreach ($pe in @($parseErrors)) {
+                Write-Host ("    Line {0}: {1}" -f $pe.Extent.StartLineNumber, $pe.Message) -ForegroundColor Red
+            }
+            Write-Host "  ============================================================" -ForegroundColor Red
+            exit 1
+        }
+    } catch {
+        Write-Warn "PowerShell parser self-check unavailable in this environment: $($_.Exception.Message)"
+        Write-Host "     (Windows PowerShell or PowerShell 7 required for parser API)" -ForegroundColor DarkGray
+    }
+} else {
+    Write-Warn "PSCommandPath not available; PowerShell parser self-check skipped."
+}
+
+# =============================================================================
 # PREFLIGHT: VERIFY ALL REQUIRED SOURCE/BUILD FILES
 # =============================================================================
 # Fail early with a complete list of missing files rather than discovering
@@ -754,11 +791,16 @@ else {
         catch { $smokeErrors.Add("appsettings.json is not valid JSON.") }
     }
 
-    # 4. appsettings.json contains Urls key (patched by WriteConfig)
+    # 4. appsettings.json contains Urls key (patched by WriteConfig) with expected value
     if ($smokeJsonOk) {
         $appSettingsObj = (Get-Content $smokeAppSettings -Raw) | ConvertFrom-Json
         if (-not ($appSettingsObj.PSObject.Properties.Name -contains "Urls")) {
             $smokeErrors.Add("appsettings.json is missing the Urls key -- WriteConfig did not patch it.")
+        } else {
+            $expectedUrl = "http://desktop-k1svi53:5000"
+            if ($appSettingsObj.Urls -ne $expectedUrl) {
+                $smokeErrors.Add("appsettings.json Urls value mismatch. Expected: $expectedUrl -- Actual: $($appSettingsObj.Urls)")
+            }
         }
     }
 
@@ -769,9 +811,30 @@ else {
     }
 
     # 6. laserfiche.config.json is valid JSON
+    $smokeLfJsonOk = $false
     if (Test-Path $smokeLfConfig) {
-        try   { $null = (Get-Content $smokeLfConfig -Raw) | ConvertFrom-Json }
+        try   { $null = (Get-Content $smokeLfConfig -Raw) | ConvertFrom-Json; $smokeLfJsonOk = $true }
         catch { $smokeErrors.Add("laserfiche.config.json is not valid JSON.") }
+    }
+
+    # 6b-6d. laserfiche.config.json content checks: ServerUrl value, no RepositoryId, no DisplayName
+    if ($smokeLfJsonOk) {
+        $lfObj       = (Get-Content $smokeLfConfig -Raw) | ConvertFrom-Json
+        $lfPropNames = @($lfObj.PSObject.Properties.Name)
+        $expectedLfApi = "https://localhost/LFRepositoryAPI"
+        if ($lfPropNames -contains "ServerUrl") {
+            if ($lfObj.ServerUrl -ne $expectedLfApi) {
+                $smokeErrors.Add("laserfiche.config.json ServerUrl mismatch. Expected: $expectedLfApi -- Actual: $($lfObj.ServerUrl)")
+            }
+        } else {
+            $smokeErrors.Add("laserfiche.config.json is missing ServerUrl field.")
+        }
+        if ($lfPropNames -contains "RepositoryId") {
+            $smokeErrors.Add("laserfiche.config.json must not contain RepositoryId (repository is runtime context, not install config).")
+        }
+        if ($lfPropNames -contains "DisplayName") {
+            $smokeErrors.Add("laserfiche.config.json must not contain DisplayName (repository is runtime context, not install config).")
+        }
     }
 
     # 7. extension.config.json created at smokeConfig
@@ -799,9 +862,37 @@ else {
         }
     }
 
-    # 10. webapp-path in stdout does not contain '--config-dir' (the classic swallow symptom)
-    if ($smokeOut -like "*webapp-path*--config-dir*") {
-        $smokeErrors.Add("stdout shows --config-dir swallowed into --webapp-path value.")
+    # 10 & 11. Parse the WriteConfig log line and verify the VALUES SetupHelper extracted.
+    #   The "Invoked:" echo line legitimately contains both --webapp-path and --config-dir
+    #   as separate tokens on the same line, so checking raw stdout for their co-occurrence
+    #   produces a false positive on any correct run.  Validate parsed VALUES instead.
+    $writeConfigLine = ($smokeOut -split "`n" |
+        Where-Object { $_ -like "*WriteConfig:*" } |
+        Select-Object -First 1)
+
+    if ($null -ne $writeConfigLine -and $writeConfigLine.Trim() -ne "") {
+        $wcMatch = [regex]::Match($writeConfigLine, "webapp-path='([^']*)'")
+        $cdMatch = [regex]::Match($writeConfigLine, "config-dir='([^']*)'")
+
+        if ($wcMatch.Success) {
+            $parsedWebApp = $wcMatch.Groups[1].Value
+            if ($parsedWebApp -ne $smokeWebApp) {
+                $smokeErrors.Add("Parsed webapp-path mismatch. Expected: $smokeWebApp -- Actual: $parsedWebApp")
+            }
+        } else {
+            $smokeErrors.Add("WriteConfig log line does not contain webapp-path='...' field.")
+        }
+
+        if ($cdMatch.Success) {
+            $parsedConfigDir = $cdMatch.Groups[1].Value
+            if ($parsedConfigDir -ne $smokeConfig) {
+                $smokeErrors.Add("Parsed config-dir mismatch. Expected: $smokeConfig -- Actual: $parsedConfigDir")
+            }
+        } else {
+            $smokeErrors.Add("WriteConfig log line does not contain config-dir='...' field (--config-dir may have been swallowed).")
+        }
+    } else {
+        $smokeErrors.Add("WriteConfig log line not found in SetupHelper stdout.")
     }
 
     Remove-Item $smokeDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -813,16 +904,11 @@ else {
         foreach ($e in $smokeErrors) {
             Write-Host ("    * {0}" -f $e) -ForegroundColor Red
         }
-        Write-Host "  Root cause checklist:" -ForegroundColor Red
-        Write-Host "    1. Argument parsing: --config-dir swallowed into --webapp-path" -ForegroundColor Red
-        Write-Host '       (trailing " on --webapp-path escapes the closing quote)' -ForegroundColor Red
-        Write-Host "    2. PathUtil.SanitizeDir not stripping trailing \." -ForegroundColor Red
-        Write-Host "    3. WriteConfig exited non-zero (check stdout above)" -ForegroundColor Red
         Write-Host "  The build is stopped; LFDashboard-Setup.exe was NOT produced." -ForegroundColor Red
         Write-Host "  ============================================================" -ForegroundColor Red
         exit 1
     }
-    Write-OK "SetupHelper smoke test passed -- all 10 conditions verified."
+    Write-OK "SetupHelper smoke test passed -- all conditions verified."
     Write-Host ("    webapp-path : {0}" -f $smokeWebApp)  -ForegroundColor DarkGray
     Write-Host ("    config-dir  : {0}" -f $smokeConfig)  -ForegroundColor DarkGray
 }

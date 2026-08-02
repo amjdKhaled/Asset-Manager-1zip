@@ -1,0 +1,448 @@
+STOP making speculative changes.
+
+We now have REAL Windows execution output proving that SetupHelper works correctly,
+but publish.ps1 contains a BROKEN smoke-test assertion that produces a FALSE POSITIVE
+and stops a successful build.
+
+Use the evidence below as authoritative.
+
+============================================================
+REAL WINDOWS OUTPUT
+============================================================
+
+SetupHelper was invoked as:
+
+--write-config
+--url http://desktop-k1svi53:5000
+--lf-api https://localhost/LFRepositoryAPI
+--port 5000
+--webapp-path C:\...\WebApp\.
+--config-dir C:\...\Config
+
+SetupHelper then logged:
+
+WriteConfig:
+url='http://desktop-k1svi53:5000'
+lf-api='https://localhost/LFRepositoryAPI'
+port='5000'
+webapp-path='C:\...\WebApp'
+config-dir='C:\...\Config'
+
+Then:
+
+Config directory: C:\...\Config
+
+Then:
+
+Wrote:
+C:\...\Config\extension.config.json
+
+Wrote:
+C:\...\Config\laserfiche.config.json
+
+Then:
+
+Resolved appsettings path:
+C:\...\WebApp\appsettings.json
+(exists: True)
+
+Then:
+
+Patched Urls in:
+C:\...\WebApp\appsettings.json
+
+Then:
+
+Final exit code: 0
+
+THIS PROVES:
+
+1. --webapp-path parsed correctly.
+2. --config-dir parsed correctly as a SEPARATE argument.
+3. PathUtil.SanitizeDir correctly converted WebApp\. -> WebApp.
+4. SetupHelper used the TEMP config directory.
+5. SetupHelper did NOT fall back to ProgramData.
+6. appsettings.json was found.
+7. appsettings.json was patched.
+8. SetupHelper returned exit code 0.
+
+Yet publish.ps1 incorrectly reports:
+
+[FAILED] SetupHelper smoke test -- 1 condition(s) failed:
+* stdout shows --config-dir swallowed into --webapp-path value.
+
+THIS ASSERTION IS WRONG.
+
+============================================================
+TASK 1 - FIND THE BROKEN ASSERTION
+============================================================
+
+Read the ENTIRE SetupHelper smoke-test section in:
+
+build/publish.ps1
+
+Find the exact condition that adds:
+
+"stdout shows --config-dir swallowed into --webapp-path value."
+
+Do NOT modify SetupHelper argument parsing.
+
+SetupHelper is proven to work from the real Windows output.
+
+The bug is in the PowerShell validation logic.
+
+============================================================
+TASK 2 - REMOVE THE FALSE-POSITIVE LOGIC
+============================================================
+
+The current check is apparently searching the entire stdout for both:
+
+webapp-path
+--config-dir
+
+Since the invocation/header line legitimately contains BOTH command-line arguments:
+
+Invoked: ... --webapp-path ... --config-dir ...
+
+that check incorrectly concludes that --config-dir was swallowed.
+
+That is invalid validation logic.
+
+Replace it with STRUCTURED validation of the parsed WriteConfig line.
+
+The important line is:
+
+[SetupHelper] WriteConfig: url='...' lf-api='...' port='5000'
+webapp-path='C:\...\WebApp'
+config-dir='C:\...\Config'
+
+Validate the VALUES parsed by SetupHelper, not whether both argument names occur
+somewhere in stdout.
+
+============================================================
+TASK 3 - CORRECT VALIDATION
+============================================================
+
+Extract the WriteConfig log line.
+
+Verify independently:
+
+webapp-path='<expected sanitized WebApp path>'
+
+AND
+
+config-dir='<expected temp Config path>'
+
+For example, conceptually:
+
+$writeConfigLine = $stdoutLines |
+    Where-Object { $_ -like "*WriteConfig:*" } |
+    Select-Object -First 1
+
+Then verify the expected exact values.
+
+Do NOT use a condition such as:
+
+stdout contains "--webapp-path" AND stdout contains "--config-dir"
+
+because the Invoked line SHOULD contain both.
+
+Also DO NOT flag this valid line:
+
+Invoked: ... --webapp-path C:\...\WebApp\. --config-dir C:\...\Config
+
+as corruption.
+
+============================================================
+TASK 4 - ADD STRONGER FILE-BASED VALIDATION
+============================================================
+
+The smoke test should PASS only if ALL of these are true:
+
+1. SetupHelper exit code == 0
+
+2. Parsed WriteConfig webapp-path equals:
+   $smokeWebApp
+   after normalization
+
+3. Parsed WriteConfig config-dir equals:
+   $smokeConfig
+
+4. Output contains:
+   Config directory: $smokeConfig
+
+5. extension.config.json exists at:
+   $smokeConfig\extension.config.json
+
+6. laserfiche.config.json exists at:
+   $smokeConfig\laserfiche.config.json
+
+7. appsettings.json exists at:
+   $smokeWebApp\appsettings.json
+
+8. appsettings.json parses as valid JSON
+
+9. appsettings.json contains the expected Urls value
+
+10. laserfiche.config.json parses as valid JSON
+
+11. laserfiche.config.json contains the expected:
+    ServerUrl = https://localhost/LFRepositoryAPI
+
+12. laserfiche.config.json MUST NOT contain:
+    RepositoryId
+    DisplayName
+
+Do not infer argument corruption from the raw "Invoked:" line.
+
+============================================================
+TASK 5 - PROGRAMDATA SAFETY CHECK
+============================================================
+
+The smoke test uses:
+
+--config-dir $smokeConfig
+
+Therefore validate:
+
+Config directory: $smokeConfig
+
+If that exact parsed/logged config directory is present, this proves the override worked.
+
+Do NOT modify or delete the user's real:
+
+C:\ProgramData\Dashboard
+
+during the smoke test.
+
+Do NOT use the existence of ProgramData from a previous installation as a failure condition.
+
+============================================================
+TASK 6 - FIX MISLEADING ROOT-CAUSE MESSAGE
+============================================================
+
+Remove this hardcoded output:
+
+Root cause checklist:
+1. Argument parsing: --config-dir swallowed...
+2. PathUtil.SanitizeDir...
+3. WriteConfig exited non-zero...
+
+It is misleading because Windows has already proven all three are working.
+
+Instead, when a condition fails, print ONLY the condition that actually failed,
+including expected and actual values.
+
+Example:
+
+[FAILED] Parsed config-dir mismatch
+Expected: C:\...\Config
+Actual:   C:\...
+
+============================================================
+TASK 7 - DO NOT CHANGE WORKING CODE
+============================================================
+
+DO NOT change:
+
+PathUtil.SanitizeDir
+WriteConfigAction argument parsing
+Program.cs argument parsing
+MSI [WEBAPPFOLDER]. fix
+SetupHelper --config-dir implementation
+SetupHelper --webapp-path implementation
+
+They are working according to the REAL Windows output.
+
+Do not rewrite them again.
+
+============================================================
+TASK 8 - POWERSHELL PARSER CHECK
+============================================================
+
+The previous parser command was accidentally executed from:
+
+C:\WINDOWS\system32
+
+so:
+
+Resolve-Path ".\build\publish.ps1"
+
+correctly failed because that file does not exist there.
+
+That was NOT a publish.ps1 parser failure.
+
+Add a parser check INSIDE publish.ps1 itself, using $PSScriptRoot or the already
+resolved repository root so it is independent of the caller's current directory.
+
+For example, resolve the script using:
+
+$PSCommandPath
+
+or:
+
+Join-Path $PSScriptRoot "publish.ps1"
+
+Do NOT depend on the current working directory.
+
+The build should print:
+
+PowerShell parser check: PASS
+Parser errors: 0
+
+============================================================
+TASK 9 - MAKE publish.ps1 LOCATION-INDEPENDENT
+============================================================
+
+Review publish.ps1 for relative paths that incorrectly depend on the shell's current
+working directory.
+
+The script should determine repository root from its own location.
+
+Conceptually:
+
+$BuildDir = $PSScriptRoot
+$RepoRoot = Split-Path $BuildDir -Parent
+
+All project paths should derive from $RepoRoot.
+
+Running:
+
+C:\project> .\build\publish.ps1
+
+and invoking the script by full path from another directory should behave consistently.
+
+Do not unnecessarily rewrite paths that are already correctly based on $RepoRoot.
+
+============================================================
+TASK 10 - RUN WINDOWS VALIDATION IF AVAILABLE
+============================================================
+
+If Windows PowerShell is available, run the actual parser:
+
+$errors = $null
+$tokens = $null
+
+[System.Management.Automation.Language.Parser]::ParseFile(
+    $PSCommandPath,
+    [ref]$tokens,
+    [ref]$errors
+) | Out-Null
+
+There must be:
+
+Parser errors: 0
+
+If Windows PowerShell is unavailable in the environment, say so.
+Do NOT pretend Python syntax checking is equivalent.
+
+============================================================
+TASK 11 - PRESERVE ALL PREVIOUS FIXES
+============================================================
+
+Preserve:
+
+- WiX MBA hosting fix
+- WixToolset.Mba.Host.config fix
+- BA x86 configuration
+- SetupHelper quoting fix
+- [WEBAPPFOLDER]. MSI fix
+- temporary --config-dir smoke-test isolation
+- BA clean build
+- BA SHA256 guard
+- SetupHelper SHA256 guard
+- Repository ID / Display Name removal
+- IIS Dashboard deployment
+- existing installer wizard improvements
+
+Do not regress any of them.
+
+============================================================
+TASK 12 - THEN ADDRESS WEB CLIENT INTEGRATION
+============================================================
+
+After the build pipeline is fixed, continue with the outstanding issue:
+
+The Dashboard button does NOT appear in Laserfiche Web Client.
+
+Do not ignore this issue.
+
+Trace:
+
+InstallWebButton
+-> BA
+-> Burn
+-> MSI
+-> SetupHelper
+-> WebClientAction
+-> IIS /Laserfiche physical path
+-> actual Web Client modification
+-> Dashboard button verification
+
+The local IIS application is known to be:
+
+/Laserfiche
+
+Auto-detect its physical path from IIS.
+
+Do not require Repository ID during installation.
+
+The Dashboard button must use the CURRENT repository dynamically.
+
+For example:
+
+LFNewRepoWF
+
+should open Dashboard with:
+
+?repository=LFNewRepoWF
+
+Do not hardcode a repository.
+
+If Browse.aspx is not the correct integration point for this Laserfiche version,
+determine the actual integration point instead of blindly patching it.
+
+============================================================
+DEFINITION OF DONE
+============================================================
+
+Do NOT finish after editing files.
+
+The task is complete only when:
+
+1. publish.ps1 contains no parser errors.
+2. Smoke test no longer gives the demonstrated false positive.
+3. SetupHelper exit code is 0.
+4. Parsed webapp-path is correct.
+5. Parsed config-dir is correct.
+6. Smoke test writes only to its temp config directory.
+7. appsettings.json is patched correctly.
+8. laserfiche.config.json is valid and contains no RepositoryId/DisplayName.
+9. BA source/staged hashes match.
+10. Full Windows publish.ps1 completes successfully when Windows tooling is available.
+11. Release\LFDashboard-Setup.exe is produced.
+12. Web Client integration is investigated and fixed, not forgotten.
+
+============================================================
+FINAL REPORT
+============================================================
+
+Report:
+
+A. Exact broken smoke-test condition.
+B. Why it produced the false positive against the REAL Windows output.
+C. Old condition.
+D. New condition.
+E. Parsed webapp-path expected/actual.
+F. Parsed config-dir expected/actual.
+G. SetupHelper exit code.
+H. Whether ProgramData was touched by the smoke test.
+I. Parser error count.
+J. SOURCE BA SHA256.
+K. STAGED BA SHA256.
+L. Full publish result.
+M. Web Client button root cause and fix.
+N. Exact Web Client file/path modified.
+O. How current repository is passed dynamically.
+
+Do not speculate when real output already proves a component is working.

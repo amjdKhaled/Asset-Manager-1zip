@@ -242,21 +242,21 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
 
     <CustomAction Id="DeployWebClient"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --deploy-webclient --url "[DASHBOARD_URL]" --path "[LF_WEB_CLIENT_PATH]"'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --deploy-webclient --url "[DASHBOARD_URL]" --path "[LF_WEB_CLIENT_PATH]."'
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />
 
     <CustomAction Id="RollbackWebClient"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --rollback-webclient --path "[LF_WEB_CLIENT_PATH]"'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --rollback-webclient --path "[LF_WEB_CLIENT_PATH]."'
                   Execute="rollback"
                   Impersonate="no"
                   Return="ignore" />
 
     <CustomAction Id="RemoveWebClient"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --remove-webclient --path "[LF_WEB_CLIENT_PATH]"'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --remove-webclient --path "[LF_WEB_CLIENT_PATH]."'
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />

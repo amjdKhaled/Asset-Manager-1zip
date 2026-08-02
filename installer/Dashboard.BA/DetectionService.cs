@@ -4,8 +4,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Text.RegularExpressions;
+using System.Xml;
 using Microsoft.Win32;
 
 namespace Dashboard.BA
@@ -188,9 +191,14 @@ namespace Dashboard.BA
         public static bool DetectWebClient(out string path)
         {
             path = "";
+
+            // Priority 1: IIS applicationHost.config (covers non-default physical paths
+            // such as IIS applications at /Laserfiche whose path is not in the registry).
+            if (DetectWebClientViaIis(out path)) return true;
+
             var candidates = new List<string>();
 
-            // 1. Registry search (same logic as Deploy-WebClientButton.ps1)
+            // Priority 2: Registry search (same logic as Deploy-WebClientButton.ps1)
             var regPaths = new[]
             {
                 @"SOFTWARE\Laserfiche\WebAccess",
@@ -217,7 +225,7 @@ namespace Dashboard.BA
                 catch { /* continue */ }
             }
 
-            // 2. Known default paths
+            // Priority 3: Known default paths
             candidates.AddRange(new[]
             {
                 @"C:\Program Files\Laserfiche\Web Access\Web Files",
@@ -236,6 +244,85 @@ namespace Dashboard.BA
                     return true;
                 }
             }
+            return false;
+        }
+
+        // Searches IIS configuration for a virtual directory that contains Browse.aspx.
+        // Uses two strategies in order:
+        //   1. Parse %SystemRoot%\system32\inetsrv\config\applicationHost.config directly
+        //      (XML, no process spawn, works for any elevated or read-permitted caller).
+        //   2. Fall back to running appcmd.exe list vdir (works when config file is
+        //      access-restricted but the caller has IIS administration rights).
+        private static bool DetectWebClientViaIis(out string path)
+        {
+            path = "";
+
+            // Strategy 1: read applicationHost.config
+            try
+            {
+                string systemRoot  = Environment.GetEnvironmentVariable("SystemRoot") ?? @"C:\Windows";
+                string configPath  = Path.Combine(systemRoot, "system32", "inetsrv", "config", "applicationHost.config");
+                if (File.Exists(configPath))
+                {
+                    var doc = new XmlDocument();
+                    doc.Load(configPath);
+                    var nodes = doc.GetElementsByTagName("virtualDirectory");
+                    foreach (XmlNode node in nodes)
+                    {
+                        string? raw = node.Attributes?["physicalPath"]?.Value;
+                        if (string.IsNullOrEmpty(raw)) continue;
+                        // Expand %SystemDrive% / %SystemRoot% environment tokens used
+                        // in some IIS config paths (e.g. %SystemDrive%\inetpub\wwwroot).
+                        string expanded = Environment.ExpandEnvironmentVariables(raw!);
+                        string candidate = expanded.TrimEnd('\\');
+                        if (!string.IsNullOrEmpty(candidate) &&
+                            File.Exists(Path.Combine(candidate, "Browse.aspx")))
+                        {
+                            path = candidate;
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch { /* fall through to appcmd */ }
+
+            // Strategy 2: appcmd list vdir
+            // Output lines look like: VDIR "Default Web Site/App/" (physicalPath:C:\...\App)
+            try
+            {
+                string systemRoot = Environment.GetEnvironmentVariable("SystemRoot") ?? @"C:\Windows";
+                string appcmd = Path.Combine(systemRoot, "system32", "inetsrv", "appcmd.exe");
+                if (!File.Exists(appcmd)) return false;
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName               = appcmd,
+                    Arguments              = "list vdir",
+                    UseShellExecute        = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError  = true,
+                    CreateNoWindow         = true
+                };
+                using var proc = Process.Start(psi);
+                if (proc == null) return false;
+                string output = proc.StandardOutput.ReadToEnd();
+                proc.WaitForExit(8000);
+
+                var physPathRx = new Regex(@"\(physicalPath:([^)]+)\)", RegexOptions.IgnoreCase);
+                foreach (Match m in physPathRx.Matches(output))
+                {
+                    string expanded  = Environment.ExpandEnvironmentVariables(m.Groups[1].Value.Trim());
+                    string candidate = expanded.TrimEnd('\\');
+                    if (!string.IsNullOrEmpty(candidate) &&
+                        File.Exists(Path.Combine(candidate, "Browse.aspx")))
+                    {
+                        path = candidate;
+                        return true;
+                    }
+                }
+            }
+            catch { /* detection unavailable */ }
+
             return false;
         }
 
