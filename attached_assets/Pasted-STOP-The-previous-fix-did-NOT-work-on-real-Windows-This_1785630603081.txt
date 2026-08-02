@@ -1,0 +1,414 @@
+STOP. The previous fix did NOT work on real Windows.
+
+This is the authoritative REAL Windows WiX 4.0.5 result:
+
+[Step 9/11] Building Burn Bundle (LFDashboard-Setup.exe)
+
+Bundle.wxs(219) : error WIX0103:
+
+Cannot find the WixBundlePayload file
+'SourceDir\ndp48-web.exe'.
+
+The following paths were checked:
+
+SourceDir\ndp48-web.exe
+
+Exit code: 103
+
+The current Bundle already uses ExePackagePayload with DownloadUrl,
+but WiX 4.0.5 on REAL WINDOWS STILL requires the payload locally during
+compilation.
+
+Therefore the previous statement:
+
+"ExePackagePayload Name + DownloadUrl means no local file is required"
+
+is FALSE for our actual WiX 4.0.5 Windows build.
+
+Do not repeat that solution.
+
+============================================================
+GOAL
+============================================================
+
+Fix Step 9 permanently and produce:
+
+Release\LFDashboard-Setup.exe
+
+The developer must still only run:
+
+.\build\publish.ps1
+
+There must be NO manual prerequisite download or copying.
+
+============================================================
+IMPORTANT CHANGE IN APPROACH
+============================================================
+
+If WiX 4.0.5 needs the actual ndp48-web.exe during compilation in order
+to calculate/validate payload metadata, then publish.ps1 itself should
+obtain the official prerequisite automatically during the BUILD.
+
+That is acceptable.
+
+What is NOT acceptable:
+
+- asking the developer to download it manually
+- committing ndp48-web.exe to git
+- hard-coding C:\Users\Amjad...
+- requiring installer\prerequisites to already contain the file
+
+The BUILD machine may download prerequisites automatically.
+
+The CUSTOMER machine must still only receive:
+
+LFDashboard-Setup.exe
+
+============================================================
+1. VERIFY THE ACTUAL WIX 4.0.5 BEHAVIOR
+============================================================
+
+Do not rely on Linux behavior.
+
+The real Windows compiler proves the current syntax is insufficient.
+
+Inspect the WiX 4.0.5 ExePackage / ExePackagePayload schema and determine
+the supported way to build a downloadable package.
+
+Investigate whether WiX requires the local EXE during build in order to
+generate:
+
+- payload hash
+- file size
+- certificate/public key information
+- version metadata
+
+If yes, embrace that architecture instead of fighting the compiler.
+
+============================================================
+2. BUILD-TIME PREREQUISITE CACHE
+============================================================
+
+Implement a portable build-time prerequisite cache, for example:
+
+artifacts\
+    staging\
+        Prerequisites\
+            ndp48-web.exe
+
+publish.ps1 should:
+
+1. Create the Prerequisites staging directory automatically.
+2. Check whether ndp48-web.exe exists.
+3. If missing, download it automatically from the official Microsoft URL.
+4. Verify the downloaded file.
+5. Pass the absolute staged path into WiX using a preprocessor define.
+6. Build the Bundle.
+7. Never require the file to be committed to source control.
+
+Example architecture only:
+
+$PrereqStageDir =
+    Join-Path $StagingDir "Prerequisites"
+
+$NetFx48Installer =
+    Join-Path $PrereqStageDir "ndp48-web.exe"
+
+Do NOT hard-code the repository path.
+
+============================================================
+3. DOWNLOAD ONLY FROM MICROSOFT
+============================================================
+
+Use only the official Microsoft .NET Framework 4.8 web installer source.
+
+Current URL:
+
+https://go.microsoft.com/fwlink/?LinkId=2085155
+
+Verify whether this is still Microsoft's official .NET Framework 4.8 web
+installer.
+
+If the URL redirects, the PowerShell build script must correctly follow
+the redirect.
+
+Use a Windows PowerShell 5.1-compatible download mechanism.
+
+The download happens only on the BUILD machine.
+
+Do NOT add runtime PowerShell requirements to the final installer.
+
+============================================================
+4. SECURITY VERIFICATION
+============================================================
+
+After downloading ndp48-web.exe, verify it before using it.
+
+At minimum use Windows Authenticode verification during publish.ps1:
+
+Get-AuthenticodeSignature
+
+Require:
+
+Status == Valid
+
+and verify the signer belongs to Microsoft.
+
+Do NOT simply download an EXE and feed it into the installer.
+
+If practical, also verify the final downloaded filename/file metadata.
+
+If verification fails:
+
+DELETE the downloaded file
+FAIL THE BUILD
+print a clear security error.
+
+============================================================
+5. WIX SOURCEFILE + DOWNLOADURL ARCHITECTURE
+============================================================
+
+Once the prerequisite exists locally at BUILD TIME, configure WiX using
+the proper supported architecture.
+
+The desired concept is:
+
+Build time:
+    SourceFile = staged ndp48-web.exe
+
+Runtime:
+    DownloadUrl = official Microsoft URL
+
+This allows WiX to inspect/hash the package while building the Bundle,
+while Burn can still download it on a target machine when required.
+
+Use the exact WiX 4.0.5 syntax.
+
+For example, investigate whether the correct form is conceptually:
+
+<ExePackage ...>
+    <ExePackagePayload
+        SourceFile="$(var.NetFx48Installer)"
+        DownloadUrl="..."
+        ... />
+</ExePackage>
+
+or whether SourceFile belongs directly on ExePackage.
+
+DO NOT guess.
+
+Compile against WiX 4.0.5 and use the form that actually works.
+
+============================================================
+6. PASS THE PATH FROM publish.ps1
+============================================================
+
+Add something like:
+
+-d NetFx48Installer=<absolute staged path>
+
+to the Step 9 wix build invocation.
+
+Then Bundle.wxs should use:
+
+$(var.NetFx48Installer)
+
+instead of any developer-specific path.
+
+The resulting source must be portable across machines.
+
+============================================================
+7. KEEP THE RUNTIME DOWNLOAD
+============================================================
+
+Do NOT embed unnecessary duplicate prerequisite binaries if Burn supports
+external/downloadable payload generation after inspecting the local source.
+
+The ideal final EXE should know:
+
+- package identity
+- verification metadata
+- official DownloadUrl
+
+but should download .NET Framework 4.8 only if:
+
+NetFx48Release < 528040
+
+If WiX 4.0.5 requires embedding the prerequisite instead, document that
+fact explicitly and choose the most reliable installer architecture.
+
+Reliability is more important than saving a few MB.
+
+============================================================
+8. PRESERVE WIX6802 FIX
+============================================================
+
+The .NET Framework prerequisite must remain:
+
+bal:PrereqPackage="yes"
+
+because Dashboard.BA targets net48.
+
+Do not remove this.
+
+Required boot order remains:
+
+Burn native engine
+→ .NET Framework 4.8 prerequisite
+→ ManagedBootstrapperApplicationHost
+→ Dashboard.BA.dll
+→ Wizard
+→ Dashboard MSI
+
+============================================================
+9. DO NOT TOUCH STEP 8
+============================================================
+
+Step 8 is confirmed working on REAL Windows.
+
+Do NOT modify the working MSI unless absolutely necessary.
+
+Confirmed:
+
+Steps 1-7 PASS
+Step 8 PASS
+118 WebApp files harvested
+11 Extension files harvested
+Dashboard-1.0.0-Setup.msi generated
+
+Only Step 9 is failing.
+
+============================================================
+10. REMOVE FALSE ASSUMPTIONS
+============================================================
+
+Remove/update comments claiming:
+
+- ExePackagePayload + DownloadUrl alone requires no local source
+- WIX0389/WIX0103 is only a Linux false positive
+
+The REAL Windows build disproved those assumptions.
+
+Windows WiX 4.0.5 output is authoritative.
+
+============================================================
+11. MAKE THE BUILD SELF-CONTAINED
+============================================================
+
+After this change a developer should be able to take a clean project and
+run:
+
+.\build\publish.ps1
+
+The script itself must handle:
+
+local WiX restore
+WiX extensions
+.NET Framework prerequisite acquisition
+prerequisite signature verification
+WebApp publish
+Extension build
+MSI build
+Bundle build
+Release assembly
+
+No preparation commands.
+
+============================================================
+12. OPTIONAL BUILD CACHE
+============================================================
+
+Because publish.ps1 currently deletes artifacts at Step 1, decide whether
+the prerequisite should be cached somewhere like:
+
+.build-cache\prerequisites\
+
+instead of artifacts\ if avoiding repeated downloads is desirable.
+
+If implementing a cache:
+
+- it must be gitignored
+- it must be portable
+- signature must be revalidated every build
+- corrupt cache must be deleted and re-downloaded
+
+Otherwise downloading into artifacts\staging each build is acceptable.
+
+Keep the solution simple.
+
+============================================================
+13. PROACTIVE STEP 9 AUDIT
+============================================================
+
+After fixing the payload source, compile/audit the rest of Bundle.wxs.
+
+Do not stop at WIX0103.
+
+Check for the next possible errors involving:
+
+ExePackagePayload
+SourceFile
+DownloadUrl
+Hash
+CertificatePublicKey
+Version
+ProductName
+Description
+DetectCondition
+InstallArguments
+RepairArguments
+Permanent
+Vital
+bal:PrereqPackage
+ManagedBootstrapperApplicationHost
+Dashboard.BA payload
+WixToolset.Mba.Core payload
+MsiPackage
+MsiProperty
+Bundle variables
+
+============================================================
+14. REAL SUCCESS CRITERIA
+============================================================
+
+Do NOT say "compiler should succeed".
+
+Do NOT mark the task complete based only on Linux validation.
+
+The authoritative success criterion is the Windows build producing:
+
+artifacts\LFDashboard-Setup.exe
+
+followed by:
+
+Release\LFDashboard-Setup.exe
+
+Step 9 must print success.
+
+Step 10 must run.
+
+Step 11 must verify the release.
+
+============================================================
+15. FINAL REPORT
+============================================================
+
+Report:
+
+1. Why ExePackagePayload + DownloadUrl still caused WIX0103.
+2. Whether WiX 4.0.5 requires a local source to generate payload metadata.
+3. Where publish.ps1 downloads/caches ndp48-web.exe.
+4. Official Microsoft URL used.
+5. Exact Authenticode validation performed.
+6. Exact WiX SourceFile/DownloadUrl syntax used.
+7. Exact -d variable passed by publish.ps1.
+8. Whether ndp48-web.exe is embedded or remote in the final Bundle.
+9. What happens on a customer PC that already has .NET 4.8.
+10. What happens on a customer PC without .NET 4.8.
+11. Confirmation WIX6802 remains fixed.
+12. Every file changed.
+13. Result of Step 9 compiler validation.
+14. Exact Windows command to rerun.
+
+Do not claim BUILD SUCCESSFUL until I provide the real Windows result
+showing BUILD SUCCESSFUL.

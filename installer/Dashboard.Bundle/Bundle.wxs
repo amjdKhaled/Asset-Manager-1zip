@@ -179,35 +179,37 @@
           uninstall of .NET 4.8 when Dashboard is removed — .NET Framework
           is an OS component and must never be uninstalled by an app installer.
 
-        REMOTE PAYLOAD — ExePackagePayload child element:
-          WiX 3 used <RemotePayload> as the child element.
-          WiX 4.0.5 removes <RemotePayload> (WIX0005 if used).
-          WiX 4.0.5 also forbids SourceFile / Name / DownloadUrl / Compressed
-          on <ExePackage> itself when a child payload element is present
-          (WIX0372 if mixed).
+        CHILD PAYLOAD ELEMENT — ExePackagePayload:
+          WiX 3 used <RemotePayload> as a child of ExePackage.
+          WiX 4.0.5 replaces it with <ExePackagePayload>.
+          WiX 4.0.5 forbids SourceFile / Name / DownloadUrl / Compressed on
+          <ExePackage> itself when a child ExePackagePayload is present
+          (WIX0372 if mixed — attributes must live on the child element only).
 
-          Correct WiX 4 pattern for a remote-only ExePackage:
-            - No SourceFile / Name / DownloadUrl on the <ExePackage> element
-            - Child <ExePackagePayload Name="..." DownloadUrl="..." />
+        SOURCE FILE — required at build time (WIX0103 without it):
+          WiX 4.0.5 requires a local SourceFile even for packages that are
+          only ever downloaded at runtime.  The compiler reads the file to
+          compute the payload hash, size, and version it embeds in the bundle
+          manifest so Burn can verify integrity at install time.
+          ExePackagePayload/@Name + DownloadUrl alone is NOT sufficient on
+          Windows; WIX0103 fires unless SourceFile is also provided.
 
-          The compiler does NOT look for ndp48-web.exe on disk when the file
-          is named via ExePackagePayload — this is the architectural difference
-          that eliminates WIX0103.
+          publish.ps1 Step 9 downloads ndp48-web.exe automatically to
+          .build-cache\prerequisites\, verifies its Authenticode signature,
+          then passes the absolute path as -d NetFx48Installer=<path>.
 
-        SECURITY — HASH OMITTED INTENTIONALLY:
-          ExePackagePayload/@Hash (SHA512) is optional.  ndp48-web.exe is
-          Authenticode-signed by Microsoft.  Windows verifies the full
-          certificate trust chain before executing any EXE, providing
-          cryptographic assurance stronger than a content hash: a tampered
-          binary breaks the Authenticode chain and is rejected by the OS.
-          A hard-coded hash in source control is also fragile — if Microsoft
-          reissues the web installer, the hash changes and breaks every build.
-
-        DOWNLOAD URL:
+        DOWNLOAD URL — used by Burn at customer install time:
+          ExePackagePayload/@DownloadUrl tells Burn where to fetch the file
+          at RUNTIME when DetectCondition is false and the bundle cache is
+          empty.  Burn follows HTTP redirects natively.
           https://go.microsoft.com/fwlink/?LinkId=2085155 is Microsoft's
-          official permalink for the .NET Framework 4.8 web installer.
-          Burn follows HTTP redirects natively; the final destination is
-          always a download.microsoft.com CDN URL.
+          official .NET Framework 4.8 permalink; the final destination is
+          always a download.microsoft.com CDN URL under Microsoft's control.
+
+          The final LFDashboard-Setup.exe does NOT embed ndp48-web.exe — it
+          embeds only the hash/size/version metadata computed at build time.
+          If .NET 4.8 is missing on a customer PC (DetectCondition false),
+          Burn downloads the file from DownloadUrl at install time.
       -->
       <ExePackage Id="NetFx48Prereq"
                   InstallArguments="/q /norestart /ChainingPackage &quot;[WixBundleName]&quot;"
@@ -216,7 +218,16 @@
                   Permanent="yes"
                   Vital="yes"
                   bal:PrereqPackage="yes">
+        <!--
+          SourceFile: path to the locally cached ndp48-web.exe downloaded by
+            publish.ps1 Step 9.  WiX reads this at build time to generate the
+            payload hash the bundle embeds.
+          DownloadUrl: the Burn runtime uses this to (re-)download the file on
+            a customer PC if DetectCondition is false and the cache is empty.
+          Name: the filename Burn uses when caching the download locally.
+        -->
         <ExePackagePayload Name="ndp48-web.exe"
+                           SourceFile="$(var.NetFx48Installer)"
                            DownloadUrl="https://go.microsoft.com/fwlink/?LinkId=2085155" />
       </ExePackage>
 

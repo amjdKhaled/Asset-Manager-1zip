@@ -1,6 +1,6 @@
 ---
 name: WiX 4.0.5 managed BA prerequisite package — WIX6802 + WIX0103
-description: How to satisfy WIX6802 and avoid WIX0103 for a remote ExePackage in WiX 4.0.5; NetFx extension has no package groups; RemotePayload was removed.
+description: ExePackagePayload with SourceFile+DownloadUrl is the confirmed correct WiX 4 syntax; Name+DownloadUrl alone still triggers WIX0103 on Windows.
 ---
 
 # WiX 4.0.5 prereq package — WIX6802 + WIX0103
@@ -10,17 +10,27 @@ description: How to satisfy WIX6802 and avoid WIX0103 for a remote ExePackage in
 Chain with `bal:PrereqPackage="yes"`.  The native prereq BA must install the managed
 BA's runtime before handing control to the managed assembly.
 
-`WixToolset.Netfx.wixext` 4.0.5 has NO package group symbols — no `NetFxAsPrereq`,
-no WXS/WXI files.  The WiX 3 package groups were removed in WiX 4.  Define inline.
+`WixToolset.Netfx.wixext` 4.0.5 has NO package group symbols.  Define inline.
 
 ## WIX0103 root cause
-`ExePackage/@Name` without `SourceFile` causes the WiX COMPILER to look for the
-file at `SourceDir\<Name>` at BUILD TIME.  `DownloadUrl` on ExePackage is a Burn
-RUNTIME fallback attribute — it does NOT suppress the build-time source lookup.
+`ExePackage/@Name` without `SourceFile` → compiler looks for file at `SourceDir\<Name>` at BUILD TIME.
+`ExePackagePayload/@Name + DownloadUrl` (no SourceFile) → ALSO triggers WIX0103 on real Windows.
+WiX 4.0.5 requires a local SourceFile to compute hash/size/version for the bundle manifest even for
+download-only packages.  DownloadUrl is a Burn RUNTIME attribute only.
 
-## Correct WiX 4.0.5 remote-only ExePackage syntax
+## CONFIRMED CORRECT WiX 4.0.5 syntax
 
 ```xml
+<!-- Direct child of <Bundle> -->
+<util:RegistrySearch Id="NetFx48Release"
+                     Variable="NetFx48Release"
+                     Root="HKLM"
+                     Key="SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
+                     Value="Release"
+                     Result="value"
+                     Bitness="always64" />
+
+<!-- In <Chain>, before <MsiPackage> -->
 <ExePackage Id="NetFx48Prereq"
             InstallArguments="/q /norestart /ChainingPackage &quot;[WixBundleName]&quot;"
             RepairArguments="/q /norestart /repair /ChainingPackage &quot;[WixBundleName]&quot;"
@@ -29,50 +39,41 @@ RUNTIME fallback attribute — it does NOT suppress the build-time source lookup
             Vital="yes"
             bal:PrereqPackage="yes">
   <ExePackagePayload Name="ndp48-web.exe"
+                     SourceFile="$(var.NetFx48Installer)"
                      DownloadUrl="https://go.microsoft.com/fwlink/?LinkId=2085155" />
 </ExePackage>
 ```
 
-With `util:RegistrySearch` for detection (direct child of `<Bundle>`):
-```xml
-<util:RegistrySearch Id="NetFx48Release"
-                     Variable="NetFx48Release"
-                     Root="HKLM"
-                     Key="SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
-                     Value="Release"
-                     Result="value"
-                     Bitness="always64" />
+`$(var.NetFx48Installer)` is passed by publish.ps1 as `-d NetFx48Installer=<path>`.
+
+## WiX 4 element/attribute rules
+
+| Situation | Result |
+|---|---|
+| `<RemotePayload>` child of ExePackage | WIX0005 (removed in WiX 4) |
+| ExePackage/@Name without SourceFile | WIX0103 (local file lookup) |
+| ExePackagePayload/@Name + DownloadUrl only (no SourceFile) | WIX0103 on Windows |
+| ExePackage/@Name AND child ExePackagePayload | WIX0372 (must use one, not both) |
+| ExePackagePayload with SourceFile + DownloadUrl | ✅ CORRECT |
+| InstallCommand (WiX 3 name) | WIX0004 → use InstallArguments |
+| RepairCommand (WiX 3 name) | WIX0004 → use RepairArguments |
+| No UninstallArguments without Permanent="yes" | WIX0408 |
+
+## publish.ps1 build-time acquisition
+
+```powershell
+$prereqCacheDir   = Join-Path $RepoRoot ".build-cache\prerequisites"
+$netFx48Installer = Join-Path $prereqCacheDir "ndp48-web.exe"
+# 1. Create cache dir (survives Step 1 artifact wipe)
+# 2. Download if missing (TLS 1.2, Invoke-WebRequest)
+# 3. Get-AuthenticodeSignature: Status -eq 'Valid' AND Subject -match 'Microsoft'
+# 4. Delete + fail build if invalid
+# 5. Pass: "-d", "NetFx48Installer=$netFx48Installer"
 ```
 
-## Key WiX 4 element changes vs WiX 3
+Cache at `.build-cache\prerequisites\` (gitignored) survives `artifacts/` wipe.
+Signature verified every build regardless of whether file was cached or fresh.
 
-| WiX 3 | WiX 4.0.5 | Error if wrong |
-|---|---|---|
-| `<RemotePayload>` child of ExePackage | `<ExePackagePayload>` child | WIX0005 |
-| ExePackage/@Name + DownloadUrl (no child) | must use child ExePackagePayload | WIX0103 |
-| ExePackage has Name/DownloadUrl AND child | forbidden — one or the other | WIX0372 |
-| InstallCommand | InstallArguments | WIX0004 |
-| RepairCommand | RepairArguments | WIX0004 |
-| UninstallCommand (omit, use Permanent="yes") | Permanent="yes" | WIX0408 |
-
-## Rules
-- No `SourceFile/Name/DownloadUrl/Compressed` on `<ExePackage>` when using child payload.
-- `ExePackagePayload/@Hash` (SHA512) is optional; omit it — ndp48-web.exe is
-  Authenticode-signed by Microsoft, which is stronger verification.
-- `Permanent="yes"` avoids WIX0408 (UninstallArguments required otherwise).
-- `WixToolset.Util.wixext` (already in bundle build args) provides `util:RegistrySearch`;
-  `WixToolset.Netfx.wixext` is NOT needed.
-
-## publish.ps1 impact
-- No `$prereqDir` / `PrereqDir` define needed — remove them entirely.
-- No `installer\prerequisites\` directory required — never create it.
-- The `ndp48-web.exe` is NEVER downloaded at build time; Burn downloads it at
-  install time ONLY when `DetectCondition` is false (rare — .NET 4.8 ships
-  pre-installed on Win Server 2019/2022, Win10 1903+).
-
-## Detection thresholds
-| Release value | Platform |
-|---|---|
-| 528040 | Windows 10 1903+, Server 2019 (minimum threshold) |
-| 528372 | Windows 10 2004 |
-| 528449 | Windows 11, Server 2022 |
+## Detection thresholds (Release DWORD)
+528040 = Win10 1903+ / Server 2019 (minimum); 528449 = Win11 / Server 2022.
+`NetFx48Release >= 528040` covers all supported targets.

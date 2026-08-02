@@ -20,6 +20,10 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
+# Build-time prerequisite cache (downloaded automatically by publish.ps1).
+# Never commit binaries here; the build re-downloads if missing.
+.build-cache/
+
 # ASP.NET Core
 wwwroot/lib/
 **/Publish/

@@ -944,6 +944,68 @@ else {
         exit 1
     }
 
+    # -------------------------------------------------------------------------
+    # .NET Framework 4.8 prerequisite — build-time acquisition
+    # -------------------------------------------------------------------------
+    # WiX 4.0.5 requires the actual ndp48-web.exe to exist locally at build
+    # time so the compiler can compute the payload hash/size/version it embeds
+    # in the bundle manifest.  Without a local SourceFile the linker emits
+    # WIX0103 even when DownloadUrl is supplied.
+    #
+    # The file is cached in .build-cache\prerequisites\ (gitignored) so it
+    # survives the Step 1 artifact wipe and is not re-downloaded on every run.
+    # The Authenticode signature is verified on every build — cached or fresh.
+    # -------------------------------------------------------------------------
+    $prereqCacheDir    = Join-Path $RepoRoot ".build-cache\prerequisites"
+    $netFx48Installer  = Join-Path $prereqCacheDir "ndp48-web.exe"
+    $netFx48Url        = "https://go.microsoft.com/fwlink/?LinkId=2085155"
+
+    $null = New-Item -ItemType Directory -Path $prereqCacheDir -Force
+
+    if (-not (Test-Path $netFx48Installer)) {
+        Write-Host "  Downloading .NET Framework 4.8 web installer..." -ForegroundColor Cyan
+        try {
+            # TLS 1.2 is required by download.microsoft.com; PowerShell 5.1
+            # defaults to TLS 1.0 on older Windows builds.
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -Uri $netFx48Url -OutFile $netFx48Installer -UseBasicParsing
+        }
+        catch {
+            Write-Host "  [FAILED] Could not download ndp48-web.exe: $_" -ForegroundColor Red
+            Remove-Item $netFx48Installer -Force -ErrorAction SilentlyContinue
+            exit 1
+        }
+        Write-Host "  Downloaded: $netFx48Installer" -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "  Using cached .NET Framework 4.8 installer: $netFx48Installer" -ForegroundColor DarkGray
+    }
+
+    # Authenticode verification — runs on every build (cached or fresh).
+    # Requirement: Status = Valid, signer Subject contains "Microsoft".
+    Write-Host "  Verifying Authenticode signature..." -ForegroundColor DarkGray
+    $sig = Get-AuthenticodeSignature -FilePath $netFx48Installer
+    if ($sig.Status -ne 'Valid') {
+        Write-Host ""
+        Write-Host "  [SECURITY] Authenticode verification FAILED." -ForegroundColor Red
+        Write-Host "             File   : $netFx48Installer" -ForegroundColor Red
+        Write-Host "             Status : $($sig.Status)" -ForegroundColor Red
+        Remove-Item $netFx48Installer -Force -ErrorAction SilentlyContinue
+        Write-Host "             The file has been deleted.  Re-run to download again." -ForegroundColor Red
+        exit 1
+    }
+    $signerSubject = $sig.SignerCertificate.Subject
+    if ($signerSubject -notmatch 'Microsoft') {
+        Write-Host ""
+        Write-Host "  [SECURITY] Signer is not Microsoft." -ForegroundColor Red
+        Write-Host "             File    : $netFx48Installer" -ForegroundColor Red
+        Write-Host "             Subject : $signerSubject" -ForegroundColor Red
+        Remove-Item $netFx48Installer -Force -ErrorAction SilentlyContinue
+        Write-Host "             The file has been deleted.  Re-run to download again." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  Signature valid.  Signer: $signerSubject" -ForegroundColor DarkGray
+
     $wixBundleArgs = @(
         "tool", "run", "wix", "--",
         "build",
@@ -954,6 +1016,7 @@ else {
         "-d",      "MbaCoreAssembly=$(Join-Path $baStagingDir 'WixToolset.Mba.Core.dll')",
         "-d",      "MsiPath=$msiPath",
         "-d",      "BundleVersion=$Version",
+        "-d",      "NetFx48Installer=$netFx48Installer",
         "-intermediatefolder", $bundleIntermDir,
         "-pdbtype", "none",
         "-out",    $bundleExe
