@@ -1,0 +1,384 @@
+We now have the FIRST REAL runtime test of Release\LFDashboard-Setup.exe.
+
+The complete Windows build succeeds:
+
+BUILD SUCCESSFUL -- Dashboard 1.0.0
+
+The Burn EXE launches successfully, but BEFORE our custom Dashboard wizard
+appears, WiX displays this native prerequisite failure screen:
+
+------------------------------------------------------------
+Microsoft .NET Framework required
+for Laserfiche Dashboard setup
+
+Setup Failed
+
+Laserfiche Dashboard failed to load the .NET Framework runtime
+even though all of the prerequisites are installed.
+------------------------------------------------------------
+
+IMPORTANT:
+
+Do NOT modify publish.ps1 randomly.
+Do NOT reinstall .NET blindly.
+Do NOT redesign the application.
+Do NOT remove the Burn Bundle.
+Do NOT switch back to PowerShell installation.
+
+The build pipeline is now confirmed working on REAL Windows.
+
+This is specifically a Managed Bootstrapper Application runtime-loading
+failure.
+
+============================================================
+CURRENT ARCHITECTURE
+============================================================
+
+Bundle:
+    WiX 4.0.5 Burn
+
+Managed BA:
+    installer/Dashboard.BA
+    TargetFramework = net48
+    Output = Dashboard.BA.dll
+
+Bundle currently includes at least:
+
+    Dashboard.BA.dll
+    WixToolset.Mba.Core.dll
+
+The bundle uses:
+
+    bal:WixManagedBootstrapperApplicationHost
+
+The .NET Framework 4.8 prerequisite is already correctly implemented:
+
+    NetFx48Prereq
+    bal:PrereqPackage="yes"
+    DetectCondition based on Release >= 528040
+    ExePackagePayload SourceFile + DownloadUrl
+
+The real Windows build successfully created:
+
+    Release\LFDashboard-Setup.exe
+
+The EXE starts, therefore Burn itself is working.
+
+Failure happens when Burn tries to load the managed BA.
+
+============================================================
+TASK 1 — INVESTIGATE THE ACTUAL BA RUNTIME REQUIREMENTS
+============================================================
+
+Read ALL of:
+
+installer/Dashboard.BA/Dashboard.BA.csproj
+installer/Dashboard.BA/BAFactory.cs
+installer/Dashboard.BA/DashboardBA.cs
+installer/Dashboard.Bundle/Bundle.wxs
+build/publish.ps1
+
+Also inspect the ACTUAL output directory:
+
+installer/Dashboard.BA/bin/Release/net48/
+
+and staged directory:
+
+artifacts/staging/BA/
+
+List every file produced by the BA build.
+
+Do not assume Dashboard.BA.dll and WixToolset.Mba.Core.dll are sufficient.
+
+Determine every runtime dependency required by the managed BA.
+
+============================================================
+TASK 2 — CHECK FOR THE REQUIRED MBA CONFIG FILE
+============================================================
+
+This is extremely important.
+
+Investigate whether WiX 4 ManagedBootstrapperApplicationHost targeting
+.NET Framework requires a bootstrapper application config file such as:
+
+BootstrapperCore.config
+
+or another runtime configuration file.
+
+Check the WiX 4.0.5 Managed BA requirements.
+
+Specifically investigate whether the bundle requires something equivalent to:
+
+<configuration>
+  <startup useLegacyV2RuntimeActivationPolicy="true">
+    <supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8" />
+  </startup>
+</configuration>
+
+Do NOT blindly add this exact file.
+
+First determine the correct WiX 4.0.5 mechanism and filename expected by
+ManagedBootstrapperApplicationHost.
+
+If a runtime config file is required, add it correctly to the BA project
+and Bundle payload.
+
+============================================================
+TASK 3 — CHECK BA FACTORY REGISTRATION
+============================================================
+
+Audit BAFactory.cs.
+
+Confirm the exact WiX 4.0.5 supported factory mechanism.
+
+Verify:
+
+[assembly: BootstrapperApplicationFactory(...)] 
+
+or whatever exact WiX 4 API is required.
+
+Confirm:
+
+- factory class visibility
+- implemented interface
+- constructor signatures
+- Create(...) signature
+- DashboardBA constructor
+- IEngine handling
+- IBootstrapperCommand handling
+
+Do not rely on assumptions from WiX 3.
+
+We are using WiX 4.0.5.
+
+============================================================
+TASK 4 — CHECK MANAGED BA HOST PAYLOAD
+============================================================
+
+Audit:
+
+<bal:WixManagedBootstrapperApplicationHost ...>
+
+and every <Payload> inside BootstrapperApplication.
+
+Determine whether the Bundle must explicitly contain:
+
+Dashboard.BA.dll
+WixToolset.Mba.Core.dll
+BootstrapperCore.config / runtime config
+System.* dependencies
+other NuGet assemblies
+native WiX MBA host dependencies
+
+Do not manually add framework assemblies such as System.dll.
+
+Only include files actually required by the WiX managed BA deployment
+model.
+
+============================================================
+TASK 5 — INSPECT THE ACTUAL BA BUILD OUTPUT
+============================================================
+
+Programmatically list:
+
+installer/Dashboard.BA/bin/Release/net48/
+
+For every file report:
+
+filename
+extension
+size
+whether copied to artifacts/staging/BA
+whether included as Bundle Payload
+whether required at runtime
+
+There must not be a runtime dependency present in bin/Release/net48 but
+missing from the Bundle.
+
+============================================================
+TASK 6 — CHECK TARGET FRAMEWORK / CLR COMPATIBILITY
+============================================================
+
+Confirm the BA assembly metadata really targets:
+
+.NET Framework 4.8 / CLR v4
+
+and NOT:
+
+.NET 8
+.NET Core
+.NET Standard-only runtime
+mixed framework
+
+Inspect the compiled Dashboard.BA.dll if necessary.
+
+Confirm its TargetFrameworkAttribute.
+
+============================================================
+TASK 7 — CHECK BITNESS
+============================================================
+
+Audit bitness carefully.
+
+Current system/build uses x64 in several places.
+
+Determine:
+
+- Burn bootstrapper process architecture
+- ManagedBootstrapperApplicationHost architecture
+- Dashboard.BA PlatformTarget
+- SetupHelper PlatformTarget
+- Desktop Extension PlatformTarget
+
+Do NOT assume the BA should be x64 just because the MSI is x64.
+
+If Dashboard.BA is currently compiled x64 and WiX Burn MBA host is
+running x86, this may cause CLR assembly loading failure.
+
+This is a HIGH PRIORITY investigation.
+
+Determine the correct PlatformTarget for a WiX 4.0.5 Managed BA.
+
+If the BA should be AnyCPU, change ONLY the BA project accordingly.
+
+Do not change Desktop Extension x64; Laserfiche Desktop Extension has
+different architecture requirements.
+
+============================================================
+TASK 8 — GET THE REAL BURN LOG
+============================================================
+
+We need evidence, not guesses.
+
+Determine where the Burn log is written for the failed
+LFDashboard-Setup.exe launch.
+
+Search TEMP for recent logs containing:
+
+Laserfiche Dashboard
+LFDashboard
+Burn
+MBA
+mbahost
+CLR
+Dashboard.BA
+BootstrapperApplication
+
+Provide a PowerShell command I can run on the Windows machine to locate
+the newest relevant Burn log.
+
+Then identify the exact lines that reveal why the CLR/BA failed.
+
+Look specifically for:
+
+0x8007000b
+BadImageFormatException
+FileNotFoundException
+FileLoadException
+Could not load file or assembly
+CLR initialization
+MBA host
+BootstrapperApplication
+runtime version
+configuration file
+
+============================================================
+TASK 9 — FIX THE ROOT CAUSE, NOT THE ERROR SCREEN
+============================================================
+
+Once the evidence identifies the problem, implement the minimal correct
+fix.
+
+Likely areas include:
+
+- missing MBA runtime config
+- wrong BA PlatformTarget
+- missing BA dependency payload
+- incorrect BA factory registration
+- incorrect WixManagedBootstrapperApplicationHost structure
+
+But DO NOT assume which one until the files and WiX requirements are
+checked.
+
+============================================================
+TASK 10 — ADD BUILD-TIME PROTECTION
+============================================================
+
+After fixing the runtime issue, improve publish.ps1 so this exact packaging
+mistake cannot silently return.
+
+Before Bundle build, verify all required BA runtime payloads exist.
+
+For example, if the final architecture requires:
+
+Dashboard.BA.dll
+WixToolset.Mba.Core.dll
+BootstrapperCore.config
+
+then Step 6/9 must fail before WiX build if any required file is missing
+or zero bytes.
+
+Also verify Bundle.wxs references every required payload.
+
+Do not add checks for files that are not actually required.
+
+============================================================
+TASK 11 — DO NOT REGRESS WORKING AREAS
+============================================================
+
+The following are CONFIRMED working on real Windows:
+
+Steps 1-11 build successfully.
+
+MSI:
+artifacts\Dashboard-1.0.0-Setup.msi
+1,720,739 bytes
+
+Bundle:
+artifacts\LFDashboard-Setup.exe
+5,524,655 bytes
+
+.NET Framework prerequisite download:
+works
+
+Authenticode verification:
+works
+
+Release assembly:
+works
+
+Desktop Extension:
+builds correctly as Dashboard.DesktopExtension.exe
+
+DO NOT regress these.
+
+============================================================
+TASK 12 — FINAL REPORT
+============================================================
+
+Report:
+
+1. Exact root cause of the managed BA runtime failure.
+2. Evidence from WiX/Burn documentation or actual runtime architecture.
+3. Evidence from our BA build output.
+4. BA PlatformTarget before and after.
+5. Whether a runtime config file is required.
+6. Exact config filename/content if required.
+7. Every BA runtime dependency.
+8. Every Bundle Payload after the fix.
+9. BAFactory correctness.
+10. Every file modified.
+11. New build-time validation added.
+12. PowerShell command to locate the Burn log.
+13. Exact command to rebuild:
+
+   .\build\publish.ps1
+
+14. Exact file to retest:
+
+   Release\LFDashboard-Setup.exe
+
+Do NOT claim runtime success.
+
+Only my REAL Windows execution of the newly rebuilt
+Release\LFDashboard-Setup.exe can confirm the fix.

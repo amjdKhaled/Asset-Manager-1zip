@@ -75,6 +75,27 @@
       -->
       <Payload SourceFile="$(var.BAAssembly)" />
       <Payload SourceFile="$(var.MbaCoreAssembly)" />
+      <!--
+        BootstrapperCore.config: required by mbahost.dll to activate the CLR.
+
+        mbahost.dll is the WiX native managed-BA host.  Before it can load
+        Dashboard.BA.dll it must activate the .NET Framework CLR.  It reads
+        BootstrapperCore.config to determine which runtime version to request.
+
+        WITHOUT THIS PAYLOAD:
+          mbahost.dll finds no runtime specification, fails to activate any CLR,
+          and Burn shows the prereq-BA error screen:
+            "failed to load the .NET Framework runtime even though all of the
+             prerequisites are installed."
+          .NET 4.8 is present on the machine; the host simply has no instruction
+          to use it — this file is that instruction.
+
+        The file is built into Dashboard.BA/bin/Release/net48/ by the
+        CopyToOutputDirectory entry in Dashboard.BA.csproj, staged to
+        artifacts\staging\BA\ by publish.ps1 Step 6, and embedded here.
+        $(var.BootstrapperCoreConfig) is set by Step 9 via -d define.
+      -->
+      <Payload SourceFile="$(var.BootstrapperCoreConfig)" />
     </BootstrapperApplication>
 
     <!--

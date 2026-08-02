@@ -728,6 +728,34 @@ else {
         exit 1
     }
     Write-OK "Dashboard.BA.dll confirmed present in BA staging folder."
+
+    # Post-staging guard: BootstrapperCore.config must be present alongside the
+    # BA DLL.  mbahost.dll (the WiX native managed-BA host) reads this file at
+    # bundle startup to know which CLR version to activate before loading
+    # Dashboard.BA.dll.  Without it, the native host cannot start the managed
+    # BA and Burn shows:
+    #   "failed to load the .NET Framework runtime even though all prerequisites
+    #    are installed."
+    # .NET 4.8 may be fully installed on the machine — this config is what tells
+    # mbahost.dll to use it.
+    $bootstrapperConfigStaged = Join-Path $baStaging "BootstrapperCore.config"
+    if (-not (Test-Path $bootstrapperConfigStaged)) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] BootstrapperCore.config is missing from BA staging:" `
+            -ForegroundColor Red
+        Write-Host ("    MISSING: {0}" -f $bootstrapperConfigStaged) -ForegroundColor Red
+        Write-Host "" -ForegroundColor Red
+        Write-Host "  BootstrapperCore.config must be in Dashboard.BA\bin\Release\net48\" -ForegroundColor Red
+        Write-Host "  and staged to artifacts\staging\BA\ before the Bundle build." -ForegroundColor Red
+        Write-Host "  Possible causes:" -ForegroundColor Red
+        Write-Host "    - installer\Dashboard.BA\BootstrapperCore.config was deleted" -ForegroundColor Red
+        Write-Host "    - The <None CopyToOutputDirectory=Always> entry was removed from" -ForegroundColor Red
+        Write-Host "      Dashboard.BA.csproj" -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "BootstrapperCore.config confirmed present in BA staging folder."
 }
 
 # =============================================================================
@@ -1088,6 +1116,7 @@ else {
         "-ext",    "WixToolset.Util.wixext/$WixPinnedVersion",
         "-d",      "BAAssembly=$baAssemblyPath",
         "-d",      "MbaCoreAssembly=$(Join-Path $baStagingDir 'WixToolset.Mba.Core.dll')",
+        "-d",      "BootstrapperCoreConfig=$(Join-Path $baStagingDir 'BootstrapperCore.config')",
         "-d",      "MsiPath=$msiPath",
         "-d",      "BundleVersion=$Version",
         "-d",      "NetFx48Installer=$netFx48Installer",

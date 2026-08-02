@@ -34,4 +34,23 @@
     <PackageReference Include="WixToolset.Mba.Core" Version="4.0.5" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      BootstrapperCore.config: mbahost.dll reads this at bundle startup to know
+      which CLR version to activate before loading Dashboard.BA.dll.  Without it
+      the native host cannot start the managed BA and Burn shows "failed to load
+      the .NET Framework runtime even though all prerequisites are installed."
+
+      CopyToOutputDirectory=Always ensures it lands in bin\Release\net48\ next to
+      Dashboard.BA.dll, from where publish.ps1 Stage 6 copies everything to
+      artifacts\staging\BA\.  Bundle.wxs then embeds it as an explicit Payload.
+
+      The filename must remain "BootstrapperCore.config" — mbahost.dll hardcodes
+      that name.
+    -->
+    <None Include="BootstrapperCore.config">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
