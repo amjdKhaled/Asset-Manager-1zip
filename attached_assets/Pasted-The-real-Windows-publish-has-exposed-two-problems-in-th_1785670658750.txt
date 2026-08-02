@@ -1,0 +1,317 @@
+The real Windows publish has exposed two problems in the new TLS implementation.
+
+DO NOT change the TLS architecture or remove --prepare-tls.
+Investigate and fix the build verification correctly.
+
+Real Windows output:
+
+[Step 5/11] Building Dashboard.SetupHelper (net48, x64, Release)
+
+Dashboard.SetupHelper succeeded with 2 warnings:
+
+TlsSetupAction.cs(229,28): warning CS8603: Possible null reference return.
+TlsSetupAction.cs(235,24): warning CS8603: Possible null reference return.
+
+The freshly built executable was then staged successfully:
+
+[OK] Dashboard.SetupHelper.exe staged to Extension folder.
+[OK] Dashboard.SetupHelper.exe confirmed present in Extension staging folder.
+
+But publish.ps1 immediately failed:
+
+[FAILED] Staged Dashboard.SetupHelper.exe does not contain the prepare-tls TLS component. Stale binary?
+
+============================================================
+1. FIRST PROVE WHETHER THIS IS A FALSE POSITIVE
+============================================================
+
+Do not assume the executable is stale.
+
+Trace exactly:
+
+- the SetupHelper source handling --prepare-tls
+- Program.cs dispatch
+- TlsSetupAction.cs
+- Dashboard.SetupHelper.csproj compile items
+- the exact source EXE path
+- the exact staged EXE path
+- the publish.ps1 Step 5 guard
+
+Confirm that Program.cs contains a production dispatch such as:
+
+    --prepare-tls
+
+and that TlsSetupAction is actually compiled into Dashboard.SetupHelper.
+
+Then compare:
+
+SOURCE:
+installer\Dashboard.SetupHelper\bin\Release\net48\Dashboard.SetupHelper.exe
+
+STAGED:
+the exact Dashboard.SetupHelper.exe in artifacts staging.
+
+Print SHA256 for BOTH.
+
+The build must fail if hashes differ.
+
+============================================================
+2. THE CURRENT RAW-BINARY STRING GUARD IS NOT ACCEPTABLE
+============================================================
+
+The current guard apparently tries to prove the component exists by searching the raw .NET EXE for:
+
+    --prepare-tls
+
+This can false-positive or false-negative because .NET metadata/string storage is not a reliable executable contract test.
+
+Do NOT simply delete verification.
+
+Replace it with a REAL behavioral smoke test.
+
+The SetupHelper should support a safe verification command that proves the verb is registered without modifying the machine.
+
+Preferred solution:
+
+    Dashboard.SetupHelper.exe --help
+
+or:
+
+    Dashboard.SetupHelper.exe --list-actions
+
+and output must explicitly contain:
+
+    --prepare-tls
+
+Then publish.ps1 executes the STAGED binary:
+
+    & $setupHelperStaged --help
+
+capture stdout + exit code and assert:
+
+    exit code == 0
+    stdout contains --prepare-tls
+
+This proves the staged executable actually understands the action.
+
+Even better, if the current command architecture allows it, add:
+
+    --prepare-tls --dry-run
+
+which performs argument parsing and planner initialization but makes ZERO changes to:
+- LocalMachine\Root
+- IIS
+- ProgramData
+- app pools
+
+The publish smoke test can use that with a controlled invalid/test URL if appropriate.
+
+Do not make the build depend on network connectivity or the developer machine having Laserfiche installed.
+
+============================================================
+3. KEEP A SOURCE-vs-STAGED HASH GUARD
+============================================================
+
+Add/retain:
+
+SOURCE SetupHelper SHA256 : ...
+STAGED SetupHelper SHA256 : ...
+
+If they differ:
+
+FAIL:
+Staged Dashboard.SetupHelper.exe differs from the freshly built source binary.
+
+This is the correct stale-binary detection.
+
+Do not label a missing raw string as "stale binary".
+
+============================================================
+4. FIX BOTH CS8603 WARNINGS
+============================================================
+
+Inspect TlsSetupAction.cs lines approximately 229 and 235.
+
+Do NOT suppress them with:
+
+#pragma warning disable
+
+and do not use null-forgiving ! unless logically proven.
+
+Fix the nullable contract correctly.
+
+If the method can legitimately return null:
+
+    private static X509Certificate2? SomeMethod(...)
+
+and make callers handle null explicitly.
+
+If it must never return null:
+
+perform explicit validation:
+
+    var value = ...;
+
+    if (value == null)
+        throw new InvalidOperationException(
+            "Expected certificate ... but none was returned.");
+
+    return value;
+
+Choose whichever matches the actual semantics.
+
+After the fix:
+
+Dashboard.SetupHelper must build:
+
+    0 errors
+    0 warnings
+
+============================================================
+5. IMPORTANT: DO NOT TOUCH WORKING FEATURES
+============================================================
+
+Do not modify:
+
+- Web Client button deployment
+- Desktop Client extension
+- repository propagation
+- RepositoryId/DisplayName removal
+- Burn related-bundle silent execution
+- second-wizard fix
+- same-version upgrades
+- TLS trust decision rules
+- certificate hostname validation
+- self-signed trust safety rules
+
+This task is specifically:
+
+1. fix the false/incorrect SetupHelper staging verification
+2. fix the two nullable warnings
+3. provide reliable behavioral verification that --prepare-tls exists
+
+============================================================
+6. REQUIRED PUBLISH.PS1 LOGGING
+============================================================
+
+Step 5 should eventually print something like:
+
+[OK] Dashboard.SetupHelper.exe built with 0 warnings / 0 errors.
+[OK] Dashboard.SetupHelper.exe staged.
+SOURCE SetupHelper SHA256 : ABC...
+STAGED SetupHelper SHA256 : ABC...
+[OK] Source/staged SetupHelper SHA256 match.
+[OK] Staged SetupHelper action probe:
+     --prepare-tls registered.
+[OK] SetupHelper config smoke test passed.
+
+Do not inspect arbitrary ASCII/UTF-16 strings inside the PE as the primary proof.
+
+============================================================
+7. TEST THE ACTUAL STAGED EXE
+============================================================
+
+This is critical.
+
+Do not run the probe against only:
+
+installer\Dashboard.SetupHelper\bin\Release\net48\Dashboard.SetupHelper.exe
+
+Run it against the exact executable that will be packaged into the installer.
+
+That is what we need to verify.
+
+============================================================
+8. REVIEW ALL EXISTING BINARY STRING GUARDS
+============================================================
+
+Inspect publish.ps1 for similar fragile logic.
+
+Distinguish:
+
+A. Hash guards:
+GOOD.
+
+B. Source-code static guards:
+Generally acceptable.
+
+C. Behavioral command probes:
+GOOD.
+
+D. searching arbitrary .NET PE bytes for managed strings:
+FRAGILE.
+
+Do not unnecessarily rewrite unrelated guards, but identify any that can produce the same false failure.
+
+============================================================
+9. WINDOWS POWERSHELL 5.1
+============================================================
+
+All publish.ps1 changes must remain compatible with Windows PowerShell 5.1.
+
+No PowerShell 7-only syntax.
+
+Keep the script ASCII-safe because we previously had Windows PowerShell encoding/parser failures.
+
+============================================================
+10. REQUIRED TESTS
+============================================================
+
+After changes run:
+
+1. Dashboard.SetupHelper build
+   Expected: 0 warnings / 0 errors
+
+2. Existing SetupHelper tests
+
+3. Existing TLS planner tests
+
+4. staged SetupHelper --help/action probe
+
+5. existing --write-config smoke test
+
+6. source/staged SHA256 comparison
+
+Do not claim the full Windows publish passed unless it was actually run on Windows.
+
+============================================================
+11. FINAL REPORT
+============================================================
+
+Return:
+
+A. Exact reason the old "contains prepare-tls" guard failed.
+
+B. Whether --prepare-tls was actually present in Program.cs before the fix.
+
+C. Whether TlsSetupAction.cs was actually compiled into the EXE.
+
+D. Old verification implementation.
+
+E. New verification implementation.
+
+F. Source SetupHelper SHA256.
+
+G. Staged SetupHelper SHA256.
+
+H. Whether hashes match.
+
+I. Exact cause of CS8603 line 229.
+
+J. Exact cause of CS8603 line 235.
+
+K. How each warning was fixed.
+
+L. SetupHelper final warning/error count.
+
+M. Test count/result.
+
+N. Whether the staged executable successfully reports --prepare-tls.
+
+O. Confirmation the verification makes no certificate/IIS/machine changes.
+
+P. Any other fragile raw-PE string guards found.
+
+Q. Files modified.
+
+Do not report Windows publish success unless actually executed on Windows.

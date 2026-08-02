@@ -752,18 +752,6 @@ else {
     }
     Write-OK "Dashboard.SetupHelper.exe confirmed present in Extension staging folder."
 
-    # The staged helper must include the TLS preparation component: the
-    # PrepareTls custom action invokes "--prepare-tls"; a helper built from
-    # stale source would silently skip certificate trust preparation.
-    # .NET assembly string literals are UTF-16, so decode the binary as
-    # Unicode before searching.
-    $helperBytes   = [System.IO.File]::ReadAllBytes($setupHelperStaged)
-    $helperUnicode = [System.Text.Encoding]::Unicode.GetString($helperBytes)
-    if ($helperUnicode -notlike "*--prepare-tls*") {
-        Fail "Staged Dashboard.SetupHelper.exe does not contain the prepare-tls TLS component. Stale binary?"
-    }
-    Write-OK "Staged Dashboard.SetupHelper.exe contains the prepare-tls TLS component."
-
     # ---- Stale-helper guard: staged EXE must be byte-identical to the build ----
     # A stale Dashboard.SetupHelper.exe in staging means the MSI would package
     # an OLD helper even though the source contains the fix.  Compare hashes.
@@ -781,7 +769,27 @@ else {
         Write-Host "  ============================================================" -ForegroundColor Red
         exit 1
     }
-    Write-OK ("Dashboard.SetupHelper.exe SHA256: {0}" -f $stagedHash)
+    Write-Host ("     SOURCE SetupHelper SHA256 : {0}" -f $builtHash)  -ForegroundColor Gray
+    Write-Host ("     STAGED SetupHelper SHA256 : {0}" -f $stagedHash) -ForegroundColor Gray
+    Write-OK "Source/staged SetupHelper SHA256 match."
+
+    # ---- Behavioral action probe: staged EXE must register --prepare-tls ----
+    # Runs the EXACT staged executable (the one packaged into the MSI) with
+    # --help, which prints the registered action verbs and exits 0 without
+    # touching certificates, IIS, app pools, or ProgramData.  This proves the
+    # binary actually understands the PrepareTls custom action's verb --
+    # a real executable contract test, unlike scanning raw PE bytes for
+    # managed string literals (fragile: UTF-16 heap alignment makes a
+    # whole-file Unicode decode miss odd-offset strings).
+    $probeOutput = & $setupHelperStaged --help 2>&1 | Out-String
+    $probeExit   = $LASTEXITCODE
+    if ($probeExit -ne 0) {
+        Fail ("Staged SetupHelper action probe failed: --help exited with code {0}. Output: {1}" -f $probeExit, $probeOutput.Trim())
+    }
+    if ($probeOutput -notlike "*--prepare-tls*") {
+        Fail ("Staged Dashboard.SetupHelper.exe does not register the --prepare-tls action. --help output: {0}" -f $probeOutput.Trim())
+    }
+    Write-OK "Staged SetupHelper action probe: --prepare-tls registered."
 
     # ---- SetupHelper smoke test: replay the EXACT MSI WriteConfig command ----
     # Reproduces the real installer invocation, including the historical
@@ -1120,10 +1128,14 @@ else {
     # was compiled before those fields were removed from WizardForm.cs.
     # Their presence means a stale DLL is being bundled; fail here so a second
     # unexpected configuration window can never ship.
+    # NOTE: .NET string literals live in the UTF-16 #US heap, which is not
+    # guaranteed to start on an even file offset.  Decode the file TWICE
+    # (offset 0 and offset 1) so an odd-aligned string cannot dodge the scan.
     $baDllBytes    = [System.IO.File]::ReadAllBytes($baDllStaged)
     $baDllUtf16    = [System.Text.Encoding]::Unicode.GetString($baDllBytes)
-    $foundRepoId   = $baDllUtf16 -like '*Repository ID*'
-    $foundDispName = $baDllUtf16 -like '*Display Name*'
+    $baDllUtf16Odd = [System.Text.Encoding]::Unicode.GetString($baDllBytes, 1, $baDllBytes.Length - 1)
+    $foundRepoId   = ($baDllUtf16 -like '*Repository ID*') -or ($baDllUtf16Odd -like '*Repository ID*')
+    $foundDispName = ($baDllUtf16 -like '*Display Name*')  -or ($baDllUtf16Odd -like '*Display Name*')
     if ($foundRepoId -or $foundDispName) {
         Write-Host ""
         Write-Host "  ============================================================" -ForegroundColor Red

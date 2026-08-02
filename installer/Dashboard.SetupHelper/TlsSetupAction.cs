@@ -210,7 +210,10 @@ namespace Dashboard.SetupHelper
         // bytes and is closed immediately. All trust evaluation happens
         // explicitly afterwards (X509Chain machine context + TlsTrustPlanner),
         // and the final verification uses full default validation.
-        private static X509Certificate2 RetrieveEndpointCertificate(string host, int port)
+        // Returns null when the certificate cannot be retrieved (endpoint down,
+        // handshake failure, or no certificate presented); the caller logs the
+        // condition and skips TLS preparation.
+        private static X509Certificate2? RetrieveEndpointCertificate(string host, int port)
         {
             try
             {

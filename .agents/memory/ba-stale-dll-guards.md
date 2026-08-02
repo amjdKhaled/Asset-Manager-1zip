@@ -3,6 +3,8 @@ name: BA stale DLL guards
 description: How to prevent a stale Dashboard.BA.dll from silently bundling old wizard UI (e.g. removed Repository ID / Display Name fields).
 ---
 
+**UTF-16 PE string scans are alignment-fragile.** .NET string literals live in the UTF-16 #US heap, which need not start on an even file offset — decoding a whole EXE/DLL from offset 0 as Unicode can MISS odd-aligned strings (caused a real false "stale binary" failure on the Windows publish for the SetupHelper prepare-tls guard). Rules: (1) prefer a behavioral probe — SetupHelper supports `--help`/`--list-actions` printing its RegisteredCommands array (kept in sync with the dispatch switch) and exiting 0 with zero machine changes; publish.ps1 runs the STAGED exe and asserts exit 0 + output contains the verb. (2) SHA256 source-vs-staged compare is the correct stale-binary detector — never label a missing raw string as "stale". (3) Where a raw string scan must remain (BA DLL — not runnable standalone), decode at BOTH offsets 0 and 1.
+
 **Rule:** publish.ps1 must enforce three layers of protection to prevent a stale Dashboard.BA.dll from being bundled with the installer and showing a second unexpected configuration window:
 
 1. **Step 1 Clean** — delete `installer\Dashboard.BA\bin\` and `installer\Dashboard.BA\obj\` (plus SetupHelper bin/obj) before any build. `artifacts\` is cleaned separately; these intermediate folders are NOT cleaned by removing artifacts alone.

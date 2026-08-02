@@ -62,10 +62,24 @@ namespace Dashboard.SetupHelper
             if (args.Length == 0)
             {
                 Console.Error.WriteLine("Usage: Dashboard.SetupHelper.exe <command> [--key value ...]");
-                Console.Error.WriteLine("Commands: --write-config, --deploy-webclient, --remove-webclient, --rollback-webclient");
+                Console.Error.WriteLine("Commands: " + string.Join(", ", RegisteredCommands));
                 SetupLog.Error("No command supplied.");
                 SetupLog.Info("Final exit code: 1");
                 return 1;
+            }
+
+            // Behavioral self-description: used by the publish build to prove
+            // the staged executable actually registers every action verb.
+            // Makes ZERO machine changes and does not touch SetupHelper.log
+            // beyond the standard invocation header.
+            if (args[0] == "--help" || args[0] == "--list-actions")
+            {
+                Console.WriteLine("Dashboard.SetupHelper -- MSI custom action helper.");
+                Console.WriteLine("Registered actions:");
+                foreach (var c in RegisteredCommands)
+                    Console.WriteLine("  " + c);
+                SetupLog.Info("Final exit code: 0");
+                return 0;
             }
 
             string command = args[0].ToLowerInvariant();
@@ -113,6 +127,18 @@ namespace Dashboard.SetupHelper
             SetupLog.Info($"Final exit code: {rc}");
             return rc;
         }
+
+        // Single source of truth for the action verbs the dispatcher below
+        // handles. --help/--list-actions print this list; keep it in sync
+        // with the switch statement.
+        private static readonly string[] RegisteredCommands =
+        {
+            "--write-config",
+            "--deploy-webclient",
+            "--remove-webclient",
+            "--rollback-webclient",
+            "--prepare-tls",
+        };
 
         // Parses "--key value" pairs from args starting at startIndex.
         // Skips lone flags that are not followed by a value.
