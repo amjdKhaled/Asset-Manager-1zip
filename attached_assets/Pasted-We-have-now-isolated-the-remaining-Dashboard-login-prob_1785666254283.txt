@@ -1,0 +1,392 @@
+We have now isolated the remaining Dashboard login problem.
+
+DO NOT touch:
+- the installer architecture
+- Web Client button deployment
+- repository runtime propagation
+- WiX/Burn
+- IIS Dashboard site creation
+- authentication UI unless required for diagnostics
+
+The Web Client integration is now confirmed working:
+- Browse.aspx exists
+- lf-dashboard-button.js exists
+- injection count = 1
+- latest DeployWebClient exit code = 0
+
+The remaining problem is ONLY Dashboard -> Laserfiche Repository API TLS/authentication.
+
+CURRENT ERROR SHOWN BY DASHBOARD:
+
+"A secure (TLS) connection to the Laserfiche server could not be established.
+The server's certificate may be invalid or untrusted on this machine."
+
+Current Laserfiche API configuration:
+
+ServerUrl:
+https://localhost/LFRepositoryAPI
+
+ApiBasePath:
+/LFRepositoryAPI
+
+ApiVersion:
+v1
+
+The Laserfiche Repository API itself is installed in IIS and:
+
+https://localhost/LFRepositoryAPI
+
+is reachable from PowerShell/browser.
+
+The active repository is passed dynamically at runtime, for example:
+
+LFNewRepoWF
+
+Do a complete investigation of the TLS failure before changing code.
+
+============================================================
+PHASE 1 - TRACE THE EXACT HTTP REQUEST
+============================================================
+
+Find the exact code path used when Sign In is clicked.
+
+Trace:
+
+LoginController
+-> LaserficheAuthService
+-> HttpClient
+-> token endpoint
+
+Determine the EXACT final URL requested.
+
+I expect something similar to:
+
+https://localhost/LFRepositoryAPI/v1/Repositories/LFNewRepoWF/Token
+
+but DO NOT assume this.
+
+Log the exact URI immediately before HttpClient sends the request.
+
+Also log:
+
+- HTTP method
+- repository
+- configured ServerUrl
+- ApiBasePath
+- ApiVersion
+- final token URL
+- HttpClient BaseAddress if one exists
+- exception type
+- exception HResult
+- full InnerException chain
+
+NEVER log the password.
+NEVER log bearer tokens.
+
+============================================================
+PHASE 2 - DETERMINE THE REAL TLS FAILURE
+============================================================
+
+Do NOT simply classify every HttpRequestException as TLS.
+
+Inspect the complete exception chain.
+
+Specifically distinguish:
+
+HttpRequestException
+AuthenticationException
+WebException
+SocketException
+TaskCanceledException
+
+For AuthenticationException/TLS failures, log the complete message and
+inner exception.
+
+We need to determine whether this is:
+
+1. Untrusted certificate authority
+2. Self-signed certificate
+3. Certificate hostname mismatch
+4. Certificate expired/not-yet-valid
+5. Missing intermediate certificate
+6. TLS protocol negotiation problem
+7. Something else being incorrectly classified as TLS
+
+The UI must not guess.
+
+============================================================
+PHASE 3 - INSPECT IIS CERTIFICATE
+============================================================
+
+Add a diagnostic PowerShell script under:
+
+tools/Test-LaserficheApiTls.ps1
+
+It must inspect the HTTPS binding used by the IIS site hosting:
+
+/LFRepositoryAPI
+
+Determine:
+
+- IIS site
+- HTTPS binding
+- certificate thumbprint
+- certificate subject
+- certificate issuer
+- SAN/DNS names if available
+- NotBefore
+- NotAfter
+- HasPrivateKey
+- certificate store
+- whether the certificate chain validates
+- whether localhost matches the certificate identity
+
+Then perform an actual HTTPS request to the API WITHOUT disabling
+certificate validation.
+
+Print a clear PASS/FAIL result.
+
+Also test the machine hostname.
+
+For example, if the machine is:
+
+DESKTOP-K1SVI53
+
+test both:
+
+https://localhost/LFRepositoryAPI
+https://DESKTOP-K1SVI53/LFRepositoryAPI
+
+and report which one has a valid TLS certificate.
+
+Do not make assumptions about which hostname is correct.
+
+============================================================
+PHASE 4 - CHECK FOR HOSTNAME MISMATCH
+============================================================
+
+This is important.
+
+If the IIS certificate is issued to:
+
+DESKTOP-K1SVI53
+
+but Dashboard uses:
+
+https://localhost/LFRepositoryAPI
+
+then the certificate may be trusted but fail hostname validation.
+
+If that is the root cause, DO NOT disable certificate validation.
+
+Instead make the installer/detection logic configure ServerUrl using
+the hostname that matches the IIS certificate.
+
+Likewise, if localhost is actually present in the certificate SAN,
+then localhost is acceptable.
+
+============================================================
+PHASE 5 - CHECK TRUST CONTEXT
+============================================================
+
+Remember that Dashboard runs under an IIS Application Pool identity,
+not as the interactive administrator.
+
+A certificate working in Chrome does NOT prove that ASP.NET HttpClient
+will trust it.
+
+Determine the Dashboard IIS App Pool identity and verify certificate
+trust from the machine context.
+
+Prefer LocalMachine certificate trust where appropriate.
+
+Do not solve this by importing certificates into CurrentUser only.
+
+============================================================
+PHASE 6 - DEVELOPMENT CERTIFICATE SUPPORT
+============================================================
+
+If this installation is using a self-signed/local Laserfiche certificate,
+implement a SAFE solution.
+
+Preferred order:
+
+1. Use the correct hostname matching the existing trusted IIS certificate.
+
+2. If the certificate is legitimate but its CA/root is missing from
+   LocalMachine trust, document/install the required trust correctly.
+
+3. Only if this product intentionally needs to support a self-signed
+   on-prem Laserfiche server, provide an EXPLICIT opt-in configuration
+   such as:
+
+   Laserfiche:
+     AllowUntrustedCertificate: false
+
+DEFAULT MUST BE FALSE.
+
+If implemented, it must NEVER use:
+
+ServerCertificateCustomValidationCallback =
+    HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+
+globally.
+
+If an opt-in bypass is absolutely required, scope validation ONLY to
+the configured Laserfiche host and document the security implication.
+
+But DO NOT implement this bypass unless diagnostics prove it is needed.
+
+============================================================
+PHASE 7 - VERIFY THE TOKEN ENDPOINT DIRECTLY
+============================================================
+
+Once TLS is fixed, test the actual Laserfiche token endpoint independently.
+
+Use the exact endpoint and request format used by LaserficheAuthService.
+
+Verify:
+
+- TLS succeeds
+- repository is LFNewRepoWF
+- username admin is submitted correctly
+- blank password is represented correctly if supported
+- response status code
+- response Content-Type
+
+Never print the token itself.
+
+If Laserfiche returns 400/401/403 after TLS succeeds, that is an
+authentication problem and must NOT be displayed as a TLS/network error.
+
+============================================================
+PHASE 8 - ERROR CLASSIFICATION
+============================================================
+
+Fix the Dashboard error classifier so:
+
+TLS certificate validation failure:
+"A secure (TLS) connection to the Laserfiche server could not be established..."
+
+DNS/socket/connect failure:
+"Could not reach the Laserfiche server..."
+
+Timeout:
+"The Laserfiche server did not respond before the request timed out."
+
+401/403:
+"The username or password was not accepted by Laserfiche."
+
+404 repository:
+"The Laserfiche repository 'LFNewRepoWF' could not be found."
+
+5xx:
+"The Laserfiche server returned an internal server error."
+
+Do not map generic HttpRequestException to TLS unless an
+AuthenticationException/certificate-related inner exception proves it.
+
+============================================================
+PHASE 9 - INSTALLER DETECTION
+============================================================
+
+Investigate how the installer currently chooses:
+
+https://localhost/LFRepositoryAPI
+
+Do not blindly hardcode localhost.
+
+Since LFRepositoryAPI is already installed as an IIS application,
+the installer should detect:
+
+- IIS site containing /LFRepositoryAPI
+- HTTPS binding
+- host name
+- port
+- certificate identity where possible
+
+Then generate the safest reachable API URL.
+
+For this machine the result may still be:
+
+https://localhost/LFRepositoryAPI
+
+OR:
+
+https://DESKTOP-K1SVI53/LFRepositoryAPI
+
+The certificate diagnostics must determine which is correct.
+
+============================================================
+PHASE 10 - DO NOT REGRESS WORKING FEATURES
+============================================================
+
+The following are already working and MUST remain untouched:
+
+- Web Client Dashboard button
+- Browse.aspx injection
+- Dashboard JS deployment
+- dynamic ?repository=...
+- repository is NOT installer-configured
+- IIS Dashboard site on port 5000
+- SetupHelper smoke test
+- same-version upgrade protections
+- Web Client deployment logging
+
+============================================================
+PHASE 11 - TESTS
+============================================================
+
+Add tests covering at minimum:
+
+1. Correct API URL construction.
+2. No duplicate /LFRepositoryAPI path.
+3. Repository URL encoding.
+4. TLS exception classification.
+5. Socket/network exception classification.
+6. Timeout classification.
+7. HTTP 401/403 classification.
+8. HTTP 404 classification.
+9. HTTP 500 classification.
+10. Repository remains runtime/session context.
+11. Password/token never appear in logs.
+
+Run all relevant builds/tests.
+
+============================================================
+FINAL REPORT
+============================================================
+
+Do not stop at "probably certificate issue."
+
+Give me:
+
+A. Exact final token URL used before the fix.
+B. Exact exception type.
+C. Exact inner exception type.
+D. Exact TLS/certificate error message.
+E. IIS site hosting LFRepositoryAPI.
+F. HTTPS binding.
+G. Certificate subject.
+H. Certificate SAN/DNS names.
+I. Certificate issuer.
+J. Certificate validity dates.
+K. Whether certificate chain validation succeeds.
+L. Whether localhost matches the certificate.
+M. Whether DESKTOP-K1SVI53 matches the certificate.
+N. Dashboard App Pool identity.
+O. Root cause.
+P. Exact fix implemented.
+Q. Final ServerUrl.
+R. Direct LFRepositoryAPI HTTPS test result.
+S. Direct Token request result/status.
+T. Dashboard login result.
+U. Files modified.
+V. Tests/build result.
+
+Do not claim this is fixed merely because compilation succeeds.
+
+The fix is complete only when Dashboard can make the Laserfiche API
+request without the TLS exception, or when you have produced definitive
+machine-level evidence identifying the external certificate/trust
+configuration that must be corrected.
