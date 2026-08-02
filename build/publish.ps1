@@ -689,6 +689,33 @@ else {
         exit 1
     }
     Write-OK "WixToolset.Mba.Core.dll confirmed present in BA staging folder."
+
+    # Post-staging guard: Dashboard.BA.dll must be present in the BA staging
+    # folder before the Bundle build (Step 9) embeds it as the managed
+    # bootstrapper payload.  If it is absent the Bundle ships without a UI and
+    # fails silently at runtime; catch it here with a clear message instead.
+    # Mirrors the guard added to Step 4 for Dashboard.DesktopExtension.dll.
+    $baDllStaged = Join-Path $baStaging "Dashboard.BA.dll"
+    if (-not (Test-Path $baDllStaged)) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] Required BA bootstrapper DLL is missing after staging:" `
+            -ForegroundColor Red
+        Write-Host ("    MISSING: {0}" -f $baDllStaged) -ForegroundColor Red
+        Write-Host "" -ForegroundColor Red
+        Write-Host "  Dashboard.BA.dll must be produced by the Dashboard.BA build and" -ForegroundColor Red
+        Write-Host "  copied to artifacts\staging\BA\ before the Bundle (Step 9) can" -ForegroundColor Red
+        Write-Host "  embed it as the managed bootstrapper payload.  Without it the" -ForegroundColor Red
+        Write-Host "  Bundle ships with no UI and silently fails at runtime." -ForegroundColor Red
+        Write-Host "  Possible causes:" -ForegroundColor Red
+        Write-Host "    - The Dashboard.BA build failed silently (check output above)" -ForegroundColor Red
+        Write-Host "    - The output DLL name changed (check Dashboard.BA.csproj <AssemblyName>)" -ForegroundColor Red
+        Write-Host "    - The BA output path has changed from: $baOut" -ForegroundColor Red
+        Write-Host "    - The project target framework is no longer net48" -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "Dashboard.BA.dll confirmed present in BA staging folder."
 }
 
 # =============================================================================
