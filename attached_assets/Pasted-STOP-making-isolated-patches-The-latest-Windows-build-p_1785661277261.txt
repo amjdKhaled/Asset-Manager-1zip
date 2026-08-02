@@ -1,0 +1,415 @@
+STOP making isolated patches. The latest Windows build proves that two major installer bugs still exist.
+
+I need you to investigate the ENTIRE installer flow and fix the root causes end-to-end. Do not stop after compilation succeeds. Do not claim success based only on static inspection or a Linux build.
+
+CURRENT OBSERVED BEHAVIOR
+=========================
+
+During installation, the new installer wizard starts correctly.
+
+Then while the installation progress page is running at approximately 50%, A SECOND OLD "Dashboard Configuration" WINDOW OPENS.
+
+That second window still contains:
+
+- LF API URL
+- Repository ID
+- Display Name
+- Dashboard URL
+- IIS Port
+- Register Laserfiche Desktop Client toolbar button
+- Deploy Laserfiche Web Client button
+
+This is WRONG.
+
+Repository ID and Display Name were supposed to be completely removed from installation configuration.
+
+There must be exactly ONE installer wizard.
+
+No configuration window may appear after installation has started.
+
+The intended flow is:
+
+Welcome
+  ->
+Configuration
+  ->
+Ready
+  ->
+Installing
+  ->
+Complete
+
+There must NEVER be:
+
+Installing
+  ->
+another Dashboard Configuration window
+
+FIRST TASK — FIND THE SECOND/OLD WIZARD
+=======================================
+
+Search the ENTIRE repository, not only installer/Dashboard.BA.
+
+Search for ALL of these strings and symbols:
+
+"Repository ID"
+"Display Name"
+"Dashboard Configuration"
+"Enter your Laserfiche connection details"
+"LF API URL"
+"Advanced Settings"
+"Register Laserfiche Desktop Client toolbar button"
+"Deploy Laserfiche Web Client button"
+"CreateConfigPage"
+"WizardForm"
+"Application.Run"
+"ShowDialog"
+".Show("
+"new WizardForm"
+"RepositoryId"
+"DisplayName"
+
+Determine EXACTLY which source file produces the old window shown during installation.
+
+Also search:
+
+- all .csproj
+- all .wixproj
+- all .wxs
+- all publish.ps1 code
+- staged BA files
+- duplicate Dashboard.BA projects
+- old compiled DLLs
+- Release output
+- artifacts/staging
+- custom actions
+- SetupHelper
+- MSI custom actions
+
+There may be:
+
+- duplicate WizardForm.cs
+- stale Dashboard.BA.dll
+- another executable
+- another BA project
+- old UI code being compiled
+- a custom action launching a configuration executable
+- old staged binaries being bundled
+- two different installer UI implementations
+
+DO NOT GUESS.
+
+Find the exact code path responsible.
+
+Then REMOVE the old repository-installation UI completely.
+
+After the fix there must be only one WizardForm instance for the entire Bundle lifetime.
+
+Add logging showing:
+
+WizardForm constructor PID
+WizardForm instance ID
+current process path
+assembly location
+timestamp
+
+If a second WizardForm is ever constructed, log it and treat it as a bug.
+
+SECOND TASK — FIX THE BROKEN SETUPHELPER COMMAND LINE
+======================================================
+
+The latest Windows smoke test proves the argument parser is STILL broken.
+
+Actual output:
+
+[SetupHelper] Invoked:
+--write-config
+--url http://desktop-k1svi53:5000
+--lf-api https://localhost/LFRepositoryAPI
+--port 5000
+--webapp-path C:\...\WebApp"
+--config-dir C:\...\Config
+
+But SetupHelper parsed:
+
+webapp-path='C:\...\WebApp --config-dir C:\...\Config'
+
+and:
+
+Config directory: C:\ProgramData\Dashboard
+
+This proves --config-dir was swallowed into --webapp-path.
+
+It then generated this invalid path:
+
+C:\...\WebApp --config-dir C:\...\Config\appsettings.json
+
+and produced:
+
+"The given path's format is not supported."
+
+THIS IS NOT A PASSING SMOKE TEST.
+
+The build incorrectly printed:
+
+[OK] SetupHelper smoke test passed
+
+even though parsing was demonstrably wrong.
+
+Fix the argument handling properly.
+
+DO NOT rely on hacks such as:
+
+"[WEBAPPFOLDER]."
+
+or manually stripping quotes after Windows has already parsed the command incorrectly.
+
+The arguments must arrive at Main(string[] args) as separate tokens.
+
+Investigate the WiX 4 / MSI ExeCommand quoting rules and construct the command correctly.
+
+Expected SetupHelper parsed values MUST be:
+
+url =
+http://desktop-k1svi53:5000
+
+lf-api =
+https://localhost/LFRepositoryAPI
+
+port =
+5000
+
+webapp-path =
+<temp>\WebApp
+
+config-dir =
+<temp>\Config
+
+The value of webapp-path MUST NOT contain:
+
+--config-dir
+
+The value of config-dir MUST NOT fall back to ProgramData during the smoke test.
+
+THIRD TASK — MAKE THE SMOKE TEST ACTUALLY VALIDATE PARSING
+===========================================================
+
+The smoke test must FAIL unless ALL of these conditions are true:
+
+1. SetupHelper exit code == 0
+
+2. parsed webapp-path exactly equals the expected temp WebApp directory
+
+3. parsed config-dir exactly equals the expected temp Config directory
+
+4. webapp-path does NOT contain "--config-dir"
+
+5. appsettings.json is created/modified at exactly:
+   <temp>\WebApp\appsettings.json
+
+6. laserfiche.config.json is created at exactly:
+   <temp>\Config\laserfiche.config.json
+
+7. extension.config.json is created at exactly:
+   <temp>\Config\extension.config.json
+
+8. NOTHING is written to:
+   C:\ProgramData\Dashboard
+   during the smoke test
+
+9. all generated JSON files parse successfully
+
+10. the SetupHelper log contains the expected resolved paths
+
+If ANY condition fails:
+
+throw
+exit publish.ps1
+DO NOT produce Release\LFDashboard-Setup.exe
+
+FOURTH TASK — VERIFY REPOSITORY INSTALL CONFIG IS REALLY GONE
+==============================================================
+
+Repository selection must happen at runtime/login, NOT during installation.
+
+Search the entire installer code for:
+
+RepositoryId
+Repository ID
+DisplayName
+Display Name
+LF_REPO_ID
+LF_DISPLAY_NAME
+--repo-id
+--display-name
+
+Classify every remaining occurrence.
+
+Remove every occurrence that participates in the current installer configuration flow.
+
+Legacy parser compatibility is acceptable ONLY if absolutely necessary, but it must not:
+
+- appear in the wizard
+- become an MSI property
+- become a Bundle variable
+- be written into new configuration
+- be required during installation
+
+The installer configuration page should contain only machine/deployment settings such as:
+
+Laserfiche API URL
+Dashboard URL
+IIS Port
+Desktop integration
+Web Client integration/path
+
+Repository is runtime state.
+
+FIFTH TASK — VERIFY NO STALE BA IS BEING BUNDLED
+=================================================
+
+The Windows screenshot strongly suggests stale or duplicate BA code.
+
+Add build verification.
+
+After building Dashboard.BA.dll:
+
+calculate SHA256 of:
+
+installer\Dashboard.BA\bin\Release\net48\Dashboard.BA.dll
+
+Then calculate SHA256 of:
+
+artifacts\staging\BA\Dashboard.BA.dll
+
+They MUST match.
+
+Also inspect the compiled staged DLL for the old UI strings.
+
+It MUST NOT contain:
+
+"Repository ID"
+"Display Name"
+
+If either string exists in the staged Dashboard.BA.dll:
+
+FAIL THE BUILD.
+
+Then ensure Bundle.wxs uses exactly that staged Dashboard.BA.dll.
+
+Print:
+
+SOURCE BA SHA256:
+STAGED BA SHA256:
+BA PATH USED BY WIX:
+
+and fail if they differ.
+
+SIXTH TASK — VERIFY ONLY ONE INSTALLER UI EXISTS
+================================================
+
+Trace every process launched during installation.
+
+Search all MSI custom actions for executable launches.
+
+Search Product.wxs for:
+
+ExePackage
+ExeCommand
+CustomAction
+WixQuietExec
+CAQuietExec
+SetupHelper
+Process.Start
+ShellExecute
+
+SetupHelper must be command-line only.
+
+It must NEVER display a WinForms configuration window.
+
+No MSI custom action may launch Dashboard.BA.dll or another Dashboard configuration UI.
+
+The BA owns the UI.
+
+The MSI performs installation only.
+
+SEVENTH TASK — CLEAN BUILD
+==========================
+
+publish.ps1 must remove:
+
+artifacts
+Release output
+Dashboard.BA bin
+Dashboard.BA obj
+SetupHelper bin
+SetupHelper obj
+Dashboard MSI bin/obj where appropriate
+
+before rebuilding.
+
+Handle locked files explicitly and fail with a useful error rather than silently using stale binaries.
+
+EIGHTH TASK — FINAL WINDOWS VALIDATION
+======================================
+
+Do not report "fixed" merely because:
+
+dotnet build succeeds.
+
+The acceptance criteria are:
+
+A. publish.ps1 completes with every guard passing.
+
+B. Smoke test proves arguments are separate.
+
+C. Source/staged BA hashes match.
+
+D. Staged BA contains no old Repository ID / Display Name UI strings.
+
+E. LFDashboard-Setup.exe is produced only after those validations.
+
+F. Running the installer displays ONE window only.
+
+G. Configuration page contains NO Repository ID and NO Display Name.
+
+H. Clicking Install transitions to the progress page in the SAME window.
+
+I. No second configuration window appears.
+
+J. Installation completes.
+
+K. Finish closes the installer.
+
+IMPORTANT
+=========
+
+Do not make another speculative one-line patch.
+
+Investigate until you can explain BOTH bugs with exact source locations:
+
+1. Why the old Dashboard Configuration window is appearing during installation.
+2. Why --config-dir is being swallowed into --webapp-path.
+
+Fix the root causes.
+
+Do not stop at "Build succeeded".
+
+Do not mark the smoke test successful if its own output contains:
+"The given path's format is not supported"
+or if webapp-path contains "--config-dir".
+
+At the end give me:
+
+1. exact root cause of the second wizard
+2. exact file and code path launching it
+3. exact root cause of SetupHelper argument corruption
+4. exact quoting fix
+5. all files changed
+6. all old repository-installation references removed
+7. source BA SHA256
+8. staged BA SHA256
+9. exact SetupHelper parsed arguments from the corrected smoke test
+10. confirmation that smoke test touched no ProgramData files
+11. Windows build result
+12. remaining risks, if any

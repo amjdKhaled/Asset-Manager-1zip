@@ -126,6 +126,13 @@ public sealed class LoginController : Controller
         // the repository this session targets.
         var targetRepo = repo with { RepositoryId = repoId, DisplayName = repoId };
 
+        // Log the attempt before hitting the network — gives administrators a
+        // clear entry point in the log for diagnosing login failures.
+        // NEVER log the password.
+        _logger.LogInformation(
+            "Login: authenticating user {Username} for repository {RepoId}.",
+            input.Username, repoId);
+
         // Attempt authentication — never log the password.
         bool success;
         try

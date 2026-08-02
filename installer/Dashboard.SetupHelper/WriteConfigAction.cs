@@ -49,9 +49,8 @@ namespace Dashboard.SetupHelper
             // smoke test so it never touches the real %ProgramData%).
             string configDirOverride = PathUtil.SanitizeDir(Opt(opts, "config-dir"));
 
-            SetupLog.Info($"WriteConfig: url='{dashUrl}' lf-api='{lfApiUrl}' repo-id='{repoId}' " +
-                          $"display-name='{(string.IsNullOrEmpty(displayName) ? "<EMPTY>" : displayName)}' " +
-                          $"port='{portStr}' webapp-path='{webAppPath}'");
+            SetupLog.Info($"WriteConfig: url='{dashUrl}' lf-api='{lfApiUrl}' " +
+                          $"port='{portStr}' webapp-path='{webAppPath}' config-dir='{configDirOverride}'");
 
             // --repo-id / --display-name are LEGACY arguments kept only so old
             // command lines (repairs of previous MSIs) do not fail.  The
@@ -98,11 +97,12 @@ namespace Dashboard.SetupHelper
             {
                 string lfPath = Path.Combine(dashboardDir, "laserfiche.config.json");
 
-                // Merge: preserve any existing fields the wizard did not change.
+                // Merge: preserve ServerUrl/ApiBasePath/ApiVersion/Timeout from any
+                // existing file.  RepositoryId and DisplayName are intentionally NOT
+                // preserved — they are runtime session context, never install config.
+                // Any legacy values in an existing file are actively dropped on write.
                 string lfJson = BuildLaserficheConfig(
-                    serverUrl:   lfApiUrl,
-                    repoId:      repoId,
-                    displayName: displayName,
+                    serverUrl:    lfApiUrl,
                     existingPath: lfPath);
 
                 File.WriteAllText(lfPath, lfJson, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
@@ -188,44 +188,31 @@ namespace Dashboard.SetupHelper
 
         private static string BuildLaserficheConfig(
             string serverUrl,
-            string repoId,
-            string displayName,
             string existingPath)
         {
             // Load existing values so we do not lose fields not provided by the wizard.
-            // RepositoryId/DisplayName default to EMPTY: the repository is chosen at
-            // runtime (Desktop/Web Client launch context or the login page).  A
-            // non-empty value only survives here if an admin set one previously.
+            // RepositoryId and DisplayName are intentionally NOT loaded or written:
+            // the repository is runtime session context (Desktop/Web Client launch URL
+            // or login-page selection) and must never be frozen at install time.
+            // Any legacy RepositoryId/DisplayName values in an existing config are
+            // silently dropped when this method rewrites the file.
             string existingServerUrl  = "https://YOUR-LF-SERVER/LFRepositoryAPI";
-            string existingRepoId     = "";
-            string existingDisplay    = "";
             string existingApiBase    = "/LFRepositoryAPI";
             string existingApiVersion = "v1";
             int    existingTimeout    = 30;
 
             if (File.Exists(existingPath))
             {
-                try { ParseExistingLFConfig(existingPath, ref existingServerUrl, ref existingRepoId, ref existingDisplay, ref existingApiBase, ref existingApiVersion, ref existingTimeout); }
+                try { ParseExistingLFConfig(existingPath, ref existingServerUrl, ref existingApiBase, ref existingApiVersion, ref existingTimeout); }
                 catch { /* parse failed -- use defaults */ }
             }
 
-            // Scrub legacy placeholder sentinels shipped by older template files.
-            // They must never survive as a "configured" repository.
-            if (string.Equals(existingRepoId, "YourRepositoryId", StringComparison.OrdinalIgnoreCase))
-                existingRepoId = "";
-            if (string.Equals(existingDisplay, "Your Repository", StringComparison.OrdinalIgnoreCase))
-                existingDisplay = "";
-
-            // Wizard-provided values always win over existing.
-            if (!string.IsNullOrEmpty(serverUrl))  existingServerUrl = serverUrl;
-            if (!string.IsNullOrEmpty(repoId))      existingRepoId   = repoId;
-            if (!string.IsNullOrEmpty(displayName)) existingDisplay  = displayName;
+            // Wizard-provided value always wins over existing.
+            if (!string.IsNullOrEmpty(serverUrl)) existingServerUrl = serverUrl;
 
             return "{\r\n" +
                    "  \"Laserfiche\": {\r\n" +
                    $"    \"ServerUrl\": \"{EscJson(existingServerUrl)}\",\r\n" +
-                   $"    \"RepositoryId\": \"{EscJson(existingRepoId)}\",\r\n" +
-                   $"    \"DisplayName\": \"{EscJson(existingDisplay)}\",\r\n" +
                    $"    \"ApiBasePath\": \"{EscJson(existingApiBase)}\",\r\n" +
                    $"    \"ApiVersion\": \"{EscJson(existingApiVersion)}\",\r\n" +
                    $"    \"TimeoutSeconds\": {existingTimeout},\r\n" +
@@ -236,22 +223,21 @@ namespace Dashboard.SetupHelper
 
         // Minimal JSON field extractor for the Laserfiche config file.
         // Uses simple string scanning -- avoids any JSON library dependency.
+        // NOTE: RepositoryId and DisplayName are intentionally NOT read here.
+        // They are runtime session state and must not be round-tripped through
+        // the installer even when present in a legacy config file.
         private static void ParseExistingLFConfig(
             string path,
             ref string serverUrl,
-            ref string repoId,
-            ref string displayName,
             ref string apiBase,
             ref string apiVersion,
             ref int timeout)
         {
             string text = File.ReadAllText(path, Encoding.UTF8);
-            serverUrl   = ExtractJsonString(text, "ServerUrl")   ?? serverUrl;
-            repoId      = ExtractJsonString(text, "RepositoryId") ?? repoId;
-            displayName = ExtractJsonString(text, "DisplayName")  ?? displayName;
-            apiBase     = ExtractJsonString(text, "ApiBasePath")  ?? apiBase;
-            apiVersion  = ExtractJsonString(text, "ApiVersion")   ?? apiVersion;
-            string? ts  = ExtractJsonString(text, "TimeoutSeconds");
+            serverUrl  = ExtractJsonString(text, "ServerUrl")    ?? serverUrl;
+            apiBase    = ExtractJsonString(text, "ApiBasePath")  ?? apiBase;
+            apiVersion = ExtractJsonString(text, "ApiVersion")   ?? apiVersion;
+            string? ts = ExtractJsonString(text, "TimeoutSeconds");
             if (ts != null && int.TryParse(ts, out int t)) timeout = t;
         }
 

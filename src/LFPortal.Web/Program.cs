@@ -1,6 +1,8 @@
 using LFPortal.Domain.Version;
 using LFPortal.Infrastructure.Extensions;
+using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Middleware;
+using Microsoft.Extensions.Options;
 using Serilog;
 
 // ── Bootstrap logger — captures startup errors before full logging is configured ──
@@ -62,6 +64,25 @@ try
 
     // ── Build ─────────────────────────────────────────────────────────────────
     var app = builder.Build();
+
+    // ── Startup diagnostics — log non-secret Laserfiche configuration ────────
+    // Lets administrators immediately verify the API URL, version, and timeout
+    // without reading config files.  Credentials are never logged.
+    {
+        var opts = app.Services.GetRequiredService<IOptions<LaserficheOptions>>().Value;
+        Log.Information(
+            "Laserfiche config: ServerUrl={ServerUrl} ApiBasePath={ApiBasePath} " +
+            "ApiVersion={ApiVersion} Timeout={Timeout}s CredentialProvider={Provider} " +
+            "FallbackRepository={Repo}",
+            opts.ServerUrl,
+            opts.ApiBasePath,
+            opts.ApiVersion,
+            opts.TimeoutSeconds,
+            opts.CredentialProvider,
+            string.IsNullOrEmpty(opts.RepositoryId)
+                ? "(none — login page will prompt)"
+                : opts.RepositoryId);
+    }
 
     // ── Error handling ────────────────────────────────────────────────────────
     if (app.Environment.IsDevelopment())

@@ -231,8 +231,6 @@ else {
 # ---------- Update laserfiche.config.json ------------------------------------
 
 $lfChange = (-not [string]::IsNullOrWhiteSpace($LaserficheApiUrl)) -or
-            (-not [string]::IsNullOrWhiteSpace($RepositoryId))     -or
-            (-not [string]::IsNullOrWhiteSpace($DisplayName))      -or
             (-not [string]::IsNullOrWhiteSpace($ApiVersion))       -or
             ($TimeoutSeconds -gt 0)
 
@@ -252,8 +250,6 @@ if ($lfChange) {
     if (-not $raw.ContainsKey('Laserfiche')) {
         $raw['Laserfiche'] = [ordered]@{
             'ServerUrl'          = 'https://YOUR-LF-SERVER/LFRepositoryAPI'
-            'RepositoryId'       = 'YourRepositoryId'
-            'DisplayName'        = 'Your Repository'
             'ApiBasePath'        = '/LFRepositoryAPI'
             'ApiVersion'         = 'v1'
             'TimeoutSeconds'     = 30
@@ -272,12 +268,10 @@ if ($lfChange) {
     if (-not [string]::IsNullOrWhiteSpace($LaserficheApiUrl)) {
         $lf['ServerUrl'] = $LaserficheApiUrl
     }
-    if (-not [string]::IsNullOrWhiteSpace($RepositoryId)) {
-        $lf['RepositoryId'] = $RepositoryId
-    }
-    if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
-        $lf['DisplayName'] = $DisplayName
-    }
+    # RepositoryId and DisplayName: repository is runtime session context.
+    # Actively remove legacy values rather than preserving them.
+    $null = $lf.Remove('RepositoryId')
+    $null = $lf.Remove('DisplayName')
     if (-not [string]::IsNullOrWhiteSpace($ApiVersion)) {
         $lf['ApiVersion'] = $ApiVersion
     }
@@ -297,12 +291,7 @@ if ($lfChange) {
     if (-not [string]::IsNullOrWhiteSpace($LaserficheApiUrl)) {
         Write-OK "laserfiche.config.json: ServerUrl     = $LaserficheApiUrl"
     }
-    if (-not [string]::IsNullOrWhiteSpace($RepositoryId)) {
-        Write-OK "laserfiche.config.json: RepositoryId  = $RepositoryId"
-    }
-    if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
-        Write-OK "laserfiche.config.json: DisplayName   = $DisplayName"
-    }
+    Write-OK "laserfiche.config.json: RepositoryId/DisplayName removed (runtime session context)."
 }
 else {
     Write-Skip "laserfiche.config.json: no Laserfiche parameters provided, skipped."

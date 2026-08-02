@@ -424,6 +424,23 @@ Write-Stage $Step $TotalStages "Cleaning previous artifacts"
 if (Test-Path $ArtifactsDir) {
     Remove-Item $ArtifactsDir -Recurse -Force
 }
+
+# Clean Dashboard.BA and SetupHelper intermediate output so MSBuild incremental
+# builds never stage a DLL compiled from old source code.  artifacts\ is cleaned
+# above; these bin/obj folders are separate and must be explicitly removed.
+# Locked-file failures are non-fatal warnings — a clean VM or CI agent will
+# never have locked files; a developer machine may and should be warned.
+foreach ($d in @(
+        (Join-Path $RepoRoot "installer\Dashboard.BA\bin"),
+        (Join-Path $RepoRoot "installer\Dashboard.BA\obj"),
+        (Join-Path $RepoRoot "installer\Dashboard.SetupHelper\bin"),
+        (Join-Path $RepoRoot "installer\Dashboard.SetupHelper\obj"))) {
+    if (Test-Path $d) {
+        try   { Remove-Item $d -Recurse -Force -ErrorAction Stop }
+        catch { Write-Warn "Could not fully remove $d — files may be locked.  Stale binaries may be used." }
+    }
+}
+
 # Create all staging subdirectories (no native exe -- pure PS cmdlets, no $LASTEXITCODE).
 $null = New-Item -ItemType Directory -Path (Join-Path $StagingDir "WebApp")         -Force
 $null = New-Item -ItemType Directory -Path (Join-Path $StagingDir "Extension")      -Force
@@ -681,40 +698,133 @@ else {
 }
 '@ | Set-Content -Path (Join-Path $smokeWebApp "appsettings.json") -Encoding UTF8
 
-    # Raw argument string reproduces CommandLineToArgvW behavior exactly,
-    # including the trailing \" on --webapp-path.  Repository args are gone:
-    # the repository is runtime session context, not installer config.
+    # Use Start-Process with an ARRAY for -ArgumentList so PowerShell handles
+    # quoting internally and CommandLineToArgvW never sees a raw argument string
+    # with a trailing \"  (which would escape the closing quote and consume
+    # --config-dir as part of --webapp-path).
+    #
+    # Append \. to $smokeWebApp to reproduce the MSI "[WEBAPPFOLDER]." trick:
+    # PathUtil.SanitizeDir must strip the trailing \. so appsettings.json ends up
+    # at exactly <WebApp>\appsettings.json (not <WebApp>.\appsettings.json).
+    #
+    # Repository args are absent: the repository is runtime session context.
     # --config-dir redirects the ProgramData writes into the temp folder so
     # the smoke test never touches the build machine's real configuration.
-    $smokeArgs = '--write-config --url "http://desktop-k1svi53:5000" ' +
-                 '--lf-api "https://localhost/LFRepositoryAPI" --port "5000" ' +
-                 '--webapp-path "' + $smokeWebApp + '\" ' +
-                 '--config-dir "' + $smokeConfig + '"'
-    $smokeProc = Start-Process -FilePath $setupHelperStaged -ArgumentList $smokeArgs `
-                     -NoNewWindow -Wait -PassThru
+    $smokeWebAppArg = $smokeWebApp + "\."   # reproduces [WEBAPPFOLDER]. MSI behavior
+
+    $smokeStdout = Join-Path $smokeDir "smoke_stdout.txt"
+    $smokeProc   = Start-Process -FilePath $setupHelperStaged `
+        -ArgumentList @(
+            "--write-config",
+            "--url",        "http://desktop-k1svi53:5000",
+            "--lf-api",     "https://localhost/LFRepositoryAPI",
+            "--port",       "5000",
+            "--webapp-path", $smokeWebAppArg,
+            "--config-dir",  $smokeConfig
+        ) `
+        -NoNewWindow -Wait -PassThru `
+        -RedirectStandardOutput $smokeStdout
     $smokeExit = $smokeProc.ExitCode
 
+    # Read stdout for path validation
+    $smokeOut = if (Test-Path $smokeStdout) { Get-Content $smokeStdout -Raw } else { "" }
+    Write-Host "     SetupHelper output:" -ForegroundColor Gray
+    $smokeOut -split "`n" | Where-Object { $_ -ne "" } | ForEach-Object {
+        Write-Host ("       {0}" -f $_.TrimEnd()) -ForegroundColor DarkGray
+    }
+
+    # ---- Validate all 10 smoke-test conditions ----
+    $smokeErrors = [System.Collections.Generic.List[string]]::new()
+
+    # 1. Exit code == 0
+    if ($smokeExit -ne 0) {
+        $smokeErrors.Add("Exit code $smokeExit (expected 0).")
+    }
+
+    # 2. appsettings.json at smokeWebApp\appsettings.json (not .\appsettings.json)
+    $smokeAppSettings = Join-Path $smokeWebApp "appsettings.json"
+    if (-not (Test-Path $smokeAppSettings)) {
+        $smokeErrors.Add("appsettings.json not created at: $smokeAppSettings")
+    }
+
+    # 3. appsettings.json is valid JSON
     $smokeJsonOk = $false
-    try {
-        $null = (Get-Content (Join-Path $smokeWebApp "appsettings.json") -Raw) | ConvertFrom-Json
-        $smokeJsonOk = $true
-    } catch { $smokeJsonOk = $false }
+    if (Test-Path $smokeAppSettings) {
+        try   { $null = (Get-Content $smokeAppSettings -Raw) | ConvertFrom-Json; $smokeJsonOk = $true }
+        catch { $smokeErrors.Add("appsettings.json is not valid JSON.") }
+    }
+
+    # 4. appsettings.json contains Urls key (patched by WriteConfig)
+    if ($smokeJsonOk) {
+        $appSettingsObj = (Get-Content $smokeAppSettings -Raw) | ConvertFrom-Json
+        if (-not ($appSettingsObj.PSObject.Properties.Name -contains "Urls")) {
+            $smokeErrors.Add("appsettings.json is missing the Urls key — WriteConfig did not patch it.")
+        }
+    }
+
+    # 5. laserfiche.config.json created at smokeConfig (not ProgramData)
+    $smokeLfConfig = Join-Path $smokeConfig "laserfiche.config.json"
+    if (-not (Test-Path $smokeLfConfig)) {
+        $smokeErrors.Add("laserfiche.config.json not created at: $smokeLfConfig  (--config-dir may have been swallowed into --webapp-path)")
+    }
+
+    # 6. laserfiche.config.json is valid JSON
+    if (Test-Path $smokeLfConfig) {
+        try   { $null = (Get-Content $smokeLfConfig -Raw) | ConvertFrom-Json }
+        catch { $smokeErrors.Add("laserfiche.config.json is not valid JSON.") }
+    }
+
+    # 7. extension.config.json created at smokeConfig
+    $smokeExtConfig = Join-Path $smokeConfig "extension.config.json"
+    if (-not (Test-Path $smokeExtConfig)) {
+        $smokeErrors.Add("extension.config.json not created at: $smokeExtConfig")
+    }
+
+    # 8. extension.config.json is valid JSON
+    if (Test-Path $smokeExtConfig) {
+        try   { $null = (Get-Content $smokeExtConfig -Raw) | ConvertFrom-Json }
+        catch { $smokeErrors.Add("extension.config.json is not valid JSON.") }
+    }
+
+    # 9. stdout says Config directory is smokeConfig (not ProgramData)
+    #    This proves --config-dir was parsed as a separate token, not swallowed.
+    $expectedConfigDirLine = "Config directory: $smokeConfig"
+    if ($smokeOut -notlike "*$expectedConfigDirLine*") {
+        # Also check for the case where SanitizeDir normalised the path slightly
+        $pdDir = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::CommonApplicationData)
+        if ($smokeOut -like "*Config directory: $pdDir*") {
+            $smokeErrors.Add("SetupHelper used ProgramData as config dir: --config-dir was swallowed into --webapp-path.")
+        } else {
+            $smokeErrors.Add("Config directory in stdout does not match expected smokeConfig: $smokeConfig")
+        }
+    }
+
+    # 10. webapp-path in stdout does not contain '--config-dir' (the classic swallow symptom)
+    if ($smokeOut -like "*webapp-path*--config-dir*") {
+        $smokeErrors.Add("stdout shows --config-dir swallowed into --webapp-path value.")
+    }
 
     Remove-Item $smokeDir -Recurse -Force -ErrorAction SilentlyContinue
 
-    if (($smokeExit -ne 0) -or (-not $smokeJsonOk)) {
+    if ($smokeErrors.Count -gt 0) {
         Write-Host ""
         Write-Host "  ============================================================" -ForegroundColor Red
-        Write-Host "  [FAILED] SetupHelper smoke test." -ForegroundColor Red
-        Write-Host ("    Exit code       : {0} (expected 0)" -f $smokeExit) -ForegroundColor Red
-        Write-Host ("    appsettings.json: {0}" -f $(if ($smokeJsonOk) { 'valid JSON' } else { 'INVALID JSON' })) -ForegroundColor Red
-        Write-Host "  The MSI WriteConfig custom action would fail with Error 1722." -ForegroundColor Red
-        Write-Host "  See %ProgramData%\Dashboard\Logs\SetupHelper.log for details." -ForegroundColor Red
+        Write-Host "  [FAILED] SetupHelper smoke test — $($smokeErrors.Count) condition(s) failed:" -ForegroundColor Red
+        foreach ($e in $smokeErrors) {
+            Write-Host ("    * {0}" -f $e) -ForegroundColor Red
+        }
+        Write-Host "  Root cause checklist:" -ForegroundColor Red
+        Write-Host "    1. Argument parsing: --config-dir swallowed into --webapp-path" -ForegroundColor Red
+        Write-Host "       (trailing \" on --webapp-path escapes the closing quote)" -ForegroundColor Red
+        Write-Host "    2. PathUtil.SanitizeDir not stripping trailing \." -ForegroundColor Red
+        Write-Host "    3. WriteConfig exited non-zero (check stdout above)" -ForegroundColor Red
         Write-Host "  The build is stopped; LFDashboard-Setup.exe was NOT produced." -ForegroundColor Red
         Write-Host "  ============================================================" -ForegroundColor Red
         exit 1
     }
-    Write-OK "SetupHelper smoke test passed (exit 0, valid JSON output)."
+    Write-OK "SetupHelper smoke test passed — all 10 conditions verified."
+    Write-Host ("    webapp-path : {0}" -f $smokeWebApp)  -ForegroundColor DarkGray
+    Write-Host ("    config-dir  : {0}" -f $smokeConfig)  -ForegroundColor DarkGray
 }
 
 # =============================================================================
@@ -810,7 +920,55 @@ else {
     }
     Write-OK "Dashboard.BA.dll confirmed present in BA staging folder."
 
-    # ---- Guard 3: WixToolset.Mba.Host.config ----
+    # ---- Guard 3: Dashboard.BA.dll source vs staged SHA256 ----
+    # Ensures the staged DLL is byte-identical to what was just compiled.
+    # A mismatch means an old DLL slipped through despite the Step 1 clean;
+    # the installer would then show the old UI (including removed wizard fields).
+    $baBuilt      = Join-Path $baOut "Dashboard.BA.dll"
+    $baBuiltHash  = (Get-FileHash $baBuilt     -Algorithm SHA256).Hash
+    $baStagedHash = (Get-FileHash $baDllStaged -Algorithm SHA256).Hash
+    Write-Host ("    SOURCE BA SHA256 : {0}" -f $baBuiltHash)  -ForegroundColor DarkGray
+    Write-Host ("    STAGED BA SHA256 : {0}" -f $baStagedHash) -ForegroundColor DarkGray
+    Write-Host ("    BA PATH USED BY WIX: {0}" -f $baDllStaged) -ForegroundColor DarkGray
+    if ($baBuiltHash -ne $baStagedHash) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [FAILED] Staged Dashboard.BA.dll is STALE (hash mismatch)." -ForegroundColor Red
+        Write-Host ("    Built  SHA256: {0}" -f $baBuiltHash)  -ForegroundColor Red
+        Write-Host ("    Staged SHA256: {0}" -f $baStagedHash) -ForegroundColor Red
+        Write-Host "  The installer would bundle an outdated bootstrapper UI." -ForegroundColor Red
+        Write-Host "  Step 1 should have cleaned Dashboard.BA\bin\ — check for locked files." -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "Dashboard.BA.dll: source and staged SHA256 match."
+
+    # ---- Guard 4: Staged Dashboard.BA.dll must not contain old wizard strings ----
+    # 'Repository ID' and 'Display Name' are label text from the old wizard that
+    # was compiled before those fields were removed from WizardForm.cs.
+    # Their presence means a stale DLL is being bundled; fail here so a second
+    # unexpected configuration window can never ship.
+    $baDllBytes    = [System.IO.File]::ReadAllBytes($baDllStaged)
+    $baDllUtf16    = [System.Text.Encoding]::Unicode.GetString($baDllBytes)
+    $foundRepoId   = $baDllUtf16 -like '*Repository ID*'
+    $foundDispName = $baDllUtf16 -like '*Display Name*'
+    if ($foundRepoId -or $foundDispName) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [FAILED] Staged Dashboard.BA.dll contains removed UI strings:" -ForegroundColor Red
+        if ($foundRepoId)   { Write-Host '    Found string: "Repository ID"' -ForegroundColor Red }
+        if ($foundDispName) { Write-Host '    Found string: "Display Name"'  -ForegroundColor Red }
+        Write-Host "  The DLL was compiled from stale source before those fields were" -ForegroundColor Red
+        Write-Host "  removed from WizardForm.cs.  A second configuration window would" -ForegroundColor Red
+        Write-Host "  appear at ~50% progress.  Step 1 cleaned bin\ -- if this guard" -ForegroundColor Red
+        Write-Host "  still fails, files were locked during the clean." -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "Dashboard.BA.dll: no legacy 'Repository ID' / 'Display Name' UI strings found."
+
+    # Renumber the remaining guards from here (they were previously Guard 3/4/5).
+    # ---- Guard 5: WixToolset.Mba.Host.config ----
     # mbahost.dll (the WiX 4 native managed-BA host) reads this file at bundle
     # startup to know which CLR version to activate before loading Dashboard.BA.dll.
     #

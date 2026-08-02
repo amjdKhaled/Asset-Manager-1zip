@@ -30,4 +30,6 @@
 - [WiX 4 Mba.Host.config assemblyName](wix4-mba-host-config.md) — config MUST have <wix.bootstrapper> with assemblyName; <startup> alone → 0x80070490.
 - [MSI ExeCommand trailing-backslash quoting](msi-execommand-trailing-backslash.md) — never quote "[DIRPROP]" in ExeCommand; \" escapes the quote, corrupts the path arg, rolls back install (1722).
 - [Repository is runtime session context](repo-as-session-context.md) — repo never an installer setting; token cache keyed by repo + established-session id; 404/TLS/network errors propagate for classified login messages.
+- [BA stale DLL guards](ba-stale-dll-guards.md) — publish.ps1 must clean Dashboard.BA/bin+obj in Step 1, compare source vs staged SHA256, and scan staged DLL for removed UI strings.
+- [SetupHelper smoke test quoting](setuphelper-smoke-quoting.md) — use Start-Process -ArgumentList array (not string) with trailing \. to avoid CommandLineToArgvW consuming --config-dir into --webapp-path.
 - [WiX 4 MBA prereq package WIX6802](wix4-mba-prereq-package.md) — NetFx wixext has NO package groups in 4.0.5; define inline ExePackage with bal:PrereqPackage="yes"; ExeCommand→InstallArguments rename; Permanent="yes" avoids WIX0408.

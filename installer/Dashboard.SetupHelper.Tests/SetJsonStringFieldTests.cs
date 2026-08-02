@@ -282,7 +282,13 @@ static class SetJsonStringFieldTests
         Test_RepairScenario();
         Test_InsertOnMinimalJson();
 
-        Console.WriteLine($"\n=== Results: {_pass} passed, {_fail} failed ===");
-        return _fail > 0 ? 1 : 0;
+        Console.WriteLine($"\n  SetJsonStringField: {_pass} passed, {_fail} failed");
+
+        // Also run config contract tests (SetupHelper ↔ LFPortal.Web contract).
+        int contractResult = ConfigContractTests.Run();
+
+        int totalFail = _fail + (contractResult != 0 ? 1 : 0);
+        Console.WriteLine($"\n=== Overall: {(totalFail == 0 ? "ALL PASSED" : $"{totalFail} SUITE(S) FAILED")} ===");
+        return totalFail > 0 ? 1 : 0;
     }
 }

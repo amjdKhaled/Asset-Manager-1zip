@@ -79,6 +79,12 @@ namespace Dashboard.BA
         private Label _lblCompleteTitle  = null!;
         private Label _lblCompleteDetail = null!;
 
+        // Single-instance guard — exactly ONE WizardForm may exist per Burn process.
+        // A second construction means a stale Dashboard.BA.dll is being loaded; this
+        // throws immediately so Burn surfaces the error rather than silently opening
+        // a second, unexpected configuration window.
+        private static int _instanceCount = 0;
+
         // ---------------------------------------------------------------- Page metadata
         private static readonly string[] PageTitles =
         {
@@ -104,6 +110,22 @@ namespace Dashboard.BA
         public WizardForm(DashboardBA ba)
         {
             StartupLogger.Log("WizardForm constructor entered");
+
+            int count = System.Threading.Interlocked.Increment(ref _instanceCount);
+            StartupLogger.Log(
+                $"WizardForm instance #{count}  PID={System.Diagnostics.Process.GetCurrentProcess().Id}  " +
+                $"Assembly={System.Reflection.Assembly.GetExecutingAssembly().Location}  " +
+                $"Time={DateTime.UtcNow:O}");
+
+            if (count > 1)
+            {
+                string bug =
+                    $"WizardForm instance #{count} constructed in a single Burn process. " +
+                    "A stale or duplicate Dashboard.BA.dll is being loaded. " +
+                    "Clean installer\\Dashboard.BA\\bin\\ and rebuild.";
+                StartupLogger.Log("FATAL: " + bug);
+                throw new InvalidOperationException(bug);
+            }
 
             _ba = ba;
             _ba.ProgressUpdated += OnProgressUpdated;

@@ -1,0 +1,228 @@
+We now have direct evidence from the installed Windows machine of a configuration contract mismatch.
+
+DO NOT guess. Trace the configuration contract end-to-end and fix it.
+
+Installed file:
+
+C:\ProgramData\Dashboard\laserfiche.config.json
+
+currently contains:
+
+{
+  "Laserfiche": {
+    "ServerUrl": "https://localhost/LFRepositoryAPI",
+    "RepositoryId": "TestEmployee",
+    "DisplayName": "TestEmployee",
+    "ApiBasePath": "/LFRepositoryAPI",
+    "ApiVersion": "v1",
+    "TimeoutSeconds": 30,
+    "CredentialProvider": "DPAPI"
+  }
+}
+
+PowerShell proves:
+
+$config.Laserfiche.ServerUrl
+=> https://localhost/LFRepositoryAPI
+
+BUT:
+
+$config.Laserfiche.ApiBaseUrl
+=> EMPTY
+
+The Dashboard currently opens correctly through IIS, but login displays:
+
+"Could not reach the Laserfiche server."
+
+We already independently verified:
+
+Invoke-WebRequest https://localhost/LFRepositoryAPI
+=> HTTP 200
+=> redirects/serves LFRepositoryAPI/swagger/index.html
+
+Therefore IIS and LFRepositoryAPI themselves are reachable.
+
+TASK 1 — TRACE THE CONFIGURATION CONTRACT
+
+Search the ENTIRE repository for:
+
+ServerUrl
+ApiBaseUrl
+ApiBasePath
+RepositoryId
+DisplayName
+IOptions<LaserficheOptions>
+LaserficheOptions
+GetSection("Laserfiche")
+Configure<LaserficheOptions>
+AddHttpClient
+BaseAddress
+LaserficheAuthService
+LFRepositoryAPI
+laserfiche.config.json
+
+Determine exactly which property the runtime HTTP client uses for its BaseAddress.
+
+There must be ONE canonical property name for the LF Repository API URL.
+
+Do not allow:
+
+installer writes ServerUrl
+while runtime expects ApiBaseUrl
+
+or any other naming mismatch.
+
+Pick one canonical property and use it consistently across:
+
+- LaserficheOptions.cs
+- Program.cs
+- LaserficheAuthService.cs
+- API clients
+- SetupHelper
+- WriteConfigAction.cs
+- config templates
+- installer-generated JSON
+- Settings page
+- tests
+- publish.ps1 smoke tests
+
+TASK 2 — REMOVE LEGACY REPOSITORY INSTALL CONFIG
+
+The new architecture explicitly removed Repository ID and Display Name from installation configuration.
+
+Yet the installed file STILL contains:
+
+"RepositoryId": "TestEmployee",
+"DisplayName": "TestEmployee"
+
+Find exactly why.
+
+Search every writer of:
+
+C:\ProgramData\Dashboard\laserfiche.config.json
+
+and every template.
+
+New installations MUST NOT write RepositoryId or DisplayName.
+
+Repository is runtime/session state.
+
+Also handle upgrade/stale configuration:
+
+when SetupHelper writes the new config, actively remove legacy:
+
+RepositoryId
+DisplayName
+
+instead of preserving old values from a previous installation.
+
+TASK 3 — DO NOT DOUBLE-APPEND LFRepositoryAPI
+
+The canonical URL on this machine is:
+
+https://localhost/LFRepositoryAPI
+
+If ServerUrl/ApiBaseUrl already contains /LFRepositoryAPI,
+the runtime MUST NOT append ApiBasePath again and produce:
+
+https://localhost/LFRepositoryAPI/LFRepositoryAPI
+
+Normalize this properly.
+
+TASK 4 — ADD STARTUP DIAGNOSTICS
+
+At Dashboard startup log NON-SECRET configuration:
+
+Laserfiche API Base URL
+API version
+timeout
+whether runtime repository context exists
+
+Never log username/password/token.
+
+At login, before requesting /Token, log:
+
+resolved API URL
+resolved repository ID
+request endpoint
+
+Again, never credentials.
+
+If authentication fails, log:
+
+exception type
+HTTP status
+response reason
+inner exception
+TLS exception if applicable
+
+The browser must distinguish:
+
+API configuration missing
+API unreachable
+TLS/certificate failure
+repository not found
+invalid credentials
+server 5xx
+
+Do not collapse all failures into:
+"Could not reach the Laserfiche server."
+
+TASK 5 — ADD A CONFIG CONTRACT TEST
+
+Create an automated test that:
+
+1. generates laserfiche.config.json using the SAME SetupHelper code used by MSI
+
+2. loads that JSON using the SAME LaserficheOptions binding used by LFPortal.Web
+
+3. asserts the runtime resolved API URL equals exactly:
+
+https://localhost/LFRepositoryAPI
+
+4. asserts it is non-empty
+
+5. asserts LFRepositoryAPI appears only once in the final URL
+
+6. asserts RepositoryId is NOT written
+
+7. asserts DisplayName is NOT written
+
+The build must fail if this contract test fails.
+
+TASK 6 — CHECK STALE CONFIGURATION DURING REINSTALL
+
+The Windows machine already has:
+
+C:\ProgramData\Dashboard\laserfiche.config.json
+
+from previous builds.
+
+Ensure reinstall/upgrade replaces or migrates this legacy file correctly.
+
+Do not tell me to manually delete it as the permanent solution.
+
+The installer must correctly migrate it.
+
+FINAL REPORT REQUIRED
+
+Do not stop at Build succeeded.
+
+Report:
+
+1. Which property the runtime was expecting.
+2. Which property SetupHelper was writing.
+3. Exact root cause of the mismatch.
+4. Canonical property selected.
+5. Final generated laserfiche.config.json example.
+6. Why RepositoryId/DisplayName survived.
+7. How legacy config migration now removes them.
+8. Exact final API URL used by HttpClient.
+9. Exact token endpoint generated for repository TestEmployee.
+10. Config contract test result.
+11. All files changed.
+12. Remaining risks.
+
+Do not make unrelated UI changes.
+Do not change the working WiX BA hosting architecture.
+Do not change IIS installation unless investigation proves it is necessary.
