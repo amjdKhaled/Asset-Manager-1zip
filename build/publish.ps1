@@ -818,8 +818,8 @@ else {
     # "BootstrapperApplicationFactoryAttribute" MUST appear in the .NET metadata
     # section of any DLL that carries the attribute.
     $baDllBytes = [System.IO.File]::ReadAllBytes($baDllStaged)
-    $baDllText  = [System.Text.Encoding]::Latin1.GetString($baDllBytes)
-    if ($baDllText -notmatch "BootstrapperApplicationFactoryAttribute") {
+    $baDllText  = [System.Text.Encoding]::GetEncoding(28591).GetString($baDllBytes)
+    if (-not $baDllText.Contains("BootstrapperApplicationFactoryAttribute")) {
         Write-Host ""
         Write-Host "  ============================================================" -ForegroundColor Red
         Write-Host "  [PREFLIGHT FAILED] Dashboard.BA.dll is missing the" -ForegroundColor Red
