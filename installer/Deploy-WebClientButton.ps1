@@ -338,9 +338,10 @@ if (-not [string]::IsNullOrWhiteSpace($DashboardUrl)) {
                        $scriptContent, $pattern, $replacement)
 
     if ($patched -eq $scriptContent) {
-        Write-Warn "Could not locate 'var DASHBOARD_BASE_URL = ...' in the script."
-        Write-Warn "Check that the file is the correct Dashboard button script."
-        Write-Warn "The URL was NOT patched.  Edit $ButtonScriptDest manually."
+        Write-Err "Could not locate 'var DASHBOARD_BASE_URL = ...' in the script."
+        Write-Err "Check that the file is the correct Dashboard button script."
+        Write-Err "The URL was NOT patched -- deployment aborted so users are never sent to an unconfigured button."
+        exit 1
     }
     else {
         [System.IO.File]::WriteAllText(
@@ -356,13 +357,15 @@ else {
         $ButtonScriptDest,
         [System.Text.Encoding]::UTF8)
 
-    if ($existingContent -match "var DASHBOARD_BASE_URL\s*=\s*'http://localhost") {
-        Write-Warn ""
-        Write-Warn "DASHBOARD_BASE_URL is set to a localhost URL."
-        Write-Warn "This will ONLY work for users on the same machine as the Dashboard server."
-        Write-Warn "For network access, re-run with:"
-        Write-Warn "  .\Deploy-WebClientButton.ps1 -DashboardUrl `"http://YOUR-SERVER:5000`""
-        Write-Warn ""
+    if ($existingContent -match "var DASHBOARD_BASE_URL\s*=\s*'([^']*)'" -and
+        $Matches[1] -notmatch '://') {
+        Write-Err ""
+        Write-Err "DASHBOARD_BASE_URL is not configured (deploy-time sentinel still present)."
+        Write-Err "The button would show a configuration error to every user."
+        Write-Err "Re-run with the URL that client browsers use to reach the Dashboard:"
+        Write-Err "  .\Deploy-WebClientButton.ps1 -DashboardUrl `"http://YOUR-SERVER:PORT`""
+        Write-Err ""
+        exit 1
     }
     elseif ($existingContent -match "var DASHBOARD_BASE_URL\s*=\s*'([^']+)'") {
         $existingUrl = $Matches[1]

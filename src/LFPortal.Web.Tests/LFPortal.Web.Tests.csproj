@@ -27,6 +27,8 @@
          ApiHostSelector.cs is intentionally dependency-free (no WinForms/WiX). -->
     <Compile Include="..\..\installer\Dashboard.BA\ApiHostSelector.cs"
              Link="Installer\ApiHostSelector.cs" />
+    <Compile Include="..\..\installer\Dashboard.BA\SslCertEndpointMatcher.cs"
+             Link="Installer\SslCertEndpointMatcher.cs" />
     <Compile Include="..\..\installer\Dashboard.SetupHelper\TlsTrustPlanner.cs"
              Link="Installer\TlsTrustPlanner.cs" />
   </ItemGroup>

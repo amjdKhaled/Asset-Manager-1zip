@@ -498,13 +498,20 @@ namespace Dashboard.BA
                 return box;
             }
 
-            // Build the suggested Dashboard URL from this machine's hostname
+            // Build the suggested Dashboard URL from this machine's hostname.
+            // Never fall back to localhost: a localhost URL only works on the
+            // server itself and silently breaks every client machine.
             try   { _autoDetectedHost = Dns.GetHostName(); }
-            catch { _autoDetectedHost = "localhost"; }
+            catch { _autoDetectedHost = ""; }
+            if (string.IsNullOrWhiteSpace(_autoDetectedHost))
+            {
+                try   { _autoDetectedHost = Environment.MachineName; }
+                catch { _autoDetectedHost = ""; }
+            }
 
             _txtDashboardUrl = AddGrpField(
                 "Dashboard URL *",
-                $"http://{_autoDetectedHost}:5000",
+                string.IsNullOrWhiteSpace(_autoDetectedHost) ? "" : $"http://{_autoDetectedHost}:5000",
                 "URL browsers use to reach Dashboard.  Uses this server's hostname; changes with Port below.");
 
             _txtPort = AddGrpField(
@@ -1062,6 +1069,40 @@ namespace Dashboard.BA
 
             if (!int.TryParse(_txtPort.Text.Trim(), out int port) || port < 1 || port > 65535)
                 errors.Add("IIS Port must be a number between 1 and 65535 (in Advanced Settings).");
+
+            // ── HTTP/HTTPS consistency with the machine's ACTUAL bindings ──
+            // The installer VALIDATES IIS infrastructure; it never creates
+            // HTTPS bindings or manages certificates.  An https:// Dashboard
+            // URL against a machine with no TLS binding produces
+            // ERR_SSL_PROTOCOL_ERROR in every client browser, so it is a
+            // blocking error here, with an explanation of what to configure.
+            if (Uri.TryCreate(_txtDashboardUrl.Text.Trim(), UriKind.Absolute, out var dashUri)
+                && (dashUri.Scheme == Uri.UriSchemeHttp || dashUri.Scheme == Uri.UriSchemeHttps))
+            {
+                if (dashUri.Scheme == Uri.UriSchemeHttp)
+                {
+                    // The installer creates exactly one HTTP binding, on the
+                    // chosen IIS port.  A URL pointing at any other port will
+                    // never be served by this site.
+                    if (port >= 1 && port <= 65535 && dashUri.Port != port)
+                        errors.Add(
+                            $"The Dashboard URL uses port {dashUri.Port}, but the IIS site will listen on port {port}. " +
+                            "Make the Dashboard URL port match the IIS Port (in Advanced Settings).");
+                }
+                else // https
+                {
+                    if (!DetectionService.HttpsBindingExists(dashUri.Host, dashUri.Port, out string endpoint))
+                        errors.Add(
+                            $"The Dashboard URL uses https://, but this machine has no HTTPS certificate binding that would serve " +
+                            $"{dashUri.Host}:{dashUri.Port} (checked exact-hostname, wildcard-IP, and matching explicit-IP bindings).\r\n" +
+                            "This installer validates IIS infrastructure but never creates HTTPS bindings or manages certificates.\r\n" +
+                            "Either:\r\n" +
+                            "  1. Configure the HTTPS binding first in IIS Manager (site binding + certificate), then run this installer again, or\r\n" +
+                            "  2. Use an http:// Dashboard URL.");
+                    else
+                        StartupLogger.Log($"HTTPS binding validated for Dashboard URL: {dashUri.Host}:{dashUri.Port} (endpoint {endpoint}).");
+                }
+            }
 
             if (_chkWebClient.Checked)
             {

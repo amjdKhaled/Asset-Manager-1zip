@@ -91,18 +91,30 @@ namespace Dashboard.SetupHelper
             string jsDest    = Path.Combine(customDir, "lf-dashboard-button.js");
             string jsContent = File.ReadAllText(jsSource, Encoding.UTF8);
 
-            if (!string.IsNullOrEmpty(dashUrl))
+            // The Dashboard URL is REQUIRED: the source script ships with a
+            // non-URL sentinel, so an unpatched deployment produces a button
+            // that shows a configuration error to every user.  Fail loudly
+            // here (Return="check" aborts the install) instead of deploying
+            // a broken integration.
+            if (string.IsNullOrEmpty(dashUrl))
             {
-                string patched = Regex.Replace(
-                    jsContent,
-                    @"(var DASHBOARD_BASE_URL\s*=\s*)'[^']*'",
-                    m => m.Groups[1].Value + "'" + dashUrl + "'"
-                );
-                if (patched == jsContent)
-                    SetupLog.Warn("DASHBOARD_BASE_URL pattern not found in JS; URL not patched.");
-                else
-                    jsContent = patched;
+                SetupLog.Error("--url not provided; refusing to deploy an unconfigured Dashboard button.");
+                SetupLog.Info("Deploy exit code: 1");
+                return 1;
             }
+
+            string patched = Regex.Replace(
+                jsContent,
+                @"(var DASHBOARD_BASE_URL\s*=\s*)'[^']*'",
+                m => m.Groups[1].Value + "'" + dashUrl + "'"
+            );
+            if (patched == jsContent)
+            {
+                SetupLog.Error("DASHBOARD_BASE_URL pattern not found in JS; the button script cannot be configured. Aborting deployment.");
+                SetupLog.Info("Deploy exit code: 1");
+                return 1;
+            }
+            jsContent = patched;
 
             File.WriteAllText(jsDest, jsContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             SetupLog.Info($"Deployed JS: {jsDest}");

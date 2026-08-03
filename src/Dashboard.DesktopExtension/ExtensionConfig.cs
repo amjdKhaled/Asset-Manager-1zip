@@ -23,9 +23,15 @@ namespace LFPortal.DesktopExtension
         private static readonly string LegacyConfigPath =
             Path.Combine(ProgramData, "LFPortal", "extension.config.json");
 
-        /// <summary>URL of the Dashboard portal to open when the button is clicked.</summary>
+        /// <summary>
+        /// URL of the Dashboard portal to open when the button is clicked.
+        /// Intentionally defaults to EMPTY: when the configuration file is missing
+        /// or unreadable the extension must show a clear configuration error
+        /// (handled in <c>Program.cs</c>) instead of silently opening localhost —
+        /// a wrong-machine URL on every client workstation.
+        /// </summary>
         [JsonProperty("portalUrl")]
-        public string PortalUrl { get; set; } = "http://localhost:5000";
+        public string PortalUrl { get; set; } = string.Empty;
 
         /// <summary>Label shown on the Laserfiche toolbar button.</summary>
         [JsonProperty("buttonLabel")]

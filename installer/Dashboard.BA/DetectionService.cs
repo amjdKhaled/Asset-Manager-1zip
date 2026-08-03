@@ -178,6 +178,66 @@ namespace Dashboard.BA
         }
 
         // Resolves the certificate bound to the given HTTPS endpoint via
+        // ------------------------------------------------------------------
+        // HTTPS binding VALIDATION (never creation).
+        // Returns true when http.sys already has a TLS certificate binding
+        // that would serve https://<host>:<port>.  Used by the wizard to
+        // BLOCK an https:// Dashboard URL when no HTTPS infrastructure
+        // exists — the installer validates IIS, it never configures
+        // certificates or bindings.
+        // Host-accurate matching is delegated to SslCertEndpointMatcher
+        // (pure, unit-tested):
+        //   - exact SNI endpoint host:port, or
+        //   - wildcard IP endpoints 0.0.0.0:port / [::]:port, or
+        //   - explicit ip:port ONLY when the URL host resolves to that IP.
+        // A binding for a DIFFERENT host on the same port does NOT pass.
+        // ------------------------------------------------------------------
+        public static bool HttpsBindingExists(string host, int port, out string matchedEndpoint)
+        {
+            matchedEndpoint = "";
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName               = "netsh",
+                    Arguments              = "http show sslcert",
+                    UseShellExecute        = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow         = true
+                };
+
+                string output;
+                using (var proc = System.Diagnostics.Process.Start(psi))
+                {
+                    if (proc == null) return false;
+                    output = proc.StandardOutput.ReadToEnd();
+                    proc.WaitForExit(15000);
+                }
+
+                var endpoints = SslCertEndpointMatcher.ParseEndpoints(output);
+
+                // Resolve the URL host so explicit ip:port bindings can be
+                // matched host-accurately.  Resolution failure just means
+                // explicit-IP endpoints cannot match (wildcard/SNI still can).
+                var resolvedIps = new List<string>();
+                try
+                {
+                    foreach (var addr in Dns.GetHostAddresses(host))
+                        resolvedIps.Add(addr.ToString());
+                }
+                catch { /* unresolved host: explicit-IP endpoints won't match */ }
+
+                return SslCertEndpointMatcher.Matches(
+                    endpoints, host, port, resolvedIps, out matchedEndpoint);
+            }
+            catch
+            {
+                // netsh unavailable/failed: report "not found" so the wizard
+                // shows the blocking explanation rather than silently passing.
+                return false;
+            }
+        }
+
         // "netsh http show sslcert" and the LocalMachine cert stores, and
         // extracts SAN DNS names / validity / chain trust.
         //
@@ -631,16 +691,27 @@ namespace Dashboard.BA
         }
 
         // ----------------------------------------------- Suggested URL
+        // Never suggests localhost: a localhost Dashboard URL only works on
+        // the server itself and silently breaks every other client machine.
+        // If no machine name can be determined, return "" so the wizard's
+        // required-field validation forces the operator to enter a URL.
         private static string BuildSuggestedUrl()
         {
             try
             {
                 string host = Dns.GetHostName();
-                return $"http://{host}:5000";
+                if (string.IsNullOrWhiteSpace(host))
+                    host = Environment.MachineName;
+                return string.IsNullOrWhiteSpace(host) ? "" : $"http://{host}:5000";
             }
             catch
             {
-                return "http://localhost:5000";
+                try
+                {
+                    string host = Environment.MachineName;
+                    return string.IsNullOrWhiteSpace(host) ? "" : $"http://{host}:5000";
+                }
+                catch { return ""; }
             }
         }
     }

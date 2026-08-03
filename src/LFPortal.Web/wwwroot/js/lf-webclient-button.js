@@ -83,11 +83,14 @@
      * Base URL of the Dashboard server — NO trailing slash.
      *
      * !! This executes in the USER's browser, not on the server. !!
-     * 'http://localhost:5000' points to the user's own machine.
-     * Change to a hostname / IP reachable by every client machine, e.g.:
-     *   'http://dashboard-server:5000'
+     * The value below is a deliberate NON-URL sentinel: the installer
+     * (SetupHelper --deploy-webclient) or Deploy-WebClientButton.ps1
+     * replaces it with the real Dashboard URL at deploy time.  If the
+     * sentinel is still present at runtime the deployment step failed,
+     * and the button shows a clear configuration error instead of
+     * silently sending users to a wrong host.
      */
-    var DASHBOARD_BASE_URL = 'http://localhost:5000';
+    var DASHBOARD_BASE_URL = '__DASHBOARD_URL_NOT_CONFIGURED__';
 
     /** How long (ms) to poll for rightNavbar before giving up. */
     var POLL_TIMEOUT_MS = 12000;
@@ -203,10 +206,15 @@
         }
 
         // ── Step 2: validate configuration ───────────────────────────────
-        if (!DASHBOARD_BASE_URL) {
+        // Blocks both an empty value and the unpatched deploy-time sentinel:
+        // the URL must have been injected by the deployment step.
+        if (!DASHBOARD_BASE_URL || DASHBOARD_BASE_URL.indexOf('://') < 0) {
+            console.error('[LFDashboard] DASHBOARD_BASE_URL was not patched at deploy time: ' + DASHBOARD_BASE_URL);
             alert(
-                'Dashboard URL is not configured.\n' +
-                'Set DASHBOARD_BASE_URL in lf-dashboard-button.js.'
+                'The Dashboard button is not configured.\n\n' +
+                'The Dashboard URL was not set when the Web Client integration\n' +
+                'was deployed. Ask your administrator to re-run the Dashboard\n' +
+                'installer or the Deploy-WebClientButton script.'
             );
             return;
         }

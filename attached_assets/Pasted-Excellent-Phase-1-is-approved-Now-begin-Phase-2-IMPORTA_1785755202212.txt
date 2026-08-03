@@ -1,0 +1,203 @@
+Excellent.
+
+Phase 1 is approved.
+
+Now begin Phase 2.
+
+IMPORTANT:
+
+We are NOT changing the architecture of the project.
+
+The goal of Phase 2 is to make the project completely production-ready and completely machine-independent.
+
+==================================================
+IMPORTANT DESIGN RULE
+==================================================
+
+Do NOT turn the installer into an IIS manager.
+
+Do NOT implement:
+
+- automatic HTTPS binding creation
+- automatic certificate binding
+- netsh sslcert
+- certificate creation
+- certificate selection wizard
+- automatic IIS HTTPS configuration
+- rollback certificate management
+
+The installer must validate the environment, not build the IIS infrastructure.
+
+If the Dashboard URL is HTTPS:
+
+- Detect whether an HTTPS binding already exists.
+- Validate that the selected host matches the IIS binding.
+- If HTTPS is missing, display a blocking validation error with a clear explanation.
+
+Do NOT automatically fix IIS.
+
+==================================================
+PHASE 2 GOALS
+==================================================
+
+Continue removing every remaining machine-specific assumption.
+
+Review the ENTIRE repository again.
+
+Look for:
+
+- hardcoded URLs
+- hardcoded localhost
+- hardcoded IP addresses
+- hardcoded repository names
+- hardcoded machine names
+- hardcoded ports
+- hardcoded certificate assumptions
+- hidden fallback values
+- installer assumptions
+- runtime assumptions
+- extension assumptions
+- Web Client assumptions
+- Desktop Client assumptions
+
+Everything must become dynamic.
+
+==================================================
+CONFIGURATION
+==================================================
+
+Verify every configuration path.
+
+Every runtime configuration must come from:
+
+%ProgramData%\Dashboard
+
+Nothing should require editing files inside Program Files.
+
+Verify:
+
+- Dashboard
+- Desktop Extension
+- Web Client integration
+- SetupHelper
+- Installer
+- BA
+- Runtime
+
+==================================================
+VALIDATION
+==================================================
+
+Improve validation.
+
+The installer should validate:
+
+- Dashboard URL
+- LF API URL
+- HTTP/HTTPS consistency
+- IIS bindings
+- API reachability
+- configuration paths
+- ProgramData permissions
+
+If validation fails:
+
+Show a clear message explaining exactly what is wrong.
+
+Never silently continue.
+
+==================================================
+FALLBACKS
+==================================================
+
+Remove every silent fallback.
+
+Examples:
+
+NO:
+
+http://localhost:5000
+
+NO:
+
+LFNewRepoWF
+
+NO:
+
+Documents
+
+NO:
+
+desktop-xxxx
+
+NO:
+
+Default Repository
+
+If something is not configured:
+
+Display a proper configuration error.
+
+==================================================
+WEB CLIENT
+==================================================
+
+Make Web Client integration robust.
+
+If Browse.aspx cannot be patched:
+
+Fail loudly.
+
+If the Dashboard button script is not patched:
+
+Show a clear error.
+
+Never silently point to localhost.
+
+==================================================
+DESKTOP EXTENSION
+==================================================
+
+If extension.config.json is missing:
+
+Display a configuration error.
+
+Never open localhost automatically.
+
+==================================================
+FINAL AUDIT
+==================================================
+
+After implementation provide:
+
+1. Every file changed.
+
+2. Every assumption removed.
+
+3. Every validation added.
+
+4. Every fallback removed.
+
+5. Every remaining hardcoded value (if any) and why it still exists.
+
+6. Regression risks.
+
+7. Migration impact.
+
+8. Clean install verification.
+
+9. Upgrade verification.
+
+10. Repair verification.
+
+11. Reinstall verification.
+
+12. Second-machine verification.
+
+13. Production readiness report.
+
+Do not reduce functionality.
+
+Do not break backward compatibility unless absolutely necessary.
+
+Keep the implementation clean, maintainable, and fully documented.
