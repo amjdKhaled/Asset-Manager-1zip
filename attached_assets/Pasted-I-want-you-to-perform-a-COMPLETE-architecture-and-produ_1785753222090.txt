@@ -1,0 +1,333 @@
+I want you to perform a COMPLETE architecture and production-readiness audit of the entire project.
+
+Do NOT focus only on the current bug.
+
+Assume this project will be distributed to many customers, each having a completely different environment.
+
+Your goal is to eliminate every hidden dependency on my development machine and make the entire project fully portable, dynamic, configurable, and production-ready.
+
+I want an extremely deep review.
+
+=========================================================
+PHASE 1 – FULL CODEBASE AUDIT
+=========================================================
+
+Inspect EVERY project, EVERY class, EVERY file, EVERY method, EVERY configuration file, EVERY installer action, EVERY build script, EVERY JSON file, EVERY WiX file, EVERY PowerShell script, EVERY test, EVERY helper, EVERY utility, EVERY constant, EVERY resource, and EVERY deployment action.
+
+Do NOT skip anything.
+
+=========================================================
+PHASE 2 – FIND HARD-CODED VALUES
+=========================================================
+
+Search the ENTIRE repository for anything that is environment-specific.
+
+Examples include but are NOT limited to:
+
+Repository names
+
+Repository IDs
+
+Repository GUIDs
+
+Entry IDs
+
+Folder IDs
+
+Template IDs
+
+localhost
+
+127.0.0.1
+
+192.168.x.x
+
+DESKTOP-xxxxx
+
+Machine names
+
+Server names
+
+API URLs
+
+LFRepositoryAPI
+
+Repository names like LFNewRepoWF
+
+Demo repositories
+
+Test repositories
+
+Development paths
+
+C:\Users\...
+
+ProgramData assumptions
+
+Program Files assumptions
+
+Fixed IIS site names
+
+Fixed IIS application names
+
+Fixed ports
+
+5000
+
+443
+
+Specific usernames
+
+admin
+
+password defaults
+
+Certificates
+
+Certificate thumbprints
+
+Certificate subjects
+
+Certificate issuers
+
+Hardcoded JSON values
+
+Default configuration values
+
+Sample values accidentally used in production
+
+Any environment-specific assumptions
+
+Any temporary development code
+
+Any TODO or HACK
+
+Any fallback that should not exist
+
+Any value that should instead be discovered dynamically
+
+=========================================================
+PHASE 3 – CONFIGURATION REVIEW
+=========================================================
+
+Inspect every configuration source:
+
+appsettings.json
+
+extension.config.json
+
+laserfiche.config.json
+
+Installer defaults
+
+Template JSON files
+
+Generated configuration
+
+PowerShell variables
+
+WiX variables
+
+Bootstrapper variables
+
+Registry values
+
+Environment variables
+
+Embedded resources
+
+Verify that NOTHING contains development-specific values.
+
+=========================================================
+PHASE 4 – RUNTIME DISCOVERY
+=========================================================
+
+Verify that ALL runtime information is discovered dynamically.
+
+Examples:
+
+Laserfiche Repository
+
+Repository API URL
+
+Repository Name
+
+Repository Version
+
+Repository ID
+
+Desktop Client
+
+Web Client
+
+IIS Site
+
+IIS Application
+
+HTTPS Binding
+
+Certificate
+
+Certificate Store
+
+Certificate SAN
+
+Machine Name
+
+Server Name
+
+Dashboard URL
+
+Ports
+
+Paths
+
+ProgramData
+
+Program Files
+
+Extension paths
+
+Web Client paths
+
+Desktop Client paths
+
+Everything must be detected dynamically.
+
+Nothing should require changing source code when moving to another machine.
+
+=========================================================
+PHASE 5 – INSTALLER REVIEW
+=========================================================
+
+Review the installer as if you were performing a professional software release.
+
+Check:
+
+Burn
+
+WiX
+
+Bootstrapper
+
+MSI
+
+Custom Actions
+
+Rollback
+
+Repair
+
+Upgrade
+
+Same-version upgrade
+
+Major upgrade
+
+Fresh install
+
+Reinstall
+
+Silent install
+
+Uninstall
+
+Everything must behave correctly on any machine.
+
+=========================================================
+PHASE 6 – ARCHITECTURE REVIEW
+=========================================================
+
+Review the project architecture.
+
+Identify:
+
+Code duplication
+
+Tight coupling
+
+Hidden dependencies
+
+Bad abstractions
+
+Missing interfaces
+
+Large classes
+
+Unsafe assumptions
+
+Static state
+
+Global state
+
+Singleton misuse
+
+Poor dependency injection
+
+Configuration smells
+
+Technical debt
+
+Anything that makes future maintenance difficult.
+
+=========================================================
+PHASE 7 – PORTABILITY REVIEW
+=========================================================
+
+Pretend you know NOTHING about my machine.
+
+Ask yourself:
+
+"Would this work on a completely different customer machine?"
+
+If the answer is NO...
+
+Find the reason.
+
+Then redesign it.
+
+=========================================================
+PHASE 8 – OUTPUT
+=========================================================
+
+For EVERY issue provide:
+
+1. File
+
+2. Class
+
+3. Method
+
+4. Exact line(s)
+
+5. Why it is a problem
+
+6. Risk level
+
+7. Root cause
+
+8. How it should work
+
+9. The best architectural solution
+
+10. Why your solution is better
+
+=========================================================
+IMPORTANT
+=========================================================
+
+Do NOT stop after finding the first issue.
+
+Continue reviewing until the ENTIRE repository has been inspected.
+
+I want a COMPLETE production-readiness review.
+
+Assume this project will eventually be installed on hundreds of different customer environments.
+
+Your goal is to make the project completely machine-independent, environment-independent, and enterprise-ready.
+
+Do not make changes immediately.
+
+First produce the full audit report.
+
+After I approve the report, we will implement the fixes one by one with proper architecture.
