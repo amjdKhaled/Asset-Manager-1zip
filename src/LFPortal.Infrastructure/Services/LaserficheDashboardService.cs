@@ -398,9 +398,13 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
     private async Task<(IReadOnlyList<SearchActivityDayDto>, IReadOnlyList<TopQueryDto>, int)>
         FetchAuditDataAsync(CancellationToken ct)
     {
-        var actTask  = _auditLog.GetSearchesByDayAsync(7, ct);
-        var topTask  = _auditLog.GetTopQueriesAsync(5, ct);
-        var cntTask  = _auditLog.GetTotalSearchCountAsync(ct);
+        // Repository-scoped: dashboard statistics must only reflect search
+        // activity in the CURRENT session's repository.
+        var repo = await _repositoryContext.GetActiveRepositoryAsync(ct).ConfigureAwait(false);
+
+        var actTask  = _auditLog.GetSearchesByDayAsync(repo.RepositoryId, 7, ct);
+        var topTask  = _auditLog.GetTopQueriesAsync(repo.RepositoryId, 5, ct);
+        var cntTask  = _auditLog.GetTotalSearchCountAsync(repo.RepositoryId, ct);
         await Task.WhenAll(actTask, topTask, cntTask).ConfigureAwait(false);
         return (await actTask, await topTask, await cntTask);
     }

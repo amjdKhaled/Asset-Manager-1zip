@@ -5,6 +5,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Unit tests exercise internal services (e.g. InMemorySearchAuditLog) directly. -->
+    <InternalsVisibleTo Include="LFPortal.Infrastructure.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Required for IHttpContextAccessor and ISession (used by SessionAwareRepositoryContext) -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>

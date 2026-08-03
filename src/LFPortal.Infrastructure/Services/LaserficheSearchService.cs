@@ -33,6 +33,7 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IRepositoryContext _repositoryContext;
     private readonly ILaserficheApiAdapter _adapter;
+    private readonly ISearchAuditLog _auditLog;
     private readonly ILogger<LaserficheSearchService> _logger;
 
     /// <summary>Initialises the service with all required dependencies.</summary>
@@ -40,11 +41,13 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         IHttpClientFactory httpClientFactory,
         IRepositoryContext repositoryContext,
         ILaserficheApiAdapter adapter,
+        ISearchAuditLog auditLog,
         ILogger<LaserficheSearchService> logger)
     {
         _httpClientFactory = httpClientFactory;
         _repositoryContext = repositoryContext;
         _adapter = adapter;
+        _auditLog = auditLog;
         _logger = logger;
     }
 
@@ -129,6 +132,12 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
     {
         var repo = await _repositoryContext
             .GetActiveRepositoryAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // Record the search against the CURRENT repository so dashboard
+        // statistics stay repository-isolated on multi-repository servers.
+        await _auditLog
+            .RecordSearchAsync(repo.RepositoryId, displayQuery, cancellationToken)
             .ConfigureAwait(false);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");

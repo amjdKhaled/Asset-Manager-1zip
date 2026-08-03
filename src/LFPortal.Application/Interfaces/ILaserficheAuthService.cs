@@ -39,6 +39,15 @@ public interface ILaserficheAuthService
     Task InvalidateTokenAsync(RepositoryDescriptor repository);
 
     /// <summary>
+    /// Removes ALL cached tokens belonging to the current HTTP session, across every
+    /// repository. Call this on Sign Out / Change Account so a token acquired by the
+    /// previous account can never be reused by the next login in the same browser
+    /// session (the ASP.NET session id survives sign-out).
+    /// Outside an HTTP context this is a no-op.
+    /// </summary>
+    Task InvalidateCurrentSessionTokensAsync();
+
+    /// <summary>
     /// Attempts to authenticate against the specified repository using the supplied
     /// credentials without consulting <see cref="ICredentialProvider"/>.
     /// </summary>

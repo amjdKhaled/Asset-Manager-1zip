@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -71,6 +72,13 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     /// </summary>
     private string CacheKeyFor(RepositoryDescriptor repository)
     {
+        var scope = CurrentScope();
+        return $"{CacheKeyPrefix}{repository.Key}:{repository.RepositoryId}:{scope}:g{GenerationFor(scope)}";
+    }
+
+    /// <summary>Resolves the token-cache scope for the current request.</summary>
+    private string CurrentScope()
+    {
         string scope = "app";
         try
         {
@@ -87,7 +95,39 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             // Session unavailable (not loaded / no session middleware) — use app scope.
         }
 
-        return $"{CacheKeyPrefix}{repository.Key}:{repository.RepositoryId}:{scope}";
+        return scope;
+    }
+
+    /// <summary>
+    /// Per-session-scope cache-key generation counters. Incrementing a scope's
+    /// generation on sign-out makes EVERY previously written token key for that
+    /// scope unreachable — including keys written concurrently by in-flight
+    /// requests that started before sign-out (their key embeds the old
+    /// generation and is never read again; the orphaned entry expires via its
+    /// normal TTL). This is race-free by construction, unlike explicit eviction.
+    /// Entries are one small int per signed-out session scope, bounded by
+    /// session turnover; a scope with no sign-outs stores nothing (generation 0).
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, int> _scopeGenerations = new();
+
+    /// <summary>Current cache-key generation for a session scope (0 unless signed out before).</summary>
+    private static int GenerationFor(string scope) =>
+        _scopeGenerations.TryGetValue(scope, out var gen) ? gen : 0;
+
+    /// <inheritdoc />
+    public Task InvalidateCurrentSessionTokensAsync()
+    {
+        var scope = CurrentScope();
+        if (scope == "app")
+            return Task.CompletedTask; // no established session — nothing user-specific is cached
+
+        var newGen = _scopeGenerations.AddOrUpdate(scope, 1, static (_, g) => g + 1);
+
+        _logger.LogInformation(
+            "[LF AUTH] Sign out: cached tokens for the current session invalidated (generation {Generation}).",
+            newGen);
+
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc />

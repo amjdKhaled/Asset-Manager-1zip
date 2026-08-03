@@ -249,6 +249,10 @@ public sealed class LoginController : Controller
     [HttpGet("/Login/SignOut")]
     public async Task<IActionResult> SignOut(CancellationToken cancellationToken)
     {
+        // Evict cached Bearer tokens FIRST — the session id (used as the token
+        // cache scope) is only resolvable while session keys are still present.
+        await _authService.InvalidateCurrentSessionTokensAsync();
+
         HttpContext.Session.Remove(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId);
         await _sessionCredentialStore.ClearAsync(cancellationToken);
 

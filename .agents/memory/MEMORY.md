@@ -1,5 +1,7 @@
 # Memory Index
 
+- [Token cache sign-out invalidation](token-cache-signout-invalidation.md) — invalidate cache scopes by bumping a key-embedded generation, never by tracked Remove(); explicit eviction races with in-flight Sets.
+
 - [Phase 1 config architecture](phase1-config-architecture.md) — single writable home %ProgramData%\Dashboard; 4-layer precedence; installer file vs runtime settings file must stay separate.
 
 - [Babel JSX tooltip pattern](babel-jsx-tooltip.md) — Extract inline tooltip functions into separate components; `} as any}` inside JSX crashes the Babel parser.
