@@ -1,0 +1,363 @@
+I now have the project working on my current Windows machine.
+
+I want to move/install the Dashboard on a SECOND Windows machine.
+
+DO NOT modify any files yet.
+
+I need you to inspect the CURRENT repository and tell me exactly what I need to copy to the second machine.
+
+My main question:
+
+Do I need to copy the ENTIRE project/repository to the second machine?
+
+OR
+
+Do I only need:
+
+Release\LFDashboard-Setup.exe
+
+?
+
+I specifically designed this installer so that the destination machine should NOT need:
+
+- Visual Studio
+- source code
+- Replit
+- dotnet build commands
+- publish.ps1
+- WiX
+- the repository/project folder
+- manual compilation
+
+I want the second machine to behave like a real customer/end-user machine.
+
+============================================================
+1. INSPECT THE ACTUAL INSTALLER
+============================================================
+
+Inspect the current:
+
+- build/publish.ps1
+- installer/Dashboard.Bundle/Bundle.wxs
+- installer/Dashboard.Installer/Product.wxs
+- Dashboard.SetupHelper
+- Dashboard.BA
+- harvested WebApp files
+- Desktop Client integration files
+- Web Client integration files
+- config templates
+- TLS preparation components
+
+Determine exactly what gets embedded/attached/packaged into:
+
+Release\LFDashboard-Setup.exe
+
+Do not answer from assumptions.
+
+Verify it from the current build pipeline.
+
+============================================================
+2. ANSWER THE MAIN QUESTION CLEARLY
+============================================================
+
+Tell me explicitly which one is correct:
+
+OPTION A:
+
+I copy ONLY:
+
+Release\LFDashboard-Setup.exe
+
+to the second machine and run it.
+
+OR
+
+OPTION B:
+
+I need LFDashboard-Setup.exe plus additional files/folders.
+
+OR
+
+OPTION C:
+
+I need the entire source project.
+
+If additional files are required, list EVERY required file and explain why it is not included in the installer.
+
+============================================================
+3. VERIFY BUNDLE CONTENTS
+============================================================
+
+Determine whether LFDashboard-Setup.exe contains or carries everything required for installation, including:
+
+- Dashboard MSI
+- LFPortal.Web published application
+- Dashboard.SetupHelper.exe
+- Dashboard.BA
+- BA dependencies
+- configuration templates
+- Desktop Client integration files
+- Web Client integration JS
+- TLS setup code
+- prerequisites handled by the bundle
+
+For each item report:
+
+PACKAGED
+NOT PACKAGED
+DOWNLOADED AT INSTALL TIME
+EXPECTED TO ALREADY EXIST ON DESTINATION MACHINE
+
+============================================================
+4. DESTINATION MACHINE REQUIREMENTS
+============================================================
+
+Give me the exact prerequisites for the SECOND machine.
+
+Separate them into:
+
+A. Installed automatically by our installer
+
+B. Must already exist on Windows
+
+C. Must already exist because this is a Laserfiche machine
+
+D. Optional
+
+Check specifically:
+
+- Windows version
+- Administrator permissions
+- IIS
+- ASP.NET Core Hosting Bundle / Runtime
+- .NET Framework 4.8
+- .NET 8 Runtime
+- Laserfiche Web Client
+- Laserfiche Desktop Client
+- Laserfiche Repository API
+- Laserfiche Server
+- certificates
+- port availability
+- network requirements
+
+Do not guess. Derive this from the installer and application.
+
+============================================================
+5. NO VISUAL STUDIO TEST
+============================================================
+
+Confirm whether the destination machine needs:
+
+Visual Studio
+
+Answer YES or NO and prove why.
+
+Also check whether it needs:
+
+.NET SDK
+WiX Toolset
+PowerShell build scripts
+source code
+NuGet restore
+dotnet build
+dotnet publish
+
+These should ideally only be BUILD MACHINE requirements.
+
+============================================================
+6. BUILD MACHINE VS DESTINATION MACHINE
+============================================================
+
+Create a table:
+
+Requirement | Build Machine | Destination Machine | Why
+
+Include:
+
+Source repository
+Visual Studio
+.NET SDK
+WiX
+publish.ps1
+LFDashboard-Setup.exe
+IIS
+Laserfiche
+.NET Runtime/Hosting Bundle
+Certificates
+
+I want to understand the difference between:
+
+BUILDING the installer
+
+and
+
+INSTALLING the finished product.
+
+============================================================
+7. CLEAN-MACHINE DEPLOYMENT TEST
+============================================================
+
+Tell me how to perform a proper deployment test.
+
+I want to simulate a customer machine.
+
+The test should be:
+
+Machine A:
+source project
+↓
+publish.ps1
+↓
+Release\LFDashboard-Setup.exe
+
+Then copy the installer to:
+
+Machine B:
+NO source project
+NO Visual Studio
+NO WiX
+NO .NET SDK if not required
+↓
+Run LFDashboard-Setup.exe as Administrator
+↓
+Installer detects environment
+↓
+Installs Dashboard
+↓
+Configures IIS
+↓
+Prepares TLS if necessary
+↓
+Adds Desktop/Web Client integration if selected
+↓
+Dashboard works
+
+Tell me whether this is currently supported.
+
+============================================================
+8. CHECK FOR ACCIDENTAL SOURCE-PATH DEPENDENCIES
+============================================================
+
+This is extremely important.
+
+Search the entire production installer/application for references to development-machine paths such as:
+
+C:\Users\Amjad...
+Asset-Manager-1zip
+src\
+installer\
+artifacts\
+Release\
+
+or any other absolute development path.
+
+Also check for runtime dependencies on files outside:
+
+C:\Program Files\Dashboard
+
+and
+
+C:\ProgramData\Dashboard
+
+except intentional Windows/Laserfiche locations.
+
+The installed application MUST NOT depend on the original source repository.
+
+Report every suspicious dependency.
+
+DO NOT modify it yet.
+
+============================================================
+9. CHECK localhost ASSUMPTIONS
+============================================================
+
+The second machine may have a different:
+
+- hostname
+- IP address
+- Laserfiche certificate
+- IIS configuration
+- Repository API URL
+- Web Client path
+
+Verify that the current installer dynamically detects these rather than relying on values from my current machine such as:
+
+DESKTOP-K1SVI53
+192.168.x.x
+specific certificate thumbprints
+specific Laserfiche paths
+
+localhost may be valid when the Repository API is on the same destination machine, but verify how the current detection works.
+
+============================================================
+10. CERTIFICATE / TLS PORTABILITY
+============================================================
+
+We previously fixed a TLS problem where:
+
+CN=localhost
+SAN=localhost
+self-signed certificate
+
+was in:
+
+LocalMachine\My
+
+but not trusted in:
+
+LocalMachine\Root.
+
+Verify that the new installer handles the DESTINATION machine's certificate dynamically.
+
+It must NOT package or copy my current machine's certificate.
+
+It must inspect the certificate on Machine B.
+
+Confirm this from source.
+
+============================================================
+11. LASERFICHE REPOSITORY PORTABILITY
+============================================================
+
+Verify that the installer does NOT package or hardcode:
+
+TestEmployee
+LFNewRepoWF
+or any other repository from my current machine.
+
+Repository selection should remain runtime/session context.
+
+Confirm this from source.
+
+============================================================
+12. FINAL DELIVERABLE
+============================================================
+
+Give me a final deployment package recommendation.
+
+For example, if correct:
+
+DEPLOYMENT PACKAGE:
+
+Release\
+└── LFDashboard-Setup.exe
+
+Copy only this EXE to Machine B.
+
+Then give me:
+
+1. What I copy.
+2. What I do NOT copy.
+3. Prerequisites on Machine B.
+4. Exact installation steps.
+5. Exact post-install verification steps.
+6. What logs to check if installation fails.
+7. Any remaining reason the full source repository would still be needed.
+
+IMPORTANT:
+
+Do not change the code during this task.
+
+This is a READ-ONLY deployment audit.
+
+I want you to prove whether Release\LFDashboard-Setup.exe is truly a standalone deployment artifact.
