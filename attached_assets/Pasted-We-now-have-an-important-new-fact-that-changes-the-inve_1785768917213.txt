@@ -1,0 +1,262 @@
+We now have an important new fact that changes the investigation:
+
+BEFORE installing Dashboard on the second machine, Laserfiche and its API were working normally.
+
+AFTER installing Dashboard, this problem appeared:
+
+GET /LFRepositoryAPI/v1/Repositories
+HTTP 200
+[]
+
+However, we have now proven:
+
+POST /LFRepositoryAPI/v1/Repositories/Demo/Token
+HTTP 200
+access_token returned successfully.
+
+Therefore:
+- LFRepositoryAPI is running.
+- .NET is running the API.
+- Laserfiche Repository Server is reachable.
+- Repository "Demo" exists.
+- Authentication works.
+- The API can connect directly to a repository.
+- The failure appears specifically related to repository discovery/listing.
+
+Also, the LFRepositoryAPI trace log reports:
+
+EnableGetRepositoryListApi=False
+EnableLaserficheServerSSL=True
+LaserficheServerName=desktop-lr7l5jt
+
+and:
+
+RepositoriesController GetRepositoryList was successful
+HTTP Response 200
+
+Do NOT dismiss Dashboard as the cause merely because the source code does not intentionally modify LFRepositoryAPI.
+
+The temporal evidence is:
+working before Dashboard installation → broken immediately after Dashboard installation.
+
+I want a forensic causal investigation.
+
+==================================================
+1. TRACE EVERY INSTALLER SIDE EFFECT
+==================================================
+
+Trace EVERY action executed during Dashboard installation, including:
+
+- Burn bootstrapper
+- MSI
+- WiX IIS extension
+- custom actions
+- SetupHelper
+- TLS preparation
+- certificate-store changes
+- appcmd
+- IIS site creation
+- IIS app-pool creation
+- binding changes
+- ProgramData writes
+- registry changes
+- Web Client deployment
+- Desktop Client registration
+- PowerShell scripts
+- repair/upgrade logic
+
+Do not inspect only obvious LFRepositoryAPI references.
+
+Look for INDIRECT effects.
+
+==================================================
+2. INVESTIGATE IIS COLLISION AS A REAL SUSPECT
+==================================================
+
+We previously discovered that the installer did not originally protect against IIS port collisions.
+
+Determine from the installer defaults and sequence whether installing Dashboard could have:
+
+- created a wildcard binding conflicting with Default Web Site
+- changed HTTP.SYS routing
+- caused another IIS site/app to stop/start
+- changed binding precedence
+- reused an existing site/app-pool name
+- caused LFRepositoryAPI to run under a different effective IIS context
+
+Do not just say "Dashboard has its own site."
+
+Prove whether the exact binding installed can or cannot affect the existing Laserfiche site.
+
+==================================================
+3. INVESTIGATE TLS TRUST SIDE EFFECTS
+==================================================
+
+The installer has TLS preparation logic that can add a self-signed LF API certificate to:
+
+LocalMachine\Root
+
+Investigate whether that operation could alter certificate-chain selection or TLS behavior used by LFRepositoryAPI when connecting to Laserfiche Server.
+
+We know:
+
+EnableLaserficheServerSSL=True
+
+Therefore this is relevant.
+
+Do not assume adding a Root certificate is harmless.
+Analyze Windows chain building and whether duplicate/self-signed certificates could change the selected trust chain.
+
+==================================================
+4. INVESTIGATE CONFIGURATION FILE MUTATION
+==================================================
+
+Search every installer/custom-action/script operation for generic appsettings.json or web.config discovery/editing.
+
+Verify path construction carefully.
+
+I want proof that no path-resolution bug could accidentally target:
+
+C:\Program Files\Laserfiche\API Server\LFRepositoryAPI\appsettings.json
+
+or:
+
+C:\ProgramData\Laserfiche\API Server\LFRepositoryAPI\...
+
+For every WriteAllText / Copy / Replace / JSON-edit operation, report the resolved destination.
+
+Pay particular attention to WriteConfigAction and anything using ContentRoot/WebAppFolder.
+
+==================================================
+5. INVESTIGATE ENVIRONMENT / CONFIGURATION PRECEDENCE
+==================================================
+
+Determine whether Dashboard installation could create/change:
+
+- ASPNETCORE_ENVIRONMENT
+- DOTNET_ENVIRONMENT
+- environment variables
+- IIS environmentVariables
+- applicationHost.config environment variables
+- machine/user environment variables
+
+that could cause LFRepositoryAPI to start reading a different:
+
+appsettings.json
+appsettings.Development.json
+
+or configuration layer.
+
+==================================================
+6. EXPLAIN EnableGetRepositoryListApi=False
+==================================================
+
+This is now one of the strongest clues.
+
+Determine exactly how Laserfiche API Server uses:
+
+EnableGetRepositoryListApi
+
+Do not guess.
+
+Research official Laserfiche documentation/source-compatible evidence if necessary.
+
+We need to know whether:
+
+EnableGetRepositoryListApi=False
+
+can intentionally produce:
+
+HTTP 200
+[]
+
+while direct repository token acquisition still works.
+
+That behavior would match our symptoms almost perfectly.
+
+If so, determine why this value became False after Dashboard installation.
+
+Do not change it yet.
+
+==================================================
+7. COMPARE WORKING VS BROKEN MACHINE
+==================================================
+
+Create a diagnostic PowerShell script that performs a READ-ONLY comparison snapshot.
+
+It must collect:
+
+- installed .NET runtimes
+- ASP.NET Core runtimes
+- IIS sites
+- IIS bindings
+- IIS applications
+- IIS app pools
+- LFRepositoryAPI app pool
+- applicationHost.config relevant sections
+- LFRepositoryAPI environment variables
+- all LFRepositoryAPI appsettings*.json paths
+- effective relevant config values
+- certificate bindings
+- relevant LocalMachine\My certificates
+- relevant LocalMachine\Root certificates
+- LFRepositoryAPI file timestamps
+- Dashboard installation timestamps
+
+NO changes.
+
+I will run the same script on:
+A. working machine
+B. broken machine
+
+Then we can diff them.
+
+==================================================
+8. DO NOT MODIFY THE MACHINE YET
+==================================================
+
+This investigation is READ ONLY.
+
+Do not:
+- change appsettings
+- remove .NET
+- reinstall API Server
+- modify IIS
+- remove certificates
+- run iisreset
+- uninstall Dashboard
+- repair anything
+
+We need to preserve evidence.
+
+==================================================
+9. FINAL VERDICT
+==================================================
+
+At the end classify Dashboard causality as:
+
+CONFIRMED
+PROBABLE
+POSSIBLE
+UNLIKELY
+DISPROVEN
+
+Do not call it DISPROVEN merely because there is no intentional API mutation.
+
+Use actual causal evidence.
+
+Most importantly answer:
+
+Why can:
+
+POST /Repositories/Demo/Token
+
+work successfully while:
+
+GET /Repositories
+
+returns []?
+
+And determine whether EnableGetRepositoryListApi=False explains exactly that behavior.
+
+Do not implement fixes until the root cause is established.
