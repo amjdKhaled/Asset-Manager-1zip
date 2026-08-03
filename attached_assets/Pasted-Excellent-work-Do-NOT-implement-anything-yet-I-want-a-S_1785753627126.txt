@@ -1,0 +1,201 @@
+Excellent work.
+
+Do NOT implement anything yet.
+
+I want a SECOND audit.
+
+The first audit focused mostly on hardcoded values.
+
+The second audit must focus on hidden assumptions and architecture assumptions.
+
+I do NOT want to search only for strings like localhost or LFNewRepoWF.
+
+I want you to review the ENTIRE codebase looking for anything that assumes my development environment.
+
+=========================================================
+Review ALL assumptions.
+=========================================================
+
+Examples include (but are NOT limited to):
+
+• assumptions about IIS
+• assumptions about Laserfiche installation
+• assumptions about repository existence
+• assumptions about repository names
+• assumptions about repository IDs
+• assumptions about templates
+• assumptions about folder structures
+• assumptions about entry IDs
+• assumptions about users
+• assumptions about admin accounts
+• assumptions about certificates
+• assumptions about ports
+• assumptions about localhost
+• assumptions about machine names
+• assumptions about ProgramData
+• assumptions about Program Files
+• assumptions about Windows features
+• assumptions about installed services
+• assumptions about permissions
+• assumptions about Administrator privileges
+• assumptions about Desktop Client
+• assumptions about Web Client
+• assumptions about API availability
+• assumptions about HTTPS
+• assumptions about TLS
+• assumptions about DPAPI
+• assumptions about registry keys
+• assumptions about file locations
+• assumptions about culture
+• assumptions about language
+• assumptions about encoding
+• assumptions about timezone
+• assumptions about SQL Server
+• assumptions about IIS bindings
+• assumptions about DNS
+• assumptions about firewall
+• assumptions about network
+• assumptions about app pools
+• assumptions about service accounts
+• assumptions about repository login state
+• assumptions about session state
+• assumptions about browser behavior
+• assumptions about Desktop Client version
+• assumptions about Laserfiche version
+• assumptions about .NET version
+
+=========================================================
+Search for logic that only works on YOUR development machine.
+=========================================================
+
+Examples:
+
+if repository exists...
+
+if Desktop Client already installed...
+
+if IIS site has this name...
+
+if certificate exists...
+
+if folder exists...
+
+if service exists...
+
+if only one repository exists...
+
+if API returns one repository...
+
+if user is admin...
+
+if machine is online...
+
+if localhost resolves...
+
+if HTTPS already configured...
+
+if app pool exists...
+
+Anything like that.
+
+=========================================================
+Search for hidden dependencies.
+=========================================================
+
+Examples:
+
+Code that depends on execution order.
+
+Code that depends on installer order.
+
+Code that depends on Burn behavior.
+
+Code that depends on MSI behavior.
+
+Code that depends on timing.
+
+Code that depends on previous installation.
+
+Code that depends on reboot.
+
+Code that depends on cached configuration.
+
+Code that depends on old files remaining.
+
+Code that depends on registry leftovers.
+
+Anything that could fail on a clean machine.
+
+=========================================================
+Search for production risks.
+=========================================================
+
+Look for:
+
+silent failures
+
+missing logs
+
+missing validation
+
+missing null checks
+
+unsafe defaults
+
+poor fallback behavior
+
+race conditions
+
+resource leaks
+
+exception swallowing
+
+improper rollback
+
+configuration precedence issues
+
+dependency injection issues
+
+thread safety
+
+static state
+
+file locking
+
+upgrade risks
+
+repair risks
+
+uninstall risks
+
+=========================================================
+Output
+=========================================================
+
+Do NOT change code.
+
+Produce another audit report.
+
+For every issue include:
+
+Severity
+
+Root Cause
+
+Risk
+
+Affected Files
+
+Why it breaks on another machine
+
+Recommended architecture
+
+Recommended implementation
+
+Migration impact
+
+Regression risk
+
+Estimated implementation complexity
+
+Do not stop until the ENTIRE repository has been reviewed.
