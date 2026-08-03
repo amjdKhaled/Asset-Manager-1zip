@@ -1,0 +1,181 @@
+Excellent.
+
+Do NOT implement anything yet.
+
+The code audit is now good.
+
+Now I want something completely different.
+
+I want an END-TO-END workflow audit.
+
+Forget code.
+
+Forget hardcoded strings.
+
+Forget configuration.
+
+I want you to review the ENTIRE PRODUCT lifecycle.
+
+Pretend you are a customer installing this software for the first time.
+
+Walk through EVERY scenario from beginning to end.
+
+Examples:
+
+Fresh machine
+
+Fresh Windows
+
+Fresh IIS
+
+Fresh Laserfiche
+
+No Repository
+
+Multiple repositories
+
+Repository renamed
+
+Repository deleted
+
+Repository moved
+
+API unavailable
+
+Desktop Client missing
+
+Desktop Client old version
+
+Web Client old version
+
+Web Client updated
+
+TLS certificate replaced
+
+Server renamed
+
+Machine renamed
+
+IP changed
+
+Port changed
+
+DNS changed
+
+IIS site renamed
+
+Application Pool renamed
+
+Repository API moved
+
+Multiple API Servers
+
+No HTTPS
+
+Expired certificate
+
+Invalid certificate
+
+Credentials changed
+
+Password changed
+
+Windows account changed
+
+Repair
+
+Modify
+
+Upgrade
+
+Downgrade
+
+Major upgrade
+
+Minor upgrade
+
+Rollback
+
+Interrupted install
+
+Interrupted uninstall
+
+Power outage during install
+
+Reinstall
+
+Clean uninstall
+
+Move to another server
+
+Clone VM
+
+Backup/Restore
+
+Disaster recovery
+
+Offline environment
+
+Internet disconnected
+
+Firewall enabled
+
+Corporate GPO restrictions
+
+Multiple users
+
+Non-admin user
+
+Roaming profile
+
+Remote Desktop
+
+Different Windows language
+
+Different culture
+
+Different timezone
+
+Different Program Files drive
+
+Different ProgramData drive
+
+Every scenario.
+
+For every scenario tell me:
+
+What assumptions exist.
+
+What breaks.
+
+What survives.
+
+What should be dynamic.
+
+What should be rediscovered.
+
+What should be stored.
+
+What should never be stored.
+
+How recovery should work.
+
+How logging should work.
+
+How rollback should work.
+
+How self-healing should work.
+
+I want this to be a SOFTWARE ARCHITECTURE REVIEW.
+
+Not a code review.
+
+Not a string search.
+
+Not a grep.
+
+Think like a software architect reviewing a commercial installer before shipping it to enterprise customers.
+
+Do not modify code.
+
+Only produce the report.
