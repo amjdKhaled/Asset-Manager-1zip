@@ -1,0 +1,70 @@
+I think the Dashboard installer or runtime may have modified my Laserfiche API Server configuration on another machine. I do not want assumptions — I want a complete code audit with proof.
+
+Perform a full read-only investigation first, then fix anything that is actually wrong.
+
+Goals
+Search the entire solution for any code that can modify, overwrite, or reconfigure the Laserfiche API Server.
+
+Search for:
+
+LFRepositoryAPI
+web.config
+appsettings.json
+applicationHost.config
+IIS bindings
+appcmd
+netsh
+PowerShell scripts
+SetupHelper
+WiX Custom Actions
+Registry writes
+ProgramData writes
+Configuration writers
+File.Copy / File.Write / Replace / Move
+Any code that edits API folders
+Determine whether the Dashboard ever:
+modifies the API configuration
+modifies API IIS bindings
+modifies API authentication
+modifies API version
+modifies Repository settings
+modifies Directory Server settings
+modifies web.config
+replaces files inside LFRepositoryAPI
+changes IIS application pools
+changes permissions on the API folder
+Verify that the Dashboard only:
+reads from the API
+writes only its own configuration
+never touches Laserfiche installation files
+If any code changes Laserfiche API configuration:
+explain exactly why
+determine if it is necessary
+if not necessary, remove it
+move the configuration into Dashboard-only files
+Make the Dashboard completely isolated.
+
+The Dashboard must never modify:
+
+Laserfiche API
+Repository Server
+Directory Server
+Laserfiche Web Client
+IIS settings unrelated to the Dashboard
+
+except for the explicit optional Web Client button deployment that the installer performs.
+
+Review every installer custom action and verify it has no unintended side effects.
+Produce a final report containing:
+every file that touches Laserfiche
+every configuration file written
+every registry key written
+every IIS modification
+every PowerShell command executed
+every folder modified
+whether it is safe
+whether it should be changed
+
+Do not make assumptions.
+Use only evidence from the source code.
+Only modify code after proving the root cause.

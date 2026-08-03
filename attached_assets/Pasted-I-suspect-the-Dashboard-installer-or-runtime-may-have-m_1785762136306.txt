@@ -1,0 +1,78 @@
+I suspect the Dashboard installer or runtime may have modified or broken my Laserfiche API Server on the second machine.
+
+Do NOT assume anything.
+
+Perform a complete forensic investigation of the entire solution before making any code changes.
+
+Investigation requirements
+
+Search the entire repository for every place that interacts with:
+
+LFRepositoryAPI
+IIS
+applicationHost.config
+web.config
+appsettings.json
+appcmd
+netsh
+PowerShell scripts
+WiX Custom Actions
+SetupHelper
+Registry writes
+ProgramData writes
+File.Copy / File.Write / Replace / Move
+Repository Server
+Directory Server
+
+Determine whether the Dashboard:
+
+modifies the Laserfiche API configuration
+modifies IIS bindings
+modifies API web.config
+changes API authentication
+changes Repository configuration
+changes Directory Server configuration
+overwrites any Laserfiche files
+changes permissions
+performs any operation that could break the API on another machine
+If the Dashboard IS responsible
+
+If you find actual source-code evidence that the Dashboard caused the problem:
+
+explicitly state:
+"Confirmed: the Dashboard is the root cause."
+explain exactly which file and function caused it
+explain why it happens
+explain why it only appears on another machine
+fix it completely
+make the Dashboard completely isolated from Laserfiche internal configuration
+verify the fix
+If the Dashboard is NOT responsible
+
+If the investigation proves the Dashboard is not the cause:
+
+explicitly state:
+"Confirmed: the Dashboard is NOT the root cause."
+provide evidence from the source code proving this
+identify the real root cause
+explain exactly what is wrong
+explain how to fix it
+Final report
+
+Include:
+
+every file that touches Laserfiche
+every file modified
+every IIS change
+every registry change
+every configuration file written
+every PowerShell command executed
+whether each operation is safe
+whether it should remain
+the final root cause
+
+Do not guess.
+
+Do not make assumptions.
+
+Base every conclusion on actual source-code evidence. If you cannot prove something from the code, explicitly say that it cannot be proven.
