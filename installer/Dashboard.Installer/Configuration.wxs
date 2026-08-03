@@ -32,6 +32,12 @@
 
   <Fragment>
 
+    <!-- Schedules the util:QueryWindowsWellKnownSIDs custom action, which sets
+         WIX_ACCOUNT_NETWORKSERVICE (and friends) to the LOCALIZED well-known
+         account name resolved from its SID (S-1-5-20).  Required for the
+         SID-based PermissionEx entries below to work on non-English Windows. -->
+    <util:QueryWindowsWellKnownSIDs />
+
     <!-- Sub-directories under %ProgramData%\Dashboard\ -->
     <DirectoryRef Id="PROGRAMDATAFOLDER">
       <Directory Id="CREDSFOLDER"      Name="credentials" />
@@ -41,6 +47,24 @@
 
     <!-- Configuration files and directories -->
     <ComponentGroup Id="ConfigComponents">
+
+      <!--
+        %ProgramData%\Dashboard\ root directory.
+        The web app writes Settings-page overrides to laserfiche.runtime.json
+        directly in this directory, so the app pool identity needs write access
+        here — not only in the credentials\ and logs\ sub-directories.
+        SID-based account resolution (see CompCredsDir) keeps this working on
+        non-English Windows.
+      -->
+      <Component Id="CompDashboardDataDir"
+                 Directory="PROGRAMDATAFOLDER"
+                 Guid="{C0D1E2F3-A4B5-4678-2345-901234567890}">
+        <CreateFolder>
+          <util:PermissionEx
+            User="[WIX_ACCOUNT_NETWORKSERVICE]"
+            GenericAll="yes" />
+        </CreateFolder>
+      </Component>
 
       <!--
         Extension config.
@@ -86,8 +110,12 @@
                  Directory="CREDSFOLDER"
                  Guid="{F7A8B9C0-D1E2-4345-F012-678901234567}">
         <CreateFolder>
+          <!-- SID-based account resolution: WIX_ACCOUNT_LOCALSERVICE etc. are
+               populated by util:QueryWindowsWellKnownSIDs with the LOCALIZED
+               account name, so this works on non-English Windows where the
+               literal "NETWORK SERVICE" account name does not exist. -->
           <util:PermissionEx
-            User="NETWORK SERVICE"
+            User="[WIX_ACCOUNT_NETWORKSERVICE]"
             GenericAll="yes" />
         </CreateFolder>
       </Component>
@@ -101,8 +129,9 @@
                  Directory="CONFIGLOGSFOLDER"
                  Guid="{A8B9C0D1-E2F3-4456-0123-789012345678}">
         <CreateFolder>
+          <!-- SID-based resolution — see CompCredsDir comment. -->
           <util:PermissionEx
-            User="NETWORK SERVICE"
+            User="[WIX_ACCOUNT_NETWORKSERVICE]"
             GenericAll="yes" />
         </CreateFolder>
       </Component>

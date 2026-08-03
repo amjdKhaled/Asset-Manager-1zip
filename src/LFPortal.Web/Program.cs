@@ -1,4 +1,5 @@
 using LFPortal.Domain.Version;
+using LFPortal.Infrastructure.Configuration;
 using LFPortal.Infrastructure.Extensions;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Middleware;
@@ -17,12 +18,25 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
-    // ── Writable settings override (Settings page writes here; reloads without restart) ──
-    var writableConfigPath = Path.Combine(
-        builder.Environment.ContentRootPath, "config", "laserfiche.json");
+    // ── Configuration layering (last-wins) ────────────────────────────────────
+    //  1. appsettings.json                                  structural defaults (already loaded)
+    //  2. <ContentRoot>\config\laserfiche.json              LEGACY writable file (pre-Phase-1
+    //                                                       installs and non-Windows dev fallback)
+    //  3. %ProgramData%\Dashboard\laserfiche.config.json    installer wizard values
+    //  4. %ProgramData%\Dashboard\laserfiche.runtime.json   Settings-page overrides
+    // All are optional with reloadOnChange so Settings-page saves apply without restart.
+    builder.Configuration.AddJsonFile(
+        DashboardConfigPaths.GetLegacyRuntimeConfigPath(builder.Environment.ContentRootPath),
+        optional: true,
+        reloadOnChange: true);
 
     builder.Configuration.AddJsonFile(
-        writableConfigPath,
+        DashboardConfigPaths.InstallerConfigPath,
+        optional: true,
+        reloadOnChange: true);
+
+    builder.Configuration.AddJsonFile(
+        DashboardConfigPaths.RuntimeConfigPath,
         optional: true,
         reloadOnChange: true);
 

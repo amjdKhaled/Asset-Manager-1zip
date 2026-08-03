@@ -36,10 +36,13 @@ public sealed class LaserficheOptions
     public const string SectionName = "Laserfiche";
 
     /// <summary>
-    /// Base URL of the Laserfiche API Server, e.g. <c>https://lf-server.corp.local</c>.
+    /// Base URL of the Laserfiche API Server, e.g. <c>https://your-lf-server.example.com</c>.
     /// Do not include the <c>/LFRepositoryAPI</c> path here.
+    /// Intentionally NOT marked <c>[Required]</c>: on a clean machine the app must be able
+    /// to start unconfigured (health check reports the missing URL; the installer wizard or
+    /// Settings page supplies it).  A <c>[Required]</c> attribute combined with
+    /// <c>ValidateOnStart</c> would crash the site before an administrator could configure it.
     /// </summary>
-    [Required]
     public string ServerUrl { get; set; } = string.Empty;
 
     /// <summary>

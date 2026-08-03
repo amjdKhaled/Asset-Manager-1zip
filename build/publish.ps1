@@ -608,6 +608,41 @@ if (-not (Test-Path $stagedAppSettings)) {
 }
 Write-OK "appsettings.json confirmed present in staged WebApp folder."
 
+# Post-publish guard: the staged appsettings.json must contain ONLY structural
+# defaults -- no development server URLs and no repository identifiers.
+# Repository selection is runtime session context; connection settings come
+# from the installer wizard / Settings page via %ProgramData%\Dashboard\.
+$appSettingsRaw = Get-Content $stagedAppSettings -Raw
+$forbiddenTokens = @('lf-server.corp.local', '"RepositoryId"', '"DisplayName"')
+$foundTokens = $forbiddenTokens | Where-Object { $appSettingsRaw -match [regex]::Escape($_) }
+if ($foundTokens) {
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Red
+    Write-Host "  [PREFLIGHT FAILED] staged appsettings.json ships development or" -ForegroundColor Red
+    Write-Host "  repository-specific values. Forbidden tokens found:" -ForegroundColor Red
+    $foundTokens | ForEach-Object { Write-Host ("    - {0}" -f $_) -ForegroundColor Red }
+    Write-Host "  appsettings.json must contain structural defaults only." -ForegroundColor Red
+    Write-Host "  ============================================================" -ForegroundColor Red
+    exit 1
+}
+Write-OK "appsettings.json contains structural defaults only (no dev/repository values)."
+
+# Post-publish guard: appsettings.Development.json must NOT ship.  It is
+# excluded via CopyToPublishDirectory=Never in LFPortal.Web.csproj; if it
+# reappears in the publish output, fail the build rather than ship dev config.
+$stagedDevSettings = Join-Path $webAppOut "appsettings.Development.json"
+if (Test-Path $stagedDevSettings) {
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Red
+    Write-Host "  [PREFLIGHT FAILED] appsettings.Development.json is present in the" -ForegroundColor Red
+    Write-Host "  staged WebApp folder. Development settings must never ship." -ForegroundColor Red
+    Write-Host ("    FOUND: {0}" -f $stagedDevSettings) -ForegroundColor Red
+    Write-Host "  Check CopyToPublishDirectory in LFPortal.Web.csproj." -ForegroundColor Red
+    Write-Host "  ============================================================" -ForegroundColor Red
+    exit 1
+}
+Write-OK "appsettings.Development.json confirmed absent from staged WebApp folder."
+
 # =============================================================================
 # STEP 4 -- Build Desktop Extension (Windows only)
 # =============================================================================
@@ -828,7 +863,7 @@ else {
     $smokeProc   = Start-Process -FilePath $setupHelperStaged `
         -ArgumentList @(
             "--write-config",
-            "--url",        "http://desktop-k1svi53:5000",
+            "--url",        ("http://{0}:5000" -f $env:COMPUTERNAME.ToLowerInvariant()),
             "--lf-api",     "https://localhost/LFRepositoryAPI",
             "--port",       "5000",
             "--webapp-path", $smokeWebAppArg,

@@ -1,0 +1,163 @@
+Excellent. I approve the audit findings.
+
+Now start implementing the fixes.
+
+IMPORTANT RULES
+
+- Work as a senior software architect.
+- Preserve the existing architecture wherever possible.
+- Never introduce hardcoded values.
+- Never introduce machine-specific paths.
+- Never introduce repository-specific values.
+- Never introduce temporary workarounds.
+- Everything must remain fully dynamic and production-ready.
+- Keep backward compatibility whenever possible.
+- Every change must be idempotent.
+- Every change must work on clean machines.
+- Every change must work on reinstall, repair, upgrade, and uninstall.
+- Build after every logical group of changes.
+- Run tests after every logical group.
+- Do not continue if builds fail.
+- Produce a detailed implementation report after each completed phase.
+
+----------------------------------------
+PHASE 1 (Highest Priority - Ship Blocker)
+----------------------------------------
+
+Implement ONLY Phase 1 first.
+
+1) Configuration Architecture
+
+Create one single writable configuration home:
+
+%ProgramData%\Dashboard
+
+This becomes the ONLY writable configuration location.
+
+The application must read configuration in this order:
+
+1. appsettings.json (defaults only)
+2. %ProgramData%\Dashboard\laserfiche.config.json
+3. Runtime Settings page
+
+The installer, Dashboard runtime, Settings page, Desktop Extension, and Web Client must all use the same configuration source.
+
+No duplicated configuration.
+
+No hidden configuration.
+
+No conflicting configuration.
+
+----------------------------------------
+
+2) Remove all Repository assumptions
+
+Completely remove every installation-time repository assumption.
+
+No RepositoryId.
+
+No DisplayName.
+
+No LFNewRepoWF.
+
+No Documents.
+
+No TestEmployee.
+
+No hardcoded repository names anywhere.
+
+Repository selection must always remain runtime session context.
+
+Search the ENTIRE solution for:
+
+RepositoryId
+DisplayName
+LFNewRepoWF
+Documents
+TestEmployee
+ActiveRepository
+
+Anything remaining must be justified.
+
+----------------------------------------
+
+3) Credential Path
+
+Unify credential storage.
+
+Installer.
+
+Runtime.
+
+Settings.
+
+DPAPI.
+
+Desktop Extension.
+
+Everything must use
+
+%ProgramData%\Dashboard\credentials
+
+Provide backward compatibility for old installations.
+
+----------------------------------------
+
+4) Writable Config
+
+Remove any runtime writes inside Program Files.
+
+The application must never require write access inside Program Files.
+
+Settings page must save only to ProgramData.
+
+Use atomic file replacement.
+
+No partial writes.
+
+----------------------------------------
+
+5) appsettings Cleanup
+
+Remove every machine-specific value.
+
+Remove every development server.
+
+Remove every development repository.
+
+Keep only structural defaults.
+
+Do not ship development values.
+
+----------------------------------------
+
+6) ACL
+
+Replace any localized account-name ACLs with SID-based ACLs.
+
+The installer must work on non-English Windows.
+
+----------------------------------------
+
+After Phase 1:
+
+- Build everything.
+- Run all tests.
+- Verify installer.
+- Verify upgrade.
+- Verify repair.
+- Verify uninstall.
+- Verify clean install.
+- Verify second machine installation.
+
+Then produce a report including:
+
+• Every file modified.
+• Every architectural decision.
+• Every compatibility consideration.
+• Every migration path.
+• Any remaining risks.
+• Confirmation that no hardcoded machine values remain.
+• Confirmation that no hardcoded repository values remain.
+
+DO NOT start Phase 2 until I approve Phase 1.

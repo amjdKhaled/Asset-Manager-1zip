@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using LFPortal.Application.Interfaces;
+using LFPortal.Infrastructure.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -24,15 +26,25 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
     private static readonly JsonSerializerOptions WriteOptions =
         new() { WriteIndented = true };
 
-    /// <summary>Initialises the service and ensures the config directory exists.</summary>
+    /// <summary>Initialises the service and resolves the writable configuration file.</summary>
+    /// <remarks>
+    /// The Settings page writes to <c>%ProgramData%\Dashboard\laserfiche.runtime.json</c>
+    /// (resolved dynamically — never a hardcoded path).  The application never requires
+    /// write access inside its install directory; when the ProgramData directory is not
+    /// writable (non-Windows development hosts), the legacy content-root file is used.
+    /// </remarks>
     public PortalConfigurationService(
         IHostEnvironment hostEnvironment,
         ILogger<PortalConfigurationService> logger)
     {
-        var configDirectory = Path.Combine(hostEnvironment.ContentRootPath, "config");
-        _configFilePath = Path.Combine(configDirectory, "laserfiche.json");
-        _dpRotCredentialDirectory = Path.Combine(configDirectory, "credentials");
+        _configFilePath = DashboardConfigPaths
+            .ResolveWritableRuntimeConfigPath(hostEnvironment.ContentRootPath);
+        _dpRotCredentialDirectory = Path.Combine(
+            hostEnvironment.ContentRootPath, "config", "credentials");
         _logger = logger;
+
+        _logger.LogInformation(
+            "Portal settings will be saved to {ConfigFilePath}.", _configFilePath);
     }
 
     /// <inheritdoc />
@@ -49,23 +61,77 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
         var directory = Path.GetDirectoryName(_configFilePath)!;
         Directory.CreateDirectory(directory);
 
-        var content = new
+        // Merge into the existing file (if any) so fields managed elsewhere —
+        // e.g. CredentialProvider — are preserved rather than silently dropped.
+        JsonObject root;
+        if (File.Exists(_configFilePath))
         {
-            Laserfiche = new
+            try
             {
-                ServerUrl      = serverUrl.TrimEnd('/'),
-                RepositoryId   = repositoryId,
-                DisplayName    = displayName,
-                ApiBasePath    = apiBasePath,
-                ApiVersion     = apiVersion,
-                RootEntryId    = rootEntryId,
-                TimeoutSeconds = timeoutSeconds
+                var existingJson = await File.ReadAllTextAsync(_configFilePath, cancellationToken)
+                    .ConfigureAwait(false);
+                root = JsonNode.Parse(existingJson) as JsonObject ?? new JsonObject();
             }
-        };
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex,
+                    "Existing settings file {Path} is not valid JSON; it will be rewritten.",
+                    _configFilePath);
+                root = new JsonObject();
+            }
+        }
+        else
+        {
+            root = new JsonObject();
+        }
 
-        var json = JsonSerializer.Serialize(content, WriteOptions);
-        await File.WriteAllTextAsync(_configFilePath, json, cancellationToken)
-            .ConfigureAwait(false);
+        if (root["Laserfiche"] is not JsonObject laserfiche)
+        {
+            laserfiche = new JsonObject();
+            root["Laserfiche"] = laserfiche;
+        }
+
+        laserfiche["ServerUrl"]      = serverUrl.TrimEnd('/');
+        laserfiche["RepositoryId"]   = repositoryId;
+        laserfiche["DisplayName"]    = displayName;
+        laserfiche["ApiBasePath"]    = apiBasePath;
+        laserfiche["ApiVersion"]     = apiVersion;
+        laserfiche["RootEntryId"]    = rootEntryId;
+        laserfiche["TimeoutSeconds"] = timeoutSeconds;
+
+        var json = root.ToJsonString(WriteOptions);
+
+        // Atomic replacement: write to a temp file in the same directory, then move
+        // over the target.  Readers (including the configuration reload watcher)
+        // never observe a partially written file.
+        var tempPath = Path.Combine(directory, $".{Path.GetFileName(_configFilePath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
+
+            // The reload watcher (or an antivirus scanner) may briefly hold the
+            // target open; retry the atomic replacement a few times before failing.
+            const int maxAttempts = 4;
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    File.Move(tempPath, _configFilePath, overwrite: true);
+                    break;
+                }
+                catch (IOException) when (attempt < maxAttempts)
+                {
+                    await Task.Delay(100 * attempt, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch (IOException) { /* best-effort cleanup */ }
+            }
+        }
 
         _logger.LogInformation(
             "Connection settings saved: ServerUrl={ServerUrl}, RepositoryId={RepositoryId}, " +
@@ -78,21 +144,33 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
     {
         var hash = GetKeyHash(DefaultRepositoryKey);
 
-        // Non-Windows: Data Protection encrypted file
-        var dpRotPath = Path.Combine(_dpRotCredentialDirectory, $"{hash}{DataProtectionFileExtension}");
-        if (File.Exists(dpRotPath)) return true;
-
-        // Windows: DPAPI encrypted file
+        // Windows: DPAPI encrypted file — checked FIRST so a stale non-Windows
+        // Data Protection file left in the content root cannot mask the absence
+        // of real DPAPI credentials on a production Windows host.
+        // Primary location is %ProgramData%\Dashboard\credentials (matches
+        // DpapiCredentialProvider and the installer-prepared ACL'd directory);
+        // the legacy %ProgramData%\LFPortal\credentials path is checked for
+        // credentials saved by pre-rename installations.
         if (OperatingSystem.IsWindows())
         {
-            var dpapiDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "LFPortal", "credentials");
-            var dpapiPath = Path.Combine(dpapiDir, $"{hash}{DpapiFileExtension}");
-            if (File.Exists(dpapiPath)) return true;
+            var programData = Environment.GetFolderPath(
+                Environment.SpecialFolder.CommonApplicationData);
+            var fileName = $"{hash}{DpapiFileExtension}";
+
+            if (File.Exists(Path.Combine(
+                    DashboardConfigPaths.ProgramDataDirectory, "credentials", fileName)))
+                return true;
+
+            if (File.Exists(Path.Combine(programData, "LFPortal", "credentials", fileName)))
+                return true;
+
+            return false;
         }
 
-        return false;
+        // Non-Windows (development): ASP.NET Data Protection encrypted file.
+        var dpRotPath = Path.Combine(
+            _dpRotCredentialDirectory, $"{hash}{DataProtectionFileExtension}");
+        return File.Exists(dpRotPath);
     }
 
     /// <inheritdoc />

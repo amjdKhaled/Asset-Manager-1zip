@@ -1,0 +1,97 @@
+There is one more production issue that must be fixed.
+
+On another machine, opening the Dashboard through the Web Client results in:
+
+"The connection for this site is not secure.
+<hostname> sent an invalid response.
+ERR_SSL_PROTOCOL_ERROR"
+
+Do NOT guess the cause.
+Do NOT apply temporary fixes.
+Do NOT disable TLS validation.
+Do NOT switch everything to HTTP.
+
+I want a complete root-cause investigation.
+
+Investigate the entire request path:
+
+1. Browser
+2. IIS
+3. Dashboard IIS Site
+4. Dashboard HTTPS binding
+5. Dashboard certificate
+6. Kestrel (if used)
+7. Reverse proxy configuration
+8. LFRepositoryAPI
+9. Dashboard URL generation
+10. Web Client button URL generation
+11. Installer-generated configuration
+12. appsettings
+13. ProgramData configuration
+14. IIS rewrite rules
+15. URL bindings
+16. Port bindings
+17. TLS versions
+18. HTTP/HTTPS redirects
+
+Verify all of the following:
+
+- Is IIS actually listening on the configured HTTPS port?
+- Does the Dashboard IIS site have a valid HTTPS binding?
+- Does the binding use the expected certificate?
+- Does the certificate match the hostname being opened?
+- Is the browser opening HTTP while the site redirects to HTTPS?
+- Is HTTPS configured but Kestrel only listening on HTTP?
+- Is there a reverse proxy mismatch?
+- Is the installer generating an incorrect Dashboard URL?
+- Is the Web Client button generating the wrong protocol or hostname?
+- Is there any hardcoded hostname or protocol remaining?
+- Is the generated Dashboard URL always valid on another machine?
+
+Review every place that constructs URLs.
+
+Search the entire solution for:
+
+http://
+https://
+localhost
+5000
+Urls
+UseHttps
+UseUrls
+Listen
+Kestrel
+Binding
+Redirect
+RequireHttps
+HttpsRedirection
+
+Determine whether the problem is:
+
+- configuration
+- installer
+- runtime
+- IIS
+- TLS
+- reverse proxy
+- URL generation
+- browser launch
+- Web Client integration
+
+If code changes are required:
+
+- keep everything dynamic
+- never hardcode a hostname
+- never hardcode localhost
+- never disable certificate validation
+- never bypass TLS
+
+At the end provide:
+
+1. Root cause
+2. Files involved
+3. Why it only happens on another machine
+4. Exact fix
+5. Regression risks
+6. Verification steps
+7. Confirmation that the fix works on a clean machine, upgrade, repair, and reinstall.
