@@ -1,0 +1,206 @@
+Excellent.
+
+Phase 2 is approved.
+
+Now begin Phase 3.
+
+IMPORTANT:
+
+Phase 3 is NOT about adding new features.
+
+Phase 3 is about making the project production-grade, maintainable, and clean.
+
+Before writing any code:
+
+Review every change made in Phase 1 and Phase 2 and make sure nothing regressed.
+
+==================================================
+GOALS
+==================================================
+
+The project must now become:
+
+- Production-ready
+- Maintainable
+- Easy to understand
+- Easy to modify
+- Easy to debug
+- Easy to extend
+
+==================================================
+PHASE 3 TASKS
+==================================================
+
+1. Dead Code Cleanup
+
+Search the entire solution for:
+
+- Unused methods
+- Unused classes
+- Unused interfaces
+- Unused services
+- Unused helper classes
+- Duplicate implementations
+- Duplicate utility methods
+- Legacy compatibility code
+- Obsolete code
+- Commented-out code
+- TODO
+- FIXME
+- HACK
+
+Remove ONLY what is confirmed to be unused.
+
+If compatibility requires keeping something, document why.
+
+==================================================
+2. Code Quality
+==================================================
+
+Review every project.
+
+Look for:
+
+- Large methods
+- Large classes
+- Duplicate logic
+- Poor naming
+- Missing XML documentation
+- Poor separation of responsibilities
+- Hidden side effects
+
+Refactor where appropriate without changing behavior.
+
+==================================================
+3. Documentation
+==================================================
+
+For every major component create or improve documentation.
+
+Explain:
+
+- Purpose
+- Inputs
+- Outputs
+- Dependencies
+- Configuration
+- Execution flow
+
+Important components include:
+
+- Installer
+- Bootstrapper (BA)
+- SetupHelper
+- Dashboard
+- Desktop Extension
+- Web Client Integration
+- Authentication
+- Repository handling
+- Configuration system
+- TLS validation
+- Search
+- Analytics
+
+==================================================
+4. Maintainability
+==================================================
+
+Make the code easier for another developer to understand.
+
+Reduce unnecessary complexity.
+
+Prefer clear code over clever code.
+
+==================================================
+5. Logging
+==================================================
+
+Review logging.
+
+Ensure logs are:
+
+- Consistent
+- Useful
+- Actionable
+
+Avoid duplicate logging.
+
+Avoid noisy logs.
+
+==================================================
+6. Error Handling
+==================================================
+
+Review exception handling.
+
+Ensure every exception:
+
+- has enough context
+- is logged appropriately
+- returns a meaningful user-facing message
+
+No silent failures.
+
+==================================================
+7. Performance Review
+==================================================
+
+Review:
+
+- unnecessary allocations
+- repeated IO
+- repeated configuration loading
+- repeated reflection
+- unnecessary HTTP requests
+- unnecessary JSON parsing
+
+Optimize only where it improves maintainability or scalability.
+
+==================================================
+8. Final Architecture Review
+==================================================
+
+After all cleanup:
+
+Review the entire solution one final time.
+
+Answer:
+
+- Is the architecture coherent?
+- Is there technical debt remaining?
+- What should be improved in a future version?
+- What should never be changed because it is working well?
+
+==================================================
+IMPORTANT
+==================================================
+
+Do NOT break compatibility.
+
+Do NOT change external behavior unless fixing a confirmed bug.
+
+Do NOT introduce unnecessary abstractions.
+
+Keep the architecture simple.
+
+==================================================
+FINAL REPORT
+==================================================
+
+When finished provide:
+
+1. Files changed.
+2. Dead code removed.
+3. Refactorings performed.
+4. Documentation added.
+5. Performance improvements.
+6. Logging improvements.
+7. Error-handling improvements.
+8. Remaining technical debt.
+9. Recommendations for Phase 4 (optional future enhancements).
+
+One more important requirement:
+
+For every significant class and method that you touch, add clear XML documentation and inline comments explaining WHY the code exists, not just WHAT it does.
+
+The goal is that a new developer should be able to understand and maintain the project without prior knowledge.
