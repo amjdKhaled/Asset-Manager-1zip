@@ -1,0 +1,80 @@
+Excellent work.
+
+Before moving to Phase 2 I want Phase 1 to be completely verified on a clean Windows machine.
+
+I don't want to rely only on builds and unit tests.
+
+Please perform (or prepare) a complete production verification checklist.
+
+I want you to verify all of the following:
+
+1. Clean install on a machine that has never had Dashboard installed.
+2. Upgrade from an old version.
+3. Repair.
+4. Uninstall.
+5. Reinstall.
+6. Install on a second machine with a completely different:
+   - Computer name
+   - Repository name
+   - IIS site
+   - Certificate
+   - Dashboard URL
+
+Verify that after installation:
+
+- Dashboard starts without opening the Settings page.
+- The installer-written ProgramData configuration is actually being read.
+- The Settings page reads the same configuration.
+- Saving Settings updates only the runtime configuration.
+- Repair does not overwrite administrator settings.
+- Upgrade preserves administrator settings.
+- Uninstall removes only installer-owned files.
+- Repository names are never hardcoded.
+- Machine names are never hardcoded.
+- URLs are never hardcoded.
+- Certificates are never hardcoded.
+- The Desktop Client button still works.
+- The Web Client button still works.
+- Login still works.
+- TLS still works.
+- DPAPI credentials still work.
+- ProgramData ACLs are correct.
+- No fallback silently returns to Program Files.
+- No fallback silently returns to localhost.
+- No fallback silently returns to a default repository.
+
+Also generate a production verification document (TEST_PLAN.md) that lists every scenario and its expected result.
+
+Finally:
+
+Search the entire repository one more time for every occurrence of:
+
+localhost
+127.0.0.1
+LFNewRepoWF
+TestEmployee
+Documents
+RepositoryId
+DisplayName
+desktop-
+corp.local
+5000
+192.168.
+http://
+https://
+
+Classify every remaining occurrence as:
+
+- Production code
+- Installer
+- Runtime
+- Test
+- Documentation
+- Example
+- Legacy
+- Safe
+- Must be removed
+
+Do not modify anything yet.
+
+I want the final production audit before we start Phase 2.
