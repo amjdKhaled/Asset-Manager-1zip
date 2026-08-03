@@ -1,0 +1,288 @@
+I want you to perform the final production readiness audit for the entire project.
+
+Do NOT modify any code yet.
+
+I want a complete audit of the entire solution as if you are preparing it for a real production release to customers.
+
+Assume this project will be installed on completely different customer machines with different:
+
+Computer names
+Domain names
+IP addresses
+IIS configurations
+Laserfiche repositories
+Repository names
+Repository IDs
+SQL Servers
+Certificates
+Dashboard URLs
+Windows usernames
+Windows languages
+Installation paths
+ProgramData locations
+IIS Site names
+App Pool names
+Drive letters
+Ports
+Active repositories
+Laserfiche versions (supported versions)
+
+I want you to assume absolutely nothing.
+
+Audit Scope
+
+Review every single project inside the solution including:
+
+Dashboard
+Installer
+Bundle
+BA
+SetupHelper
+Desktop Extension
+Infrastructure
+Services
+Web Client integration
+Toolbar registration
+Configuration
+Deployment scripts
+Build scripts
+Tests
+WiX
+PowerShell
+JSON
+XML
+Razor
+JavaScript
+CSS
+C#
+IIS configuration
+Verify ALL of the following
+1. Hardcoded values
+
+Search for every hardcoded:
+
+Repository name
+Repository ID
+Server name
+Computer name
+localhost
+IP address
+Port
+SQL Server
+Dashboard URL
+Laserfiche API URL
+Certificate thumbprint
+Folder path
+Username
+Domain
+File path
+Program Files
+ProgramData
+Drive letter
+Machine name
+
+Verify whether each one is:
+
+Required
+Safe
+Example only
+Test only
+Bug
+Production risk
+2. Configuration
+
+Verify there is only one source of truth.
+
+Check:
+
+ProgramData
+Runtime config
+Installer config
+appsettings
+Extension config
+Dashboard config
+Laserfiche config
+
+Ensure they cannot become inconsistent.
+
+3. Machine Independence
+
+Verify the project works on:
+
+another PC
+another server
+another IIS
+another repository
+another certificate
+another URL
+another Windows user
+
+with zero code modifications.
+
+4. Upgrade / Repair / Reinstall
+
+Verify:
+
+Clean install
+Upgrade
+Same version reinstall
+Repair
+Uninstall
+Rollback
+
+Ensure every scenario works correctly.
+
+5. IIS
+
+Verify:
+
+Site detection
+Web Client detection
+API detection
+HTTPS detection
+HTTP detection
+Multiple IIS sites
+Multiple bindings
+Multiple certificates
+Multiple app pools
+6. Security
+
+Review:
+
+Authentication
+Session
+Repository isolation
+Token cache
+DPAPI
+Credential storage
+TLS
+HTTPS
+Certificates
+Authorization
+
+Look for:
+
+privilege escalation
+information leakage
+race conditions
+stale cache
+replay issues
+token leakage
+7. Thread Safety
+
+Review every singleton, static field, cache, queue, lock, async method, and concurrent collection.
+
+Assume:
+
+500 concurrent users
+multiple repositories
+multiple sessions
+IIS parallel execution
+8. Installer
+
+Verify:
+
+WiX
+Burn
+Bundle
+Custom Actions
+Rollback
+Upgrade
+Repair
+Remove
+Web Client deployment
+Desktop Extension deployment
+Toolbar registration
+Configuration writing
+TLS preparation
+9. Error Handling
+
+Ensure every failure:
+
+logs enough information
+fails loudly
+never silently ignores errors
+never leaves partial configuration
+never corrupts files
+10. Memory leaks
+
+Review:
+
+IDisposable
+HttpClient
+Streams
+WebView2
+Events
+Timers
+File watchers
+Background services
+11. Code Quality
+
+Search for:
+
+dead code
+duplicate code
+unreachable code
+obsolete code
+legacy code
+TODO
+FIXME
+HACK
+unnecessary abstractions
+duplicated helpers
+duplicate configuration
+duplicated parsing
+12. Performance
+
+Review:
+
+unnecessary allocations
+excessive file IO
+unnecessary JSON parsing
+blocking async calls
+synchronous IO
+repeated reflection
+expensive LINQ
+unnecessary HTTP calls
+configuration reload performance
+13. Production Readiness
+
+Assume this project will be delivered to enterprise customers.
+
+Ask yourself:
+
+"Can this fail on a customer machine in a way that did not happen on the developer machine?"
+
+If the answer is yes:
+
+Explain exactly why.
+
+Rules
+Do not modify code.
+Do not assume anything.
+Verify everything from the source code.
+If you are not 100% certain, say so.
+Distinguish between verified facts and assumptions.
+Do not ignore edge cases.
+Final Report
+
+Produce:
+
+Executive Summary
+Critical Issues
+High Issues
+Medium Issues
+Low Issues
+Safe Items
+False Positives
+Machine Independence Report
+Security Report
+Performance Report
+Thread Safety Report
+Installer Report
+Remaining Technical Debt
+Final Production Readiness Score (0–100)
+A final verdict:
+Would you personally approve shipping this project to enterprise customers?
+
+I do not want optimism. I want the same level of scrutiny as a senior software architect performing the final release audit before shipping to paying customers. If you find any issue, explain the exact root cause, the impact, and the recommended fix before making any code changes.
