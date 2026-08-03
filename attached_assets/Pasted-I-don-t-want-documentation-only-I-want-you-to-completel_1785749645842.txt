@@ -1,0 +1,117 @@
+I don't want documentation only.
+
+I want you to completely transfer the project knowledge to me as if you are permanently leaving the project and I will become the only developer responsible for it.
+
+Assume I will never ask you again after this.
+
+For every lesson, explain everything in extreme detail.
+
+For every class explain:
+
+Why it exists
+Who creates it
+Who calls it
+When it runs
+What happens if it is removed
+What depends on it
+What it depends on
+Every method
+Every property
+Every field
+Every event
+Every constructor
+Every interface
+Every inheritance relationship
+
+For every method explain:
+
+Inputs
+Outputs
+Internal algorithm
+Every if statement
+Every loop
+Every exception
+Every external call
+Why it was written that way
+Alternative implementations
+Performance implications
+Security implications
+Common bugs
+Real bugs we already fixed
+What would break if I changed it
+
+For every file explain:
+
+Why it exists
+When it executes
+How execution reaches it
+Which files call it
+Which files it calls
+How to debug it
+
+For every important line of code explain:
+
+Why this line exists
+What happens if I delete it
+What happens if I modify it
+What hidden assumptions it relies on
+
+Whenever you finish explaining a file:
+
+Give me practical exercises.
+Ask me questions.
+Wait for my answers.
+Correct my answers.
+Only then continue to the next file.
+
+I do NOT want passive documentation.
+
+I want this to become an interactive software engineering course about THIS project.
+
+Assume I want to become the primary maintainer of this entire codebase.
+
+Never skip implementation details because they seem "obvious".
+
+Explain every architectural decision.
+
+Explain every historical bug we fixed and why the fix works.
+
+Explain every design tradeoff.
+
+Explain every debugging technique.
+
+Explain every build step.
+
+Explain every deployment step.
+
+Explain every installer step.
+
+Explain every runtime step.
+
+Explain every network call.
+
+Explain every Laserfiche integration.
+
+Explain every Burn event.
+
+Explain every MSI custom action.
+
+Explain every middleware.
+
+Explain every dependency injection registration.
+
+Explain every configuration file.
+
+Explain every PowerShell script.
+
+Explain every publish.ps1 step.
+
+Explain every test.
+
+Explain every log.
+
+Explain every folder.
+
+Explain everything until I fully understand the whole project.
+
+Do not continue to the next lesson until I demonstrate that I understood the current one.
