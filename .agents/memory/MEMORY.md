@@ -1,5 +1,7 @@
 # Memory Index
 
+- [API version independence](api-version-independence.md) — build URLs only from EffectiveApiVersion; probe 401/403 = version exists; empty MSI LF_API_VERSION preserves a legacy v1 pin.
+
 - [Token cache sign-out invalidation](token-cache-signout-invalidation.md) — invalidate cache scopes by bumping a key-embedded generation, never by tracked Remove(); explicit eviction races with in-flight Sets.
 
 - [Phase 1 config architecture](phase1-config-architecture.md) — single writable home %ProgramData%\Dashboard; 4-layer precedence; installer file vs runtime settings file must stay separate.

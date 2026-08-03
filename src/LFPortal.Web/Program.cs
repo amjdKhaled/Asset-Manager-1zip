@@ -110,11 +110,12 @@ try
         var opts = app.Services.GetRequiredService<IOptions<LaserficheOptions>>().Value;
         Log.Information(
             "Laserfiche config: ServerUrl={ServerUrl} ApiBasePath={ApiBasePath} " +
-            "ApiVersion={ApiVersion} Timeout={Timeout}s CredentialProvider={Provider} " +
+            "ApiVersion={ApiVersion} (effective: {EffectiveApiVersion}) Timeout={Timeout}s CredentialProvider={Provider} " +
             "FallbackRepository={Repo}",
             opts.ServerUrl,
             opts.ApiBasePath,
             opts.ApiVersion,
+            opts.EffectiveApiVersion,
             opts.TimeoutSeconds,
             opts.CredentialProvider,
             string.IsNullOrEmpty(opts.RepositoryId)

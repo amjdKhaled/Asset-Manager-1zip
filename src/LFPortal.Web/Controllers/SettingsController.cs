@@ -85,10 +85,13 @@ public sealed class SettingsController : Controller
         var (serverUrl, apiBasePath, apiVersion) = NormaliseServerUrl(
             request.ServerUrl?.Trim() ?? string.Empty,
             request.ApiBasePath?.Trim() ?? "/LFRepositoryAPI",
-            request.ApiVersion?.Trim() ?? "v1");
+            request.ApiVersion?.Trim() ?? LaserficheOptions.ApiVersionAuto);
 
         if (string.IsNullOrWhiteSpace(serverUrl))
             ModelState.AddModelError(nameof(request.ServerUrl), "Server URL is required.");
+        if (!IsSupportedApiVersion(apiVersion))
+            ModelState.AddModelError(nameof(request.ApiVersion),
+                "API Version must be Auto Detect, v1, or v2.");
         // Default Repository is intentionally OPTIONAL: the repository is runtime
         // session context (Desktop/Web Client launch or login-page selection).
         // A value here only serves as the fallback for direct browser access.
@@ -166,11 +169,13 @@ public sealed class SettingsController : Controller
         }
 
         // Normalise the URL the user typed — extract ApiBasePath/ApiVersion if they
-        // accidentally included them in the Server URL field.
-        var (serverUrl, _, _) = NormaliseServerUrl(
+        // accidentally included them in the Server URL field. Otherwise keep the
+        // currently configured version (Auto/v1/v2) — testing must not silently pin it.
+        var currentVersion = _optionsMonitor.CurrentValue.ApiVersion;
+        var (serverUrl, _, testApiVersion) = NormaliseServerUrl(
             request.ServerUrl.Trim(),
             request.ApiBasePath?.Trim() ?? "/LFRepositoryAPI",
-            "v1");
+            request.ApiVersion?.Trim() ?? currentVersion);
 
         // Temporarily persist URL/path so the adapter's IOptionsMonitor picks it up
         // for building test request URLs. Credentials are not written.
@@ -180,7 +185,7 @@ public sealed class SettingsController : Controller
             request.RepositoryId.Trim(),
             opts.DisplayName,
             request.ApiBasePath?.Trim() ?? opts.ApiBasePath,
-            "v1",
+            testApiVersion,
             opts.RootEntryId,
             opts.TimeoutSeconds,
             cancellationToken);
@@ -216,6 +221,9 @@ public sealed class SettingsController : Controller
             DisplayName                       = opts.DisplayName,
             ApiBasePath                       = opts.ApiBasePath,
             ApiVersion                        = opts.ApiVersion,
+            DetectedApiVersion                = opts.DetectedApiVersion,
+            EffectiveApiVersion               = opts.EffectiveApiVersion,
+            IsAutoApiVersion                  = opts.IsAutoApiVersion,
             RootEntryId                       = opts.RootEntryId,
             TimeoutSeconds                    = opts.TimeoutSeconds,
             HasSavedCredentials               = _portalConfig.HasSavedCredentials(),
@@ -249,7 +257,7 @@ public sealed class SettingsController : Controller
         var (serverUrl, _, _) = NormaliseServerUrl(
             request.ServerUrl.Trim(),
             request.ApiBasePath?.Trim() ?? "/LFRepositoryAPI",
-            "v1");
+            _optionsMonitor.CurrentValue.ApiVersion);
 
         try
         {
@@ -277,6 +285,13 @@ public sealed class SettingsController : Controller
     /// The explicit <paramref name="apiBasePath"/> and <paramref name="apiVersion"/>
     /// overrides from the form take precedence when the URL contains no path clues.
     /// </summary>
+    /// <summary>Accepted values for the API Version setting: Auto Detect, v1, v2.</summary>
+    private static bool IsSupportedApiVersion(string? apiVersion) =>
+        string.IsNullOrWhiteSpace(apiVersion) ||
+        string.Equals(apiVersion.Trim(), LaserficheOptions.ApiVersionAuto, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(apiVersion.Trim(), "v1", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(apiVersion.Trim(), "v2", StringComparison.OrdinalIgnoreCase);
+
     private static (string serverUrl, string apiBasePath, string apiVersion) NormaliseServerUrl(
         string rawUrl, string apiBasePath, string apiVersion)
     {
@@ -334,7 +349,16 @@ public sealed class SettingsViewModel
     public string  RepositoryId   { get; init; } = string.Empty;
     public string  DisplayName    { get; init; } = string.Empty;
     public string  ApiBasePath    { get; init; } = "/LFRepositoryAPI";
-    public string  ApiVersion     { get; init; } = "v1";
+    public string  ApiVersion     { get; init; } = LaserficheOptions.ApiVersionAuto;
+
+    /// <summary>Version detected by the Auto-Detect probe; empty until detection has run.</summary>
+    public string  DetectedApiVersion { get; init; } = string.Empty;
+
+    /// <summary>The version actually used in every API URL (explicit pin or detected value).</summary>
+    public string  EffectiveApiVersion { get; init; } = "v1";
+
+    /// <summary>True when the configured version is Auto Detect.</summary>
+    public bool    IsAutoApiVersion { get; init; }
     public int     RootEntryId    { get; init; } = 1;
     public int     TimeoutSeconds { get; init; } = 30;
     public bool    HasSavedCredentials               { get; init; }

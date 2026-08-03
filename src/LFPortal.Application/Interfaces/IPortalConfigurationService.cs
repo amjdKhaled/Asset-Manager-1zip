@@ -28,6 +28,14 @@ public interface IPortalConfigurationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Persists the API version detected by probing the server (used when the
+    /// configured version is <c>Auto</c>). Written to the same runtime settings
+    /// file so the result survives restarts and reloads live via IOptionsMonitor.
+    /// Other connection settings are left untouched.
+    /// </summary>
+    Task SaveDetectedApiVersionAsync(string detectedVersion, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns <c>true</c> when a secure credential file exists for the default
     /// repository key (DPAPI on Windows, Data Protection on non-Windows).
     /// </summary>

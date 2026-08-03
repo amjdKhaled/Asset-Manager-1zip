@@ -37,6 +37,7 @@ namespace Dashboard.SetupHelper
         {
             string dashUrl     = Opt(opts, "url");
             string lfApiUrl    = Opt(opts, "lf-api");
+            string apiVersion  = Opt(opts, "api-version");
             string repoId      = Opt(opts, "repo-id");
             string displayName = Opt(opts, "display-name");
             string portStr     = Opt(opts, "port", "5000");
@@ -49,7 +50,7 @@ namespace Dashboard.SetupHelper
             // smoke test so it never touches the real %ProgramData%).
             string configDirOverride = PathUtil.SanitizeDir(Opt(opts, "config-dir"));
 
-            SetupLog.Info($"WriteConfig: url='{dashUrl}' lf-api='{lfApiUrl}' " +
+            SetupLog.Info($"WriteConfig: url='{dashUrl}' lf-api='{lfApiUrl}' api-version='{apiVersion}' " +
                           $"port='{portStr}' webapp-path='{webAppPath}' config-dir='{configDirOverride}'");
 
             // --repo-id / --display-name are LEGACY arguments kept only so old
@@ -103,6 +104,7 @@ namespace Dashboard.SetupHelper
                 // Any legacy values in an existing file are actively dropped on write.
                 string lfJson = BuildLaserficheConfig(
                     serverUrl:    lfApiUrl,
+                    apiVersion:   apiVersion,
                     existingPath: lfPath);
 
                 File.WriteAllText(lfPath, lfJson, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
@@ -188,6 +190,7 @@ namespace Dashboard.SetupHelper
 
         private static string BuildLaserficheConfig(
             string serverUrl,
+            string apiVersion,
             string existingPath)
         {
             // Load existing values so we do not lose fields not provided by the wizard.
@@ -196,9 +199,12 @@ namespace Dashboard.SetupHelper
             // or login-page selection) and must never be frozen at install time.
             // Any legacy RepositoryId/DisplayName values in an existing config are
             // silently dropped when this method rewrites the file.
+            // Fresh installs default to Auto (version auto-detection); a merge below
+            // preserves any explicit version already in the existing file — so
+            // upgrades of installs pinned to "v1" stay pinned (backward compatible).
             string existingServerUrl  = "https://YOUR-LF-SERVER/LFRepositoryAPI";
             string existingApiBase    = "/LFRepositoryAPI";
-            string existingApiVersion = "v1";
+            string existingApiVersion = "Auto";
             int    existingTimeout    = 30;
 
             if (File.Exists(existingPath))
@@ -207,8 +213,9 @@ namespace Dashboard.SetupHelper
                 catch { /* parse failed -- use defaults */ }
             }
 
-            // Wizard-provided value always wins over existing.
-            if (!string.IsNullOrEmpty(serverUrl)) existingServerUrl = serverUrl;
+            // Wizard-provided values always win over existing.
+            if (!string.IsNullOrEmpty(serverUrl))   existingServerUrl  = serverUrl;
+            if (!string.IsNullOrEmpty(apiVersion))  existingApiVersion = apiVersion;
 
             return "{\r\n" +
                    "  \"Laserfiche\": {\r\n" +

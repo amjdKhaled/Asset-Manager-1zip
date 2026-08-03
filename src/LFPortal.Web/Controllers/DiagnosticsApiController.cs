@@ -75,6 +75,8 @@ public sealed class DiagnosticsApiController : ControllerBase
                 serverUrl      = opts.ServerUrl,
                 apiBasePath    = opts.ApiBasePath,
                 apiVersion     = opts.ApiVersion,
+                detectedApiVersion  = string.IsNullOrWhiteSpace(opts.DetectedApiVersion) ? null : opts.DetectedApiVersion,
+                effectiveApiVersion = opts.EffectiveApiVersion,
                 timeoutSeconds = opts.TimeoutSeconds,
                 fallbackRepository = string.IsNullOrWhiteSpace(opts.RepositoryId) ? null : opts.RepositoryId
             },

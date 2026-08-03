@@ -159,6 +159,8 @@
 
     <!-- Laserfiche connection settings -->
     <Variable Name="LaserficheApiUrl"     Type="string"  Value=""     Persisted="yes" />
+    <!-- API version selection: Auto (default, runtime probe v2→v1), v1, or v2 -->
+    <Variable Name="LaserficheApiVersion" Type="string"  Value="Auto" Persisted="yes" />
     <!-- RepositoryId / DisplayName variables removed: repository is runtime
          session context (Desktop/Web Client ?repository= or login page),
          never installation configuration. -->
@@ -297,6 +299,7 @@
         <!-- Wizard-collected values passed through to MSI custom actions -->
         <MsiProperty Name="DASHBOARD_URL"          Value="[DashboardUrl]" />
         <MsiProperty Name="LF_API_URL"             Value="[LaserficheApiUrl]" />
+        <MsiProperty Name="LF_API_VERSION"         Value="[LaserficheApiVersion]" />
         <MsiProperty Name="LF_WEB_CLIENT_PATH"     Value="[LFWebClientPath]" />
         <MsiProperty Name="INSTALL_DESKTOP_BUTTON" Value="[InstallDesktopButton]" />
         <MsiProperty Name="INSTALL_WEB_BUTTON"     Value="[InstallWebButton]" />

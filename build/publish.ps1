@@ -865,6 +865,7 @@ else {
             "--write-config",
             "--url",        ("http://{0}:5000" -f $env:COMPUTERNAME.ToLowerInvariant()),
             "--lf-api",     "https://localhost/LFRepositoryAPI",
+            "--api-version", "Auto",
             "--port",       "5000",
             "--webapp-path", $smokeWebAppArg,
             "--config-dir",  $smokeConfig
@@ -955,6 +956,15 @@ else {
             } else {
                 $smokeErrors.Add("laserfiche.config.json is missing Laserfiche.ServerUrl.")
             }
+            # ApiVersion: the smoke command passes --api-version Auto (matching the
+            # MSI WriteConfig ExeCommand default) and it must round-trip verbatim.
+            if ($lfPropNames -contains "ApiVersion") {
+                if ($lfSection.ApiVersion -ne "Auto") {
+                    $smokeErrors.Add("Laserfiche.ApiVersion mismatch. Expected: Auto -- Actual: $($lfSection.ApiVersion)")
+                }
+            } else {
+                $smokeErrors.Add("laserfiche.config.json is missing Laserfiche.ApiVersion.")
+            }
         }
         # RepositoryId / DisplayName must not appear anywhere in the file
         # (raw text scan covers both top-level and nested placement).
@@ -1022,6 +1032,39 @@ else {
         }
     } else {
         $smokeErrors.Add("WriteConfig log line not found in SetupHelper stdout.")
+    }
+
+    # 12. Repair/upgrade preservation: a second WriteConfig run WITHOUT
+    #     --api-version (the direct-MSI repair path, where LF_API_VERSION is
+    #     empty) against a config pinned to "v1" must keep "v1" — a legacy pin
+    #     is never silently rewritten to "Auto".
+    $lfConfigPath = Join-Path $smokeConfig "laserfiche.config.json"
+    if (Test-Path $lfConfigPath) {
+        (Get-Content $lfConfigPath -Raw) -replace '"ApiVersion":\s*"[^"]*"', '"ApiVersion": "v1"' |
+            Set-Content $lfConfigPath -NoNewline
+
+        $smokeStdout2 = Join-Path $smokeDir "smoke_stdout_repair.txt"
+        $repairProc = Start-Process -FilePath $setupHelperStaged `
+            -ArgumentList @(
+                "--write-config",
+                "--url",        ("http://{0}:5000" -f $env:COMPUTERNAME.ToLowerInvariant()),
+                "--lf-api",     "https://localhost/LFRepositoryAPI",
+                "--port",       "5000",
+                "--webapp-path", $smokeWebAppArg,
+                "--config-dir",  $smokeConfig
+            ) `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $smokeStdout2
+        if ($repairProc.ExitCode -ne 0) {
+            $smokeErrors.Add("Repair-simulation WriteConfig run exited with code $($repairProc.ExitCode).")
+        } else {
+            $repairObj = (Get-Content $lfConfigPath -Raw) | ConvertFrom-Json
+            if ($repairObj.Laserfiche.ApiVersion -ne "v1") {
+                $smokeErrors.Add("Repair-simulation rewrote pinned ApiVersion. Expected: v1 -- Actual: $($repairObj.Laserfiche.ApiVersion)")
+            }
+        }
+    } else {
+        $smokeErrors.Add("laserfiche.config.json missing before repair-simulation check.")
     }
 
     Remove-Item $smokeDir -Recurse -Force -ErrorAction SilentlyContinue

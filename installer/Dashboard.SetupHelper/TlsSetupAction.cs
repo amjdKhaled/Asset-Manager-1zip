@@ -183,7 +183,12 @@ namespace Dashboard.SetupHelper
             }
 
             // ---- 6. Final verification (full default validation) ----------
+            // Version-agnostic: this stage verifies TLS handshake + certificate
+            // trust only (any HTTP status counts as PASS in VerifyHttps), so both
+            // known API versions are probed — the web app auto-detects which one
+            // the server actually serves at runtime.
             VerifyHttps(url);
+            VerifyHttps(url + "/v2/Repositories");
             VerifyHttps(url + "/v1/Repositories");
             return 0;
         }

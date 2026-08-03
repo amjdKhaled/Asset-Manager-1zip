@@ -18,6 +18,10 @@ namespace Dashboard.BA
         // Example: https://lf-server.company.local/LFRepositoryAPI
         public string LaserficheApiUrl { get; set; } = "";
 
+        // Laserfiche Repository API version: "Auto" (default — the web app
+        // probes v2 then v1 at runtime and remembers the result), "v1", or "v2".
+        public string LaserficheApiVersion { get; set; } = "Auto";
+
         // NOTE: Repository ID and Display Name were intentionally REMOVED.
         // The repository is runtime session context (passed by the Desktop /
         // Web Client via ?repository=, or chosen at login) — never a permanent
@@ -69,6 +73,12 @@ namespace Dashboard.BA
         // Non-fatal warning about the API certificate (untrusted chain,
         // expired, no hostname match, ...) to surface in the wizard/log.
         public string LaserficheApiWarning { get; set; } = "";
+
+        // ApiVersion found in an existing %ProgramData%\Dashboard\
+        // laserfiche.config.json ("Auto", "v1", "v2"). Empty on fresh machines.
+        // Used to preselect the wizard's API Version combo so an upgrade never
+        // silently changes a pinned version to Auto Detect.
+        public string ExistingApiVersion { get; set; } = "";
 
         // Certificate presented by the detected /LFRepositoryAPI HTTPS
         // binding: shown on the config page and used to decide whether the

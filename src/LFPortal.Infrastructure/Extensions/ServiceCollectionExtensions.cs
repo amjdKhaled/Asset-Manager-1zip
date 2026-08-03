@@ -65,6 +65,10 @@ public static class ServiceCollectionExtensions
         // ── Search audit log — singleton; accumulates across the process lifetime ─
         services.AddSingleton<ISearchAuditLog, InMemorySearchAuditLog>();
 
+        // ── API version auto-detection — probes v2 → v1 when ApiVersion = Auto and
+        //    persists the result to the runtime settings file ────────────────────
+        services.AddHostedService<ApiVersionDetectionService>();
+
         // ── Domain services — scoped (HttpClient usage is per-request) ─────────
         services.AddScoped<ILaserficheRepositoryService,       LaserficheRepositoryService>();
         services.AddScoped<ILaserficheEntryService,            LaserficheEntryService>();
@@ -163,5 +167,19 @@ public static class ServiceCollectionExtensions
         .AddHttpMessageHandler<BearerTokenHandler>()
         .AddHttpMessageHandler<LaserficheRequestLoggingHandler>()
         .AddStandardResilienceHandler();
+
+        // Unauthenticated, short-timeout client used ONLY by API-version
+        // auto-detection probes. No resilience pipeline: a failed probe should
+        // fail fast (the next candidate version is tried immediately).
+        services.AddHttpClient("LaserficheProbe", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.Accept.Add(
+                new MediaTypeWithQualityHeaderValue("application/json"));
+        })
+        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
+        });
     }
 }

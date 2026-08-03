@@ -16,7 +16,7 @@ namespace LFPortal.Infrastructure.Services;
 /// <summary>
 /// Acquires and caches Laserfiche Bearer tokens using the password-grant flow
 /// against the Repository API v1 token endpoint:
-/// <c>{ServerUrl}{ApiBasePath}/v1/Repositories/{repositoryId}/Token</c>.
+/// <c>{ServerUrl}{ApiBasePath}/{EffectiveApiVersion}/Repositories/{repositoryId}/Token</c>.
 /// </summary>
 /// <remarks>
 /// <para>

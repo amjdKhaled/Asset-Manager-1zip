@@ -20,7 +20,12 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
     }
 
     /// <inheritdoc />
-    public string ApiVersion => _optionsMonitor.CurrentValue.ApiVersion;
+    /// <remarks>
+    /// Always the EFFECTIVE version (explicit pin, or the auto-detected value) —
+    /// never the raw <c>Auto</c> sentinel, so every URL this adapter builds is a
+    /// concrete <c>v1</c>/<c>v2</c> path.
+    /// </remarks>
+    public string ApiVersion => _optionsMonitor.CurrentValue.EffectiveApiVersion;
 
     /// <summary>
     /// Returns the base URL for all repository-scoped endpoints:
@@ -145,6 +150,6 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
             root = root[..^basePath.Length].TrimEnd('/');
         }
 
-        return $"{root}{basePath}/{options.ApiVersion.Trim('/')}";
+        return $"{root}{basePath}/{options.EffectiveApiVersion.Trim('/')}";
     }
 }

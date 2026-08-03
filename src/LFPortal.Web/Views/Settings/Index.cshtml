@@ -150,8 +150,39 @@ else
     <form id="settings-form" method="post" asp-controller="Settings" asp-action="Save" novalidate>
         @Html.AntiForgeryToken()
 
-        @* Always submit v1 — server exposes v1 only *@
-        <input type="hidden" name="ApiVersion" value="v1" />
+        @* ── API Version ─────────────────────────────────────────────── *@
+        <div class="form-section">
+            <div class="form-section__title">API Version</div>
+            <div class="settings-grid">
+                <div class="field-group">
+                    <label class="field-label" for="ApiVersion">Laserfiche API Version</label>
+                    <select class="field-input" id="ApiVersion" name="ApiVersion">
+                        @{
+                            var isAuto = Model.IsAutoApiVersion;
+                            var isV1   = !isAuto && string.Equals(Model.ApiVersion?.Trim(), "v1", StringComparison.OrdinalIgnoreCase);
+                            var isV2   = !isAuto && string.Equals(Model.ApiVersion?.Trim(), "v2", StringComparison.OrdinalIgnoreCase);
+                        }
+                        <option value="Auto" selected="@isAuto">Auto Detect (recommended)</option>
+                        <option value="v1" selected="@isV1">v1</option>
+                        <option value="v2" selected="@isV2">v2</option>
+                    </select>
+                    <span class="field-hint">
+                        Auto Detect probes the server (v2 first, then v1) and remembers the result.
+                        @if (Model.IsAutoApiVersion)
+                        {
+                            if (!string.IsNullOrWhiteSpace(Model.DetectedApiVersion))
+                            {
+                                <text>Currently detected: <strong>@Model.DetectedApiVersion</strong>.</text>
+                            }
+                            else
+                            {
+                                <text>Detection pending — using <strong>@Model.EffectiveApiVersion</strong> until the server responds.</text>
+                            }
+                        }
+                    </span>
+                </div>
+            </div>
+        </div>
 
         @* ── Repository ─────────────────────────────────────────────── *@
         <div class="form-section">
@@ -297,13 +328,19 @@ else
         <div class="status-item">
             <span class="status-item__label">Token URL (current)</span>
             <span class="status-item__value" style="font-family:monospace;font-size:.75rem;word-break:break-all;">
-                @($"{Model.ServerUrl.TrimEnd('/')}{Model.ApiBasePath}/{Model.ApiVersion}/Repositories/{(string.IsNullOrWhiteSpace(Model.EffectiveRepositoryId) ? "{RepositoryId}" : Model.EffectiveRepositoryId)}/Token")
+                @($"{Model.ServerUrl.TrimEnd('/')}{Model.ApiBasePath}/{Model.EffectiveApiVersion}/Repositories/{(string.IsNullOrWhiteSpace(Model.EffectiveRepositoryId) ? "{RepositoryId}" : Model.EffectiveRepositoryId)}/Token")
             </span>
         </div>
         <div class="status-item">
             <span class="status-item__label">Repository List URL (current)</span>
             <span class="status-item__value" style="font-family:monospace;font-size:.75rem;word-break:break-all;">
-                @($"{Model.ServerUrl.TrimEnd('/')}{Model.ApiBasePath}/{Model.ApiVersion}/Repositories")
+                @($"{Model.ServerUrl.TrimEnd('/')}{Model.ApiBasePath}/{Model.EffectiveApiVersion}/Repositories")
+            </span>
+        </div>
+        <div class="status-item">
+            <span class="status-item__label">API Version</span>
+            <span class="status-item__value">
+                @Model.EffectiveApiVersion@(Model.IsAutoApiVersion ? " (auto-detected)" : " (pinned)")
             </span>
         </div>
         <div class="status-item">

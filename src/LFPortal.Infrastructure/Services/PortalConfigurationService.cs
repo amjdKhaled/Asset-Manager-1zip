@@ -23,6 +23,14 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
     private readonly string _dpRotCredentialDirectory;
     private readonly ILogger<PortalConfigurationService> _logger;
 
+    /// <summary>
+    /// Serialises all runtime-config writers (admin Settings saves, API-version
+    /// detection). The file write itself is atomic (temp + move), but the
+    /// read-merge-write cycle is not — without this lock two concurrent saves
+    /// could silently lose each other's fields.
+    /// </summary>
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+
     private static readonly JsonSerializerOptions WriteOptions =
         new() { WriteIndented = true };
 
@@ -58,6 +66,59 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
         int    timeoutSeconds,
         CancellationToken cancellationToken = default)
     {
+        await MutateConfigAsync(laserfiche =>
+        {
+            laserfiche["ServerUrl"]      = serverUrl.TrimEnd('/');
+            laserfiche["RepositoryId"]   = repositoryId;
+            laserfiche["DisplayName"]    = displayName;
+            laserfiche["ApiBasePath"]    = apiBasePath;
+            laserfiche["ApiVersion"]     = apiVersion;
+            laserfiche["RootEntryId"]    = rootEntryId;
+            laserfiche["TimeoutSeconds"] = timeoutSeconds;
+
+            // Connection changed or the version was pinned/re-set — any previously
+            // detected version may be stale for the new server; detection re-runs.
+            laserfiche["DetectedApiVersion"] = string.Empty;
+        }, cancellationToken).ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "Connection settings saved: ServerUrl={ServerUrl}, RepositoryId={RepositoryId}, " +
+            "ApiBasePath={ApiBasePath}, ApiVersion={ApiVersion}.",
+            serverUrl, repositoryId, apiBasePath, apiVersion);
+    }
+
+    /// <inheritdoc />
+    public async Task SaveDetectedApiVersionAsync(string detectedVersion, CancellationToken cancellationToken = default)
+    {
+        await MutateConfigAsync(
+            laserfiche => laserfiche["DetectedApiVersion"] = detectedVersion,
+            cancellationToken).ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "Detected Laserfiche API version persisted: {DetectedVersion}.", detectedVersion);
+    }
+
+    /// <summary>
+    /// Serialises all writers of the runtime settings file (admin Settings saves,
+    /// API-version detection) so concurrent read-merge-write cycles cannot lose
+    /// each other's updates, then applies <paramref name="mutate"/> to the
+    /// <c>Laserfiche</c> section and writes the file atomically.
+    /// </summary>
+    private async Task MutateConfigAsync(Action<JsonObject> mutate, CancellationToken cancellationToken)
+    {
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await MutateConfigLockedAsync(mutate, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task MutateConfigLockedAsync(Action<JsonObject> mutate, CancellationToken cancellationToken)
+    {
         var directory = Path.GetDirectoryName(_configFilePath)!;
         Directory.CreateDirectory(directory);
 
@@ -91,13 +152,7 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
             root["Laserfiche"] = laserfiche;
         }
 
-        laserfiche["ServerUrl"]      = serverUrl.TrimEnd('/');
-        laserfiche["RepositoryId"]   = repositoryId;
-        laserfiche["DisplayName"]    = displayName;
-        laserfiche["ApiBasePath"]    = apiBasePath;
-        laserfiche["ApiVersion"]     = apiVersion;
-        laserfiche["RootEntryId"]    = rootEntryId;
-        laserfiche["TimeoutSeconds"] = timeoutSeconds;
+        mutate(laserfiche);
 
         var json = root.ToJsonString(WriteOptions);
 
@@ -132,11 +187,6 @@ internal sealed class PortalConfigurationService : IPortalConfigurationService
                 try { File.Delete(tempPath); } catch (IOException) { /* best-effort cleanup */ }
             }
         }
-
-        _logger.LogInformation(
-            "Connection settings saved: ServerUrl={ServerUrl}, RepositoryId={RepositoryId}, " +
-            "ApiBasePath={ApiBasePath}, ApiVersion={ApiVersion}.",
-            serverUrl, repositoryId, apiBasePath, apiVersion);
     }
 
     /// <inheritdoc />

@@ -39,6 +39,7 @@ namespace Dashboard.BA
             r.SuggestedDashboardUrl = BuildSuggestedUrl();
 
             DetectLaserficheApi(r);
+            r.ExistingApiVersion = ReadExistingApiVersion();
 
             return r;
         }
@@ -55,6 +56,34 @@ namespace Dashboard.BA
         //   4. Validate the chain in LocalMachine context.
         //   5. Let ApiHostSelector pick binding-host > FQDN > machine name >
         //      localhost, requiring an explicit certificate match for each.
+        // Reads the ApiVersion field from an existing
+        // %ProgramData%\Dashboard\laserfiche.config.json so the wizard can
+        // preselect it — an upgrade must never silently change a pinned
+        // version (e.g. "v1") back to Auto Detect. Empty when no config or
+        // no ApiVersion field exists. Simple string scan; no JSON library.
+        private static string ReadExistingApiVersion()
+        {
+            try
+            {
+                string path = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "Dashboard", "laserfiche.config.json");
+                if (!File.Exists(path)) return "";
+
+                string text = File.ReadAllText(path);
+                var m = Regex.Match(text, "\"ApiVersion\"\\s*:\\s*\"([^\"]*)\"",
+                                    RegexOptions.IgnoreCase);
+                string v = m.Success ? m.Groups[1].Value.Trim() : "";
+                StartupLogger.Log("Existing ApiVersion in laserfiche.config.json: '" + v + "'");
+                return v;
+            }
+            catch (Exception ex)
+            {
+                StartupLogger.Log("ReadExistingApiVersion failed: " + ex.Message);
+                return "";
+            }
+        }
+
         private static void DetectLaserficheApi(DetectionResult r)
         {
             try

@@ -156,6 +156,13 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
     -->
     <Property Id="DASHBOARD_URL"          Secure="yes" />
     <Property Id="LF_API_URL"             Secure="yes" />
+    <!-- API version: Auto (probe v2 then v1 at runtime), v1, or v2.
+         INTENTIONALLY NO DEFAULT: when the property is empty (direct-MSI
+         repair / upgrade without the bundle UI), WriteConfig preserves the
+         version already in laserfiche.config.json — a legacy "v1" pin is
+         never silently rewritten to "Auto". Fresh installs with no existing
+         file default to "Auto" inside WriteConfigAction. -->
+    <Property Id="LF_API_VERSION"         Secure="yes" />
     <!-- LF_REPO_ID / LF_DISPLAY_NAME removed: repository is runtime session
          context, never installation configuration. -->
     <Property Id="LF_WEB_CLIENT_PATH"     Secure="yes" />
@@ -258,7 +265,7 @@ Choose the Windows Hosting Bundle, then re-run this installer." />
     -->
     <CustomAction Id="WriteConfig"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --port "[DASHBOARD_PORT]" --webapp-path "[WEBAPPFOLDER]."'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --api-version "[LF_API_VERSION]" --port "[DASHBOARD_PORT]" --webapp-path "[WEBAPPFOLDER]."'
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />

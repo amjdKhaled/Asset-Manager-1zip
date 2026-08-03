@@ -10,7 +10,7 @@ namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
 /// Retrieves repository-wide field definitions from
-/// <c>GET /v1/Repositories/{repoId}/FieldDefinitions</c>.
+/// <c>GET /{apiVersion}/Repositories/{repoId}/FieldDefinitions</c>.
 /// Confirmed available on this installation.
 /// </summary>
 internal sealed class LaserficheFieldDefinitionService : ILaserficheFieldDefinitionService

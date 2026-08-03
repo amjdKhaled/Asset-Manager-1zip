@@ -191,6 +191,7 @@ namespace Dashboard.BA
 
             _engine.SetVariableString("DashboardUrl",     config.DashboardUrl,     false);
             _engine.SetVariableString("LaserficheApiUrl", config.LaserficheApiUrl, false);
+            _engine.SetVariableString("LaserficheApiVersion", config.LaserficheApiVersion, false);
             // RepositoryId / DisplayName intentionally not set: repository is
             // runtime session context, not installation configuration.
             _engine.SetVariableString("LFWebClientPath",  config.LFWebClientPath,  false);

@@ -67,11 +67,41 @@ public sealed class LaserficheOptions
     /// </summary>
     public string ApiBasePath { get; set; } = "/LFRepositoryAPI";
 
+    /// <summary>Sentinel value meaning "probe the server and detect the API version".</summary>
+    public const string ApiVersionAuto = "Auto";
+
     /// <summary>
-    /// API version path segment. Defaults to <c>v1</c> — the version supported by
-    /// Laserfiche API Server on-premises installations.
+    /// Configured API version: <c>Auto</c> (default — detect by probing the server),
+    /// <c>v1</c>, or <c>v2</c>. Never used directly to build URLs — always go through
+    /// <see cref="EffectiveApiVersion"/>, which resolves <c>Auto</c> to the detected
+    /// version. Existing installations that persisted <c>v1</c> keep that explicit
+    /// pin (backward compatible).
     /// </summary>
-    public string ApiVersion { get; set; } = "v1";
+    public string ApiVersion { get; set; } = ApiVersionAuto;
+
+    /// <summary>
+    /// The API version detected by probing the server when <see cref="ApiVersion"/> is
+    /// <c>Auto</c>. Persisted in the runtime settings file by the detection service so
+    /// the result survives restarts and is visible on the Settings page. Empty until
+    /// detection has run.
+    /// </summary>
+    public string DetectedApiVersion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The version actually used to build every API URL:
+    /// an explicit <see cref="ApiVersion"/> (<c>v1</c>/<c>v2</c>) wins; in <c>Auto</c>
+    /// mode the persisted <see cref="DetectedApiVersion"/> is used, falling back to
+    /// <c>v1</c> (the broadly supported on-premises version) until detection completes.
+    /// </summary>
+    public string EffectiveApiVersion =>
+        !IsAutoApiVersion ? ApiVersion.Trim()
+        : !string.IsNullOrWhiteSpace(DetectedApiVersion) ? DetectedApiVersion.Trim()
+        : "v1";
+
+    /// <summary>True when the configured version is the Auto-Detect sentinel.</summary>
+    public bool IsAutoApiVersion =>
+        string.IsNullOrWhiteSpace(ApiVersion) ||
+        string.Equals(ApiVersion.Trim(), ApiVersionAuto, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// HTTP request timeout in seconds for all Laserfiche API calls.

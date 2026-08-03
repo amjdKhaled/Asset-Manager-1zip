@@ -45,7 +45,8 @@
     Example: "Documents Repository"
 
 .PARAMETER ApiVersion
-    Laserfiche API version to use.  Default: v1
+    Laserfiche API version to use: Auto (probe v2 then v1 at runtime), v1, or v2.
+    Default: Auto
 
 .PARAMETER TimeoutSeconds
     HTTP request timeout in seconds for Laserfiche API calls.  Default: 30
@@ -251,7 +252,7 @@ if ($lfChange) {
         $raw['Laserfiche'] = [ordered]@{
             'ServerUrl'          = 'https://YOUR-LF-SERVER/LFRepositoryAPI'
             'ApiBasePath'        = '/LFRepositoryAPI'
-            'ApiVersion'         = 'v1'
+            'ApiVersion'         = 'Auto'
             'TimeoutSeconds'     = 30
             'CredentialProvider' = 'DPAPI'
         }

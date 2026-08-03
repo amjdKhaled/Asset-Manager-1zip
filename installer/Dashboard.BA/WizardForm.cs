@@ -61,6 +61,7 @@ namespace Dashboard.BA
 
         // ---------------------------------------------------------------- Config page controls
         private TextBox  _txtLFApiUrl      = null!;
+        private ComboBox _cmbApiVersion    = null!;
         private Label    _lblCertStatus    = null!;
         private CheckBox _chkTrustCert     = null!;
         private TextBox  _txtDashboardUrl  = null!;
@@ -406,6 +407,32 @@ namespace Dashboard.BA
                 "LF API URL *",
                 "https://YOUR-LF-SERVER/LFRepositoryAPI",
                 "Full URL of the Laserfiche Repository API.  Example: https://lf-server/LFRepositoryAPI");
+
+            // ---- API version selector (Auto Detect / v1 / v2) --------------
+            scroll.Controls.Add(new Label
+            {
+                Text     = "API Version",
+                AutoSize = true,
+                Location = new Point(LBL_X, y + 3)
+            });
+            _cmbApiVersion = new ComboBox
+            {
+                Location      = new Point(FLD_X, y),
+                Size          = new Size(180, 22),
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            _cmbApiVersion.Items.AddRange(new object[] { "Auto Detect", "v1", "v2" });
+            _cmbApiVersion.SelectedIndex = 0;   // Auto Detect is the default
+            scroll.Controls.Add(_cmbApiVersion);
+            scroll.Controls.Add(new Label
+            {
+                Text      = "Auto Detect probes the server (v2 first, then v1) at runtime and remembers the result.",
+                AutoSize  = true,
+                Location  = new Point(FLD_X, y + 25),
+                ForeColor = Color.FromArgb(100, 100, 100),
+                Font      = new Font("Segoe UI", 7.5F)
+            });
+            y += 52;
 
             // Repository ID / Display Name fields intentionally removed:
             // the repository is selected per session at runtime (Desktop/Web
@@ -921,6 +948,19 @@ namespace Dashboard.BA
                 StartupLogger.Log("LF API detection warning: " + _detection.LaserficheApiWarning);
             }
 
+            // Preselect the API version already persisted by a previous install
+            // so an upgrade never silently changes a pinned version to Auto.
+            // Only applied while the combo still shows the default (index 0).
+            if (_cmbApiVersion.SelectedIndex == 0 &&
+                !string.IsNullOrEmpty(_detection.ExistingApiVersion))
+            {
+                if (string.Equals(_detection.ExistingApiVersion, "v1", StringComparison.OrdinalIgnoreCase))
+                    _cmbApiVersion.SelectedIndex = 1;
+                else if (string.Equals(_detection.ExistingApiVersion, "v2", StringComparison.OrdinalIgnoreCase))
+                    _cmbApiVersion.SelectedIndex = 2;
+                // "Auto" (or anything unrecognised) keeps the default selection.
+            }
+
             // TLS certificate status + optional self-signed trust checkbox.
             if (!string.IsNullOrEmpty(_detection.LaserficheCertSubject))
             {
@@ -1280,6 +1320,13 @@ namespace Dashboard.BA
         private void CollectConfigPage()
         {
             _config.LaserficheApiUrl = _txtLFApiUrl.Text.Trim().TrimEnd('/');
+            // Map display label → config token ("Auto Detect" → "Auto").
+            _config.LaserficheApiVersion = _cmbApiVersion.SelectedIndex switch
+            {
+                1 => "v1",
+                2 => "v2",
+                _ => "Auto"
+            };
             _config.DashboardUrl     = _txtDashboardUrl.Text.Trim().TrimEnd('/');
             _config.DashboardPort    = _txtPort.Text.Trim();
 
@@ -1311,6 +1358,7 @@ namespace Dashboard.BA
             sb.AppendLine();
             sb.AppendLine("  Laserfiche Connection");
             sb.AppendLine($"    - API: {_config.LaserficheApiUrl}");
+            sb.AppendLine($"    - API version: {(_config.LaserficheApiVersion == "Auto" ? "Auto Detect (v2 preferred, v1 fallback)" : _config.LaserficheApiVersion)}");
             sb.AppendLine("    - Repository: selected automatically per user session");
             sb.AppendLine();
 
