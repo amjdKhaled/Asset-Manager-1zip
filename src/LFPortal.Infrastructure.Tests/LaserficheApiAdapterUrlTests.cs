@@ -134,6 +134,87 @@ public sealed class LaserficheApiAdapterUrlTests
             url);
     }
 
+    // ── API version v2 ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void TokenUrl_V2_ContainsV2Segment()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v2");
+        var url = adapter.BuildTokenUrl("Documents");
+
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v2/Repositories/Documents/Token",
+            url);
+    }
+
+    [Fact]
+    public void RepositoriesUrl_V2_ContainsV2Segment()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v2");
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v2/Repositories",
+            adapter.BuildRepositoriesUrl());
+    }
+
+    [Fact]
+    public void AllUrlBuilders_V1_ContainV1NotV2()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v1");
+
+        var urls = new[]
+        {
+            adapter.BuildTokenUrl("R"),
+            adapter.BuildRepositoriesUrl(),
+        };
+
+        foreach (var url in urls)
+        {
+            Assert.Contains("/v1/", url);
+            Assert.DoesNotContain("/v2/", url);
+        }
+    }
+
+    // ── Repository ID URL encoding ────────────────────────────────────────────
+
+    [Fact]
+    public void TokenUrl_RepositoryWithSpace_IsPercentEncoded()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local");
+        var url = adapter.BuildTokenUrl("My Repository");
+
+        Assert.Contains("/Repositories/My%20Repository/Token", url);
+        Assert.DoesNotContain("/Repositories/My Repository/Token", url);
+    }
+
+    [Fact]
+    public void TokenUrl_RepositoryWithAmpersand_IsPercentEncoded()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local");
+        var url = adapter.BuildTokenUrl("A&B");
+
+        Assert.Contains("/Repositories/A%26B/Token", url);
+    }
+
+    [Fact]
+    public void TokenUrl_RepositoryWithPlusSign_IsPercentEncoded()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local");
+        var url = adapter.BuildTokenUrl("Finance+HR");
+
+        // + must be encoded as %2B (not left raw, which would be misread as a space).
+        Assert.Contains("/Repositories/Finance%2BHR/Token", url);
+    }
+
+    [Fact]
+    public void TokenUrl_StandardAlphanumericRepository_IsUnchanged()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local");
+        var url = adapter.BuildTokenUrl("LFNewRepoWF");
+
+        // Plain alphanumeric names must not be altered.
+        Assert.Contains("/Repositories/LFNewRepoWF/Token", url);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static int CountOccurrences(string haystack, string needle)

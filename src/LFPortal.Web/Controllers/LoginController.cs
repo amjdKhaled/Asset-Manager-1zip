@@ -225,8 +225,16 @@ public sealed class LoginController : Controller
                        "Check the repository name (it is case-sensitive).";
 
             if (lex.StatusCode >= 500)
-                return $"The Laserfiche server reported an internal error (HTTP {lex.StatusCode}). " +
-                       "Try again, or contact your Laserfiche administrator.";
+            {
+                // Include a diagnostic ID when one is available so the administrator
+                // can find the corresponding Error log entry that contains the full
+                // sanitized Laserfiche response body.
+                var diagPart = lex.DiagnosticId is not null
+                    ? $" Diagnostic ID: {lex.DiagnosticId}."
+                    : string.Empty;
+                return $"Authentication failed. Laserfiche API returned HTTP {lex.StatusCode}.{diagPart} " +
+                       "Check server logs or contact your Laserfiche administrator.";
+            }
 
             return $"The Laserfiche server rejected the request (HTTP {lex.StatusCode}).";
         }

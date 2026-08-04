@@ -35,7 +35,10 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
     /// </summary>
     private string RepoBase(string repositoryId)
     {
-        return $"{BuildApiBase(_optionsMonitor.CurrentValue.ServerUrl)}/Repositories/{repositoryId}";
+        // Repository IDs are path segments and must be percent-encoded so that
+        // names containing spaces, ampersands, or other reserved characters
+        // produce a valid URL rather than a malformed one the server may reject.
+        return $"{BuildApiBase(_optionsMonitor.CurrentValue.ServerUrl)}/Repositories/{Uri.EscapeDataString(repositoryId)}";
     }
 
     /// <summary>

@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LFPortal.Application.DTOs;
@@ -192,11 +194,19 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         var tokenUrl = _adapter.BuildTokenUrl(repository.RepositoryId);
 
         // Log the attempt WITHOUT logging the password.
+        // Include effective configuration values so an administrator reading the log
+        // can confirm the server URL, API base path, and API version without needing
+        // to inspect the config files separately.
         _logger.LogInformation(
-            "[LF AUTH] POST {TokenUrl} (login attempt for repository {RepoId}, user {Username})",
+            "[LF AUTH] Login attempt: TokenUrl={TokenUrl} Repository={RepoId} User={Username} " +
+            "Server={ServerUrl} ApiBase={ApiBasePath} Version={ApiVersion} " +
+            "ContentType=application/x-www-form-urlencoded FormFields=[grant_type,username,password]",
             tokenUrl,
             repository.RepositoryId,
-            username);
+            username,
+            _options.ServerUrl,
+            _options.ApiBasePath,
+            _options.EffectiveApiVersion);
 
         try
         {
@@ -234,6 +244,12 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     /// Posts a password-grant token request to the Laserfiche <c>/Token</c> endpoint
     /// and deserialises the response.
     /// </summary>
+    /// <remarks>
+    /// Logs effective configuration (server, base path, API version, URL, Content-Type,
+    /// form field names) before the request and full sanitized Laserfiche response body
+    /// on failure — enabling administrators to diagnose 500 errors without exposing
+    /// credentials. Password is never logged.
+    /// </remarks>
     private async Task<TokenResponse> RequestTokenAsync(
         string tokenUrl,
         string username,
@@ -242,6 +258,18 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     {
         using var client = _httpClientFactory.CreateClient("LaserficheRaw");
 
+        // Log the effective configuration so administrators can verify the exact URL
+        // and API contract being used.  Never log the password or the token.
+        _logger.LogInformation(
+            "[LF AUTH] Token POST: Url={TokenUrl} " +
+            "Server={ServerUrl} ApiBase={ApiBasePath} Version={ApiVersion} " +
+            "ContentType=application/x-www-form-urlencoded " +
+            "FormFields=[grant_type, username, password]",
+            tokenUrl,
+            _options.ServerUrl,
+            _options.ApiBasePath,
+            _options.EffectiveApiVersion);
+
         var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
@@ -249,37 +277,153 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             ["password"]   = password
         });
 
+        var sw = Stopwatch.StartNew();
         using var response = await client
             .PostAsync(tokenUrl, form, cancellationToken)
             .ConfigureAwait(false);
+        sw.Stop();
 
+        // Response content is read here; LaserficheRequestLoggingHandler (which is
+        // in the LaserficheRaw pipeline) already read, logged, and replaced the
+        // content so ReadAsStringAsync reads the replaced copy — not a double-read.
         var body = await response.Content.ReadAsStringAsync(cancellationToken)
             .ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
         {
+            // Generate a short diagnostic ID so the admin can find this exact log entry
+            // by searching for the ID shown on the login page ("Diagnostic ID: XXXXXXXX").
+            var diagId    = GenerateDiagnosticId();
+            var sanitized = SanitizeBody(body);
+            var lfCode    = TryExtractLFErrorCode(body);
+
             _logger.LogError(
-                "[LF AUTH] Token request failed: HTTP {StatusCode}. URL: {Url}.",
+                "[LF AUTH] [DiagID:{DiagId}] Token request FAILED: " +
+                "HTTP {StatusCode} {ReasonPhrase} from {TokenUrl} ({DurationMs}ms). " +
+                "Server={ServerUrl} ApiBase={ApiBasePath} Version={ApiVersion}. " +
+                "Laserfiche response body (sanitized): {Body}",
+                diagId,
                 (int)response.StatusCode,
-                tokenUrl);
+                response.ReasonPhrase,
+                tokenUrl,
+                sw.ElapsedMilliseconds,
+                _options.ServerUrl,
+                _options.ApiBasePath,
+                _options.EffectiveApiVersion,
+                sanitized);
+
             throw new Domain.Exceptions.LaserficheException(
-                $"Token request failed with HTTP {(int)response.StatusCode}. " +
-                "Verify that the Laserfiche credentials are correct and the API Server is reachable.",
-                (int)response.StatusCode);
+                $"Laserfiche API returned HTTP {(int)response.StatusCode}.",
+                (int)response.StatusCode,
+                lfCode,
+                sanitized,
+                diagId);
         }
+
+        _logger.LogDebug(
+            "[LF AUTH] Token POST succeeded: HTTP {StatusCode} from {TokenUrl} ({DurationMs}ms).",
+            (int)response.StatusCode, tokenUrl, sw.ElapsedMilliseconds);
 
         var tokenResponse = JsonSerializer.Deserialize<TokenResponse>(body, JsonOptions.Default);
 
         if (tokenResponse is null || string.IsNullOrWhiteSpace(tokenResponse.AccessToken))
         {
-            _logger.LogError("[LF AUTH] Token response from {Url} was empty or malformed.", tokenUrl);
+            var diagId    = GenerateDiagnosticId();
+            var sanitized = SanitizeBody(body);
+            _logger.LogError(
+                "[LF AUTH] [DiagID:{DiagId}] Token response from {Url} was empty or malformed " +
+                "({DurationMs}ms). Body: {Body}",
+                diagId, tokenUrl, sw.ElapsedMilliseconds, sanitized);
             throw new Domain.Exceptions.LaserficheException(
                 "The Laserfiche API Server returned an empty token response. " +
                 "Ensure the API Server is running and the repository ID is correct.",
-                (int)response.StatusCode);
+                (int)response.StatusCode,
+                null,
+                sanitized,
+                diagId);
         }
 
         return tokenResponse;
+    }
+
+    // ──────────────────────────── Diagnostic helpers ─────────────────────────
+
+    /// <summary>
+    /// Generates an 8-character uppercase hex diagnostic ID for a single token failure.
+    /// The same ID appears in both the Error log entry and the user-facing UI message.
+    /// </summary>
+    private static string GenerateDiagnosticId() =>
+        Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+
+    /// <summary>
+    /// Redacts sensitive JSON fields from a Laserfiche error response body and
+    /// truncates bodies longer than 2 000 characters.  Returns <c>(empty)</c> for
+    /// null/whitespace, and the raw (possibly truncated) body when JSON parsing fails.
+    /// </summary>
+    private static string SanitizeBody(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return "(empty)";
+
+        if (body.Length > 2000)
+            body = body[..2000] + "...[truncated]";
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return body;
+
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    var isSensitive =
+                        prop.Name.Equals("access_token",  StringComparison.OrdinalIgnoreCase) ||
+                        prop.Name.Equals("refresh_token", StringComparison.OrdinalIgnoreCase) ||
+                        prop.Name.Equals("password",      StringComparison.OrdinalIgnoreCase);
+                    if (isSensitive)
+                        writer.WriteString(prop.Name, "[REDACTED]");
+                    else
+                        prop.WriteTo(writer);
+                }
+                writer.WriteEndObject();
+            }
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+        catch (JsonException)
+        {
+            return body;
+        }
+    }
+
+    /// <summary>
+    /// Attempts to extract a human-readable Laserfiche error code from the response body.
+    /// Checks common shapes: <c>errorCode</c> (numeric), <c>code</c> (string),
+    /// <c>title</c> (HTTP Problem Details).  Returns null when not present or parseable.
+    /// </summary>
+    private static string? TryExtractLFErrorCode(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+
+            if (doc.RootElement.TryGetProperty("errorCode", out var ec))
+                return ec.ValueKind == JsonValueKind.Number
+                    ? ec.GetInt32().ToString()
+                    : ec.GetString();
+
+            if (doc.RootElement.TryGetProperty("code", out var c))
+                return c.GetString();
+
+            if (doc.RootElement.TryGetProperty("title", out var t))
+                return t.GetString();
+        }
+        catch (JsonException) { }
+        return null;
     }
 
     /// <summary>Deserialisation target for the Laserfiche token endpoint response.</summary>

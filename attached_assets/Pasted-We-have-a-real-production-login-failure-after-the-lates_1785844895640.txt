@@ -1,0 +1,317 @@
+We have a real production login failure after the latest build.
+
+The Dashboard itself is working correctly under IIS.
+
+Browser evidence:
+
+POST:
+http://desktop-k1svi53:5000/Login
+
+Dashboard response:
+HTTP 200 OK
+
+But the rendered Login page displays:
+
+"The Laserfiche server reported an internal error (HTTP 500). Try again, or contact your Laserfiche administrator."
+
+Repository:
+LFNewRepoWF
+
+Username:
+admin
+
+Therefore the Dashboard POST /Login is working, but the downstream Laserfiche Repository API authentication/token request is returning HTTP 500 or is being interpreted as HTTP 500.
+
+DO NOT guess.
+DO NOT change Laserfiche API Server configuration.
+DO NOT modify IIS outside the Dashboard site.
+DO NOT hardcode this machine, repository, API version, hostname, or URL.
+
+Perform a complete forensic trace of the authentication flow.
+
+==================================================
+1. TRACE THE COMPLETE LOGIN PATH
+==================================================
+
+Start from:
+
+POST /Login
+
+and trace every method involved until the outbound Laserfiche Token request.
+
+Identify exactly:
+
+Controller/action
+Authentication service
+Repository context
+Configuration source
+URL builder
+HttpClient
+Token endpoint
+Request Content-Type
+Request body
+Response handling
+Exception mapping
+
+I want the exact runtime URL Dashboard is calling.
+
+For this repository it should ultimately be structurally equivalent to:
+
+{ServerUrl}/{ApiBasePath}/{ApiVersion}/Repositories/{repository}/Token
+
+But do NOT assume that is correct.
+
+Verify it against the implementation and the configured API version.
+
+==================================================
+2. ADD SAFE DIAGNOSTIC LOGGING
+==================================================
+
+The current UI only tells us "HTTP 500", which is insufficient.
+
+Add production-safe structured logging around the outbound token request.
+
+Log:
+
+Effective ServerUrl
+Effective ApiBasePath
+Effective ApiVersion
+Effective repository
+Final token endpoint URI
+HTTP method
+Content-Type
+HTTP response status
+Laserfiche response body when authentication fails
+Exception type
+Inner exception type/message when present
+Request duration
+
+NEVER log:
+
+password
+access token
+Authorization header
+DPAPI decrypted credentials
+
+Username may be logged only if existing logging policy permits it; otherwise omit it.
+
+==================================================
+3. VERIFY TOKEN REQUEST FORMAT
+==================================================
+
+This is extremely important.
+
+We already manually verified earlier that the Laserfiche token endpoint can return HTTP 200 when called correctly.
+
+Audit the Dashboard request against the exact request expected by the selected Laserfiche API version.
+
+Verify:
+
+- endpoint path
+- repository URL encoding
+- Content-Type
+- form encoding vs JSON
+- grant_type
+- username field name
+- password field name
+- empty-password behavior
+- headers
+- Accept header
+
+Do NOT assume v1 and v2 use identical token contracts.
+
+==================================================
+4. API VERSION MUST BE REAL RUNTIME CONFIGURATION
+==================================================
+
+We previously required support for choosing v1/v2.
+
+Verify that ApiVersion actually flows through EVERY authentication URL builder.
+
+There must be no hidden:
+
+/v1/
+
+or:
+
+/v2/
+
+inside LaserficheAuthService, controllers, helpers, constants, JavaScript, or DTO services.
+
+Search the entire production solution.
+
+The configured API version must be the single source of truth.
+
+Example architecture:
+
+ApiVersion = "v1"
+
+or:
+
+ApiVersion = "v2"
+
+Then every endpoint is generated dynamically from it.
+
+Do not hardcode LFNewRepoWF.
+
+==================================================
+5. CHECK FOR SELF-CONTAINED MIGRATION REGRESSION
+==================================================
+
+This failure appeared after the new build.
+
+Audit whether the net8.0 self-contained conversion changed any of:
+
+HttpClient behavior
+TLS behavior
+certificate validation
+System.Text.Json behavior
+form encoding
+URI encoding
+IOptions configuration loading
+environment detection
+ContentRoot
+ProgramData config loading
+runtime config precedence
+
+Do not blame Self-Contained without code evidence.
+
+==================================================
+6. CHECK THE ACTUAL EFFECTIVE CONFIGURATION
+==================================================
+
+Trace the effective runtime values after all configuration layers are applied:
+
+appsettings.json
+legacy config
+%ProgramData%\Dashboard\laserfiche.config.json
+%ProgramData%\Dashboard\laserfiche.runtime.json
+environment variables if supported
+
+Report:
+
+ServerUrl
+ApiBasePath
+ApiVersion
+effective repository source
+
+Do NOT expose credentials.
+
+I specifically want to know whether the application is actually calling:
+
+http://localhost/...
+
+https://localhost/...
+
+http://desktop-k1svi53/...
+
+https://desktop-k1svi53/...
+
+or something else.
+
+==================================================
+7. PRESERVE THE LASERFICHE ERROR
+==================================================
+
+Currently the UI collapses the downstream response into:
+
+"Laserfiche server reported an internal error (HTTP 500)."
+
+Improve diagnostics without exposing sensitive information.
+
+Server logs should contain the sanitized Laserfiche response body.
+
+The UI may show:
+
+Authentication failed.
+Laserfiche API returned HTTP 500.
+Diagnostic ID: XXXXX
+
+Then the log entry with that ID contains the detailed sanitized response.
+
+Do not display stack traces or sensitive server information to normal users.
+
+==================================================
+8. TEST DIRECT API VS DASHBOARD
+==================================================
+
+Create a diagnostic comparison.
+
+Using exactly the same:
+
+ServerUrl
+ApiVersion
+repository
+username
+
+compare:
+
+A. Dashboard-generated token request
+B. Known-correct Laserfiche token request format
+
+The password must never be printed.
+
+If the manually-equivalent request succeeds while Dashboard fails, identify the exact request difference.
+
+==================================================
+9. ADD TESTS
+==================================================
+
+Add unit/integration tests covering at minimum:
+
+v1 token URL generation
+v2 token URL generation
+repository names requiring URL encoding
+empty password
+normal username/password
+401 response
+404 response
+500 response
+malformed Laserfiche error response
+network failure
+TLS failure
+
+Also verify that passwords/tokens never appear in logs.
+
+==================================================
+10. DO NOT TOUCH LASERFICHE
+==================================================
+
+This investigation/fix must NOT:
+
+edit Laserfiche API appsettings.json
+edit Laserfiche API web.config
+change LFRepositoryAPI IIS bindings
+restart/reconfigure Laserfiche sites
+modify Repository Server
+modify Directory Server
+modify certificates
+
+The Dashboard is a client of the Laserfiche API.
+
+Fix the Dashboard if the defect is in the Dashboard.
+
+If evidence proves Laserfiche itself is returning HTTP 500 for a correctly constructed request, STOP and report that clearly instead of modifying Laserfiche.
+
+==================================================
+11. FINAL REPORT
+==================================================
+
+Before saying "fixed", report:
+
+1. Exact Dashboard token URL before fix
+2. Effective API version
+3. Exact Content-Type
+4. Request field names (never values for password)
+5. Actual downstream Laserfiche status
+6. Sanitized Laserfiche error body
+7. Root cause
+8. Whether bug was Dashboard-side or Laserfiche-side
+9. Files modified
+10. Tests added
+11. Test results
+12. Whether v1 and v2 both work dynamically
+13. Confirmation that no Laserfiche configuration was modified
+14. Confirmation that no machine/repository/hostname was hardcoded
+
+Do not make unrelated changes.
