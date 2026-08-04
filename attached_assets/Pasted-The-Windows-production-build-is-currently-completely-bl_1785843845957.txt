@@ -1,0 +1,311 @@
+The Windows production build is currently completely blocked.
+
+I ran:
+
+powershell.exe -ExecutionPolicy Bypass -File ".\build\publish.ps1"
+
+PowerShell does NOT execute the script at all.
+It fails during parsing with these errors:
+
+publish.ps1:762 char:70
+Missing argument in parameter list.
+
+publish.ps1:828 char:86
+Unexpected token 'bytes' in expression or statement.
+
+publish.ps1:828 char:85
+Missing closing ')' in expression.
+
+publish.ps1:846 char:74
+Missing argument in parameter list.
+
+publish.ps1:950 char:76
+Missing closing ')' in expression.
+
+publish.ps1:1186
+Unexpected token '}' in expression or statement.
+
+This means the recent Self-Contained / ANCM changes introduced PowerShell syntax that is not valid on my real Windows PowerShell environment.
+
+IMPORTANT:
+My production build command is:
+
+powershell.exe -ExecutionPolicy Bypass -File ".\build\publish.ps1"
+
+Therefore publish.ps1 MUST be fully compatible with Windows PowerShell 5.1.
+
+==================================================
+1. FIX THE PARSER ERRORS FIRST
+==================================================
+
+Inspect the ENTIRE build/publish.ps1, not only the reported lines.
+
+The later errors may be cascading parser errors caused by an earlier malformed string or quote.
+
+Pay special attention around:
+
+line 762
+line 828
+line 846
+line 950
+line 1186
+
+Look for:
+
+- malformed quotes
+- \" usage copied from C-style escaping
+- unclosed strings
+- unclosed parentheses
+- malformed format operator (-f)
+- commas in argument lists
+- smart quotes / Unicode punctuation
+- malformed comments
+- accidental backslash escaping
+- here-string termination
+- PowerShell 7-only syntax
+- expressions embedded incorrectly inside quoted strings
+
+Remember:
+
+PowerShell does NOT use backslash to escape quotes.
+
+For example, this is dangerous/wrong PowerShell:
+
+\"text\"
+
+PowerShell escaping uses the backtick where necessary:
+
+`"
+
+or quote-safe string construction.
+
+==================================================
+2. WINDOWS POWERSHELL 5.1 COMPATIBILITY IS REQUIRED
+==================================================
+
+Audit the entire script for PowerShell 7-only syntax/features.
+
+The production build must work with:
+
+Windows PowerShell 5.1
+
+Do not require pwsh / PowerShell 7 unless absolutely unavoidable.
+
+If any recently-added code requires PowerShell 7, rewrite it for 5.1.
+
+==================================================
+3. ADD A PARSER VALIDATION GUARD
+==================================================
+
+Before declaring this fixed, validate the script using the PowerShell parser.
+
+On Windows the equivalent validation must succeed:
+
+$errors = $null
+[System.Management.Automation.Language.Parser]::ParseFile(
+    (Resolve-Path ".\build\publish.ps1"),
+    [ref]$null,
+    [ref]$errors
+) | Out-Null
+
+if ($errors.Count -gt 0) {
+    $errors | Format-List
+    throw "publish.ps1 contains PowerShell parser errors."
+}
+
+There must be ZERO parser errors.
+
+If your current environment cannot execute Windows PowerShell 5.1, do NOT claim that Windows validation passed.
+
+Perform static review and explicitly state that final Windows validation must be run on my machine.
+
+==================================================
+4. DO NOT REMOVE THE SELF-CONTAINED WORK
+==================================================
+
+Fix the PowerShell syntax without reverting the approved architecture.
+
+LFPortal.Web must remain:
+
+TargetFramework = net8.0
+RuntimeIdentifier = win-x64
+SelfContained = true
+
+Production publish must still be equivalent to:
+
+dotnet publish
+--configuration Release
+--runtime win-x64
+--self-contained true
+
+Do NOT convert back to framework-dependent deployment.
+
+==================================================
+5. PRESERVE ANCM DETECTION
+==================================================
+
+Do not remove the new ANCM V2 detection.
+
+The architecture must remain:
+
+Dashboard carries its private .NET 8 runtime.
+
+IIS uses ANCM V2 to host Dashboard.
+
+Global Microsoft.NETCore.App 8.x must NOT be a Dashboard prerequisite.
+
+==================================================
+6. OLD ARTIFACTS ARE DANGEROUS
+==================================================
+
+My filesystem currently contains:
+
+Release\LFDashboard-Setup.exe
+artifacts\LFDashboard-Setup.exe
+artifacts\Dashboard-1.0.0-Setup.msi
+
+But because publish.ps1 failed during PARSING, these files CANNOT be considered outputs of the current build.
+
+The script must prevent this confusion.
+
+At the START of a successful build, clean/remove previous production output directories/files before producing new ones.
+
+At minimum handle:
+
+artifacts staging/output
+Release final installer output
+
+Do this safely — only delete Dashboard build output owned by this project.
+
+If the current build fails, it must be impossible to mistake an old installer for a newly successful build.
+
+==================================================
+7. ADD BUILD IDENTITY / TIMESTAMP OUTPUT
+==================================================
+
+At the end of a successful publish, print clearly:
+
+BUILD SUCCESSFUL
+
+Build timestamp
+Dashboard version
+TargetFramework
+RuntimeIdentifier
+SelfContained
+WebApp path
+WebApp size
+MSI path
+MSI size
+Bundle EXE path
+Bundle EXE size
+SHA256 of MSI
+SHA256 of Bundle EXE
+
+This gives us proof that the installer is from the current build.
+
+==================================================
+8. VERIFY SELF-CONTAINED OUTPUT
+==================================================
+
+After LFPortal.Web publish, verify the staged WebApp.
+
+The staged directory must prove that this is a real self-contained deployment.
+
+Check for expected runtime/native components such as:
+
+coreclr.dll
+hostfxr.dll
+hostpolicy.dll
+
+and the application executable.
+
+Do not use LFPortal.Web.exe size alone as evidence.
+
+Also inspect LFPortal.Web.runtimeconfig.json and/or other reliable publish metadata.
+
+Fail the build if the output is framework-dependent.
+
+==================================================
+9. IMPORTANT: DO NOT TRUST CURRENT ARTIFACTS
+==================================================
+
+Do not tell me to install the current:
+
+LFDashboard-Setup.exe
+
+or:
+
+Dashboard-1.0.0-Setup.msi
+
+They predate this failed build unless their creation is proven by the corrected pipeline.
+
+The corrected pipeline must regenerate them.
+
+==================================================
+10. RUN THE COMPLETE VALIDATION
+==================================================
+
+After fixing publish.ps1:
+
+- clean
+- parser validation
+- restore
+- Release build
+- all tests
+- self-contained win-x64 publish
+- SetupHelper build
+- Desktop Extension build
+- BA build
+- MSI build
+- Bundle build
+- all existing preflight/contract guards
+
+Do not hide warnings or errors.
+
+==================================================
+11. REVIEW THE EXACT LINES THAT FAILED
+==================================================
+
+In your final response explicitly show what was wrong at:
+
+762
+828
+846
+950
+1186
+
+For each tell me:
+
+- original malformed syntax
+- why Windows PowerShell rejected it
+- corrected syntax
+
+If some errors were cascading from an earlier malformed quote, say so.
+
+==================================================
+12. FINAL REPORT
+==================================================
+
+Report:
+
+A. Root cause of the parser failure
+B. Files modified
+C. Exact parser errors fixed
+D. Whether publish.ps1 is PowerShell 5.1 compatible
+E. Whether LFPortal.Web remains net8.0
+F. Whether SelfContained remains true
+G. Whether win-x64 remains the RID
+H. Whether ANCM V2 detection remains
+I. Whether old artifacts are cleaned before build
+J. Self-contained guard result
+K. Test results
+L. Build results
+M. New WebApp size
+N. New MSI size
+O. New Bundle size
+P. SHA256 of final MSI and EXE
+Q. Exact command I should run on Windows
+
+Do NOT make unrelated architectural changes.
+
+The immediate objective is to make the production Windows build pipeline valid and reliable while preserving the Self-Contained deployment architecture.

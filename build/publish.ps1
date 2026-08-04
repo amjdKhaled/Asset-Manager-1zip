@@ -464,8 +464,26 @@ Write-Host "  ============================================================" -For
 $Step++
 Write-Stage $Step $TotalStages "Cleaning previous artifacts"
 
+# Remove previous Dashboard build output before starting so that a failed build
+# can never be mistaken for a successful one.  Only project-owned directories
+# are removed -- no system paths or Laserfiche directories are touched.
 if (Test-Path $ArtifactsDir) {
     Remove-Item $ArtifactsDir -Recurse -Force
+    Write-Host "     Removed: $ArtifactsDir" -ForegroundColor DarkGray
+}
+
+# Clean Release\ of any Dashboard installer EXE from a previous build.
+# The README.txt inside Release\ is source-controlled and is NOT removed.
+$staleExe = Join-Path $ReleaseDir "LFDashboard-Setup.exe"
+if (Test-Path $staleExe) {
+    Remove-Item $staleExe -Force
+    Write-Host "     Removed stale installer: $staleExe" -ForegroundColor DarkGray
+}
+# Also clean any stale MSI that was placed directly in Release\ by older builds.
+$staleMsi = Join-Path $ReleaseDir "*.msi"
+Get-Item $staleMsi -ErrorAction SilentlyContinue | ForEach-Object {
+    Remove-Item $_.FullName -Force
+    Write-Host ("     Removed stale MSI: {0}" -f $_.FullName) -ForegroundColor DarkGray
 }
 
 # Clean Dashboard.BA and SetupHelper intermediate output so MSBuild incremental
@@ -678,7 +696,25 @@ if (-not (Test-Path $coreclrPath)) {
     Write-Host "  ============================================================" -ForegroundColor Red
     exit 1
 }
-Write-OK "coreclr.dll confirmed present — publish is self-contained."
+Write-OK "coreclr.dll confirmed present -- publish is self-contained."
+
+# Supplementary runtime DLL checks: hostfxr.dll and hostpolicy.dll.
+# A genuine self-contained win-x64 publish includes BOTH alongside coreclr.dll.
+# Their absence (while coreclr.dll is present) would indicate a partial or
+# corrupted publish output.
+foreach ($rtDll in @("hostfxr.dll", "hostpolicy.dll")) {
+    $rtPath = Join-Path $webAppOut $rtDll
+    if (-not (Test-Path $rtPath)) {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host ("  [PREFLIGHT FAILED] {0} is missing from the staged WebApp." -f $rtDll) -ForegroundColor Red
+        Write-Host "  A self-contained win-x64 publish must include this runtime component." -ForegroundColor Red
+        Write-Host ("    MISSING: {0}" -f $rtPath) -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK ("{0} confirmed present." -f $rtDll)
+}
 
 # GUARD 2: LFPortal.Web.exe must be present.
 # A self-contained win-x64 publish produces a native executable launcher
@@ -1964,32 +2000,95 @@ if ($buildFailed) {
 }
 
 # =============================================================================
-# SUMMARY
+# SUMMARY -- BUILD SUCCESSFUL
 # =============================================================================
 
+$buildTimestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss zzz")
+
+# Collect sizes and hashes for MSI and Bundle EXE (Windows builds only).
+$msiPath    = Join-Path $ArtifactsDir ("Dashboard-{0}-Setup.msi" -f $Version)
+$exeDest    = Join-Path $ReleaseDir "LFDashboard-Setup.exe"
+$webAppDst  = Join-Path $ArtifactsDir "WebApp"
+
+$msiSize    = if (Test-Path $msiPath)   { (Get-Item $msiPath).Length }   else { $null }
+$exeSize    = if (Test-Path $exeDest)   { (Get-Item $exeDest).Length }   else { $null }
+$webAppSize = if (Test-Path $webAppDst) {
+    (Get-ChildItem $webAppDst -Recurse -File | Measure-Object -Property Length -Sum).Sum
+} else { $null }
+
+# SHA-256 helper (PS 5.1 compatible -- Get-FileHash is available since PS 4.0).
+function Get-FileSha256 {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return "(not produced)" }
+    (Get-FileHash -Path $Path -Algorithm SHA256).Hash
+}
+$msiSha256 = if ($msiPath -and (Test-Path $msiPath)) { Get-FileSha256 $msiPath } else { "(not produced)" }
+$exeSha256 = if ($exeDest -and (Test-Path $exeDest)) { Get-FileSha256 $exeDest } else { "(not produced)" }
+
+# Read actual runtimeconfig to confirm what runtime was bundled.
+$rtConfigPath = Join-Path $webAppDst "LFPortal.Web.runtimeconfig.json"
+$bundledRuntime = "(unknown)"
+if (Test-Path $rtConfigPath) {
+    $rtRaw = Get-Content $rtConfigPath -Raw
+    if ($rtRaw -match '"Microsoft\.AspNetCore\.App"[^}]*"version"\s*:\s*"([^"]+)"') {
+        $bundledRuntime = ("ASP.NET Core {0} (self-contained)" -f $Matches[1])
+    } elseif ($rtRaw -match '"Microsoft\.NETCore\.App"[^}]*"version"\s*:\s*"([^"]+)"') {
+        $bundledRuntime = (".NET {0} (self-contained)" -f $Matches[1])
+    }
+}
+
 Write-Host ""
-Write-Host "  ============================================================" -ForegroundColor DarkGray
-Write-Host ("  BUILD SUCCESSFUL -- Dashboard {0}" -f $Version) -ForegroundColor Green
-Write-Host "  ============================================================" -ForegroundColor DarkGray
+Write-Host "  ============================================================" -ForegroundColor Green
+Write-Host "  BUILD SUCCESSFUL" -ForegroundColor Green
+Write-Host "  ============================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Artifacts:" -ForegroundColor White
-Get-ChildItem $ArtifactsDir -ErrorAction SilentlyContinue | ForEach-Object {
-    Write-Host ("    {0}" -f $_.Name) -ForegroundColor Gray
+Write-Host "  Build identity" -ForegroundColor White
+Write-Host ("    Timestamp         : {0}" -f $buildTimestamp) -ForegroundColor Gray
+Write-Host ("    Dashboard version : {0}" -f $Version) -ForegroundColor Gray
+Write-Host ("    TargetFramework   : net8.0") -ForegroundColor Gray
+Write-Host ("    RuntimeIdentifier : win-x64") -ForegroundColor Gray
+Write-Host ("    SelfContained     : true") -ForegroundColor Gray
+Write-Host ("    Bundled runtime   : {0}" -f $bundledRuntime) -ForegroundColor Gray
+Write-Host ""
+Write-Host "  WebApp" -ForegroundColor White
+if ($webAppSize) {
+    Write-Host ("    Path  : {0}" -f $webAppDst) -ForegroundColor Gray
+    Write-Host ("    Size  : {0:N0} bytes  ({1:N2} MB)" -f $webAppSize, ($webAppSize / 1MB)) -ForegroundColor Gray
+} else {
+    Write-Host "    (not found in artifacts\WebApp\)" -ForegroundColor DarkGray
 }
 Write-Host ""
 
-if ($SkipMsi) {
-    Write-Host "  MSI and Bundle were skipped (non-Windows build)." -ForegroundColor Yellow
-    Write-Host "  To produce LFDashboard-Setup.exe, run on Windows:" -ForegroundColor Yellow
-    Write-Host ("    .\\build\\publish.ps1 -Version {0}" -f $Version) -ForegroundColor Gray
+if (-not $SkipMsi) {
+    Write-Host "  MSI" -ForegroundColor White
+    if ($msiSize) {
+        Write-Host ("    Path   : {0}" -f $msiPath) -ForegroundColor Gray
+        Write-Host ("    Size   : {0:N0} bytes  ({1:N2} MB)" -f $msiSize, ($msiSize / 1MB)) -ForegroundColor Gray
+        Write-Host ("    SHA256 : {0}" -f $msiSha256) -ForegroundColor Gray
+    } else {
+        Write-Host "    (not produced)" -ForegroundColor DarkGray
+    }
     Write-Host ""
-}
-else {
+    Write-Host "  Bundle EXE" -ForegroundColor White
+    if ($exeSize) {
+        Write-Host ("    Path   : {0}" -f $exeDest) -ForegroundColor Gray
+        Write-Host ("    Size   : {0:N0} bytes  ({1:N2} MB)" -f $exeSize, ($exeSize / 1MB)) -ForegroundColor Gray
+        Write-Host ("    SHA256 : {0}" -f $exeSha256) -ForegroundColor Gray
+    } else {
+        Write-Host "    (not produced)" -ForegroundColor DarkGray
+    }
+    Write-Host ""
     Write-Host "  Deliverable for distribution:" -ForegroundColor White
     Write-Host "    Release\LFDashboard-Setup.exe" -ForegroundColor Green
     Write-Host "    Release\README.txt" -ForegroundColor Green
     Write-Host ""
-    Write-Host "  Give the admin the Release\ folder." -ForegroundColor Gray
-    Write-Host "  They double-click LFDashboard-Setup.exe and follow the wizard." -ForegroundColor Gray
-    Write-Host ""
+    Write-Host "  Give the admin the Release\ folder." -ForegroundColor DarkGray
+    Write-Host "  They double-click LFDashboard-Setup.exe and follow the wizard." -ForegroundColor DarkGray
+} else {
+    Write-Host "  MSI and Bundle were skipped (non-Windows build)." -ForegroundColor Yellow
+    Write-Host "  To produce LFDashboard-Setup.exe, run on Windows:" -ForegroundColor Yellow
+    Write-Host ("    .\\build\\publish.ps1 -Version {0}" -f $Version) -ForegroundColor Gray
 }
+
+Write-Host ""
+Write-Host "  ============================================================" -ForegroundColor DarkGray
