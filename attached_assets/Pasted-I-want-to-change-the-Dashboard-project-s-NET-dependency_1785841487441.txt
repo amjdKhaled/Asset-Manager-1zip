@@ -1,0 +1,431 @@
+I want to change the Dashboard project's .NET dependency strategy.
+
+CURRENT STATE:
+The Dashboard Web Application currently depends on .NET 8 / ASP.NET Core 8.
+
+TARGET:
+I do NOT want the Dashboard installer to require .NET 8 to be installed separately.
+
+I want the Dashboard to use the Windows 11 built-in/default Microsoft .NET technology wherever technically possible.
+
+My preferred target is:
+
+.NET Framework 4.8 / 4.8.1
+
+because I want the application to run on a normal Windows 11 machine without installing .NET 8 specifically for Dashboard.
+
+IMPORTANT:
+Do NOT immediately retarget the project.
+
+First perform a complete compatibility/architecture audit and tell me whether converting the Dashboard Web Application from ASP.NET Core .NET 8 to .NET Framework 4.8/4.8.1 is technically feasible.
+
+==================================================
+PHASE 1 — AUDIT THE CURRENT SOLUTION
+==================================================
+
+Inspect the ENTIRE solution.
+
+For every project, report:
+
+- project name
+- current TargetFramework
+- project SDK
+- output type
+- ASP.NET Core dependencies
+- NuGet dependencies
+- dependencies on other projects
+- IIS hosting requirements
+- APIs/features that require modern .NET
+
+Pay particular attention to:
+
+src/LFPortal.Web
+src/LFPortal.Application
+src/LFPortal.Infrastructure
+src/LFPortal.Domain
+Dashboard.DesktopExtension
+Dashboard.SetupHelper
+Dashboard.BA
+installer projects
+tests
+
+Produce a dependency graph.
+
+==================================================
+PHASE 2 — DETERMINE WHAT "WINDOWS DEFAULT .NET" MEANS
+==================================================
+
+Verify the Windows 11 runtime situation accurately.
+
+Do not assume that:
+
+.NET 8
+.NET Framework 4.8
+.NET Framework 4.8.1
+
+are interchangeable.
+
+Explain which .NET Framework version can reasonably be expected/used on the Windows 11 versions we support.
+
+Determine whether targeting:
+
+net48
+
+or:
+
+net481
+
+is the safer compatibility target.
+
+The goal is:
+
+Dashboard should NOT require installing the .NET 8 ASP.NET Core Hosting Bundle just for Dashboard.
+
+IMPORTANT:
+Do not modify Laserfiche's own .NET/API installation.
+
+Dashboard must not install/uninstall/change runtimes required by:
+
+LFRepositoryAPI
+Laserfiche Web Client
+Laserfiche Server
+LFDS
+LFDSSTS
+Workflow
+Forms
+or any other Laserfiche product.
+
+==================================================
+PHASE 3 — WEB APPLICATION FEASIBILITY
+==================================================
+
+This is the most important part.
+
+LFPortal.Web currently uses ASP.NET Core.
+
+Determine exactly what would be required to move it to .NET Framework 4.8/4.8.1.
+
+Audit usage of:
+
+- ASP.NET Core MVC
+- middleware
+- dependency injection
+- IConfiguration
+- IOptions / IOptionsMonitor
+- IHttpClientFactory
+- ASP.NET Core Session
+- Data Protection
+- Razor
+- controllers
+- authentication/session handling
+- health checks
+- logging
+- Serilog
+- System.Text.Json
+- async APIs
+- HttpClient
+- MemoryCache
+- configuration reloadOnChange
+- IIS hosting / ANCM
+- web.config
+- environment handling
+
+For each feature classify:
+
+GREEN:
+works directly on .NET Framework
+
+YELLOW:
+requires replacement/adaptation
+
+RED:
+requires architectural rewrite
+
+Do NOT pretend changing:
+
+<TargetFramework>net8.0</TargetFramework>
+
+to:
+
+<TargetFramework>net48</TargetFramework>
+
+is sufficient.
+
+I want the real migration cost.
+
+==================================================
+PHASE 4 — COMPATIBILITY WITH LASERFICHE API
+==================================================
+
+The Dashboard communicates with Laserfiche through HTTP.
+
+Verify that moving Dashboard itself to .NET Framework does NOT require modifying LFRepositoryAPI.
+
+The architecture should remain:
+
+Dashboard
+    |
+    | HTTP/HTTPS
+    v
+LFRepositoryAPI
+    |
+    v
+Laserfiche Repository Server
+
+The Dashboard runtime and Laserfiche API Server runtime are independent.
+
+If LFRepositoryAPI itself requires .NET 8, that is Laserfiche's requirement and must remain untouched.
+
+Do NOT attempt to convert, patch, retarget, or modify LFRepositoryAPI.
+
+==================================================
+PHASE 5 — TLS COMPATIBILITY
+==================================================
+
+This is critical because we already solved certificate trust problems.
+
+Verify that the proposed .NET Framework implementation supports:
+
+- TLS 1.2+
+- Windows certificate validation
+- LocalMachine Root trust
+- hostname/SAN validation
+- self-signed certificate trust only through the installer-approved trust mechanism
+
+Do NOT introduce:
+
+ServicePointManager.ServerCertificateValidationCallback = ...
+accept-all callbacks
+certificate validation bypasses
+AllowUntrustedCertificate
+DangerousAcceptAnyServerCertificateValidator
+
+No TLS security regression is acceptable.
+
+==================================================
+PHASE 6 — SESSION / REPOSITORY ARCHITECTURE
+==================================================
+
+The following architecture MUST remain intact.
+
+Repository must remain runtime session context.
+
+NEVER hardcode or persist customer-specific:
+
+RepositoryId
+RepositoryName
+DisplayName
+machine name
+IP address
+Laserfiche Server name
+
+Repository selection must continue to work dynamically for:
+
+Web Client button
+Desktop Client extension
+direct browser access
+multiple repositories
+multiple users
+
+Token isolation must remain:
+
+user/session + repository scoped.
+
+Sign-out must invalidate the relevant authentication state.
+
+Do not regress the multi-repository work already completed.
+
+==================================================
+PHASE 7 — CONFIGURATION ARCHITECTURE
+==================================================
+
+Preserve the machine-independent configuration architecture.
+
+Current ProgramData configuration strategy must remain.
+
+Do NOT move writable configuration into Program Files.
+
+Keep configuration under:
+
+%ProgramData%\Dashboard\
+
+All paths must continue using Windows APIs such as:
+
+Environment.SpecialFolder.CommonApplicationData
+
+No:
+
+C:\Users\...
+C:\Program Files\...
+DESKTOP-...
+localhost assumptions
+fixed IPs
+hardcoded repositories
+
+==================================================
+PHASE 8 — IIS HOSTING
+==================================================
+
+Determine how the .NET Framework version would be hosted in IIS.
+
+Compare current:
+
+ASP.NET Core
+ANCM
+hostingModel=inprocess
+
+against the proposed .NET Framework IIS hosting model.
+
+Determine required:
+
+Application Pool settings
+.NET CLR version
+Managed Pipeline Mode
+web.config
+handlers/modules
+session configuration
+
+The installer must configure these automatically.
+
+Do NOT modify other IIS sites or app pools.
+
+Dashboard must continue to have its own:
+
+IIS site
+Application Pool
+
+and must preserve all port/site collision protections already implemented.
+
+==================================================
+PHASE 9 — INSTALLER IMPACT
+==================================================
+
+Audit:
+
+Dashboard.BA
+SetupHelper
+WiX MSI
+Burn Bundle
+publish.ps1
+
+Determine what currently checks/installs/requires:
+
+.NET 8
+ASP.NET Core Runtime 8
+ASP.NET Core Hosting Bundle
+
+If Dashboard is successfully migrated to .NET Framework, remove ONLY Dashboard's unnecessary .NET 8 prerequisite logic.
+
+Do NOT remove or modify .NET 8 from the machine.
+
+Do NOT uninstall runtimes.
+
+Do NOT touch Laserfiche's runtime requirements.
+
+The installer should simply stop requiring .NET 8 for Dashboard if Dashboard no longer needs it.
+
+==================================================
+PHASE 10 — PRESERVE ALL EXISTING FEATURES
+==================================================
+
+The migration is acceptable ONLY if these still work:
+
+- Dashboard login
+- repository selection
+- repository discovery
+- Laserfiche API authentication
+- archive/document browsing
+- metadata
+- document open/download
+- analytics/dashboard
+- Settings page
+- ProgramData configuration
+- DPAPI credentials
+- session isolation
+- sign-out
+- Web Client button
+- Desktop Client extension
+- TLS validation
+- certificate trust preparation
+- installer wizard
+- upgrade
+- repair
+- reinstall
+- uninstall
+- multi-machine installation
+- multi-repository operation
+
+Create a feature-by-feature migration matrix.
+
+==================================================
+PHASE 11 — DETERMINE WHETHER MIGRATION IS WORTH IT
+==================================================
+
+Compare these options:
+
+OPTION A
+Keep LFPortal.Web on .NET 8.
+
+OPTION B
+Rewrite/port LFPortal.Web to .NET Framework 4.8.
+
+OPTION C
+Multi-target or split architecture:
+keep components that genuinely need modern .NET separate while moving suitable Windows integration components to .NET Framework.
+
+For each report:
+
+- development effort
+- regression risk
+- installer complexity
+- security impact
+- maintainability
+- Laserfiche compatibility
+- Windows 11 compatibility
+- long-term support implications
+
+Give me a recommendation based on the actual source code.
+
+==================================================
+STOP BEFORE IMPLEMENTATION
+==================================================
+
+THIS IS IMPORTANT.
+
+Do NOT modify any source code during this first pass.
+
+Do NOT change TargetFramework.
+
+Do NOT remove .NET 8.
+
+Do NOT modify publish.ps1.
+
+Do NOT modify WiX.
+
+Do NOT modify NuGet packages.
+
+Do NOT modify IIS configuration.
+
+I want the AUDIT FIRST.
+
+After the audit, give me:
+
+A. Current framework of every project
+B. Exact Windows 11 framework target you recommend
+C. Whether LFPortal.Web can realistically move to it
+D. Features requiring rewrites
+E. NuGet incompatibilities
+F. IIS changes required
+G. Installer changes required
+H. TLS implications
+I. Laserfiche API implications
+J. Estimated migration complexity
+K. Regression risks
+L. Recommended architecture
+M. Whether .NET 8 can actually be removed as a Dashboard prerequisite
+N. What .NET 8 requirements would still remain because of Laserfiche itself
+
+Then STOP and wait for my approval before implementing anything.
+
+I do not want a superficial framework retarget.
+I want a production-safe migration plan based on the complete source code.
