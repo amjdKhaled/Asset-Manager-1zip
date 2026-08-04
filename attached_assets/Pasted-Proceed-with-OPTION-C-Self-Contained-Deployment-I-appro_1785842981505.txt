@@ -1,0 +1,308 @@
+Proceed with OPTION C: Self-Contained Deployment.
+
+I approve keeping LFPortal.Web on ASP.NET Core / .NET 8.
+
+DO NOT port the web application to .NET Framework 4.8.
+
+Primary objective:
+
+The Dashboard must carry its own .NET runtime and must not depend on a separately installed .NET 8 runtime.
+
+Implement this production-safely.
+
+==================================================
+1. SELF-CONTAINED PUBLISH
+==================================================
+
+Change the Windows production publish of LFPortal.Web to:
+
+--self-contained true
+--runtime win-x64
+
+Verify that the final staged WebApp contains all runtime files required by the application.
+
+Do not blindly add flags.
+
+Inspect the generated output and prove that the deployed application can start without Microsoft.NETCore.App 8.x being installed globally.
+
+==================================================
+2. IMPORTANT: ANCM / IIS HOSTING
+==================================================
+
+The audit states that IIS still requires ASP.NET Core Module V2 (ANCM).
+
+Do NOT assume ANCM exists merely because Laserfiche API Server exists.
+
+Add a proper installer detection for:
+
+AspNetCoreModuleV2
+
+and verify the actual IIS module registration, not merely a hardcoded file path if a more reliable detection mechanism exists.
+
+The installer should distinguish between:
+
+A. Missing .NET 8 runtime
+B. Missing ASP.NET Core Module V2
+
+With self-contained deployment:
+
+A must NOT block installation anymore.
+
+B MUST still be detected because IIS requires ANCM to host the Dashboard.
+
+Do NOT install/uninstall/change Laserfiche runtimes.
+
+==================================================
+3. REMOVE DASHBOARD .NET 8 RUNTIME PREREQUISITE
+==================================================
+
+Find every Dashboard-specific check for:
+
+.NET 8
+Microsoft.NETCore.App 8
+Microsoft.AspNetCore.App 8
+ASP.NET Core 8 runtime
+
+Audit:
+
+Product.wxs
+Bundle.wxs
+DetectionService.cs
+WizardForm.cs
+publish.ps1
+SetupHelper
+BA
+documentation
+tests
+
+Remove only checks that are no longer required because LFPortal.Web is self-contained.
+
+Do NOT remove ANCM detection.
+
+Do NOT uninstall anything from Windows.
+
+==================================================
+4. DO NOT TOUCH LASERFICHE
+==================================================
+
+This is a strict boundary.
+
+Do not modify:
+
+LFRepositoryAPI
+Laserfiche API Server appsettings.json
+Laserfiche Web Client runtime
+Laserfiche Server
+LFDS
+LFDSSTS
+Workflow
+Forms
+
+Do not install, uninstall, downgrade, upgrade, repair, or retarget any runtime used by Laserfiche.
+
+Dashboard must remain completely independent.
+
+==================================================
+5. PRESERVE CURRENT IIS ARCHITECTURE
+==================================================
+
+Keep the Dashboard as ASP.NET Core.
+
+Do NOT change the Dashboard application pool to:
+
+v4.0
+
+Do NOT convert web.config to ASP.NET Framework handlers.
+
+Keep ANCM hosting.
+
+Verify the correct hostingModel for a self-contained ASP.NET Core deployment under IIS.
+
+Do not blindly preserve "inprocess" either — verify from official Microsoft hosting requirements that the selected configuration is valid for a self-contained deployment.
+
+==================================================
+6. PRESERVE ALL CURRENT FUNCTIONALITY
+==================================================
+
+Absolutely no regression is allowed in:
+
+repository selection
+repository discovery
+API v1/v2 selection
+session repository context
+multi-repository support
+multi-user isolation
+token caching
+token invalidation
+sign-out
+Settings
+ProgramData configuration
+DPAPI credentials
+TLS validation
+Desktop Extension
+Web Client button
+Dashboard analytics
+Archive
+document metadata
+document download/open
+installer wizard
+upgrade
+repair
+same-version reinstall
+uninstall
+
+No customer-specific values may be introduced.
+
+==================================================
+7. MACHINE INDEPENDENCE
+==================================================
+
+Run another forbidden-value sweep after implementation.
+
+Shipping output must contain no machine-specific assumptions such as:
+
+DESKTOP-*
+LFNewRepoWF
+TestEmployee
+lf-server.corp.local
+192.168.*
+C:\Users\Amjad...
+localhost as a remote-server fallback
+
+Ports, hosts, repositories and API versions must remain dynamically configurable.
+
+==================================================
+8. PUBLISH PIPELINE GUARDS
+==================================================
+
+Add production guards to publish.ps1.
+
+After publishing LFPortal.Web, verify:
+
+1. RuntimeIdentifier is win-x64.
+2. SelfContained is true.
+3. The staged output contains the native/runtime components required for self-contained execution.
+4. The staged output does not accidentally become framework-dependent.
+5. appsettings.Development.json is not shipped.
+6. No development server/repository values are shipped.
+7. Existing SetupHelper/BA hash and behavioral guards remain intact.
+
+Fail the build loudly if any contract is violated.
+
+==================================================
+9. TEST WITHOUT GLOBAL .NET 8
+==================================================
+
+Create a verification strategy that proves Dashboard independence.
+
+IMPORTANT:
+Do NOT uninstall .NET 8 from the development machine because Laserfiche may depend on it.
+
+Instead provide a safe verification method.
+
+I want proof that the deployed Dashboard resolves its runtime from its own installation directory rather than:
+
+C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.*
+
+Use appropriate runtime diagnostics / host tracing if necessary.
+
+==================================================
+10. INSTALLER SIZE
+==================================================
+
+Report before/after sizes for:
+
+WebApp publish folder
+MSI
+Bundle EXE
+
+The size increase is acceptable, but document it.
+
+==================================================
+11. SECURITY
+==================================================
+
+Do not weaken TLS.
+
+Do not introduce:
+
+DangerousAcceptAnyServerCertificateValidator
+ServerCertificateValidationCallback accepting everything
+certificate-validation bypasses
+
+Do not weaken authentication/session isolation.
+
+Self-contained deployment must have identical security behavior to the current application.
+
+==================================================
+12. .NET SERVICING CONSEQUENCE
+==================================================
+
+This is important.
+
+Because the runtime becomes bundled with Dashboard, Windows/global .NET servicing will no longer automatically update Dashboard's private runtime.
+
+Document this clearly.
+
+The Dashboard build/release process must be responsible for publishing with an up-to-date patched .NET runtime.
+
+Also report the current .NET 8 support lifecycle and recommend the migration path to the next supported LTS runtime.
+
+Do NOT perform that major-version upgrade in this task.
+
+==================================================
+13. BUILD AND TEST
+==================================================
+
+After implementation:
+
+clean all build outputs
+
+restore
+
+build Release
+
+run every test project
+
+publish win-x64 self-contained
+
+stage installer files
+
+run all existing contract/preflight guards
+
+Report exact test totals.
+
+Do not hide warnings.
+
+==================================================
+14. FINAL AUDIT
+==================================================
+
+After implementation perform an independent review of the changes.
+
+Report:
+
+A. Files modified
+B. Exact publish command/properties
+C. Whether LFPortal.Web remains net8.0
+D. Whether deployment is confirmed self-contained
+E. Which .NET 8 prerequisite checks were removed
+F. Which ANCM check remains/replaced them
+G. IIS hosting configuration
+H. Whether any Laserfiche configuration was touched
+I. Test results
+J. Publish folder size before/after
+K. MSI size before/after
+L. Bundle size before/after
+M. Machine-independence sweep result
+N. TLS/security regression audit
+O. Upgrade/repair/reinstall impact
+P. How to prove on my Windows machine that Dashboard uses its bundled runtime
+Q. Remaining runtime prerequisites
+R. .NET servicing implications
+
+Do not declare success merely because the project builds.
+
+The final definition of success is:
+
+A clean Windows 11 deployment can run Dashboard using the runtime shipped inside Dashboard itself, without Dashboard requiring a separately installed .NET 8 runtime, while IIS ANCM requirements are explicitly detected and all Laserfiche runtime/configuration remains untouched.

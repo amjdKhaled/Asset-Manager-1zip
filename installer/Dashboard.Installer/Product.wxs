@@ -52,28 +52,44 @@
       Schedule="afterInstallInitialize" />
 
     <!--
-      Prerequisite: ASP.NET Core 8 Hosting Bundle.
-      The Hosting Bundle writes a Version value under this key on 64-bit Windows.
-      Bitness="always64" (WiX 4 — replaces the WiX 3 Win64="yes" attribute) forces
-      the registry search to use the 64-bit registry view on all target machines,
-      which is where the Hosting Bundle records its installation on x64 Windows.
-      If the property remains unset the Launch condition blocks installation.
+      Prerequisite: ASP.NET Core Module V2 (ANCM) for IIS.
+
+      Dashboard ships as a self-contained ASP.NET Core application — it carries
+      its own copy of the .NET 8 runtime inside its install folder, so a globally
+      installed .NET 8 runtime is NOT required.
+
+      However IIS still needs the native ANCM V2 module (aspnetcorev2.dll) to
+      host any ASP.NET Core application regardless of whether the deployment is
+      self-contained or framework-dependent.  ANCM is installed by:
+        - the ASP.NET Core Hosting Bundle (any version 6+)
+        - the .NET SDK with IIS support
+        - Visual Studio with the ASP.NET workload
+
+      Detection: FileSearch for aspnetcorev2.dll in the well-known V2 path.
+      ProgramFiles64Folder resolves to the 64-bit Program Files on x64 machines.
+      If the file is present the property is set to its full path (non-empty =
+      truthy); if absent the property remains unset and the Launch condition fires.
+
+      NOTE: this check deliberately does NOT look for a globally installed .NET 8
+      runtime.  The self-contained publish makes that unnecessary for Dashboard.
     -->
-    <Property Id="ASPNETCORE8">
-      <RegistrySearch Id="DotNet8HostSearch"
-                      Root="HKLM"
-                      Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost"
-                      Name="Version"
-                      Bitness="always64"
-                      Type="raw" />
+    <Property Id="ANCMV2PRESENT">
+      <DirectorySearch Id="AncmV2DirSearch"
+                       Path="[ProgramFiles64Folder]IIS\Asp.Net Core Module\V2">
+        <FileSearch Id="AncmV2FileSearch" Name="aspnetcorev2.dll" />
+      </DirectorySearch>
     </Property>
 
     <Launch
-      Condition="ASPNETCORE8"
-      Message="The ASP.NET Core 8 Hosting Bundle is required but was not found.
+      Condition="ANCMV2PRESENT"
+      Message="ASP.NET Core Module V2 (ANCM) for IIS is required but was not found.
 
-Download from: https://dotnet.microsoft.com/download/dotnet/8.0
-Choose the Windows Hosting Bundle, then re-run this installer." />
+Dashboard is self-contained and carries its own .NET runtime, but IIS still
+needs ANCM to host it.  Install the ASP.NET Core Hosting Bundle (any version
+6 or later), then re-run this installer.
+
+Download: https://dotnet.microsoft.com/download/dotnet/8.0
+Choose the &quot;Windows Hosting Bundle&quot; option." />
 
     <!-- Directory structure -->
 

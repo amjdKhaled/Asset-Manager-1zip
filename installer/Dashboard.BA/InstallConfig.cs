@@ -53,8 +53,13 @@ namespace Dashboard.BA
     internal sealed class DetectionResult
     {
         public bool   IisInstalled          { get; set; }
-        public bool   AspNetCore8Installed  { get; set; }
-        public string AspNetCore8Version    { get; set; } = "";
+
+        // ANCM V2 (aspnetcorev2.dll) — required for IIS to host the self-contained
+        // ASP.NET Core web app.  Dashboard no longer requires a globally installed
+        // .NET 8 runtime; it carries its own runtime in its install folder.
+        public bool   AncmInstalled         { get; set; }
+        public string AncmPath              { get; set; } = "";
+
         public bool   WebView2Installed     { get; set; }
         public string WebView2Version       { get; set; } = "";
         public bool   DesktopClientFound    { get; set; }
@@ -89,6 +94,7 @@ namespace Dashboard.BA
         public bool   LaserficheCertTrusted    { get; set; }
 
         // True if all components required for the Dashboard web app are present.
-        public bool AllRequiredPresent => IisInstalled && AspNetCore8Installed;
+        // Dashboard is self-contained; only IIS + ANCM V2 are required on the machine.
+        public bool AllRequiredPresent => IisInstalled && AncmInstalled;
     }
 }

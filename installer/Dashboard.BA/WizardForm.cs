@@ -306,8 +306,10 @@ namespace Dashboard.BA
                     "optionally integrates with the Laserfiche Desktop Client and Web Client.\r\n\r\n" +
                     "Before continuing, ensure the following are present on this server:\r\n\r\n" +
                     "  \u2022  IIS (Internet Information Services)  \u2014  enabled via Windows Features\r\n\r\n" +
-                    "  \u2022  ASP.NET Core 8 Windows Hosting Bundle\r\n" +
-                    "       https://dotnet.microsoft.com/download/dotnet/8.0\r\n\r\n" +
+                    "  \u2022  ASP.NET Core Module V2 (ANCM) for IIS\r\n" +
+                    "       Installed automatically by the ASP.NET Core Hosting Bundle (any version 6+)\r\n" +
+                    "       or by the .NET SDK with IIS support.\r\n" +
+                    "       NOTE: Dashboard carries its own .NET runtime \u2014 no separate .NET 8 install needed.\r\n\r\n" +
                     "  \u2022  Microsoft Edge WebView2 Runtime\r\n" +
                     "       (required only for the Laserfiche Desktop Client Extension)\r\n\r\n" +
                     "Click Next to continue. Your system will be scanned in the background " +

@@ -7,7 +7,7 @@
 
       Step 1  Clean previous artifacts
       Step 2  Restore NuGet packages
-      Step 3  Publish Dashboard web application (net8.0, Release, framework-dependent)
+      Step 3  Publish Dashboard web application (net8.0, Release, self-contained win-x64)
       Step 4  Build Desktop Extension (net48, x64, Release)          [Windows only]
       Step 5  Build Dashboard.SetupHelper (net48, x64, Release)      [Windows only]
       Step 6  Build Dashboard.BA managed bootstrapper (net48)        [Windows only]
@@ -566,15 +566,23 @@ Write-OK "NuGet packages restored."
 # =============================================================================
 
 $Step++
-Write-Stage $Step $TotalStages "Publishing Dashboard web application (net8.0, Release)"
+Write-Stage $Step $TotalStages "Publishing Dashboard web application (net8.0, self-contained win-x64, Release)"
 
 $webAppOut = Join-Path $StagingDir "WebApp"
 
-Invoke-NativeCommand -Stage "dotnet publish (web app)" -FilePath "dotnet" -Arguments @(
+# Self-contained publish: the .NET 8 runtime is bundled into the WebApp folder.
+# Customers do not need a separately installed .NET 8 runtime; only ANCM V2 is
+# required on the target machine (provided by the ASP.NET Core Hosting Bundle).
+# --runtime win-x64 : Windows x64 native runtime binaries are included.
+# --self-contained true : forces runtime inclusion even if SelfContained is not
+#                         set in the project file, making the contract explicit.
+Invoke-NativeCommand -Stage "dotnet publish (web app, self-contained win-x64)" -FilePath "dotnet" -Arguments @(
     "publish", $WebProjPath,
-    "--configuration", "Release",
-    "--output",        $webAppOut,
-    "--verbosity",     "minimal",
+    "--configuration",  "Release",
+    "--runtime",        "win-x64",
+    "--self-contained", "true",
+    "--output",         $webAppOut,
+    "--verbosity",      "minimal",
     "-p:Version=$Version"
 )
 
@@ -642,6 +650,98 @@ if (Test-Path $stagedDevSettings) {
     exit 1
 }
 Write-OK "appsettings.Development.json confirmed absent from staged WebApp folder."
+
+# ── Self-contained publish contract guards ────────────────────────────────────
+#
+# These checks prove that the publish output is genuinely self-contained and
+# that the deployed Dashboard can start without a globally installed .NET runtime.
+#
+# GUARD 1: coreclr.dll must be present.
+# A self-contained win-x64 publish ALWAYS includes coreclr.dll (the runtime
+# host).  Its absence means the publish fell back to framework-dependent mode,
+# either because --self-contained was silently ignored or overridden by a project
+# property.
+$coreclrPath = Join-Path $webAppOut "coreclr.dll"
+if (-not (Test-Path $coreclrPath)) {
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Red
+    Write-Host "  [PREFLIGHT FAILED] coreclr.dll is missing from the staged WebApp." -ForegroundColor Red
+    Write-Host "  This means the publish is NOT self-contained." -ForegroundColor Red
+    Write-Host ("    MISSING: {0}" -f $coreclrPath) -ForegroundColor Red
+    Write-Host "" -ForegroundColor Red
+    Write-Host "  The deployment would require a globally installed .NET 8 runtime," -ForegroundColor Red
+    Write-Host "  which defeats the self-contained goal." -ForegroundColor Red
+    Write-Host "" -ForegroundColor Red
+    Write-Host "  Verify that 'dotnet publish' was called with:" -ForegroundColor Red
+    Write-Host "    --self-contained true --runtime win-x64" -ForegroundColor Red
+    Write-Host "  and that no project-level property overrides SelfContained=false." -ForegroundColor Red
+    Write-Host "  ============================================================" -ForegroundColor Red
+    exit 1
+}
+Write-OK "coreclr.dll confirmed present — publish is self-contained."
+
+# GUARD 2: LFPortal.Web.exe must be present.
+# A self-contained win-x64 publish produces a native executable launcher
+# (<AssemblyName>.exe) alongside the DLL.  web.config processPath points to this
+# EXE.  Its absence means ANCM would try to launch 'dotnet LFPortal.Web.dll',
+# which requires a global runtime and defeats the self-contained goal.
+$webExePath = Join-Path $webAppOut "LFPortal.Web.exe"
+if (-not (Test-Path $webExePath)) {
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Red
+    Write-Host "  [PREFLIGHT FAILED] LFPortal.Web.exe launcher is missing." -ForegroundColor Red
+    Write-Host "  A self-contained win-x64 publish must produce a native EXE launcher." -ForegroundColor Red
+    Write-Host ("    MISSING: {0}" -f $webExePath) -ForegroundColor Red
+    Write-Host "  ============================================================" -ForegroundColor Red
+    exit 1
+}
+Write-OK "LFPortal.Web.exe launcher confirmed present."
+
+# GUARD 3: web.config processPath must NOT be 'dotnet'.
+# dotnet publish --self-contained changes processPath from 'dotnet' to the EXE
+# path.  If web.config still says processPath="dotnet", ANCM would look for a
+# global dotnet host and the bundled runtime would be ignored entirely.
+$webConfigPath = Join-Path $webAppOut "web.config"
+if (Test-Path $webConfigPath) {
+    $webConfigContent = Get-Content $webConfigPath -Raw
+    if ($webConfigContent -match 'processPath\s*=\s*"dotnet"') {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] web.config still uses processPath=""dotnet""." -ForegroundColor Red
+        Write-Host "  A self-contained publish must set processPath to the EXE launcher." -ForegroundColor Red
+        Write-Host "  ANCM would fall back to the global dotnet host, ignoring bundled runtime." -ForegroundColor Red
+        Write-Host ("    FILE: {0}" -f $webConfigPath) -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "web.config processPath confirmed: not 'dotnet' (self-contained launcher)."
+}
+else {
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Red
+    Write-Host "  [PREFLIGHT FAILED] web.config is missing from the staged WebApp." -ForegroundColor Red
+    Write-Host "  IIS requires web.config to locate the ANCM aspNetCore handler." -ForegroundColor Red
+    Write-Host ("    MISSING: {0}" -f $webConfigPath) -ForegroundColor Red
+    Write-Host "  ============================================================" -ForegroundColor Red
+    exit 1
+}
+
+# GUARD 4: runtimeconfig.json must NOT specify a higher rollForward than Minor
+# that would silently pick up a globally installed runtime instead of the bundle.
+$runtimeConfigPath = Join-Path $webAppOut "LFPortal.Web.runtimeconfig.json"
+if (Test-Path $runtimeConfigPath) {
+    $rcContent = Get-Content $runtimeConfigPath -Raw
+    if ($rcContent -match '"rollForward"\s*:\s*"LatestMajor"') {
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Red
+        Write-Host "  [PREFLIGHT FAILED] runtimeconfig.json has rollForward=LatestMajor." -ForegroundColor Red
+        Write-Host "  This could cause the app to load a different globally installed runtime." -ForegroundColor Red
+        Write-Host ("    FILE: {0}" -f $runtimeConfigPath) -ForegroundColor Red
+        Write-Host "  ============================================================" -ForegroundColor Red
+        exit 1
+    }
+    Write-OK "runtimeconfig.json rollForward policy is acceptable."
+}
 
 # =============================================================================
 # STEP 4 -- Build Desktop Extension (Windows only)

@@ -22,15 +22,15 @@ namespace Dashboard.BA
             var r = new DetectionResult();
 
             // Properties cannot be passed as out parameters in C#; use locals then assign.
-            string aspNetVersion = "";
+            string ancmPath      = "";
             string webView2Ver   = "";
             string desktopPath   = "";
             string webClientPath = "";
 
-            r.IisInstalled          = DetectIis();
-            r.AspNetCore8Installed  = DetectAspNetCore8(out aspNetVersion);
-            r.AspNetCore8Version    = aspNetVersion;
-            r.WebView2Installed     = DetectWebView2(out webView2Ver);
+            r.IisInstalled      = DetectIis();
+            r.AncmInstalled     = DetectAncmV2(out ancmPath);
+            r.AncmPath          = ancmPath;
+            r.WebView2Installed = DetectWebView2(out webView2Ver);
             r.WebView2Version       = webView2Ver;
             r.DesktopClientFound    = DetectDesktopClient(out desktopPath);
             r.DesktopClientPath     = desktopPath;
@@ -453,28 +453,58 @@ namespace Dashboard.BA
             }
         }
 
-        // ----------------------------------------------------- ASP.NET Core 8
-        private static bool DetectAspNetCore8(out string version)
+        // ------------------------------------------------- ANCM V2 (aspnetcorev2.dll)
+        //
+        // Dashboard is self-contained and carries its own .NET 8 runtime, so a
+        // globally installed ASP.NET Core 8 runtime is no longer required.
+        // However IIS still needs ANCM V2 to host any ASP.NET Core application.
+        //
+        // Detection strategy (two-step, defence-in-depth):
+        //   1. Primary: parse applicationHost.config globalModules — this confirms
+        //      IIS actually registered the module, not just that the file exists.
+        //   2. Fallback: probe the well-known install path on disk.
+        private static bool DetectAncmV2(out string path)
         {
-            version = "";
+            path = "";
+
+            // ── Primary: applicationHost.config globalModules ─────────────────
             try
             {
-                // Same registry key the MSI uses in its LaunchCondition check.
-                using var key = RegistryKey.OpenBaseKey(
-                        RegistryHive.LocalMachine, RegistryView.Registry64)
-                    .OpenSubKey(
-                        @"SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost",
-                        writable: false);
-                if (key == null) return false;
-                var v = key.GetValue("Version");
-                if (v == null) return false;
-                version = v.ToString() ?? "";
-                return version.StartsWith("8.");
+                string ahcPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                    "System32", "inetsrv", "config", "applicationHost.config");
+
+                if (File.Exists(ahcPath))
+                {
+                    var doc = new XmlDocument();
+                    doc.Load(ahcPath);
+                    var node = doc.SelectSingleNode(
+                        "/configuration/system.webServer/globalModules/add[@name='AspNetCoreModuleV2']");
+                    if (node != null)
+                    {
+                        path = node.Attributes?["image"]?.Value ?? "";
+                        return true;
+                    }
+                }
             }
-            catch
+            catch { /* fall through to file probe */ }
+
+            // ── Fallback: well-known install path ─────────────────────────────
+            try
             {
-                return false;
+                string ancmDll = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                    "IIS", "Asp.Net Core Module", "V2", "aspnetcorev2.dll");
+
+                if (File.Exists(ancmDll))
+                {
+                    path = ancmDll;
+                    return true;
+                }
             }
+            catch { /* not found */ }
+
+            return false;
         }
 
         // ----------------------------------------------------------- WebView2
