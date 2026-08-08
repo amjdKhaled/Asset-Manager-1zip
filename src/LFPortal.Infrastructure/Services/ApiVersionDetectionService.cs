@@ -161,27 +161,68 @@ internal sealed class ApiVersionDetectionService : BackgroundService
     }
 
     /// <summary>
-    /// A route "exists" when the server returns 200 (open listing) or an auth
-    /// challenge (401/403) — both prove the version segment is routed. 404/405 and
-    /// transport errors mean this version is not available.
+    /// A route "exists" when:
+    /// <list type="bullet">
+    ///   <item>
+    ///     The server returns 401/403 (auth challenge) — the route is definitely handled
+    ///     by the Laserfiche API; the body is irrelevant.
+    ///   </item>
+    ///   <item>
+    ///     The server returns 200 AND the body is a recognisable repository list (V1
+    ///     plain-array <c>[{...}]</c> or V2 OData envelope <c>{"value":[...]}</c>).
+    ///     A 200 with HTML or any other incompatible JSON shape is rejected — it indicates
+    ///     the URL resolves to something other than the repository API (reverse-proxy health
+    ///     page, error object, etc.) and must not select this version.
+    ///   </item>
+    /// </list>
     /// </summary>
     private async Task<bool> RouteExistsAsync(
         HttpClient client, string probeUrl, string version, CancellationToken cancellationToken)
     {
         try
         {
+            // Use ResponseHeadersRead for the initial probe: lets us short-circuit on
+            // auth challenges without buffering the response body unnecessarily.
             using var response = await client
                 .GetAsync(probeUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                 .ConfigureAwait(false);
 
             var status = (int)response.StatusCode;
-            var exists = status == 200 || status == 401 || status == 403;
+
+            // Auth challenge: the route is handled by the Laserfiche API server.
+            if (status is 401 or 403)
+            {
+                _logger.LogDebug(
+                    "[API VERSION] Probe {ProbeUrl} → HTTP {Status} (auth challenge — {Version} available).",
+                    probeUrl, status, version);
+                return true;
+            }
+
+            if (status != 200)
+            {
+                _logger.LogDebug(
+                    "[API VERSION] Probe {ProbeUrl} → HTTP {Status} ({Version} not available).",
+                    probeUrl, status, version);
+                return false;
+            }
+
+            // HTTP 200: read the body and validate the JSON shape.
+            // Accepting 200 on header status alone was the root cause of auto-detect
+            // selecting v2 even though the v2 OData response body was unrecognised.
+            var body = await response.Content
+                .ReadAsStringAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            RepositoryJsonParser.TryParse(body, out var shape);   // for logging only
+            var compatible = RepositoryJsonParser.IsCompatibleShape(body);
 
             _logger.LogDebug(
-                "[API VERSION] Probe {ProbeUrl} → HTTP {Status} ({Verdict}).",
-                probeUrl, status, exists ? $"{version} available" : $"{version} not available");
+                "[API VERSION] Probe {ProbeUrl} → HTTP 200, body shape={Shape}, compatible={Compatible} " +
+                "({Version} {Verdict}).",
+                probeUrl, shape, compatible, version,
+                compatible ? "available" : "not available — body shape not a repository list");
 
-            return exists;
+            return compatible;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

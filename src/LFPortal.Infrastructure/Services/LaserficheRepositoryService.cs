@@ -111,6 +111,32 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
             var info = await GetRepositoryInfoAsync(cancellationToken).ConfigureAwait(false);
             return ConnectionStatus.Success(info);
         }
+        catch (LaserficheException lex) when (lex.StatusCode == 200)
+        {
+            // The server responded with HTTP 200 but the repository-list body had an
+            // unrecognised JSON shape. This means the server IS reachable and the
+            // Bearer token WAS accepted — only discovery is limited. Report as
+            // "connected" with a note rather than labelling the connection "Disconnected".
+            //
+            // Under normal circumstances this branch should not be reached once the
+            // parser recognises the v1 plain-array and v2 OData shapes. It remains as
+            // a safety-net for future API response changes.
+            _logger.LogWarning(
+                "[CONNECTIVITY] Repository discovery returned HTTP 200 with an unrecognised " +
+                "body shape. Server is reachable and auth succeeded; only the repository list " +
+                "format was not understood. Discovery limitation: {Error}", lex.Message);
+
+            var repo = await _repositoryContext
+                .GetActiveRepositoryAsync(cancellationToken).ConfigureAwait(false);
+
+            return ConnectionStatus.Success(new RepositoryInfo
+            {
+                RepositoryId   = repo.RepositoryId,
+                RepositoryName = repo.RepositoryId,
+                ServerVersion  = $"Laserfiche API {_adapter.ApiVersion} (discovery limited)",
+                ApiVersion     = _adapter.ApiVersion,
+            });
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Connection test failed.");
@@ -288,22 +314,28 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
         return body;
     }
 
-    private static List<RepositoryDto> DeserializeRepositories(string body, string url)
+    /// <summary>
+    /// Parses the repository list from the API response body.
+    /// Handles both the V1 plain-array <c>[{...}]</c> and V2 OData envelope
+    /// <c>{"value":[...]}</c> shapes so callers remain version-agnostic.
+    /// </summary>
+    private List<RepositoryDto> DeserializeRepositories(string body, string url)
     {
-        try
-        {
-            return JsonSerializer.Deserialize<List<RepositoryDto>>(body, JsonOptions.Default)
-                ?? throw new LaserficheException(
-                    $"Laserfiche returned a null repository list for {url}.",
-                    200);
-        }
-        catch (JsonException ex)
+        var repositories = RepositoryJsonParser.TryParse(body, out var shape);
+
+        _logger.LogInformation(
+            "[REPO DISCOVERY] Response shape: {Shape} from {Url}", shape, url);
+
+        if (repositories is null)
         {
             throw new LaserficheException(
-                $"Laserfiche repository response was not a JSON array matching " +
-                $"RepositoryDto. URL: {url}. Details: {ex.Message}",
+                $"Laserfiche repository response was not a JSON array matching RepositoryDto. " +
+                $"URL: {url}. Detected shape: {shape}. " +
+                $"Body (first 200 chars): {(body.Length > 200 ? body[..200] + "\u2026" : body)}",
                 200);
         }
+
+        return repositories;
     }
 
     private static RepositoryDto FindConfiguredRepository(

@@ -215,6 +215,63 @@ public sealed class LaserficheApiAdapterUrlTests
         Assert.Contains("/Repositories/LFNewRepoWF/Token", url);
     }
 
+    // ── BuildTokenUrlV2 — always uses /v2/, regardless of configured ApiVersion ──
+    //
+    // Requirement 15: BuildTokenUrlV2 must use the hard-coded /v2/ segment and
+    // must ONLY be invoked by the SSO OAuth2 authorization-code exchange flow.
+    // All normal V1 resource operations (entry listing, search, etc.) must use
+    // BuildTokenUrl (which honours the configured/detected ApiVersion), never V2.
+
+    [Fact]
+    public void BuildTokenUrlV2_AlwaysContainsV2Segment_RegardlessOfConfiguredVersion()
+    {
+        // Even when the adapter is configured for v1, V2 SSO token exchange must
+        // use /v2/ because the LFDS token endpoint is always V2.
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v1");
+        var url     = adapter.BuildTokenUrlV2("Documents");
+
+        // BuildTokenUrlV2 must always use /v2/ — it is the SSO token endpoint.
+        Assert.Contains("/v2/", url);
+        Assert.DoesNotContain("/v1/", url);
+    }
+
+    [Fact]
+    public void BuildTokenUrlV2_DiffersFromBuildTokenUrl_WhenConfiguredAsV1()
+    {
+        // This guards the invariant that V2 SSO token exchange and V1 resource
+        // operations use different URL paths — they must never be swapped.
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v1");
+
+        var v1Url = adapter.BuildTokenUrl("Documents");
+        var v2Url = adapter.BuildTokenUrlV2("Documents");
+
+        // V2 SSO token URL must differ from the V1 resource token URL.
+        Assert.NotEqual(v1Url, v2Url);
+        Assert.Contains("/v1/", v1Url);
+        Assert.Contains("/v2/", v2Url);
+    }
+
+    [Fact]
+    public void BuildTokenUrlV2_ContainsRepositoryIdAndTokenSegment()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local");
+        var url     = adapter.BuildTokenUrlV2("Documents");
+
+        Assert.Contains("/Repositories/Documents/Token", url);
+    }
+
+    [Fact]
+    public void BuildTokenUrl_V1_DoesNotContainV2Segment()
+    {
+        // Verify that the regular V1 token URL never contains /v2/ — this guards
+        // against accidentally routing V1 resource operations through the V2 path.
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v1");
+        var url     = adapter.BuildTokenUrl("Documents");
+
+        // V1 resource token URL must not contain /v2/ — V2 path is reserved for SSO BuildTokenUrlV2.
+        Assert.DoesNotContain("/v2/", url);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static int CountOccurrences(string haystack, string needle)

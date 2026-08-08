@@ -1,0 +1,443 @@
+We need to FIX the Dashboard integration end-to-end.
+
+Do not make cosmetic changes only.
+Do not stop after making the project compile.
+Investigate the actual runtime flows and fix the root causes.
+
+CURRENT OBSERVED PROBLEMS
+=========================
+
+Problem 1 — Double login still exists
+
+Current behavior:
+
+Laserfiche Web Client
+    -> user is already logged into Laserfiche
+    -> user opens repository "NewEmployeeTest"
+    -> user clicks Dashboard
+    -> Dashboard opens:
+       http://desktop-k1svi53:5000/Login
+    -> Dashboard asks again for Laserfiche username/password
+
+This defeats the purpose of the integration.
+
+The desired UX is:
+
+Laserfiche login
+    -> open repository
+    -> click Dashboard
+    -> Dashboard opens directly
+    -> repository context is preserved
+    -> no second Dashboard login page IF there is a technically valid way to reuse/establish the user's identity.
+
+IMPORTANT:
+Do NOT fake SSO.
+Do NOT use a hardcoded admin/service account.
+Do NOT silently impersonate admin.
+Do NOT put passwords or bearer tokens in URLs.
+Do NOT weaken security just to hide the Login page.
+
+Before implementing anything, inspect the CURRENT integration code:
+- lf-webclient-button.js
+- Browse.aspx integration
+- Desktop Extension
+- SessionAuthGuardMiddleware
+- LoginController
+- LaserficheAuthService
+- BearerTokenHandler
+- repository context handling
+- cookies/session configuration
+- all SSO/OAuth code already added
+
+Determine what information is actually available when Dashboard is launched from:
+A) Laserfiche Web Client
+B) Laserfiche Desktop Client
+
+Then implement the strongest valid same-user solution that is possible WITHOUT changing the Laserfiche server configuration.
+
+If true credential delegation is impossible under that constraint, DO NOT pretend it is solved.
+Instead:
+- preserve the current secure fallback login
+- make the limitation explicit in the final report
+- do not break the existing authentication flow.
+
+The dormant LFDS OAuth implementation may remain dormant unless it can work with the current Laserfiche configuration as-is.
+
+ABSOLUTE CONSTRAINT:
+Do NOT modify Laserfiche itself.
+
+Do NOT modify:
+- LFRepositoryAPI appsettings.json
+- LFDS
+- LFDSSTS
+- WebSTS
+- WhitelistedRedirectUris
+- Laserfiche IIS applications
+- Laserfiche authentication configuration
+- repository configuration
+- Laserfiche registry values
+
+Dashboard-side changes only.
+
+
+Problem 2 — Repository discovery is broken
+==========================================
+
+The Dashboard Settings page currently reports:
+
+Connection failed:
+Laserfiche repository response was not a JSON array matching RepositoryDto.
+
+URL:
+https://localhost/LFRepositoryAPI/v2/Repositories
+
+Details:
+The JSON value could not be converted to
+System.Collections.Generic.List<LFPortal.Infrastructure.Services.RepositoryDto>.
+Path: $
+LineNumber: 0
+BytePositionInLine: 1.
+
+The UI also shows:
+
+Connection Status: Disconnected
+
+Active Repository:
+LFNewRepoWF
+
+while the repository actually launched from Laserfiche is:
+NewEmployeeTest
+
+And Discover reports the same V2 JSON parsing failure.
+
+This must be investigated and fixed.
+
+
+IMPORTANT EXISTING ENVIRONMENT INFORMATION
+==========================================
+
+Laserfiche Repository API is installed locally:
+
+https://localhost/LFRepositoryAPI
+
+We have previously confirmed that the server exposes both V1 and V2 API routes.
+
+However, GET /Repositories behavior/configuration differs between versions/configuration.
+
+The project originally worked primarily with V1.
+
+Do NOT assume V2 is the correct resource API merely because V2 OAuth code was added.
+
+The OAuth work introduced a deliberate split:
+
+- OAuth authorization-code exchange:
+  potentially V2-specific
+
+- Normal repository/resource operations:
+  should continue using the configured/effective resource API version
+
+The addition of dormant SSO MUST NOT cause normal repository discovery to switch from V1 to V2.
+
+
+FIX THE API VERSION ARCHITECTURE
+===============================
+
+Audit every place that constructs a Laserfiche API URL.
+
+Search for:
+- /v1/
+- /v2/
+- BuildTokenUrlV2
+- EffectiveApiVersion
+- ApiVersion
+- Auto Detect
+- Repositories
+- Token
+- Build*Url methods
+
+Classify every endpoint as:
+
+1. Authentication endpoint
+2. Repository discovery endpoint
+3. Resource endpoint
+4. SSO-only endpoint
+
+Do not allow SSO-specific V2 behavior to leak into normal V1 resource operations.
+
+In particular:
+
+BuildTokenUrlV2 must NOT cause:
+GET /v2/Repositories
+
+Normal repository discovery must use the effective/configured resource API version.
+
+
+AUTO-DETECT REQUIREMENTS
+========================
+
+The Settings page currently says:
+
+"Auto Detect probes the server (v2 first, then v1) and remembers the result. Currently detected: v2."
+
+That detection is clearly insufficient because selecting V2 merely because an endpoint responds does not prove that repository discovery/resource operations are usable.
+
+Rewrite auto-detection so that it validates actual compatibility.
+
+For each candidate version:
+
+1. Call the appropriate repository/discovery endpoint.
+2. Inspect HTTP status.
+3. Inspect Content-Type.
+4. Safely inspect the JSON shape.
+5. Only select that API version if the response is compatible with the expected repository/resource contract.
+
+Do NOT mark V2 as valid merely because it returned HTTP 200.
+
+If V2 returns:
+- metadata object
+- OData wrapper
+- object containing "value"
+- error object
+- HTML
+- empty/disabled discovery representation
+- incompatible JSON schema
+
+then handle it correctly instead of blindly deserializing it into List<RepositoryDto>.
+
+If Laserfiche V2 legitimately wraps repository results as:
+
+{
+    "value": [...]
+}
+
+then support that response shape explicitly.
+
+If V1 returns a plain array:
+
+[
+   {...}
+]
+
+support that too.
+
+Create a robust repository response parser that can safely understand supported Laserfiche response shapes.
+
+Do not catch JSON exceptions and simply report "Disconnected" without preserving the diagnostic reason.
+
+
+REPOSITORY CONTEXT BUG
+======================
+
+When Dashboard is launched from Laserfiche repository:
+
+NewEmployeeTest
+
+the Dashboard must use:
+
+NewEmployeeTest
+
+for that browser/session.
+
+It must NOT continue displaying:
+
+LFNewRepoWF
+
+from a previous session or fallback configuration.
+
+Establish a clear repository precedence:
+
+1. Repository explicitly supplied by a trusted Dashboard launch integration
+2. Repository stored in the current authenticated Dashboard session
+3. Configured default/fallback repository
+
+The configured Default Repository must NEVER overwrite an explicit repository received from the current Laserfiche launch.
+
+Audit:
+- query string parsing
+- repository session keys
+- SessionAuthGuardMiddleware
+- LoginController
+- DashboardController
+- SettingsController
+- Web Client launch script
+- Desktop extension launch arguments
+
+Fix stale repository/session leakage.
+
+If I open:
+
+NewEmployeeTest -> Dashboard
+
+the Login page (if fallback login is required) must show:
+
+REPOSITORY
+NewEmployeeTest
+
+and after successful login the Dashboard must continue using NewEmployeeTest.
+
+
+SETTINGS PAGE
+=============
+
+Fix Settings so it accurately reports:
+
+Connection Status
+Active Repository
+Repository Name
+Server Version
+API Version
+Launch Source
+
+Do not perform a broken V2 repository-list call merely to determine whether the current repository is usable.
+
+Connection testing should preferably validate the CURRENT active repository directly when a repository is already known.
+
+Repository discovery and repository connectivity are different concepts.
+
+For example:
+
+Discovery unavailable
+does NOT necessarily mean
+Repository connection unavailable.
+
+Represent these states separately if necessary.
+
+"Discover" should test repository enumeration.
+
+"Connection Status" should test actual connectivity to the active repository.
+
+Do not label the entire Laserfiche connection "Disconnected" solely because repository enumeration is disabled or unsupported.
+
+
+LOGIN / AUTHENTICATION
+======================
+
+Preserve the working V1 username/password authentication fallback.
+
+If automatic same-user authentication cannot be achieved without Laserfiche configuration changes:
+
+Laserfiche -> Dashboard
+             |
+             +-> preserve selected repository
+             |
+             +-> Login fallback
+                    |
+                    +-> authenticate against that repository
+                    |
+                    +-> Dashboard
+
+Do not allow repository discovery failure to prevent login to a repository whose ID/name is already known.
+
+A user should be able to authenticate directly against:
+
+NewEmployeeTest
+
+without first successfully calling GET /Repositories.
+
+
+DORMANT SSO
+===========
+
+Keep LFDS OAuth SSO dormant unless explicitly configured.
+
+Default:
+
+Laserfiche:Sso:LfdsBaseUrl = ""
+
+must mean:
+
+Sso.IsConfigured == false
+
+No automatic:
+- LFDS redirect
+- OAuth callback flow
+- authorization code exchange
+- V2 SSO token call
+
+Dormant SSO must have ZERO effect on normal V1 behavior.
+
+
+TESTS REQUIRED
+==============
+
+Add regression/integration-style tests for at least:
+
+1. Launch from Web Client with repository NewEmployeeTest.
+2. Repository context survives redirect to /Login.
+3. Repository context survives successful login.
+4. Default LFNewRepoWF cannot overwrite NewEmployeeTest.
+5. V1 repository array parsing.
+6. V2/OData "value" wrapper parsing if supported.
+7. Invalid repository JSON does not crash.
+8. Auto Detect falls back from incompatible V2 to working V1.
+9. HTTP 200 with incompatible JSON does NOT mark a version compatible.
+10. Discovery failure does not automatically mean active repository connection failure.
+11. Login works when repository enumeration is unavailable.
+12. Dormant SSO makes zero LFDS calls.
+13. Dormant SSO makes zero SSO V2 token calls.
+14. Existing V1 resource operations remain V1.
+15. BuildTokenUrlV2 is used ONLY for the intended SSO token exchange.
+16. No cross-session repository leakage.
+17. Direct browser fallback behavior still works.
+18. Sign-out clears repository/auth session state correctly.
+
+Run ALL existing tests afterward.
+
+Do not delete existing regression tests just to make the suite pass.
+
+
+RUNTIME DIAGNOSTICS
+===================
+
+Improve logging enough that we can diagnose this on Windows/IIS.
+
+Log safely:
+
+- selected resource API version
+- requested repository
+- repository source:
+  launch/session/default
+- discovery endpoint
+- discovery HTTP status
+- discovery Content-Type
+- detected JSON root shape:
+  array/object/value-wrapper/etc.
+- active repository connectivity result
+
+NEVER log:
+- passwords
+- access tokens
+- authorization codes
+- PKCE verifier
+- sensitive cookies
+
+
+DO NOT MODIFY INSTALLER YET
+===========================
+
+Do NOT build or modify WiX/MSI/Setup during this task.
+
+First make the application behavior correct.
+
+At the end run:
+
+dotnet build -c Release
+
+and the complete test suite.
+
+Then provide a precise report containing:
+
+1. Root cause of the V2 RepositoryDto parsing failure.
+2. Why Auto Detect incorrectly selected V2.
+3. Every file changed.
+4. Final V1/V2 endpoint matrix.
+5. Final repository precedence logic.
+6. Whether true same-user no-second-login was technically achievable without Laserfiche configuration changes.
+7. If not achievable, explicitly say so rather than claiming the Login screen was "fixed".
+8. Confirmation that no Laserfiche configuration was modified.
+9. Build result.
+10. Test result.
+11. Exact Windows commands I should run to fast-deploy the corrected build for testing.
+
+Do the investigation and implementation now.
+Do not stop for approval unless you discover that a required fix would violate the "no Laserfiche configuration changes" constraint.
