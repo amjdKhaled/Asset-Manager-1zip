@@ -208,10 +208,12 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
         // ALWAYS discover the authoritative root via ByPath("\\").
         //
         // DO NOT short-circuit on configuredRootId=1. The default value of 1 is not
-        // guaranteed to be the repository root on every Laserfiche installation —
-        // calling /Entries/1/Laserfiche.Repository.Folder/children on a server where
-        // 1 is not a folder produces HTTP 400/404, which is silently swallowed and
-        // returns an empty list.  ByPath always gives the correct root ID.
+        // guaranteed to be the repository root on every Laserfiche installation.
+        // ByPath always gives the correct root ID.
+        //
+        // NOTE: even if the root ID really is 1, we still call ByPath so that the
+        // correct version-specific children URL (V2: Folder/Children, V1:
+        // Laserfiche.Repository.Folder/children) is used downstream.
         //
         // The configured value becomes a fallback ONLY when ByPath fails.
         var configuredRootId = _adapter.GetConfiguredRootEntryId();
@@ -330,8 +332,9 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
             .GetActiveRepositoryAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        // Swagger-documented endpoint only:
-        // GET /Repositories/{repoId}/Entries/{id}/Laserfiche.Repository.Folder/children
+        // Version-aware endpoint:
+        //   V2: GET /Repositories/{repoId}/Entries/{id}/Folder/Children
+        //   V1: GET /Repositories/{repoId}/Entries/{id}/Laserfiche.Repository.Folder/children
         var firstUrl = _adapter.BuildFolderChildrenUrl(repo.RepositoryId, entryId);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");

@@ -41,6 +41,7 @@
 - [BA stale DLL guards](ba-stale-dll-guards.md) — publish.ps1 must clean Dashboard.BA/bin+obj in Step 1, compare source vs staged SHA256, and scan staged DLL for removed UI strings.
 - [Smoke test WriteConfig validation](smoke-test-writecofig-validation.md) — parse WriteConfig log line for VALUES not raw stdout; Invoked: line legitimately contains both --webapp-path and --config-dir tokens.
 - [Scan root entry ID discovery](scan-root-discovery.md) — always call ByPath("\\") first; default configuredRootId=1 is not guaranteed to be the root; short-circuiting on it silently returns 0 entries.
+- [V2 folder-children route](v2-folder-children-route.md) — V2 uses Folder/Children (not Laserfiche.Repository.Folder/children); V1 path returns HTTP 404 on V2 servers; BuildFolderChildrenUrl is version-aware.
 - [Repository JSON parser — V1 vs V2](repo-json-parser-v1-v2.md) — V2 GET /Repositories returns OData envelope {"value":[…]}; use RepositoryJsonParser.TryParse, never raw Deserialize<List<RepositoryDto>>; auto-detect must validate body shape, not just HTTP status.
 - [V2 RepositoryDto field mapping](v2-dto-field-mapping.md) — V2 uses id/name/webClientUrl not repoId/repoName/webclientUrl; parser manually maps both sets in the V2 branch.
 - [Web Client launch bypass](webclient-no-login.md) — "Laserfiche Web Client" NOT in GuardedSources; Web Client uses DPAPI credentials directly, no Login redirect.

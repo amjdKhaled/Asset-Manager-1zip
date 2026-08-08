@@ -24,7 +24,9 @@ public enum EntryResource
 
     /// <summary>
     /// OData-typed folder-children path confirmed in Swagger:
-    /// <c>GET /Entries/{id}/Laserfiche.Repository.Folder/children</c>.
+    /// Version-aware folder-children endpoint.
+    /// V2: <c>GET /Entries/{id}/Folder/Children</c>.
+    /// V1: <c>GET /Entries/{id}/Laserfiche.Repository.Folder/children</c>.
     /// </summary>
     FolderChildren,
 

@@ -93,7 +93,7 @@ public sealed class DashboardController : Controller
                 adapter.BuildRepositoriesUrl(), false),
             ($"GET /Entries/{rootId} (root entry details)",
                 adapter.BuildEntryUrl(repoId, rootId, EntryResource.Details), false),
-            ($"GET /Entries/{rootId}/Laserfiche.Repository.Folder/children [COMPLETE RAW]",
+            ($"GET /Entries/{rootId}/Folder/Children [COMPLETE RAW]",
                 folderChildrenUrl, true),
             ("GET /TemplateDefinitions",
                 adapter.BuildTemplateDefinitionsUrl(repoId), false),

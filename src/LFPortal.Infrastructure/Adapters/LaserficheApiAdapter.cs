@@ -73,8 +73,9 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
             EntryResource.Fields   => $"{RepoBase(repositoryId)}/Entries/{entryId}/fields?formatValue=false",
             EntryResource.Tags     => $"{RepoBase(repositoryId)}/Entries/{entryId}/tags",
             EntryResource.Children       => $"{RepoBase(repositoryId)}/Entries/{entryId}/children",
-            // OData-typed folder-children path confirmed in Swagger
-            EntryResource.FolderChildren => $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Folder/children",
+            // FolderChildren is version-specific — delegate to the dedicated builder
+            // so V1 and V2 always get the correct path.
+            EntryResource.FolderChildren => BuildFolderChildrenUrl(repositoryId, entryId),
             EntryResource.Edoc     => $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Document/edoc",
             EntryResource.Pages    => $"{RepoBase(repositoryId)}/Entries/{entryId}/pages",
             _ => throw new ArgumentOutOfRangeException(nameof(resource), resource, "Unknown entry resource.")
@@ -112,13 +113,28 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
 
     /// <inheritdoc />
     /// <remarks>
-    /// Uses the OData-typed path confirmed in Swagger:
-    /// <c>/Entries/{id}/Laserfiche.Repository.Folder/children</c>.
-    /// No <c>$select</c> — let the server return all available fields to avoid
-    /// HTTP 400 from field names that may not exist on a particular installation.
+    /// <b>Version-aware.</b>  The Laserfiche Repository API changed the folder-children
+    /// path between V1 and V2:
+    /// <list type="bullet">
+    ///   <item><b>V1:</b> <c>/Entries/{id}/Laserfiche.Repository.Folder/children</c> — OData-typed cast path.</item>
+    ///   <item><b>V2:</b> <c>/Entries/{id}/Folder/Children</c> — simplified path; V1's OData-typed
+    ///         path returns HTTP 404 on V2 servers.</item>
+    /// </list>
+    /// The V2 path includes <c>groupByEntryType=false&amp;formatFieldValues=false</c> exactly as
+    /// shown in the server Swagger documentation.
     /// </remarks>
-    public string BuildFolderChildrenUrl(string repositoryId, int entryId) =>
-        $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Folder/children";
+    public string BuildFolderChildrenUrl(string repositoryId, int entryId)
+    {
+        var repoBase = RepoBase(repositoryId);
+
+        // V2 uses a completely different path from V1.
+        // Confirmed from the server Swagger: GET /v2/.../Entries/{id}/Folder/Children
+        if (ApiVersion.Equals("v2", StringComparison.OrdinalIgnoreCase))
+            return $"{repoBase}/Entries/{entryId}/Folder/Children?groupByEntryType=false&formatFieldValues=false";
+
+        // V1: OData-typed cast path.
+        return $"{repoBase}/Entries/{entryId}/Laserfiche.Repository.Folder/children";
+    }
 
     /// <inheritdoc />
     public string BuildTemplateDefinitionsUrl(string repositoryId) =>

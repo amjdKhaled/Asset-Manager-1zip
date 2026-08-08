@@ -272,6 +272,125 @@ public sealed class LaserficheApiAdapterUrlTests
         Assert.DoesNotContain("/v2/", url);
     }
 
+    // ── BuildFolderChildrenUrl — version-aware ────────────────────────────────
+    //
+    // Root cause confirmed from server Swagger:
+    //   V1 path: /Entries/{id}/Laserfiche.Repository.Folder/children
+    //   V2 path: /Entries/{id}/Folder/Children          (V1 path returns HTTP 404 on V2)
+    //
+    // Tasks 1 & 10 from the requirement spec.
+
+    [Fact]
+    public void FolderChildrenUrl_V2_UsesSimpleFolderChildrenPath()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v2");
+        var url = adapter.BuildFolderChildrenUrl("TestEmployee", 1);
+
+        // Must use the V2 simple path — NOT the V1 OData-typed cast path.
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v2/Repositories/TestEmployee/Entries/1/Folder/Children?groupByEntryType=false&formatFieldValues=false",
+            url);
+    }
+
+    [Fact]
+    public void FolderChildrenUrl_V2_DoesNotContainODataTypedCastPath()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v2");
+        var url = adapter.BuildFolderChildrenUrl("LFNewRepoWF", 1);
+
+        Assert.DoesNotContain("Laserfiche.Repository.Folder", url);
+    }
+
+    [Fact]
+    public void FolderChildrenUrl_V1_UsesODataTypedCastPath()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v1");
+        var url = adapter.BuildFolderChildrenUrl("Documents", 5);
+
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v1/Repositories/Documents/Entries/5/Laserfiche.Repository.Folder/children",
+            url);
+    }
+
+    [Fact]
+    public void FolderChildrenUrl_V1_DoesNotContainSimpleFolderPath()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v1");
+        var url = adapter.BuildFolderChildrenUrl("Documents", 1);
+
+        // V1 must NOT use the V2 simplified path.
+        Assert.DoesNotContain("/Folder/Children", url);
+    }
+
+    [Fact]
+    public void FolderChildrenUrl_V2_DynamicRepositoryId()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v2");
+
+        var url1 = adapter.BuildFolderChildrenUrl("RepoA", 10);
+        var url2 = adapter.BuildFolderChildrenUrl("RepoB", 20);
+
+        Assert.Contains("/Repositories/RepoA/Entries/10/Folder/Children", url1);
+        Assert.Contains("/Repositories/RepoB/Entries/20/Folder/Children", url2);
+    }
+
+    [Fact]
+    public void FolderChildrenUrl_V2_IncludesRequiredQueryParameters()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v2");
+        var url = adapter.BuildFolderChildrenUrl("TestEmployee", 1);
+
+        Assert.Contains("groupByEntryType=false", url);
+        Assert.Contains("formatFieldValues=false", url);
+    }
+
+    [Fact]
+    public void FolderChildrenUrl_V2_ContainsV2Segment()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v2");
+        var url = adapter.BuildFolderChildrenUrl("TestEmployee", 1);
+
+        Assert.Contains("/v2/", url);
+        Assert.DoesNotContain("/v1/", url);
+    }
+
+    [Fact]
+    public void FolderChildrenUrl_V1_ContainsV1Segment()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v1");
+        var url = adapter.BuildFolderChildrenUrl("Documents", 1);
+
+        Assert.Contains("/v1/", url);
+        Assert.DoesNotContain("/v2/", url);
+    }
+
+    [Fact]
+    public void BuildEntryUrl_FolderChildren_V2_DelegatesToVersionAwareBuilder()
+    {
+        // BuildEntryUrl(FolderChildren) must produce the same URL as
+        // BuildFolderChildrenUrl so neither code path can diverge.
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v2");
+
+        var viaEnum   = adapter.BuildEntryUrl("TestEmployee", 42, EntryResource.FolderChildren);
+        var viaDirect = adapter.BuildFolderChildrenUrl("TestEmployee", 42);
+
+        Assert.Equal(viaDirect, viaEnum);
+        Assert.Contains("/Folder/Children", viaEnum);
+        Assert.DoesNotContain("Laserfiche.Repository.Folder", viaEnum);
+    }
+
+    [Fact]
+    public void BuildEntryUrl_FolderChildren_V1_DelegatesToVersionAwareBuilder()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v1");
+
+        var viaEnum   = adapter.BuildEntryUrl("Documents", 7, EntryResource.FolderChildren);
+        var viaDirect = adapter.BuildFolderChildrenUrl("Documents", 7);
+
+        Assert.Equal(viaDirect, viaEnum);
+        Assert.Contains("Laserfiche.Repository.Folder/children", viaEnum);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static int CountOccurrences(string haystack, string needle)

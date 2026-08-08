@@ -1,0 +1,328 @@
+We have now confirmed the actual root cause using the Laserfiche Repository API V2 Swagger documentation.
+
+DO NOT guess the API routes anymore.
+
+The Dashboard currently sends this WRONG V2 request:
+
+GET /v2/Repositories/{repositoryId}/Entries/{entryId}/Laserfiche.Repository.Folder/children
+
+Example currently failing:
+
+https://localhost/LFRepositoryAPI/v2/Repositories/LFNewRepoWF/Entries/1/Laserfiche.Repository.Folder/children
+
+This returns:
+
+HTTP 404 Not Found
+
+The Laserfiche Repository API V2 Swagger on the actual server shows the correct endpoint is:
+
+GET /v2/Repositories/{repositoryId}/Entries/{entryId}/Folder/Children
+
+Example:
+
+https://localhost/LFRepositoryAPI/v2/Repositories/TestEmployee/Entries/1/Folder/Children?groupByEntryType=false&formatFieldValues=false
+
+Therefore the Dashboard's V2 folder-children URL builder is incorrect.
+
+==================================================
+TASK 1 — FIX V2 FOLDER CHILDREN ROUTE
+==================================================
+
+Find EVERY place in the project that builds or calls:
+
+Laserfiche.Repository.Folder/children
+
+or:
+
+Laserfiche.Repository.Folder
+
+for folder child retrieval.
+
+For API V2, replace the route with:
+
+/v2/Repositories/{repositoryId}/Entries/{entryId}/Folder/Children
+
+Do NOT globally replace V1 routes.
+
+The URL builder must be API-version aware.
+
+Expected behavior:
+
+V2:
+GET /v2/Repositories/{repositoryId}/Entries/{entryId}/Folder/Children
+
+V1:
+Preserve the existing V1 route that is appropriate for V1.
+
+Do not assume V1 and V2 use the same path.
+
+==================================================
+TASK 2 — SEARCH FOR OTHER INCORRECT V2 ROUTES
+==================================================
+
+This bug strongly suggests that some V1-style OData/action routes were reused for V2.
+
+Search the ENTIRE project for strings such as:
+
+Laserfiche.Repository.
+Folder/children
+Folder/Children
+Entries/
+Children
+Fields
+Templates
+ByPath
+
+Inspect every V2 URL builder.
+
+Do not modify an endpoint merely because its syntax looks different.
+Only correct endpoints where the project is clearly using the wrong
+version-specific route.
+
+Centralize version-specific URL construction in
+LaserficheApiAdapter if possible.
+
+I do not want individual services manually constructing inconsistent
+Laserfiche URLs.
+
+==================================================
+TASK 3 — DO NOT ASSUME ENTRY ID 1 IS WRONG
+==================================================
+
+Previous diagnosis assumed Entry ID 1 was necessarily invalid.
+
+Do NOT make that assumption.
+
+The request was returning 404 because the endpoint path itself was wrong.
+
+Keep root discovery if it is useful, but first fix the endpoint.
+
+The sequence should be:
+
+1. Determine root entry ID.
+2. Build the CORRECT API-version-specific children URL.
+3. Request Folder/Children.
+4. Parse the returned entries.
+5. Continue recursive repository scan.
+
+If root discovery returns Entry ID 1 and:
+
+GET /Entries/1/Folder/Children
+
+works, then ID 1 is valid and should be used.
+
+==================================================
+TASK 4 — QUERY PARAMETERS
+==================================================
+
+For V2 Folder/Children, support the parameters shown by the server Swagger:
+
+groupByEntryType=false
+formatFieldValues=false
+
+The generated request may be:
+
+/v2/Repositories/{repositoryId}/Entries/{entryId}/Folder/Children?groupByEntryType=false&formatFieldValues=false
+
+Do not add unnecessary parameters unless required.
+
+==================================================
+TASK 5 — PAGINATION
+==================================================
+
+Keep the V2 pagination support already implemented.
+
+If the Folder/Children response contains:
+
+@odata.nextLink
+
+follow it until all pages have been retrieved.
+
+Do not lose pagination while changing the route.
+
+==================================================
+TASK 6 — FIX DASHBOARD DATA SCAN
+==================================================
+
+After correcting the endpoint, verify the entire dashboard data pipeline.
+
+The current Dashboard shows:
+
+Total Folders: 0
+Total Documents: 0
+Templates: 19
+Docs with Template: 0
+Docs without Template: 0
+Documents by Folder: empty
+Document Activity: empty
+Documents by User Activity: empty
+Document Type Distribution: empty
+Recently Created Documents: 0
+Recent Document Activity: 0
+
+System Health says Connected.
+
+This indicates authentication/repository discovery works, but entry
+enumeration fails.
+
+Once Folder/Children works, verify that repository scanning actually
+populates:
+
+- folders
+- documents
+- templates assigned to documents
+- creator/user
+- creation date
+- modification date
+- document type
+- recent documents
+- folder distribution
+- document activity
+
+Do not fake or hardcode dashboard data.
+
+All values must come from the selected Laserfiche repository.
+
+==================================================
+TASK 7 — RECURSIVE SCAN
+==================================================
+
+Verify recursive traversal.
+
+Pseudo-flow:
+
+rootId = GetRootEntryId()
+
+ScanFolder(rootId)
+
+ScanFolder(folderId):
+    children = GetFolderChildren(folderId)
+
+    for each child:
+        if child is Folder:
+            add folder
+            ScanFolder(child.id)
+
+        if child is Document:
+            add document
+            collect metadata required by dashboard
+
+Prevent infinite loops by maintaining a HashSet<long> of visited folder IDs.
+
+Do not silently return an empty repository when one folder request fails.
+
+Log the failing URL, HTTP status, and response body.
+
+==================================================
+TASK 8 — PROBE / DIAGNOSTICS
+==================================================
+
+Update the probe so I can clearly see:
+
+API Version
+Repository ID
+Root Entry ID
+Request URL
+HTTP Status
+Number of children returned
+Number of folders
+Number of documents
+Pagination pages followed
+Total scan duration
+
+The probe must show the actual URL being called.
+
+After the fix I should see something like:
+
+GET /Entries/1/Folder/Children
+
+NOT:
+
+GET /Entries/1/Laserfiche.Repository.Folder/children
+
+==================================================
+TASK 9 — IMPORTANT REPOSITORY CONTEXT
+==================================================
+
+Do not hardcode:
+
+LFNewRepoWF
+TestEmployee
+NewEmployeeTest
+
+The active repository must continue coming from the existing repository
+session/context.
+
+If Dashboard is launched from Laserfiche Web Client using:
+
+?repository=NewEmployeeTest&source=webclient
+
+then all API calls must use:
+
+NewEmployeeTest
+
+If launched with:
+
+?repository=LFNewRepoWF&source=webclient
+
+then use:
+
+LFNewRepoWF
+
+==================================================
+TASK 10 — TESTS
+==================================================
+
+Add regression tests proving:
+
+1. V2 folder children URL is exactly:
+
+/v2/Repositories/TestEmployee/Entries/1/Folder/Children
+
+and NOT:
+
+/v2/Repositories/TestEmployee/Entries/1/Laserfiche.Repository.Folder/children
+
+2. Query parameters are generated correctly.
+
+3. Repository ID is dynamic.
+
+4. Entry ID is dynamic.
+
+5. V1 URL behavior remains unchanged.
+
+6. V2 OData response parsing works.
+
+7. @odata.nextLink pagination still works.
+
+8. Recursive traversal discovers nested folders/documents.
+
+9. A 404 is reported as an API error and not silently converted into
+   "repository contains zero documents."
+
+==================================================
+TASK 11 — BUILD
+==================================================
+
+After implementation:
+
+- Build LFPortal.Web in Release mode.
+- Run all Infrastructure tests.
+- Run all Web tests.
+- Fix all failures.
+- Do not modify Laserfiche server configuration.
+- Do not modify LFDS.
+- Do not modify Repository API Server appsettings.
+- Do not reintroduce the Login page requirement.
+- Do not change stored DPAPI credentials.
+
+Finally report:
+
+1. Exact root cause.
+2. Every incorrect V2 route found.
+3. Every route corrected.
+4. Files modified.
+5. Tests added.
+6. Build result.
+7. Test totals.
+8. The exact final URL used for Folder/Children.

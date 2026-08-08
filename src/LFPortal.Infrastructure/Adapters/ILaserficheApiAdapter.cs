@@ -77,7 +77,9 @@ public interface ILaserficheApiAdapter
     /// <summary>
     /// Builds the URL for listing direct children of a folder entry using the
     /// Laserfiche v1 OData-typed path:
-    /// <c>GET /Repositories/{repoId}/Entries/{entryId}/Laserfiche.Repository.Folder/children</c>.
+    /// Version-aware folder-children URL.
+    /// V2: <c>GET /Repositories/{repoId}/Entries/{entryId}/Folder/Children</c>.
+    /// V1: <c>GET /Repositories/{repoId}/Entries/{entryId}/Laserfiche.Repository.Folder/children</c>.
     /// No query parameters — this installation rejects $top, $skip, $count, and $select with HTTP 400.
     /// </summary>
     string BuildFolderChildrenUrl(string repositoryId, int entryId);
