@@ -205,59 +205,120 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
             return cached;
         }
 
-        // If the administrator has explicitly configured a root entry ID, use it directly.
-        // This is the fast path and avoids a ByPath network call on every dashboard load.
+        // ALWAYS discover the authoritative root via ByPath("\\").
+        //
+        // DO NOT short-circuit on configuredRootId=1. The default value of 1 is not
+        // guaranteed to be the repository root on every Laserfiche installation —
+        // calling /Entries/1/Laserfiche.Repository.Folder/children on a server where
+        // 1 is not a folder produces HTTP 400/404, which is silently swallowed and
+        // returns an empty list.  ByPath always gives the correct root ID.
+        //
+        // The configured value becomes a fallback ONLY when ByPath fails.
         var configuredRootId = _adapter.GetConfiguredRootEntryId();
+
+        using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
+
+        var byPathUrl = _adapter.BuildEntryByPathUrl(repo.RepositoryId, @"\");
+        _logger.LogInformation(
+            "SCAN — Discovering repository root via ByPath: {Url} (configuredRootId={ConfigId})",
+            byPathUrl, configuredRootId);
+
+        try
+        {
+            using var response = await client.GetAsync(byPathUrl, cancellationToken).ConfigureAwait(false);
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "===== RAW BYPATH RESPONSE (HTTP {Status}) =====\n{Body}\n===============================================",
+                (int)response.StatusCode, body);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var rootId = TryParseByPathId(body, byPathUrl);
+                if (rootId > 0)
+                {
+                    s_rootIdCache[repo.RepositoryId] = rootId;
+                    return rootId;
+                }
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "SCAN — ByPath root discovery failed: HTTP {Status} from {Url}. Body: {Body}",
+                    (int)response.StatusCode, byPathUrl,
+                    body.Length > 400 ? body[..400] + "…" : body);
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "SCAN — ByPath root discovery threw. Will fall back to configuredRootId={Id}.",
+                configuredRootId);
+        }
+
+        // ── Fallback: administrator-configured root entry ID ──────────────────
         if (configuredRootId > 0)
         {
-            _logger.LogInformation(
-                "Using configured root entry ID={Id} for repository '{RepoId}' (set in appsettings/settings).",
+            _logger.LogWarning(
+                "SCAN — Using configured root entry ID={Id} for repository '{RepoId}' " +
+                "as fallback (ByPath discovery did not return a usable ID). " +
+                "Set RootEntryId=0 in Settings to force ByPath discovery on every load.",
                 configuredRootId, repo.RepositoryId);
             s_rootIdCache[repo.RepositoryId] = configuredRootId;
             return configuredRootId;
         }
 
-        using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
+        throw new LaserficheException(
+            $"Root entry discovery failed for repository '{repo.RepositoryId}'. " +
+            $"ByPath returned an unexpected response and no valid RootEntryId is configured in Settings.",
+            500);
+    }
 
-        // Resolve the repository root via the Swagger-documented ByPath endpoint.
-        // Backslash (\) is the Laserfiche root path.
-        var byPathUrl = _adapter.BuildEntryByPathUrl(repo.RepositoryId, @"\");
-        _logger.LogInformation("Discovering repository root via ByPath: {Url}", byPathUrl);
-
-        using var response = await client.GetAsync(byPathUrl, cancellationToken).ConfigureAwait(false);
-
-        // Always read and log the complete raw body BEFORE any deserialization attempt.
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation(
-            "===== RAW BYPATH RESPONSE (HTTP {Status}) =====\n{Body}\n===============================================",
-            (int)response.StatusCode, body);
-
-        if (!response.IsSuccessStatusCode)
+    /// <summary>
+    /// Parses the root entry ID from a ByPath response body.
+    /// Handles two response shapes:
+    /// <list type="bullet">
+    ///   <item>Wrapped:  <c>{{ "entry": {{ "id": N, ... }} }}</c>  — used by some v1/v2 builds.</item>
+    ///   <item>Direct:   <c>{{ "id": N, "entryType": "Folder", ... }}</c>  — used by some v2 builds.</item>
+    /// </list>
+    /// Returns 0 when neither shape can be parsed.
+    /// </summary>
+    private int TryParseByPathId(string body, string url)
+    {
+        // ── Try wrapped shape: {"entry": {"id": N, ...}} ─────────────────────
+        try
         {
-            throw new LaserficheException(
-                $"Root entry discovery failed. GET {byPathUrl} returned HTTP {(int)response.StatusCode}. " +
-                $"Verify server URL, repository ID, and credentials. Body: {body}",
-                (int)response.StatusCode);
+            var wrapped = JsonSerializer.Deserialize<ByPathApiResponse>(body, JsonOptions.Default);
+            if (wrapped?.Entry is { Id: > 0 } wrappedEntry)
+            {
+                _logger.LogInformation(
+                    "SCAN — ByPath (wrapped shape): root id={Id}, name='{Name}', path='{Path}'.",
+                    wrappedEntry.Id, wrappedEntry.Name, wrappedEntry.FullPath);
+                return wrappedEntry.Id;
+            }
         }
+        catch (JsonException) { /* fall through to direct shape */ }
 
-        // The ByPath endpoint wraps the entry: { "entry": { "id": ..., "entryType": ..., ... } }
-        var byPathResponse = JsonSerializer.Deserialize<ByPathApiResponse>(body, JsonOptions.Default);
-        var entry = byPathResponse?.Entry;
-
-        if (entry is not { Id: > 0 })
+        // ── Try direct shape: {"id": N, "entryType": "Folder", ...} ──────────
+        try
         {
-            throw new LaserficheException(
-                $"Root entry discovery: GET {byPathUrl} returned HTTP 200 but 'entry.id' was not found or was zero in the response body. " +
-                $"Raw body: {body}",
-                (int)response.StatusCode);
+            var direct = JsonSerializer.Deserialize<EntryApiResource>(body, JsonOptions.Default);
+            if (direct is { Id: > 0 })
+            {
+                _logger.LogInformation(
+                    "SCAN — ByPath (direct shape): root id={Id}, name='{Name}', path='{Path}'.",
+                    direct.Id, direct.Name, direct.FullPath);
+                return direct.Id;
+            }
         }
+        catch (JsonException) { /* fall through */ }
 
-        _logger.LogInformation(
-            "Repository root discovered via ByPath: ID={Id}, name='{Name}', path='{Path}'.",
-            entry.Id, entry.Name, entry.FullPath);
-
-        s_rootIdCache[repo.RepositoryId] = entry.Id;
-        return entry.Id;
+        _logger.LogWarning(
+            "SCAN — ByPath response from {Url} could not be parsed for a root entry ID. " +
+            "Body: {Body}",
+            url, body.Length > 400 ? body[..400] + "…" : body);
+        return 0;
     }
 
     /// <inheritdoc />
@@ -271,74 +332,116 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
 
         // Swagger-documented endpoint only:
         // GET /Repositories/{repoId}/Entries/{id}/Laserfiche.Repository.Folder/children
-        var url = _adapter.BuildFolderChildrenUrl(repo.RepositoryId, entryId);
+        var firstUrl = _adapter.BuildFolderChildrenUrl(repo.RepositoryId, entryId);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
 
-        string body;
-        try
+        var allEntries = new List<LFEntry>();
+        string? nextUrl = firstUrl;
+        int pageNumber  = 0;
+        const int PageCap = 50;   // safety cap — prevents infinite nextLink loops
+
+        while (nextUrl is not null && pageNumber < PageCap)
         {
-            using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
-
-            body = await response.Content
-                .ReadAsStringAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
+            pageNumber++;
+            string body;
+            try
             {
-                _logger.LogWarning(
-                    "GetAllFolderChildrenAsync(entryId={EntryId}): GET {Url} → HTTP {Status}. Body: {Body}",
-                    entryId, url, (int)response.StatusCode,
-                    body.Length > 400 ? body[..400] + "…" : body);
-                return [];
-            }
+                using var response = await client.GetAsync(nextUrl, cancellationToken).ConfigureAwait(false);
 
-            _logger.LogInformation(
-                "GetAllFolderChildrenAsync(entryId={EntryId}): GET {Url} → HTTP {Status}.",
-                entryId, url, (int)response.StatusCode);
+                body = await response.Content
+                    .ReadAsStringAsync(cancellationToken)
+                    .ConfigureAwait(false);
 
-            // Log full raw body so response schema can be inspected before any parse attempt.
-            _logger.LogInformation(
-                "===== RAW FOLDER-CHILDREN RESPONSE (entryId={EntryId}) =====\n{Body}\n==========================================================",
-                entryId, body.Length > 4000 ? body[..4000] + "\n…[truncated]" : body);
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "GetAllFolderChildrenAsync(entryId={EntryId}): GET {Url} threw.", entryId, url);
-            return [];
-        }
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "SCAN — GetAllFolderChildrenAsync(entryId={EntryId}, page={Page}): " +
+                        "GET {Url} → HTTP {Status}. Body: {Body}",
+                        entryId, pageNumber, nextUrl, (int)response.StatusCode,
+                        body.Length > 400 ? body[..400] + "…" : body);
+                    break;  // stop pagination on error
+                }
 
-        try
-        {
-            var entries = ParseEntryList(body);
-
-            if (entries.Count == 0)
-            {
-                // HTTP 200 but zero entries — this is never silently swallowed.
-                // Log the full raw body so the response schema can be inspected.
-                _logger.LogWarning(
-                    "GetAllFolderChildrenAsync(entryId={EntryId}): HTTP 200 but parser produced 0 entries. " +
-                    "The response schema may not match the expected OData envelope {{\"value\":[...]}}. " +
-                    "Raw body: {Body}",
-                    entryId, body.Length > 4000 ? body[..4000] + "…" : body);
-            }
-            else
-            {
                 _logger.LogInformation(
-                    "GetAllFolderChildrenAsync(entryId={EntryId}): parsed {Count} entries. Sample types: {Types}",
-                    entryId, entries.Count,
-                    string.Join(", ", entries.Take(5).Select(e => e.EntryType.ToString())));
+                    "SCAN — GetAllFolderChildrenAsync(entryId={EntryId}, page={Page}): GET {Url} → HTTP {Status}.",
+                    entryId, pageNumber, nextUrl, (int)response.StatusCode);
+
+                // Log first page raw body for schema inspection
+                if (pageNumber == 1)
+                {
+                    _logger.LogInformation(
+                        "===== RAW FOLDER-CHILDREN RESPONSE (entryId={EntryId}, page=1) =====\n{Body}\n==========================================================",
+                        entryId, body.Length > 4000 ? body[..4000] + "\n…[truncated]" : body);
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "SCAN — GetAllFolderChildrenAsync(entryId={EntryId}, page={Page}): GET {Url} threw.",
+                    entryId, pageNumber, nextUrl);
+                break;
             }
 
-            return entries.AsReadOnly();
+            try
+            {
+                var (pageEntries, next) = ParseEntryListWithNextLink(body);
+
+                if (pageEntries.Count == 0 && pageNumber == 1)
+                {
+                    _logger.LogWarning(
+                        "SCAN — GetAllFolderChildrenAsync(entryId={EntryId}): HTTP 200 but page 1 produced 0 entries. " +
+                        "The response schema may not match the expected OData envelope {{\"value\":[...]}}. " +
+                        "Raw body: {Body}",
+                        entryId, body.Length > 4000 ? body[..4000] + "…" : body);
+                }
+
+                allEntries.AddRange(pageEntries);
+                _logger.LogInformation(
+                    "SCAN — GetAllFolderChildrenAsync(entryId={EntryId}, page={Page}): " +
+                    "+{PageCount} entries (running total={Total}), nextLink={HasNext}.",
+                    entryId, pageNumber, pageEntries.Count, allEntries.Count, next is not null ? "yes" : "no");
+
+                // Sanitise nextLink — must be an absolute URL that we understand.
+                nextUrl = IsUsableNextLink(next) ? next : null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "SCAN — GetAllFolderChildrenAsync(entryId={EntryId}, page={Page}): " +
+                    "JSON parse failed. Raw body: {Body}",
+                    entryId, pageNumber, body.Length > 4000 ? body[..4000] + "…" : body);
+                break;
+            }
         }
-        catch (Exception ex)
+
+        if (pageNumber >= PageCap)
         {
-            _logger.LogWarning(ex, "GetAllFolderChildrenAsync(entryId={EntryId}): JSON parse failed. Raw body: {Body}",
-                entryId, body.Length > 4000 ? body[..4000] + "…" : body);
-            return [];
+            _logger.LogWarning(
+                "SCAN — GetAllFolderChildrenAsync(entryId={EntryId}): pagination safety cap ({Cap} pages) reached.",
+                entryId, PageCap);
         }
+
+        _logger.LogInformation(
+            "SCAN — GetAllFolderChildrenAsync(entryId={EntryId}): " +
+            "total {Count} entries across {Pages} page(s). Types: {Types}",
+            entryId, allEntries.Count, pageNumber,
+            string.Join(", ", allEntries.Take(5).Select(e => e.EntryType.ToString())));
+
+        return allEntries.AsReadOnly();
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="nextLink"/> is a non-empty absolute URL
+    /// that can safely be used as the next-page request.
+    /// Rejects relative URLs, fragment-only strings, and obvious duplicates.
+    /// </summary>
+    private static bool IsUsableNextLink(string? nextLink)
+    {
+        if (string.IsNullOrWhiteSpace(nextLink)) return false;
+        return Uri.TryCreate(nextLink, UriKind.Absolute, out var uri) &&
+               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
     }
 
     /// <inheritdoc />
@@ -408,26 +511,37 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
     };
 
     /// <summary>
-    /// Parses a Laserfiche API response into a list of <see cref="EntryApiResource"/> items.
-    /// Handles both formats used by different v1 endpoints:
-    ///   • OData envelope: <c>{"value":[...]}</c>  — returned by /children, /Searches, etc.
-    ///   • Bare array:     <c>[...]</c>             — returned by /Repositories on some builds.
-    /// Falls back gracefully and logs if neither format matches.
+    /// Parses a Laserfiche API response into a list of <see cref="LFEntry"/> items and
+    /// an optional <c>@odata.nextLink</c> URL for V2 paginated responses.
+    /// Handles both formats:
+    ///   • OData envelope: <c>{"value":[...], "@odata.nextLink":"..."}</c>  — /children, /Searches, etc.
+    ///   • Bare array:     <c>[...]</c>                                     — legacy v1 builds.
     /// </summary>
-    private List<LFEntry> ParseEntryList(string body)
+    private (List<LFEntry> Entries, string? NextLink) ParseEntryListWithNextLink(string body)
     {
         body = body.Trim();
 
         if (body.StartsWith('['))
         {
-            // Bare JSON array
+            // Bare JSON array — no pagination
             var resources = JsonSerializer.Deserialize<List<EntryApiResource>>(body, JsonOptions.Default) ?? [];
-            return resources.Select(MapEntry).ToList();
+            return (resources.Select(MapEntry).ToList(), null);
         }
 
-        // OData envelope {"value":[...]}
-        var odata = JsonSerializer.Deserialize<ODataList<EntryApiResource>>(body, JsonOptions.Default);
-        return (odata?.Value ?? []).Select(MapEntry).ToList();
+        // OData envelope {"value":[...], "@odata.nextLink":"..."}
+        var odata = JsonSerializer.Deserialize<ODataPagedList<EntryApiResource>>(body, JsonOptions.Default);
+        var entries = (odata?.Value ?? []).Select(MapEntry).ToList();
+        return (entries, odata?.NextLink);
+    }
+
+    /// <summary>
+    /// Parses a Laserfiche API response into a flat entry list (no pagination link returned).
+    /// Used by callers that read all-at-once (e.g. <see cref="GetEntryChildrenAsync"/>).
+    /// </summary>
+    private List<LFEntry> ParseEntryList(string body)
+    {
+        var (entries, _) = ParseEntryListWithNextLink(body);
+        return entries;
     }
 
     /// <summary>
@@ -697,6 +811,23 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
     {
         [JsonPropertyName("value")]
         public List<T> Value { get; init; } = [];
+    }
+
+    /// <summary>
+    /// OData response envelope that captures the <c>@odata.nextLink</c> continuation URL
+    /// returned by V2 paginated endpoints (folder children, search results, etc.).
+    /// </summary>
+    private sealed record ODataPagedList<T>
+    {
+        [JsonPropertyName("value")]
+        public List<T> Value { get; init; } = [];
+
+        /// <summary>
+        /// Absolute URL for the next page of results, or <c>null</c> when this is the
+        /// last page.  Only present when the server paginates the response.
+        /// </summary>
+        [JsonPropertyName("@odata.nextLink")]
+        public string? NextLink { get; init; }
     }
 
     private sealed record ODataCountList<T>

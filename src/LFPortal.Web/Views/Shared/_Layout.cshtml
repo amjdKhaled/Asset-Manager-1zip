@@ -14,17 +14,17 @@
         :root {
             --lfp-navy:   #17243A;
             --lfp-blue:   #1e3a8a;
-            --lfp-accent: #003b83;
-            --lfp-green:  #16a34a;
-            --lfp-red:    #dc2626;
-            --lfp-amber:  #d97706;
-            --lfp-bg:     #f8fafc;
-            --lfp-card:   #ffffff;
-            --lfp-border: #e2e8f0;
-            --lfp-text:   #1e293b;
-            --lfp-muted:  #64748b;
+            --lfp-accent: #3B82F6;
+            --lfp-green:  #22C55E;
+            --lfp-red:    #EF4444;
+            --lfp-amber:  #F59E0B;
+            --lfp-bg:     #0F172A;
+            --lfp-card:   #1E293B;
+            --lfp-border: #334155;
+            --lfp-text:   #F1F5F9;
+            --lfp-muted:  #94A3B8;
             --radius:     6px;
-            --shadow:     0 1px 3px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.06);
+            --shadow:     0 1px 4px rgba(0,0,0,.40), 0 1px 2px rgba(0,0,0,.25);
         }
 
         body {
@@ -169,11 +169,11 @@
             font-size: .8125rem;
             font-weight: 600;
         }
-        .badge--green  { background: #dcfce7; color: #166534; }
-        .badge--red    { background: #fee2e2; color: #991b1b; }
-        .badge--amber  { background: #fef3c7; color: #92400e; }
-        .badge--blue   { background: #dbeafe; color: #1e40af; }
-        .badge--gray   { background: #f1f5f9; color: #475569; }
+        .badge--green  { background: rgba(34,197,94,.15);  color: #4ADE80; border: 1px solid rgba(34,197,94,.3); }
+        .badge--red    { background: rgba(239,68,68,.15);  color: #F87171; border: 1px solid rgba(239,68,68,.3); }
+        .badge--amber  { background: rgba(245,158,11,.15); color: #FCD34D; border: 1px solid rgba(245,158,11,.3); }
+        .badge--blue   { background: rgba(59,130,246,.15); color: #93C5FD; border: 1px solid rgba(59,130,246,.3); }
+        .badge--gray   { background: rgba(148,163,184,.12); color: #CBD5E1; border: 1px solid rgba(148,163,184,.2); }
         .badge::before { content: "●"; font-size: .625rem; }
 
         /* ── Status grid ── */
@@ -196,10 +196,10 @@
             align-items: flex-start;
             gap: 10px;
         }
-        .alert--error   { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; }
-        .alert--info    { background: #eff6ff; color: #1e3a8a; border: 1px solid #bfdbfe; }
-        .alert--success { background: #dcfce7; color: #14532d; border: 1px solid #86efac; }
-        .alert--amber   { background: #fef3c7; color: #78350f; border: 1px solid #fcd34d; }
+        .alert--error   { background: rgba(239,68,68,.12);  color: #FCA5A5; border: 1px solid rgba(239,68,68,.3); }
+        .alert--info    { background: rgba(59,130,246,.12); color: #93C5FD; border: 1px solid rgba(59,130,246,.3); }
+        .alert--success { background: rgba(34,197,94,.12);  color: #86EFAC; border: 1px solid rgba(34,197,94,.3); }
+        .alert--amber   { background: rgba(245,158,11,.12); color: #FCD34D; border: 1px solid rgba(245,158,11,.3); }
 
         /* ── Settings form ── */
         .form-section__title {
@@ -211,7 +211,7 @@
         .field-label { font-size: .875rem; font-weight: 600; color: var(--lfp-text); }
         .field-input {
             padding: 8px 12px; border: 1px solid var(--lfp-border); border-radius: var(--radius);
-            font-size: .875rem; color: var(--lfp-text); background: #fff;
+            font-size: .875rem; color: var(--lfp-text); background: #0F172A;
             transition: border-color .15s, box-shadow .15s; width: 100%;
         }
         .field-input:focus { outline: none; border-color: var(--lfp-accent); box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
@@ -227,8 +227,8 @@
         }
         .btn--primary   { background: var(--lfp-accent); color: #fff; border-color: var(--lfp-accent); }
         .btn--primary:hover { background: #2563eb; border-color: #2563eb; }
-        .btn--secondary { background: #fff; color: var(--lfp-text); border-color: var(--lfp-border); }
-        .btn--secondary:hover { background: var(--lfp-bg); }
+        .btn--secondary { background: #1E293B; color: var(--lfp-text); border-color: var(--lfp-border); }
+        .btn--secondary:hover { background: #263349; }
         .btn:disabled { opacity: .6; cursor: not-allowed; }
 
         /* ── Stat cards (Dashboard) ── */
@@ -292,7 +292,7 @@
             vertical-align: middle;
         }
         .data-table tbody tr:last-child td { border-bottom: none; }
-        .data-table tbody tr:hover         { background: #f8fafc; }
+        .data-table tbody tr:hover         { background: rgba(255,255,255,.04); }
 
         /* ── Entry type badges ── */
         .entry-badge {
@@ -305,16 +305,16 @@
             text-transform: uppercase;
             letter-spacing: .04em;
         }
-        .entry-badge--document { background: #dbeafe; color: #1e40af; }
-        .entry-badge--folder   { background: #fef3c7; color: #92400e; }
-        .entry-badge--shortcut { background: #f3f4f6; color: #374151; }
-        .entry-badge--other    { background: #f3f4f6; color: #6b7280; }
+        .entry-badge--document { background: rgba(59,130,246,.18);  color: #93C5FD; }
+        .entry-badge--folder   { background: rgba(245,158,11,.18);  color: #FCD34D; }
+        .entry-badge--shortcut { background: rgba(148,163,184,.12); color: #CBD5E1; }
+        .entry-badge--other    { background: rgba(148,163,184,.10); color: #94A3B8; }
 
         /* ── Breakdown bars (Dashboard entry type chart) ── */
         .breakdown-bars { display: flex; flex-direction: column; gap: 12px; }
         .breakdown-row  { display: grid; grid-template-columns: 100px 1fr 80px; align-items: center; gap: 12px; }
         .breakdown-row__label { font-size: .875rem; color: var(--lfp-text); font-weight: 500; }
-        .breakdown-row__bar-wrap { background: #f1f5f9; border-radius: 100px; height: 8px; overflow: hidden; }
+        .breakdown-row__bar-wrap { background: #1E293B; border-radius: 100px; height: 8px; overflow: hidden; }
         .breakdown-row__bar { height: 100%; border-radius: 100px; transition: width .4s ease; min-width: 2px; }
         .breakdown-row__count { font-size: .875rem; color: var(--lfp-muted); font-variant-numeric: tabular-nums; text-align: right; }
 
