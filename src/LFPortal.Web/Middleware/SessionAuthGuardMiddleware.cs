@@ -4,23 +4,23 @@ using Microsoft.Extensions.Options;
 namespace LFPortal.Web.Middleware;
 
 /// <summary>
-/// Guards protected routes for Desktop Client or Web Client sessions that have not yet
-/// completed the Login flow for the currently active repository.
+/// Guards protected routes for Desktop Client sessions that have not yet completed
+/// the Login flow for the currently active repository.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The guard fires when the session was opened from either the Laserfiche Desktop Client
-/// (<c>ActiveRepositorySource == "Laserfiche Desktop Client"</c>) or the Laserfiche
-/// Web Client (<c>ActiveRepositorySource == "Laserfiche Web Client"</c>).
-/// For direct browser access the guard is transparent — the existing Settings-configured
-/// fallback credentials are used without any login prompt.
+/// The guard fires when the session was opened from the Laserfiche Desktop Client
+/// (<c>ActiveRepositorySource == "Laserfiche Desktop Client"</c>).
 /// </para>
 /// <para>
-/// A session is considered authenticated when <c>AuthenticatedRepositoryId</c> matches
-/// <c>ActiveRepositoryId</c>.  Switching repositories (e.g. the user opens a new popup or
-/// tab for a different repository) causes <c>ActiveRepositoryId</c> to change and the
-/// guard redirects to <c>/Login</c> again because the prior authentication is for a
-/// different repository.
+/// <b>Web Client</b> and <b>direct browser</b> sessions are <em>not</em> guarded:
+/// they use the Dashboard's own DPAPI-protected server-side credentials for all API
+/// communication.  No username/password form is shown to the end user.
+/// </para>
+/// <para>
+/// A guarded session is considered authenticated when <c>AuthenticatedRepositoryId</c>
+/// matches <c>ActiveRepositoryId</c>.  Switching repositories causes
+/// <c>ActiveRepositoryId</c> to change and the guard redirects to <c>/Login</c> again.
 /// </para>
 /// <para>
 /// Excluded paths (never redirected):
@@ -40,14 +40,16 @@ public sealed class SessionAuthGuardMiddleware
 
     /// <summary>
     /// Sources that require an explicit Login before accessing repository data.
-    /// Direct browser access (null / "Default Configuration") is not in this set
-    /// and falls through to the Settings-page fallback credentials.
+    /// <para>
+    /// <b>Laserfiche Web Client</b> is intentionally excluded: the Dashboard uses its own
+    /// DPAPI-protected credentials and opens directly without a login prompt.
+    /// Direct browser access (null / empty source) is likewise not guarded.
+    /// </para>
     /// </summary>
     private static readonly HashSet<string> GuardedSources =
         new(StringComparer.OrdinalIgnoreCase)
         {
             "Laserfiche Desktop Client",
-            "Laserfiche Web Client",
         };
 
     private readonly RequestDelegate _next;

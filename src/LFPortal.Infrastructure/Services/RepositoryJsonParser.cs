@@ -82,21 +82,40 @@ internal static class RepositoryJsonParser
             }
 
             // ── V2 OData: {"value": [{...}, ...], "@odata.context": "..."}  ───
+            //
+            // V2 uses camelCase property names that differ from V1:
+            //   V1: "repoId" / "repoName" / "webclientUrl"
+            //   V2: "id"     / "name"     / "webClientUrl"
+            //
+            // We manually iterate and probe each element so both naming schemes are
+            // supported without any dependency on JsonSerializer attribute conventions.
             if (root.ValueKind    == JsonValueKind.Object &&
                 root.TryGetProperty("value", out var valueEl) &&
                 valueEl.ValueKind == JsonValueKind.Array)
             {
                 shape = ShapeV2OData;
-                try
+                var result = new List<RepositoryDto>();
+                foreach (var el in valueEl.EnumerateArray())
                 {
-                    var rawArray = valueEl.GetRawText();
-                    return JsonSerializer.Deserialize<List<RepositoryDto>>(rawArray, JsonOptions.Default);
+                    if (el.ValueKind != JsonValueKind.Object) continue;
+
+                    var dto = new RepositoryDto();
+
+                    // Repository ID: V2 = "id", V1 fallback = "repoId"
+                    if (el.TryGetProperty("id",     out var idEl))     dto.RepoId       = idEl.GetString()     ?? string.Empty;
+                    else if (el.TryGetProperty("repoId", out var rid)) dto.RepoId       = rid.GetString()      ?? string.Empty;
+
+                    // Repository name: V2 = "name", V1 fallback = "repoName"
+                    if (el.TryGetProperty("name",       out var nmEl))  dto.RepoName     = nmEl.GetString()     ?? string.Empty;
+                    else if (el.TryGetProperty("repoName", out var rn)) dto.RepoName     = rn.GetString()       ?? string.Empty;
+
+                    // Web-client URL: V2 = "webClientUrl" (capital C/U), V1 = "webclientUrl"
+                    if (el.TryGetProperty("webClientUrl",  out var wc1)) dto.WebclientUrl = wc1.GetString()     ?? string.Empty;
+                    else if (el.TryGetProperty("webclientUrl", out var wc2)) dto.WebclientUrl = wc2.GetString() ?? string.Empty;
+
+                    result.Add(dto);
                 }
-                catch (JsonException)
-                {
-                    shape = "v2-odata-deserialize-error";
-                    return null;
-                }
+                return result;
             }
 
             // ── Unrecognised shape (error object, HTML string, metadata, etc.) ─

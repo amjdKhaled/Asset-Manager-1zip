@@ -171,6 +171,100 @@ public sealed class RepositoryJsonParserTests
         Assert.Equal("empty", shape);
     }
 
+    // ── Exact real V2 response from the Laserfiche server ────────────────────
+    //    Property names are: "id", "name", "webClientUrl" (camelCase).
+    //    This was the body causing "()" in the Discover dropdown.
+
+    [Fact]
+    public void TryParse_RealV2Response_FourRepos_ParsesAllCorrectly()
+    {
+        // Exact shape observed on the real Laserfiche machine.
+        const string body = """
+            {
+              "@odata.context": "https://localhost/LFRepositoryAPI/v2/$metadata#Repositories",
+              "value": [
+                {
+                  "@odata.type": "#Laserfiche.Repository.Repository",
+                  "id": "LFNewRepoWF",
+                  "name": "LFNewRepoWF",
+                  "webClientUrl": "http://localhost/laserfiche?repo=LFNewRepoWF"
+                },
+                {
+                  "id": "NewEmployeeTest",
+                  "name": "NewEmployeeTest",
+                  "webClientUrl": "http://localhost/laserfiche?repo=NewEmployeeTest"
+                },
+                {
+                  "id": "NewLFWorkflow",
+                  "name": "NewLFWorkflow",
+                  "webClientUrl": "http://localhost/laserfiche?repo=NewLFWorkflow"
+                },
+                {
+                  "id": "TestEmployee",
+                  "name": "TestEmployee",
+                  "webClientUrl": "http://localhost/laserfiche?repo=TestEmployee"
+                }
+              ]
+            }
+            """;
+
+        var repos = RepositoryJsonParser.TryParse(body, out var shape);
+
+        Assert.NotNull(repos);
+        Assert.Equal(RepositoryJsonParser.ShapeV2OData, shape);
+        Assert.Equal(4, repos.Count);
+
+        Assert.Equal("LFNewRepoWF",    repos[0].RepoId);
+        Assert.Equal("LFNewRepoWF",    repos[0].RepoName);
+
+        Assert.Equal("NewEmployeeTest", repos[1].RepoId);
+        Assert.Equal("NewEmployeeTest", repos[1].RepoName);
+
+        Assert.Equal("NewLFWorkflow",   repos[2].RepoId);
+        Assert.Equal("TestEmployee",    repos[3].RepoId);
+    }
+
+    [Fact]
+    public void TryParse_RealV2Response_NoBlankIds()
+    {
+        // This ensures the Discover dropdown never shows blank entries.
+        const string body = """
+            {
+              "value": [
+                { "id": "LFNewRepoWF",    "name": "LFNewRepoWF",    "webClientUrl": "" },
+                { "id": "NewEmployeeTest","name": "NewEmployeeTest", "webClientUrl": "" },
+                { "id": "NewLFWorkflow",  "name": "NewLFWorkflow",   "webClientUrl": "" },
+                { "id": "TestEmployee",   "name": "TestEmployee",    "webClientUrl": "" }
+              ]
+            }
+            """;
+
+        var repos = RepositoryJsonParser.TryParse(body, out _)!;
+
+        foreach (var r in repos)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(r.RepoId),
+                "RepoId must not be blank — this causes '()' in the Discover dropdown.");
+            Assert.False(string.IsNullOrWhiteSpace(r.RepoName),
+                "RepoName must not be blank — this causes '()' in the Discover dropdown.");
+        }
+    }
+
+    [Fact]
+    public void TryParse_V2RealShape_IsCompatibleShape_ReturnsTrue()
+    {
+        const string body = """
+            {
+              "@odata.context": "https://localhost/LFRepositoryAPI/v2/$metadata#Repositories",
+              "value": [
+                { "id": "LFNewRepoWF", "name": "LFNewRepoWF", "webClientUrl": "" }
+              ]
+            }
+            """;
+
+        Assert.True(RepositoryJsonParser.IsCompatibleShape(body));
+    }
+
     // ── IsCompatibleShape ─────────────────────────────────────────────────────
 
     [Theory]

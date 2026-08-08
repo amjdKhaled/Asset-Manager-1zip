@@ -95,8 +95,11 @@ public sealed class SettingsController : Controller
         // Default Repository is intentionally OPTIONAL: the repository is runtime
         // session context (Desktop/Web Client launch or login-page selection).
         // A value here only serves as the fallback for direct browser access.
-        if (!string.IsNullOrWhiteSpace(request.Username) && string.IsNullOrWhiteSpace(request.Password))
-            ModelState.AddModelError(nameof(request.Password), "Password is required when a username is provided.");
+        //
+        // Note: a blank Password field does NOT mean "no password" — the browser
+        // never receives the stored DPAPI password so the field is always rendered
+        // empty.  We handle the "username filled, password blank" case in the action
+        // body by loading the stored password before writing.
 
         if (!ModelState.IsValid)
         {
@@ -119,15 +122,45 @@ public sealed class SettingsController : Controller
                 request.TimeoutSeconds is >= 5 and <= 300 ? request.TimeoutSeconds : 30,
                 cancellationToken);
 
-            // 2. Persist credentials only when both fields are supplied
-            if (!string.IsNullOrWhiteSpace(request.Username) &&
-                !string.IsNullOrWhiteSpace(request.Password))
+            // 2. Persist credentials.
+            //    The browser never receives the stored DPAPI password so the Password
+            //    field is always rendered blank.  Rules:
+            //    - Both blank → no credential update (preserve what's stored).
+            //    - Username filled, Password blank → update username, keep stored password.
+            //    - Both filled → update both.
+            if (!string.IsNullOrWhiteSpace(request.Username))
             {
-                await _credentialProvider.StoreCredentialsAsync(
-                    DefaultRepositoryKey,
-                    request.Username.Trim(),
-                    request.Password,
-                    cancellationToken);
+                var effectiveSavePassword = request.Password ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(effectiveSavePassword))
+                {
+                    // Try to load the existing stored password so we can re-save with the
+                    // new username without losing the credential.
+                    try
+                    {
+                        var stored = await _credentialProvider
+                            .GetCredentialsAsync(DefaultRepositoryKey, cancellationToken)
+                            .ConfigureAwait(false);
+                        effectiveSavePassword = stored.Password;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Nothing stored yet — can't re-save without a password.
+                        // Log and skip the credential write rather than throwing.
+                        _logger.LogWarning(
+                            "Save: Username supplied but Password is blank and no stored " +
+                            "credentials exist. Credentials were not updated.");
+                        effectiveSavePassword = string.Empty;
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(effectiveSavePassword))
+                {
+                    await _credentialProvider.StoreCredentialsAsync(
+                        DefaultRepositoryKey,
+                        request.Username.Trim(),
+                        effectiveSavePassword,
+                        cancellationToken);
+                }
             }
 
             // 3. Invalidate the cached token so the new credentials take effect immediately
@@ -151,20 +184,66 @@ public sealed class SettingsController : Controller
     /// Tests a Laserfiche connection using the credentials submitted in the form
     /// without saving anything. Returns an HTML partial for inline injection.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The Settings page never returns the stored DPAPI password to the browser —
+    /// the Password field is always rendered empty.  A blank <c>Password</c> (and/or
+    /// <c>Username</c>) therefore means "use the value already saved in the credential
+    /// store", <em>not</em> "the field was not filled in".
+    /// </para>
+    /// </remarks>
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> TestConnection(
         [FromForm] TestConnectionRequest request,
         CancellationToken cancellationToken)
     {
+        // Server URL and Repository are always required; they have no stored fallback.
         if (string.IsNullOrWhiteSpace(request.ServerUrl) ||
-            string.IsNullOrWhiteSpace(request.RepositoryId) ||
-            string.IsNullOrWhiteSpace(request.Username) ||
-            string.IsNullOrWhiteSpace(request.Password))
+            string.IsNullOrWhiteSpace(request.RepositoryId))
         {
             var failure = ConnectionStatus.Failure(
-                "All four fields (Server URL, Default Repository, Username, Password) " +
-                "must be filled in to test the connection.");
+                "Server URL and Default Repository must be filled in to test the connection.");
+            return PartialView("_TestResult", failure);
+        }
+
+        // ── Resolve effective credentials ────────────────────────────────────────
+        // The browser never receives the stored DPAPI password, so an empty field
+        // means "use the stored value".  Load stored credentials once and use them
+        // as the fallback for whichever fields the form left blank.
+        var effectiveUsername = request.Username?.Trim() ?? string.Empty;
+        var effectivePassword = request.Password ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(effectiveUsername) ||
+            string.IsNullOrWhiteSpace(effectivePassword))
+        {
+            try
+            {
+                var stored = await _credentialProvider
+                    .GetCredentialsAsync(DefaultRepositoryKey, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (string.IsNullOrWhiteSpace(effectiveUsername))
+                    effectiveUsername = stored.Username;
+                if (string.IsNullOrWhiteSpace(effectivePassword))
+                    effectivePassword = stored.Password;
+            }
+            catch (InvalidOperationException)
+            {
+                // No stored credentials — let the blanks fall through to the service
+                // which will produce a meaningful auth-failure message.
+                _logger.LogDebug(
+                    "TestConnection: no stored credentials found; " +
+                    "proceeding with form values only.");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(effectiveUsername) ||
+            string.IsNullOrWhiteSpace(effectivePassword))
+        {
+            var failure = ConnectionStatus.Failure(
+                "Username and Password are required. " +
+                "Save credentials in Settings before testing the connection.");
             return PartialView("_TestResult", failure);
         }
 
@@ -197,8 +276,8 @@ public sealed class SettingsController : Controller
         var status = await _repositoryService.TestConnectionWithCredentialsAsync(
             serverUrl,
             request.RepositoryId.Trim(),
-            request.Username.Trim(),
-            request.Password,
+            effectiveUsername,
+            effectivePassword,
             cancellationToken);
 
         return PartialView("_TestResult", status);

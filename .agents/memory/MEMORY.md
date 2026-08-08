@@ -41,6 +41,9 @@
 - [BA stale DLL guards](ba-stale-dll-guards.md) — publish.ps1 must clean Dashboard.BA/bin+obj in Step 1, compare source vs staged SHA256, and scan staged DLL for removed UI strings.
 - [Smoke test WriteConfig validation](smoke-test-writecofig-validation.md) — parse WriteConfig log line for VALUES not raw stdout; Invoked: line legitimately contains both --webapp-path and --config-dir tokens.
 - [Repository JSON parser — V1 vs V2](repo-json-parser-v1-v2.md) — V2 GET /Repositories returns OData envelope {"value":[…]}; use RepositoryJsonParser.TryParse, never raw Deserialize<List<RepositoryDto>>; auto-detect must validate body shape, not just HTTP status.
+- [V2 RepositoryDto field mapping](v2-dto-field-mapping.md) — V2 uses id/name/webClientUrl not repoId/repoName/webclientUrl; parser manually maps both sets in the V2 branch.
+- [Web Client launch bypass](webclient-no-login.md) — "Laserfiche Web Client" NOT in GuardedSources; Web Client uses DPAPI credentials directly, no Login redirect.
+- [TestConnection blank password](test-connection-blank-password.md) — blank Password field means "use stored DPAPI value"; ServerUrl+RepositoryId are the only always-required fields.
 - [Auth diagnostic logging](auth-diagnostic-logging.md) — RequestTokenAsync logs effective config + sanitized LF response body at Error level; 8-char hex DiagnosticId appears in both log and UI; Uri.ToString() unescapes %20, use AbsoluteUri in tests.
 - [Self-contained publish architecture](self-contained-publish.md) — Dashboard ships win-x64 self-contained (coreclr.dll bundled); ANCM V2 replaces .NET 8 runtime as the only machine prerequisite; 4 publish guards enforce the contract.
 - [IIS Web Client detection](iis-webclient-detection.md) — DetectionService now checks applicationHost.config + appcmd before registry; covers non-default /Laserfiche IIS app paths.

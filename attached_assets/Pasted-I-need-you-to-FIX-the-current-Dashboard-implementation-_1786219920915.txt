@@ -1,0 +1,534 @@
+I need you to FIX the current Dashboard implementation, not just investigate it.
+
+The latest build is deployed and I tested it on the real Laserfiche machine. There are still multiple problems.
+
+IMPORTANT REQUIREMENTS:
+
+- Do NOT modify any Laserfiche configuration.
+- Do NOT modify LFRepositoryAPI appsettings.json.
+- Do NOT modify LFDS / WebSTS.
+- Do NOT require OAuth or SSO configuration.
+- Do NOT switch the whole application to V2.
+- Keep the existing V1/V2 compatibility architecture where appropriate.
+- Fix everything inside the Dashboard project only.
+- Do not stop after analysis.
+- Implement the fixes, build, test, and report exactly what changed.
+- Preserve the existing working dashboard functionality.
+
+==========================================================
+PROBLEM 1 — REMOVE THE LOGIN PAGE FROM THE NORMAL FLOW
+==========================================================
+
+We already asked for this, but the Dashboard still redirects users to:
+
+    /Login
+
+and displays the username/password login screen.
+
+I do NOT want the Login page in the normal Dashboard flow anymore.
+
+When Dashboard is opened from the Laserfiche Web Client button, the expected flow is:
+
+    Laserfiche Web Client
+        ↓
+    Dashboard button
+        ↓
+    Dashboard receives repository context
+        ↓
+    Dashboard opens directly
+        ↓
+    NO /Login page
+
+Remove the Login page from the normal Web Client launch flow.
+
+IMPORTANT:
+
+Do not fake SSO.
+Do not claim that the Dashboard has the Laserfiche user's bearer token if it does not.
+
+The current Dashboard already has fallback/admin credentials stored securely using DPAPI.
+
+For now, use the existing Dashboard server-side stored credentials for API communication when Dashboard is launched from the Web Client.
+
+This means:
+
+- User must NOT enter username/password again.
+- Credentials must NEVER be sent in the URL.
+- Credentials must NEVER be exposed to JavaScript.
+- Credentials must NEVER be written into HTML.
+- Credentials remain server-side only.
+- Use the existing DPAPI-protected credential mechanism.
+- Do not create a new plaintext credential store.
+
+This is intentionally NOT true same-user SSO.
+
+The goal right now is simply:
+
+    click Dashboard from Laserfiche
+    → open Dashboard directly
+    → Dashboard communicates with Laserfiche using its existing
+      server-side configured credentials
+
+Keep the dormant LFDS OAuth code dormant. Do not activate it.
+
+If direct browser access requires a different fallback behavior, handle that separately, but the Web Client launch MUST NOT redirect to /Login.
+
+Review and modify as necessary:
+
+- SessionAuthGuardMiddleware
+- RepositorySessionMiddleware
+- LoginController
+- DashboardController
+- authentication/session services
+- Program.cs middleware order
+- Web Client launch URL handling
+
+Do not simply hide the Login HTML.
+
+The redirect to /Login must actually be removed from the Web Client launch execution path.
+
+==========================================================
+PROBLEM 2 — REPOSITORY DISCOVERY IS STILL BROKEN
+==========================================================
+
+The latest real-machine test now says:
+
+    4 repositories found. Select one:
+
+But the dropdown contains entries like:
+
+    ()
+
+This proves that the response is being recognized as containing four
+repositories, but RepositoryDto is NOT being populated correctly.
+
+Then Connection Status reports:
+
+    Authenticated successfully, but repository 'LFNewRepoWF'
+    was not found in the repository list returned by
+    https://localhost/LFRepositoryAPI/v2/Repositories.
+
+This must be fixed.
+
+We already added RepositoryJsonParser support for:
+
+V1:
+
+    [
+      {...}
+    ]
+
+and V2 OData:
+
+    {
+      "value": [
+        {...}
+      ]
+    }
+
+But handling the outer "value" wrapper is NOT sufficient.
+
+Inspect the ACTUAL property names returned by Laserfiche V2.
+
+The real V2 response previously observed on this machine is shaped like:
+
+    {
+      "@odata.context": "...",
+      "value": [
+        {
+          "@odata.type": "#Laserfiche.Repository.Repository",
+          "id": "LFNewRepoWF",
+          "name": "LFNewRepoWF",
+          "webClientUrl": "http://localhost/laserfiche?repo=LFNewRepoWF"
+        },
+        {
+          "id": "NewEmployeeTest",
+          "name": "NewEmployeeTest",
+          "webClientUrl": "http://localhost/laserfiche?repo=NewEmployeeTest"
+        },
+        {
+          "id": "NewLFWorkflow",
+          "name": "NewLFWorkflow",
+          "webClientUrl": "http://localhost/laserfiche?repo=NewLFWorkflow"
+        },
+        {
+          "id": "TestEmployee",
+          "name": "TestEmployee",
+          "webClientUrl": "http://localhost/laserfiche?repo=TestEmployee"
+        }
+      ]
+    }
+
+Notice carefully:
+
+    id
+    name
+    webClientUrl
+
+are LOWERCASE / camelCase JSON properties.
+
+Check RepositoryDto.
+
+If RepositoryDto expects fields such as:
+
+    RepositoryId
+    RepositoryName
+
+without explicit JsonPropertyName mappings, that is likely why the
+objects are being created but their values are empty.
+
+Fix the mapping correctly.
+
+For example, if appropriate to the architecture, map:
+
+    id   → RepositoryId
+    name → RepositoryName
+    webClientUrl → WebClientUrl
+
+Do NOT rely on assumptions about case or property names.
+
+The parser must support BOTH existing V1 responses and V2 OData responses.
+
+Add tests using the EXACT real V2 JSON above.
+
+The test MUST verify:
+
+    Count == 4
+
+and specifically:
+
+    repositories[0].RepositoryId == "LFNewRepoWF"
+    repositories[0].RepositoryName == "LFNewRepoWF"
+
+    repositories[1].RepositoryId == "NewEmployeeTest"
+
+    repositories[2].RepositoryId == "NewLFWorkflow"
+
+    repositories[3].RepositoryId == "TestEmployee"
+
+Also verify that the UI discovery model receives the actual names and does NOT produce:
+
+    ()
+
+After the fix, the Discover dropdown should show something meaningful such as:
+
+    LFNewRepoWF
+    NewEmployeeTest
+    NewLFWorkflow
+    TestEmployee
+
+NOT:
+
+    ()
+    ()
+    ()
+    ()
+
+==========================================================
+PROBLEM 3 — ACTIVE REPOSITORY CONTEXT IS WRONG
+==========================================================
+
+The Dashboard still shows:
+
+    ACTIVE REPOSITORY
+    LFNewRepoWF
+
+even when Dashboard may have been launched from another repository.
+
+The repository passed by the Laserfiche Web Client must override the configured fallback repository FOR THAT SESSION.
+
+Expected precedence:
+
+    Web Client repository context
+        >
+    session repository
+        >
+    configured DefaultRepository fallback
+
+Example:
+
+If the user is inside:
+
+    NewEmployeeTest
+
+and clicks Dashboard, Dashboard must operate against:
+
+    NewEmployeeTest
+
+It must NOT silently revert to:
+
+    LFNewRepoWF
+
+because LFNewRepoWF happens to be saved in configuration.
+
+Trace the entire path:
+
+    lf-webclient-button.js
+        ↓
+    launch URL
+        ↓
+    query parameter
+        ↓
+    RepositorySessionMiddleware
+        ↓
+    session
+        ↓
+    SessionAwareRepositoryContext
+        ↓
+    repository services
+        ↓
+    Dashboard
+
+Confirm the actual query parameter generated by the Web Client button.
+
+Normalize repository identification carefully:
+
+- repository ID
+- repository name
+
+The Laserfiche API response may have:
+
+    id = "NewEmployeeTest"
+    name = "NewEmployeeTest"
+
+Do not compare against an empty DTO field.
+
+Add an integration/regression test:
+
+Configured fallback:
+
+    LFNewRepoWF
+
+Incoming Web Client launch:
+
+    ?repository=NewEmployeeTest&source=webclient
+
+Expected effective repository:
+
+    NewEmployeeTest
+
+for the entire session.
+
+==========================================================
+PROBLEM 4 — TEST CONNECTION CLAIMS FIELDS ARE EMPTY
+==========================================================
+
+The Settings page visibly shows:
+
+    Username: admin
+    Password: •
+
+but clicking Test Connection gives:
+
+    All four fields (Server URL, Default Repository,
+    Username, Password) must be filled in to test the connection.
+
+This is incorrect.
+
+The UI intentionally does NOT return the stored DPAPI password to the browser.
+
+Therefore an empty Password input MUST mean:
+
+    "use the existing stored password"
+
+NOT:
+
+    "password is missing"
+
+Fix the Test Connection backend.
+
+It must resolve effective values as:
+
+    effectiveServerUrl =
+        posted ServerUrl
+        or saved ServerUrl
+
+    effectiveRepository =
+        posted DefaultRepository
+        or current session repository
+        or saved DefaultRepository
+
+    effectiveUsername =
+        posted Username
+        or saved Username
+
+    effectivePassword =
+        newly posted Password
+        or existing DPAPI stored password
+
+Never return the stored password to the browser.
+
+Never render it in HTML.
+
+Never log it.
+
+Test Connection should work without forcing the administrator to retype the password every time.
+
+Also inspect Save Settings for the same bug:
+
+If Password is blank during Save Settings:
+
+    preserve existing stored password
+
+Do NOT erase it.
+
+==========================================================
+PROBLEM 5 — CONNECTION STATUS
+==========================================================
+
+After fixing repository parsing and effective credentials, fix Connection Status.
+
+For the actual machine:
+
+    https://localhost/LFRepositoryAPI
+
+with a valid repository and valid credentials should show:
+
+    Connected
+
+and populate useful information where available:
+
+    Active Repository
+    Repository Name
+    API Version
+
+Do NOT mark the system disconnected simply because repository discovery has a limited/optional field.
+
+Differentiate between:
+
+1. API unreachable
+2. Authentication failure
+3. Repository not found
+4. Repository discovery unavailable
+5. Successful connection
+
+Do not collapse all of them into "Disconnected".
+
+==========================================================
+PROBLEM 6 — AUTO DETECT
+==========================================================
+
+The page currently reports:
+
+    Currently detected: v2
+
+That is acceptable ONLY if the Dashboard operations being performed
+against V2 actually support the returned V2 JSON.
+
+Do not select V2 merely because:
+
+    GET /v2/Repositories → HTTP 200
+
+Validate compatibility.
+
+After the RepositoryDto/parser fix, V2 may become fully compatible.
+
+If V2 is compatible, keep it.
+
+If an operation is only supported by the existing V1 implementation,
+use the correct operation/version rather than globally forcing V2.
+
+Do NOT rewrite the entire application around V2.
+
+==========================================================
+PROBLEM 7 — CLEAN UP THE SETTINGS UX
+==========================================================
+
+Once these fixes work:
+
+- Discover should show real repository names.
+- Test Connection should use stored credentials.
+- Connection Status should be meaningful.
+- Active Repository should reflect Web Client context.
+- Do not show misleading errors caused by hidden DPAPI credentials.
+- Do not ask the user to login again after launching from Web Client.
+
+The Settings page should clearly distinguish:
+
+    Configured fallback repository
+
+from:
+
+    Current active repository
+
+because they are NOT the same concept.
+
+==========================================================
+REQUIRED REGRESSION TESTS
+==========================================================
+
+Add tests for at least:
+
+1. Exact real V2 OData repository JSON parses correctly.
+2. Four repositories return four valid IDs/names.
+3. Repository dropdown never receives blank ID/name for that response.
+4. V1 repository JSON still works.
+5. Web Client repository overrides configured fallback.
+6. Repository context persists in session.
+7. Direct browser fallback still works.
+8. Blank password during Test Connection uses stored DPAPI password.
+9. Blank password during Save Settings preserves stored password.
+10. Stored password is never returned to the view.
+11. Stored password is never logged.
+12. Web Client launch does NOT redirect to /Login.
+13. Web Client launch reaches Dashboard.
+14. Dormant LFDS SSO remains disabled by default.
+15. No LFDS/V2 OAuth token exchange is triggered by this bypass.
+16. Existing authorization/security tests continue to pass.
+
+==========================================================
+IMPORTANT: VERIFY THE REAL EXECUTION PATH
+==========================================================
+
+Do not finish after unit tests.
+
+Trace the code path manually and tell me:
+
+A. What URL does the Web Client Dashboard button generate?
+
+B. Which middleware receives repository/source?
+
+C. What exact session keys are written?
+
+D. What determines the effective repository afterward?
+
+E. Why was LFNewRepoWF winning over NewEmployeeTest before?
+
+F. Why did the four repositories render as ()?
+
+G. Why did Test Connection think Password was empty even though a
+   stored credential existed?
+
+H. What previously redirected the Web Client launch to /Login?
+
+I. What code now prevents that redirect?
+
+==========================================================
+BUILD / VALIDATION
+==========================================================
+
+After implementation:
+
+1. Build LFPortal.sln in Release.
+2. Run ALL Infrastructure tests.
+3. Run ALL Web tests.
+4. Zero test failures.
+5. Prefer zero build warnings.
+6. Do not modify Laserfiche.
+7. Do not modify installer behavior unless actually necessary.
+8. Do not create a fake SSO implementation.
+
+At the end give me a concise report containing:
+
+- root cause of each problem
+- files modified
+- exact Web Client → Dashboard flow after the fix
+- how credentials are now resolved
+- how repository context is resolved
+- V1/V2 behavior
+- test totals
+- build result
+- confirmation that no Laserfiche configuration was changed
+
+Do not stop at an investigation report.
+IMPLEMENT THE FIXES.
