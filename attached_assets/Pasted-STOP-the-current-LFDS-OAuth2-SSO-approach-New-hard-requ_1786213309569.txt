@@ -1,0 +1,90 @@
+STOP the current LFDS OAuth2 SSO approach.
+
+New hard requirement:
+
+I do NOT want to modify Laserfiche itself in any way.
+
+Absolutely no changes are allowed to:
+
+- Laserfiche API Server appsettings.json
+- LFDSSTSBaseUrl
+- WhitelistedRedirectUris
+- LFDS
+- WebSTS
+- EmbeddedPostbackWhitelist
+- Laserfiche IIS applications
+- Laserfiche Web Client authentication configuration
+- Repository configuration
+- Laserfiche services
+- Laserfiche registry/configuration
+
+The installed Laserfiche environment must remain completely untouched.
+
+All changes must be contained inside the Dashboard project and, if necessary, our existing Dashboard Web Client/Desktop Client integration code.
+
+My required UX is still:
+
+User logs into Laserfiche once
+→ opens repository
+→ clicks Dashboard
+→ Dashboard opens as the SAME Laserfiche user
+→ same Laserfiche permissions
+→ no second username/password prompt.
+
+First reassess feasibility under this new hard constraint.
+
+Investigate whether this can be achieved using ONLY:
+
+- Dashboard code
+- existing Web Client integration/button
+- existing Desktop Extension
+- existing Laserfiche APIs/SDK capabilities that require NO Laserfiche server configuration changes
+- Windows Integrated Authentication if it requires changes only to the Dashboard IIS site
+- ClientAutomation / RepositoryAccess SDK if applicable
+
+You MAY modify the Dashboard IIS site configuration if required.
+
+You MAY NOT modify any Laserfiche IIS site/application/configuration.
+
+Also review the LFDS OAuth2 code you just implemented.
+
+If that implementation cannot work without modifying Laserfiche configuration, do NOT leave it as the default authentication flow.
+
+Either:
+
+1. keep it disabled and preserve the existing working login behavior,
+
+or
+
+2. cleanly revert/remove the unused LFDS SSO implementation if it is no longer appropriate.
+
+Do not break the existing Dashboard.
+
+Most importantly:
+
+Do NOT create a fake SSO solution using:
+- service account
+- shared admin credentials
+- username passed from JavaScript
+- password storage
+- token in URL
+- cookie theft
+- disabling authentication.
+
+Before modifying anything further, give me a short report answering:
+
+A. Can true same-user SSO be achieved with ZERO Laserfiche configuration changes?
+
+B. If YES, exactly how?
+
+C. Does it work for Web Client, Desktop Client, or both?
+
+D. Does it preserve the exact Laserfiche user's permissions?
+
+E. What Dashboard-only changes are required?
+
+F. What should we do with the LFDS OAuth2 code that was just added?
+
+If the answer is NO, say NO clearly.
+
+Do not modify production code until this assessment is complete.
