@@ -12,9 +12,9 @@
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         :root {
-            --lfp-navy:   #1a2744;
+            --lfp-navy:   #17243A;
             --lfp-blue:   #1e3a8a;
-            --lfp-accent: #3b82f6;
+            --lfp-accent: #003b83;
             --lfp-green:  #16a34a;
             --lfp-red:    #dc2626;
             --lfp-amber:  #d97706;
@@ -48,7 +48,7 @@
             box-shadow: 0 2px 4px rgba(0,0,0,.3);
         }
         .site-header__logo {
-            font-size: 1.1rem;
+            font-size: 2rem;
             font-weight: 700;
             letter-spacing: .02em;
             color: #fff;
@@ -278,7 +278,7 @@
             text-align: left;
             font-size: .6875rem;
             font-weight: 700;
-            color: var(--lfp-muted);
+            color: var(--lfp-border);
             text-transform: uppercase;
             letter-spacing: .07em;
             padding: 10px 12px;
@@ -317,6 +317,16 @@
         .breakdown-row__bar-wrap { background: #f1f5f9; border-radius: 100px; height: 8px; overflow: hidden; }
         .breakdown-row__bar { height: 100%; border-radius: 100px; transition: width .4s ease; min-width: 2px; }
         .breakdown-row__count { font-size: .875rem; color: var(--lfp-muted); font-variant-numeric: tabular-nums; text-align: right; }
+
+        .logo_size{
+            height: 70px;
+            width: 150px;
+            @* padding: 20px 24px 18px; *@
+            display: flex;
+            justify-content: left;
+            align-items: center;
+            flex-direction: column;
+            @* gap: 6px;} *@
     </style>
 </head>
 <body>
@@ -330,8 +340,9 @@
         var _isLaunched        = _isDesktop || _isWebClient;   // any non-direct source
     }
     <header class="site-header">
-        <a class="site-header__logo" asp-controller="Dashboard" asp-action="Index">
-            <span>LF</span>Dashboard
+        <a class="site-header__logo" asp-controller="Dashboard" asp-action="Index"  >
+            IS<span>B</span>
+            @* <img src="~/image/isb_logo.jpg" alt="ISB" class="logo_size" > *@
         </a>
 
         @* ── Active repository badge ── *@

@@ -3,6 +3,7 @@
 @using System.Text.Json.Serialization
 @using LFPortal.Domain.Entities
 @{
+    
     ViewData["Title"] = "Analytics Dashboard";
     var s = Model.Stats;
 
@@ -127,16 +128,34 @@
         .ToList();
 
     var jsonOpts = new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+
+    
 }
 
 @section Styles {
 <style>
-body   { background: #0f172a !important; }
+body   { background: #E9EDF3 !important; }
 main   { max-width: 1440px !important; padding: 18px 22px !important; }
 footer.site-footer { background: #0a1020 !important; }
 
 :root {
-    --d-bg:      #0f172a;
+    --d-bg:      #0f242a;
+    --d-surface: #F4F5F7;
+    --d-surf2:   #17243A;
+    --d-border:  #f0f0f0;
+    --d-text:    #252B34;
+    --d-secondary: #F4F5F7;
+    --d-muted:   #68717E;
+    --d-accent:  #3b82f6;
+    --d-teal:    #14b8a6;
+    --d-violet:  #8b5cf6;
+    --d-green:   #22c55e;
+    --d-orange:  #f97316;
+    --d-red:     #ef4444;
+}
+
+@* :root {
+    --d-bg:      #0f242a;
     --d-surface: #1e293b;
     --d-surf2:   #263349;
     --d-border:  #334155;
@@ -148,7 +167,7 @@ footer.site-footer { background: #0a1020 !important; }
     --d-green:   #22c55e;
     --d-orange:  #f97316;
     --d-red:     #ef4444;
-}
+} *@
 .d-title   { color: var(--d-text); font-size: 1.2rem; font-weight: 600; }
 .d-sub     { color: var(--d-muted); font-size: 0.78rem; margin-top: 2px; }
 /* Cards — reduced padding vs original */
@@ -190,9 +209,57 @@ footer.site-footer { background: #0a1020 !important; }
 .chart-h270 { height:270px; }
 /* Donut wrapper — cap size and center */
 .donut-wrap { display:flex;flex-direction:column;align-items:center; }
-.donut-wrap canvas { max-width:240px !important; max-height:240px !important; }
+.donut-wrap canvas { max-width:800px !important; max-height:250px !important; }
 @@media(max-width:900px){.d-grid-5{grid-template-columns:repeat(2,1fr)}.d-grid-2{grid-template-columns:1fr}}
 @@media(max-width:500px){.d-grid-5{grid-template-columns:1fr}}
+
+.table-pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    padding: 16px 10px;
+}
+
+.pagination-button {
+    min-width: 36px;
+    height: 34px;
+    padding: 0 11px;
+
+    border: 1px solid #334155;
+    border-radius: 6px;
+
+    background: #1e293b;
+    color: #94a3b8;
+
+    font-size: 13px;
+    font-weight: 500;
+
+    cursor: pointer;
+
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease;
+}
+
+.pagination-button:hover:not(:disabled):not(.active) {
+    background: #334155;
+    color: #ffffff;
+}
+
+.pagination-button.active {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: #ffffff;
+
+    cursor: default;
+}
+
+.pagination-button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
 </style>
 }
 
@@ -201,7 +268,7 @@ footer.site-footer { background: #0a1020 !important; }
 <!-- ── Header ─────────────────────────────────────────────────────────────── -->
 <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:18px">
     <div>
-        <h1 class="d-title">📊 Analytics Dashboard</h1>
+        <h1 class="d-title">Dashboard</h1>
         <p class="d-sub">Laserfiche Repository Live Statistics</p>
     </div>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -216,11 +283,11 @@ footer.site-footer { background: #0a1020 !important; }
         {
             <span class="d-badge d-badge-red">⚠ Not connected</span>
         }
-        <a href="/Dashboard/Probe" style="display:inline-flex;align-items:center;gap:6px;background:var(--d-surf2);border:1px solid var(--d-border);color:var(--d-muted);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
+        <a href="/Dashboard/Probe" style="display:inline-flex;align-items:center;gap:6px;background:var(--d-surf2);border:1px solid var(--d-border);color:var(--d-secondary);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             Probe API
         </a>
-        <a href="/Dashboard" style="display:inline-flex;align-items:center;gap:6px;background:var(--d-surf2);border:1px solid var(--d-border);color:var(--d-text);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
+        <a href="/Dashboard" style="display:inline-flex;align-items:center;gap:6px;background:var(--d-surf2);border:1px solid var(--d-border);color:var(--d-secondary);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh
         </a>
@@ -371,7 +438,7 @@ footer.site-footer { background: #0a1020 !important; }
         else
         {
             <div class="d-tbl-wrap">
-                <table class="d-tbl">
+                <table class="d-tbl" id="table1">
                     <thead><tr><th>User</th><th>Documents Created</th><th>Last Activity</th></tr></thead>
                     <tbody>
                         @foreach (var u in userActivity)
@@ -384,6 +451,7 @@ footer.site-footer { background: #0a1020 !important; }
                         }
                     </tbody>
                 </table>
+                <div class="table-pagination" data-table="table1"></div>
             </div>
         }
     </div>
@@ -398,7 +466,7 @@ footer.site-footer { background: #0a1020 !important; }
         <span class="d-badge d-badge-violet">@s.TemplateStats.Count template@(s.TemplateStats.Count != 1 ? "s" : "")</span>
     </div>
     <div class="d-tbl-wrap">
-        <table class="d-tbl">
+        <table class="d-tbl" id="table2">
             <thead><tr><th>#</th><th>Template Name</th><th>Documents</th><th>% of Total</th></tr></thead>
             <tbody>
                 @for (var i = 0; i < s.TemplateStats.Count; i++)
@@ -414,6 +482,7 @@ footer.site-footer { background: #0a1020 !important; }
                 }
             </tbody>
         </table>
+        <div class="table-pagination" data-table="table2"></div>
     </div>
 </div>
 }
@@ -501,7 +570,7 @@ footer.site-footer { background: #0a1020 !important; }
 </div>
 
 <!-- ── Recently Created Documents ─────────────────────────────────────────── -->
-<div class="d-card" style="margin-bottom:18px">
+<div class="d-card" style="margin-bottom:18px" >
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="d-card-title"><span class="d-section-bar"></span>Recently Created Documents</div>
         <span class="d-badge d-badge-teal">
@@ -519,7 +588,7 @@ footer.site-footer { background: #0a1020 !important; }
     else
     {
         <div class="d-tbl-wrap">
-            <table class="d-tbl">
+            <table class="d-tbl" id="table3">
                 <thead><tr><th>Document Name</th><th>Template</th><th>Folder</th><th>Created</th><th>Created By</th></tr></thead>
                 <tbody>
                     @foreach (var d in s.RecentDocs)
@@ -534,6 +603,7 @@ footer.site-footer { background: #0a1020 !important; }
                     }
                 </tbody>
             </table>
+           <div class="table-pagination" data-table="table3"></div>
         </div>
         <div style="font-size:.71rem;color:var(--d-muted);margin-top:7px">@s.RecentDocs.Count document@(s.RecentDocs.Count != 1 ? "s" : "") tracked</div>
     }
@@ -555,7 +625,7 @@ footer.site-footer { background: #0a1020 !important; }
     else
     {
         <div class="d-tbl-wrap">
-            <table class="d-tbl">
+            <table class="d-tbl" id="table4">
                 <thead>
                     <tr>
                         <th>Document Name</th>
@@ -586,6 +656,7 @@ footer.site-footer { background: #0a1020 !important; }
                     }
                 </tbody>
             </table>
+            <div class="table-pagination" data-table="table4"></div>
         </div>
     }
 </div>
@@ -598,6 +669,7 @@ footer.site-footer { background: #0a1020 !important; }
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 (function(){
+    @* الوان البارات حقت الشارت  *@
 const PALETTE = ["#3B82F6","#14B8A6","#F59E0B","#8B5CF6","#EF4444","#22C55E","#F97316","#06B6D4","#EC4899","#84CC16","#A855F7","#F43F5E","#10B981","#FBBF24","#60A5FA"];
 const GRID    = "rgba(51,65,85,0.5)";
 const TICK    = "#94a3b8";
@@ -611,7 +683,8 @@ const TOOLTIP = {
     cornerRadius:8
 };
 
-// ── Folders bar chart ──────────────────────────────────────────────────────
+// ── Folders bar chart ────الوان الشارت──────────────────────────────────────────────────
+// شارت طالع من مكتبة اسمها chart.js و يتغير الشارت على حسب ال type و الdata اللي هي البيانات اللي تنعرص في الشرات 
 const folderEl = document.getElementById("chartFolders");
 if(folderEl){
     const labels = @Html.Raw(JsonSerializer.Serialize(folderLabels));
@@ -623,6 +696,7 @@ if(folderEl){
             datasets:[{
                 label:"Documents",
                 data,
+                
                 backgroundColor: labels.map((_,i)=>PALETTE[i%PALETTE.length]+"cc"),
                 borderColor:     labels.map((_,i)=>PALETTE[i%PALETTE.length]),
                 borderWidth:1,
@@ -636,8 +710,8 @@ if(folderEl){
             maintainAspectRatio:false,
             plugins:{legend:{display:false},tooltip:{...TOOLTIP,callbacks:{label:c=>`${c.formattedValue} documents`}}},
             scales:{
-                x:{ticks:{color:TICK,maxRotation:40,font:{size:9}},grid:{color:GRID}},
-                y:{ticks:{color:TICK,font:{size:9}},grid:{color:GRID},beginAtZero:true}
+                x:{ticks:{color:TICK,maxRotation:40,font:{size:15}},grid:{color:GRID}},
+                y:{ticks:{color:TICK,font:{size:12}},grid:{color:GRID},beginAtZero:true}
             }
         }
     });
@@ -656,17 +730,18 @@ if(tmplEl){
                 data,
                 backgroundColor: labels.map((_,i)=>PALETTE[i%PALETTE.length]+"cc"),
                 borderColor:"#1e293b",
-                borderWidth:2
+                borderWidth:0,
+                
             }]
         },
         options:{
             responsive:true,
             maintainAspectRatio:false,
             plugins:{
-                legend:{position:"bottom",labels:{color:TICK,boxWidth:11,padding:8,font:{size:9}}},
+                legend:{position:"right",labels:{color:TICK,boxWidth:11,padding:8, font:{size:12}}},
                 tooltip:{...TOOLTIP}
             },
-            layout:{ padding:{ top:8, bottom:0 } }
+            layout:{ padding:{ top:5, bottom:0 , right:100 } }
         }
     });
 }
@@ -725,5 +800,145 @@ if(docActEl){
     });
 }
 })();
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    const ROWS_PER_PAGE = 10;
+
+    document.querySelectorAll(".table-pagination").forEach(function (pagination) {
+
+        const tableId = pagination.dataset.table;
+        const table = document.getElementById(tableId);
+
+        if (!table) {
+            return;
+        }
+
+        const tbody = table.querySelector("tbody");
+
+        if (!tbody) {
+            return;
+        }
+
+        const rows = Array.from(tbody.querySelectorAll("tr"));
+
+        if (rows.length === 0) {
+            pagination.style.display = "none";
+            return;
+        }
+
+        let currentPage = 1;
+        const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
+
+
+        function showPage(page) {
+
+            if (page < 1) {
+                page = 1;
+            }
+
+            if (page > totalPages) {
+                page = totalPages;
+            }
+
+            currentPage = page;
+
+            const startIndex = (currentPage - 1) * ROWS_PER_PAGE;
+            const endIndex = startIndex + ROWS_PER_PAGE;
+
+            rows.forEach(function (row, index) {
+
+                if (index >= startIndex && index < endIndex) {
+                    row.style.display = "";
+                } else {
+                    row.style.display = "none";
+                }
+
+            });
+
+            renderPagination();
+        }
+
+
+        function createButton(text, page, disabled, active) {
+
+            const button = document.createElement("button");
+
+            button.type = "button";
+            button.textContent = text;
+            button.className = "pagination-button";
+
+            if (active) {
+                button.classList.add("active");
+            }
+
+            button.disabled = disabled;
+
+            if (!disabled && !active) {
+                button.addEventListener("click", function () {
+                    showPage(page);
+                });
+            }
+
+            return button;
+        }
+
+
+        function renderPagination() {
+
+            pagination.innerHTML = "";
+
+            // إذا الجدول فيه 10 أو أقل ما نحتاج Pagination
+            if (totalPages <= 1) {
+                pagination.style.display = "none";
+                return;
+            }
+
+            pagination.style.display = "flex";
+
+
+            // Previous
+            pagination.appendChild(
+                createButton(
+                    "Previous",
+                    currentPage - 1,
+                    currentPage === 1,
+                    false
+                )
+            );
+
+
+            // Page numbers
+            for (let page = 1; page <= totalPages; page++) {
+
+                pagination.appendChild(
+                    createButton(
+                        page.toString(),
+                        page,
+                        false,
+                        page === currentPage
+                    )
+                );
+
+            }
+
+
+            // Next
+            pagination.appendChild(
+                createButton(
+                    "Next",
+                    currentPage + 1,
+                    currentPage === totalPages,
+                    false
+                )
+            );
+        }
+
+
+        showPage(1);
+
+    });
+
+});
 </script>
 }
