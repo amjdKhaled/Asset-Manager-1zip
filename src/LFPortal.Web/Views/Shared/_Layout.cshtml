@@ -374,12 +374,6 @@
             <a asp-controller="Dashboard" asp-action="Index" class="@(_ctrl == "Dashboard" ? "active" : "")">Dashboard</a>
             <a asp-controller="Archive"   asp-action="Index" class="@(_ctrl == "Archive"   ? "active" : "")">Archive</a>
             <a asp-controller="Settings"  asp-action="Index" class="@(_ctrl == "Settings"  ? "active" : "")">Settings</a>
-            @if (_isLaunched)
-            {
-                <a href="/Login/SignOut"
-                   title="Sign in as a different Laserfiche account for this repository"
-                   style="opacity:.75;">Change Account</a>
-            }
         </nav>
     </header>
 
