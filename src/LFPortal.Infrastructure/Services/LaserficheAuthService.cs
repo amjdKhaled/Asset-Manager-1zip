@@ -346,6 +346,113 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         return tokenResponse;
     }
 
+    // ──────────────────────────── Authorization Code exchange ────────────────
+
+    /// <inheritdoc />
+    public async Task<bool> ExchangeAuthorizationCodeAsync(
+        RepositoryDescriptor repository,
+        string code,
+        string codeVerifier,
+        string redirectUri,
+        string clientId,
+        CancellationToken cancellationToken = default)
+    {
+        // Always exchange at the V2 endpoint — LFDS issues V2-format codes only.
+        var tokenUrl = _adapter.BuildTokenUrlV2(repository.RepositoryId);
+
+        _logger.LogInformation(
+            "[LF AUTH][SSO] Authorization code exchange: TokenUrl={TokenUrl} Repository={RepoId} " +
+            "ContentType=application/x-www-form-urlencoded " +
+            "FormFields=[grant_type, code, code_verifier, redirect_uri, client_id]",
+            tokenUrl,
+            repository.RepositoryId);
+
+        // Authorization code and code verifier are NEVER logged.
+
+        using var client = _httpClientFactory.CreateClient("LaserficheRaw");
+
+        var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"]    = "authorization_code",
+            ["code"]          = code,
+            ["code_verifier"] = codeVerifier,
+            ["redirect_uri"]  = redirectUri,
+            ["client_id"]     = clientId
+        });
+
+        var sw = Stopwatch.StartNew();
+        using var response = await client
+            .PostAsync(tokenUrl, form, cancellationToken)
+            .ConfigureAwait(false);
+        sw.Stop();
+
+        var body = await response.Content
+            .ReadAsStringAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var diagId    = GenerateDiagnosticId();
+            var sanitized = SanitizeBody(body);
+            var lfCode    = TryExtractLFErrorCode(body);
+
+            _logger.LogError(
+                "[LF AUTH][SSO] [DiagID:{DiagId}] Code exchange FAILED: " +
+                "HTTP {StatusCode} {ReasonPhrase} from {TokenUrl} ({DurationMs}ms). Body: {Body}",
+                diagId,
+                (int)response.StatusCode,
+                response.ReasonPhrase,
+                tokenUrl,
+                sw.ElapsedMilliseconds,
+                sanitized);
+
+            // 4xx = code rejected (expired, replayed, bad verifier, mismatched redirect_uri)
+            //       → return false so the controller can fall back to the Login form.
+            if ((int)response.StatusCode < 500)
+                return false;
+
+            // 5xx = server-side error → propagate so the caller sees a real failure.
+            throw new Domain.Exceptions.LaserficheException(
+                $"LFDS token exchange returned HTTP {(int)response.StatusCode}.",
+                (int)response.StatusCode,
+                lfCode,
+                sanitized,
+                diagId);
+        }
+
+        _logger.LogDebug(
+            "[LF AUTH][SSO] Code exchange HTTP {StatusCode} from {TokenUrl} ({DurationMs}ms).",
+            (int)response.StatusCode, tokenUrl, sw.ElapsedMilliseconds);
+
+        var tokenResponse = JsonSerializer.Deserialize<TokenResponse>(body, JsonOptions.Default);
+
+        if (tokenResponse is null || string.IsNullOrWhiteSpace(tokenResponse.AccessToken))
+        {
+            var diagId    = GenerateDiagnosticId();
+            var sanitized = SanitizeBody(body);
+            _logger.LogError(
+                "[LF AUTH][SSO] [DiagID:{DiagId}] Empty/malformed token response from {Url} " +
+                "({DurationMs}ms). Body: {Body}",
+                diagId, tokenUrl, sw.ElapsedMilliseconds, sanitized);
+            return false;
+        }
+
+        // Cache under the same key that GetTokenAsync / BearerTokenHandler will look up,
+        // so all subsequent resource requests use the SSO-acquired token seamlessly —
+        // whether the EffectiveApiVersion is v1 or v2.
+        var cacheKey      = CacheKeyFor(repository);
+        var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
+        _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
+
+        _logger.LogInformation(
+            "[LF AUTH][SSO] SSO token exchange succeeded for repository {RepoId}. " +
+            "Cached for {CacheSeconds}s.",
+            repository.RepositoryId,
+            expirySeconds);
+
+        return true;
+    }
+
     // ──────────────────────────── Diagnostic helpers ─────────────────────────
 
     /// <summary>

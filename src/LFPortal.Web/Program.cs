@@ -121,6 +121,23 @@ try
             string.IsNullOrEmpty(opts.RepositoryId)
                 ? "(none — login page will prompt)"
                 : opts.RepositoryId);
+
+        if (opts.Sso.IsConfigured)
+        {
+            Log.Information(
+                "SSO config: LfdsBaseUrl={LfdsBaseUrl} ClientId={ClientId} " +
+                "AuthEndpoint={AuthEndpoint} RedirectUri={RedirectUri}",
+                opts.Sso.LfdsBaseUrl,
+                opts.Sso.ClientId,
+                opts.Sso.AuthorizationEndpoint,
+                string.IsNullOrEmpty(opts.Sso.RedirectUri)
+                    ? "(computed from request at runtime)"
+                    : opts.Sso.RedirectUri);
+        }
+        else
+        {
+            Log.Information("SSO config: LFDS SSO is not configured (Laserfiche:Sso:LfdsBaseUrl is empty).");
+        }
     }
 
     // ── Error handling ────────────────────────────────────────────────────────

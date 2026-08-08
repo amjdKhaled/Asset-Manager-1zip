@@ -5,6 +5,7 @@ using LFPortal.Infrastructure.Adapters;
 using LFPortal.Infrastructure.Credentials;
 using LFPortal.Infrastructure.HealthChecks;
 using LFPortal.Infrastructure.Http;
+using LFPortal.Infrastructure.OAuth;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Infrastructure.Repository;
 using LFPortal.Infrastructure.Services;
@@ -58,6 +59,9 @@ public static class ServiceCollectionExtensions
         // ── Auth service — singleton; safe because IMemoryCache & IHttpClientFactory
         //    are both singleton-safe ─────────────────────────────────────────────
         services.AddSingleton<ILaserficheAuthService, LaserficheAuthService>();
+
+        // ── OAuth SSO state store — singleton; backed by IMemoryCache ─────────
+        services.AddSingleton<IOAuthStateStore, OAuthStateStore>();
 
         // ── HTTP clients ───────────────────────────────────────────────────────
         RegisterHttpClients(services);

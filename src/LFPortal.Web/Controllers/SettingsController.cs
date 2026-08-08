@@ -233,7 +233,33 @@ public sealed class SettingsController : Controller
             ConnectionStatus                  = status,
             ActiveRepositoryId                = activeRepoId,
             ActiveRepositorySource            = activeRepoSource,
+            SsoLfdsBaseUrl                    = opts.Sso.LfdsBaseUrl,
+            SsoClientId                       = opts.Sso.ClientId,
+            SsoCallbackUrl                    = BuildSsoCallbackUrl(opts),
+            SsoAuthorizationEndpoint          = opts.Sso.AuthorizationEndpoint,
         };
+    }
+
+    /// <summary>
+    /// Builds the OAuth2 redirect URI for display in the Configuration Reference section.
+    /// Uses the configured override when set; derives from the current request otherwise.
+    /// </summary>
+    private string BuildSsoCallbackUrl(LaserficheOptions opts)
+    {
+        if (!string.IsNullOrWhiteSpace(opts.Sso.RedirectUri))
+            return opts.Sso.RedirectUri.TrimEnd('/');
+
+        try
+        {
+            var req = HttpContext.Request;
+            return req.Host.HasValue
+                ? $"{req.Scheme}://{req.Host}/Login/Callback"
+                : "(computed from request — host not available)";
+        }
+        catch
+        {
+            return "(computed from request at runtime)";
+        }
     }
 
     /// <summary>
@@ -387,6 +413,23 @@ public sealed class SettingsViewModel
 
     /// <summary>Human-readable source for the active repository.</summary>
     public string EffectiveRepositorySource => ActiveRepositorySource ?? "Default Configuration";
+
+    // ── SSO / LFDS Configuration Reference ───────────────────────────────────
+
+    /// <summary>Configured LFDS Base URL. Empty = SSO disabled.</summary>
+    public string SsoLfdsBaseUrl { get; init; } = string.Empty;
+
+    /// <summary>Configured OAuth2 client ID.</summary>
+    public string SsoClientId { get; init; } = "LFDashboard";
+
+    /// <summary>Computed OAuth2 callback URL for Laserfiche-side registration.</summary>
+    public string SsoCallbackUrl { get; init; } = string.Empty;
+
+    /// <summary>LFDS authorization endpoint (derived from LfdsBaseUrl).</summary>
+    public string SsoAuthorizationEndpoint { get; init; } = string.Empty;
+
+    /// <summary>True when SSO is enabled (LfdsBaseUrl is set).</summary>
+    public bool SsoEnabled => !string.IsNullOrWhiteSpace(SsoLfdsBaseUrl);
 }
 
 /// <summary>Form model for the Save action.</summary>

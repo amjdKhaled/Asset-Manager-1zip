@@ -76,4 +76,42 @@ public interface ILaserficheAuthService
         string username,
         string password,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Exchanges an LFDS OAuth2 authorization code for a Bearer token using the
+    /// PKCE Authorization Code flow, then stores the token in the cache under the
+    /// same key as <see cref="GetTokenAsync"/> so that subsequent domain-service
+    /// calls find a warm cache without requiring a second authentication round-trip.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The V2 token endpoint is always used for the exchange, even when the configured
+    /// <c>EffectiveApiVersion</c> is <c>v1</c>.  The resulting Bearer token is accepted
+    /// by both V1 and V2 Laserfiche Repository API resource endpoints because token
+    /// validation is performed by the same Laserfiche Server regardless of API path version.
+    /// </para>
+    /// <para>
+    /// The authorization <paramref name="code"/> and <paramref name="codeVerifier"/> are
+    /// never logged.  Only the token URL and repository ID are recorded.
+    /// </para>
+    /// <para>
+    /// Returns <c>false</c> for rejection responses (HTTP 4xx — code expired, already
+    /// used, bad verifier, etc.).  Infrastructure errors (network failures, HTTP 5xx)
+    /// are propagated as exceptions.
+    /// </para>
+    /// </remarks>
+    /// <param name="repository">Repository the code was issued for.</param>
+    /// <param name="code">The authorization code received from LFDS. Never logged.</param>
+    /// <param name="codeVerifier">PKCE code verifier for this flow. Never logged.</param>
+    /// <param name="redirectUri">Exact redirect URI used in the authorization request.</param>
+    /// <param name="clientId">OAuth2 client ID.</param>
+    /// <param name="cancellationToken">Propagated cancellation token.</param>
+    /// <returns><c>true</c> on success; <c>false</c> when LFDS rejected the code.</returns>
+    Task<bool> ExchangeAuthorizationCodeAsync(
+        RepositoryDescriptor repository,
+        string code,
+        string codeVerifier,
+        string redirectUri,
+        string clientId,
+        CancellationToken cancellationToken = default);
 }

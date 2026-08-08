@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using LFPortal.Infrastructure.OAuth;
 
 namespace LFPortal.Infrastructure.Options;
 
@@ -134,4 +135,11 @@ public sealed class LaserficheOptions
     /// </summary>
     public string EffectiveDisplayName =>
         string.IsNullOrWhiteSpace(DisplayName) ? RepositoryId : DisplayName;
+
+    /// <summary>
+    /// LFDS OAuth2 / Authorization Code SSO settings.
+    /// Configure <see cref="LaserficheOAuthOptions.LfdsBaseUrl"/> to enable SSO.
+    /// Nested under <c>Laserfiche:Sso</c> in <c>appsettings.json</c>.
+    /// </summary>
+    public LaserficheOAuthOptions Sso { get; set; } = new();
 }

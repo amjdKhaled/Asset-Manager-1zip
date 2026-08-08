@@ -1,0 +1,422 @@
+Approved. Proceed with implementing LFDS OAuth2 Authorization Code authentication using Laserfiche Repository API V2.
+
+PRIMARY GOAL
+
+I want the user experience to be:
+
+Laserfiche Login
+    ↓
+User opens a Repository
+    ↓
+User clicks Dashboard
+    ↓
+Dashboard receives the current Repository
+    ↓
+Dashboard automatically starts the supported LFDS authorization flow
+    ↓
+If the user already has a valid LFDS session, reuse it
+    ↓
+Obtain the V2 authorization-code token
+    ↓
+Create the Dashboard server-side authenticated session
+    ↓
+Open Dashboard immediately
+
+The normal flow from Laserfiche should NOT display the Dashboard username/password Login page.
+
+Most importantly:
+
+The Dashboard must operate as the SAME Laserfiche user.
+
+User A → User A permissions
+User B → User B permissions
+Admin → Admin permissions
+
+==================================================
+ARCHITECTURE DECISION
+==================================================
+
+Use:
+
+LFDS OAuth2 Authorization Code
++
+Repository API V2 Token endpoint
+
+for authentication.
+
+Do NOT introduce:
+
+- RepositoryAccess bridge
+- net48 authentication sidecar
+- service account
+- shared Admin account
+- password forwarding
+- cookie scraping
+- serialized Laserfiche sessions
+- username impersonation
+
+Use the supported LFDS/OAuth architecture identified in the previous investigation.
+
+==================================================
+IMPORTANT: DO NOT MIGRATE EVERYTHING TO V2
+==================================================
+
+Do NOT blindly convert every Repository API endpoint to V2.
+
+Use V2 where required for authorization-code authentication.
+
+Keep the existing V1 repository operations unchanged IF the V2-issued bearer token is officially/technically compatible with them.
+
+Before relying on this hybrid behavior, verify token compatibility.
+
+If the V2 authorization-code token cannot safely authenticate the existing V1 operations:
+
+STOP.
+
+Report exactly which services/endpoints must move to V2.
+
+Do not silently rewrite the entire application.
+
+==================================================
+IMPLEMENTATION
+==================================================
+
+Implement the OAuth flow cleanly in the existing authentication architecture.
+
+Expected routes conceptually:
+
+/Login
+/Login/StartSso
+/Login/Callback
+
+Names may differ if the existing architecture suggests something cleaner.
+
+Flow:
+
+1. Dashboard receives repository from the existing Web Client button.
+
+2. RepositorySessionMiddleware continues storing/validating the current repository.
+
+3. SessionAuthGuardMiddleware detects that the current Dashboard session is not authenticated.
+
+4. Instead of immediately showing the username/password Login page, initiate LFDS SSO when authorization-code authentication is available.
+
+5. Generate a cryptographically secure `state`.
+
+6. Bind the state to:
+   - current Dashboard session
+   - repository
+   - intended return URL
+   - short expiration
+
+7. Use PKCE if supported/recommended by the actual Laserfiche authorization flow.
+
+8. Redirect to the supported LFDS authorization endpoint.
+
+9. Receive the callback.
+
+10. Validate:
+    - state
+    - repository
+    - callback
+    - expiration
+    - anti-replay requirements
+
+11. Exchange the authorization code through the supported Repository API V2 Token flow.
+
+12. Store the resulting token ONLY in the existing server-side token/session infrastructure.
+
+13. Redirect to the original Dashboard destination.
+
+==================================================
+NEVER EXPOSE TOKENS
+==================================================
+
+Never put the access token in:
+
+- query strings
+- HTML
+- JavaScript
+- localStorage
+- sessionStorage
+- cookies accessible to JavaScript
+- logs
+
+Authorization codes must also never be logged.
+
+Sensitive OAuth parameters must be redacted from logs.
+
+==================================================
+EXISTING SESSION ISOLATION
+==================================================
+
+Preserve the existing:
+
+session + repository + generation
+
+token isolation.
+
+Do NOT replace the current race-safe sign-out generation mechanism.
+
+User A's token must never be available to User B.
+
+Repository A's token must never be reused for Repository B.
+
+Repository switching must invalidate/re-authenticate appropriately.
+
+==================================================
+LOGIN FALLBACK
+==================================================
+
+Do NOT delete Login.cshtml or the existing username/password authentication yet.
+
+Keep it as a fallback.
+
+Desired behavior:
+
+Laserfiche authenticated entry
+        ↓
+LFDS SSO
+        ↓
+SUCCESS → Dashboard
+
+If LFDS/authorization-code authentication is unavailable:
+
+        ↓
+existing /Login fallback
+
+Do not create redirect loops between the auth guard and LFDS.
+
+==================================================
+DIRECT DASHBOARD ACCESS
+==================================================
+
+Handle direct navigation safely.
+
+If someone manually opens:
+
+http(s)://dashboard-host:port/
+
+do not magically authenticate them based on repository/user query parameters.
+
+If SSO can safely be initiated, use it.
+
+Otherwise use the existing Login fallback.
+
+==================================================
+LOGOUT
+==================================================
+
+Dashboard Sign Out must:
+
+- invalidate Dashboard token/session
+- bump the existing token generation
+- clear Dashboard authentication state
+- clear outstanding OAuth state
+
+But it should NOT automatically log the user out of the entire Laserfiche/LFDS environment.
+
+==================================================
+CONFIGURATION
+==================================================
+
+Add dynamic configuration for the required LFDS/OAuth values.
+
+Do NOT hardcode:
+
+localhost
+machine names
+ports
+repositories
+redirect URLs
+
+Configuration must work on another customer machine.
+
+Investigate and wire the actual required values such as:
+
+LFDSSTSBaseUrl
+WhitelistedRedirectUris
+OAuth client identifier if required
+Dashboard callback URL
+authorization endpoint
+
+Use the project's existing installer/runtime configuration architecture.
+
+==================================================
+VERY IMPORTANT: LASERFICHE CONFIGURATION
+==================================================
+
+Do NOT automatically modify the installed Laserfiche API Server or LFDS configuration without explicit approval.
+
+The application/installer may:
+
+- detect configuration
+- validate configuration
+- explain missing configuration
+
+But it must NOT silently edit:
+
+%ProgramData%\Laserfiche\API Server\LFRepositoryAPI\appsettings.json
+
+or LFDS/STS configuration.
+
+If Laserfiche requires manual configuration, give me the exact required settings separately.
+
+==================================================
+INSTALLER
+==================================================
+
+Update the Dashboard installer only as necessary to collect/validate Dashboard-side SSO settings.
+
+The installer must remain machine-independent.
+
+If the installer detects that SSO is not configured:
+
+do not corrupt or modify Laserfiche.
+
+Either:
+
+- clearly warn and retain Login fallback
+
+or
+
+- block SSO enablement
+
+depending on severity.
+
+==================================================
+WEB CLIENT
+==================================================
+
+Preserve the current Web Client button behavior.
+
+It already passes the active repository dynamically.
+
+Do not pass username/token/password through the button.
+
+Expected:
+
+Web Client
+→ Dashboard URL + repository
+→ Dashboard handles SSO server-side.
+
+==================================================
+DESKTOP CLIENT
+==================================================
+
+Keep the Desktop Extension working.
+
+The current isolated WebView2 profile may not contain the browser's LFDS cookie.
+
+If Windows-integrated LFDS authentication makes the redirect transparent, use the normal supported flow.
+
+Otherwise allow the existing Login fallback.
+
+Do NOT weaken WebView2 isolation merely to share browser cookies.
+
+==================================================
+FILES TO REVIEW
+==================================================
+
+At minimum review/update where appropriate:
+
+LaserficheAuthService
+ILaserficheAuthService
+LoginController
+SessionAuthGuardMiddleware
+RepositorySessionMiddleware
+LaserficheOptions
+RepositoryInfo
+Program.cs
+installer configuration
+Settings/Configuration Reference UI
+tests
+
+Do not modify unrelated functionality.
+
+==================================================
+CONFIGURATION REFERENCE UI
+==================================================
+
+Update the existing Configuration Reference section so administrators can clearly see:
+
+API version
+LFDS STS URL
+Authorization Code support
+OAuth/SSO status
+Callback URL
+SSO enabled/disabled
+
+Do NOT expose secrets or tokens.
+
+Everything shown must come dynamically from runtime configuration.
+
+==================================================
+TESTS
+==================================================
+
+Add tests for:
+
+1. Valid authorization-code callback.
+2. Invalid state.
+3. Missing state.
+4. Expired state.
+5. Replayed callback.
+6. Repository tampering.
+7. Repository switching.
+8. User A/User B isolation.
+9. Token cache isolation.
+10. Sign-out invalidation.
+11. LFDS unavailable → Login fallback.
+12. Authorization code unsupported → Login fallback.
+13. Direct Dashboard access.
+14. Existing V1 username/password Login still works.
+15. Callback return URL validation / no open redirect.
+16. OAuth secrets/tokens never appear in logs.
+
+Run the complete existing test suite.
+
+==================================================
+BUILD
+==================================================
+
+After implementation:
+
+- build the full solution
+- run all tests
+- ensure existing functionality remains green
+
+Do NOT build/reinstall the MSI on my machine automatically.
+
+I will use deploy-fast.ps1 for Dashboard testing.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After implementation give me:
+
+1. Files changed.
+2. Final authentication flow.
+3. What uses V2.
+4. What remains on V1.
+5. Whether the V2 token worked against V1 endpoints.
+6. Exact Laserfiche API Server configuration I must perform manually.
+7. Exact LFDS configuration I must perform manually.
+8. Exact callback URL format.
+9. Any IIS changes required.
+10. Web Client behavior.
+11. Desktop Client behavior.
+12. Login fallback behavior.
+13. Security protections implemented.
+14. Build result.
+15. Test result.
+16. Anything I must do before testing.
+
+IMPORTANT:
+
+If during implementation you discover that an assumption from the previous investigation is false — especially V2-token compatibility with V1 endpoints — STOP that portion and report it.
+
+Do not invent undocumented compatibility.
+
+Proceed with implementation now.

@@ -108,4 +108,13 @@ public interface ILaserficheApiAdapter
     /// and ByPath auto-discovery is skipped.
     /// </summary>
     int GetConfiguredRootEntryId();
+
+    /// <summary>
+    /// Builds the <c>POST /v2/Repositories/{repoId}/Token</c> URL, always using
+    /// the <b>v2</b> endpoint regardless of the configured
+    /// <see cref="LFPortal.Infrastructure.Options.LaserficheOptions.EffectiveApiVersion"/>.
+    /// LFDS-issued authorization codes must be exchanged at the V2 token endpoint;
+    /// the resulting Bearer token is accepted by both V1 and V2 resource endpoints.
+    /// </summary>
+    string BuildTokenUrlV2(string repositoryId);
 }

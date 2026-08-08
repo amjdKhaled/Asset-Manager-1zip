@@ -136,6 +136,24 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
     public int GetConfiguredRootEntryId() =>
         _optionsMonitor.CurrentValue.RootEntryId;
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// Always targets the <c>v2</c> path regardless of <see cref="LaserficheOptions.EffectiveApiVersion"/>.
+    /// LFDS authorization codes must be exchanged at the V2 token endpoint; the resulting
+    /// Bearer token is accepted by V1 resource endpoints on the same API Server.
+    /// </remarks>
+    public string BuildTokenUrlV2(string repositoryId)
+    {
+        var options  = _optionsMonitor.CurrentValue;
+        var root     = options.ServerUrl.TrimEnd('/');
+        var basePath = "/" + options.ApiBasePath.Trim('/');
+
+        if (root.EndsWith(basePath, StringComparison.OrdinalIgnoreCase))
+            root = root[..^basePath.Length].TrimEnd('/');
+
+        return $"{root}{basePath}/v2/Repositories/{Uri.EscapeDataString(repositoryId)}/Token";
+    }
+
     /// <summary>
     /// Combines a server URL with the configured API base path and version.
     /// ServerUrl is normally scheme plus host, but older saved settings and

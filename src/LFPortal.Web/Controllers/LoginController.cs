@@ -1,49 +1,65 @@
 using System.ComponentModel.DataAnnotations;
+using System.Security.Cryptography;
+using System.Text;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Exceptions;
+using LFPortal.Infrastructure.OAuth;
+using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Middleware;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace LFPortal.Web.Controllers;
 
 /// <summary>
-/// Handles the Desktop Client login flow: presents a repository-specific credential
-/// form, validates credentials directly against Laserfiche, and establishes a
-/// session-scoped authentication state before allowing access to the Dashboard.
+/// Handles sign-in for the Dashboard portal.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This controller is reached when <see cref="SessionAuthGuardMiddleware"/> detects a
-/// Desktop Client session that is not yet authenticated for the active repository.
+/// <b>Password-grant flow (primary):</b>  When LFDS SSO is not configured,
+/// <c>GET /Login</c> renders a credential form.  A valid POST stores a DPAPI-encrypted
+/// password in the session so subsequent token-refresh requests can acquire a new
+/// Bearer token without re-prompting the user.
 /// </para>
 /// <para>
-/// On successful login, <c>AuthenticatedRepositoryId</c> is written to the ASP.NET Core
-/// session, and credentials are stored encrypted in <see cref="ISessionCredentialStore"/>
-/// so that token-refresh requests (when the Bearer token expires) can acquire a new token
-/// without re-prompting.
+/// <b>LFDS OAuth2 Authorization Code flow (SSO):</b>  When <c>Laserfiche:Sso:LfdsBaseUrl</c>
+/// is configured, <c>GET /Login</c> transparently redirects to <c>/Login/StartSso</c>,
+/// which initiates a PKCE Authorization Code exchange with LFDS.  The callback
+/// <c>GET /Login/Callback</c> validates the response and caches the resulting Bearer token
+/// before redirecting to the originally requested URL.  If SSO fails the browser returns
+/// to the password form via <c>/Login?ssoFailed=true</c>.
 /// </para>
 /// <para>
-/// <c>GET /Login/SignOut</c> clears only the session authentication state.  It does not
-/// affect Settings-stored fallback credentials.
+/// <c>GET /Login/SignOut</c> invalidates cached tokens for the current session and
+/// redirects to the Login page; it does <em>not</em> log the user out of LFDS.
 /// </para>
 /// </remarks>
 public sealed class LoginController : Controller
 {
-    private readonly ILaserficheAuthService  _authService;
-    private readonly IRepositoryContext      _repositoryContext;
-    private readonly ISessionCredentialStore _sessionCredentialStore;
-    private readonly ILogger<LoginController> _logger;
+    // Session key written here, read by the guard middleware.
+    internal const string SessionKeyOAuthPendingState = "OAuth_PendingState";
+
+    private readonly ILaserficheAuthService     _authService;
+    private readonly IRepositoryContext         _repositoryContext;
+    private readonly ISessionCredentialStore    _sessionCredentialStore;
+    private readonly IOAuthStateStore           _oAuthStateStore;
+    private readonly IOptionsMonitor<LaserficheOptions> _options;
+    private readonly ILogger<LoginController>   _logger;
 
     /// <summary>Initialises the controller.</summary>
     public LoginController(
-        ILaserficheAuthService   authService,
-        IRepositoryContext       repositoryContext,
-        ISessionCredentialStore  sessionCredentialStore,
-        ILogger<LoginController> logger)
+        ILaserficheAuthService       authService,
+        IRepositoryContext           repositoryContext,
+        ISessionCredentialStore      sessionCredentialStore,
+        IOAuthStateStore             oAuthStateStore,
+        IOptionsMonitor<LaserficheOptions> options,
+        ILogger<LoginController>     logger)
     {
         _authService             = authService;
         _repositoryContext       = repositoryContext;
         _sessionCredentialStore  = sessionCredentialStore;
+        _oAuthStateStore         = oAuthStateStore;
+        _options                 = options;
         _logger                  = logger;
     }
 
@@ -51,29 +67,38 @@ public sealed class LoginController : Controller
     // GET /Login                                                           //
     // ------------------------------------------------------------------ //
 
-    /// <summary>Renders the sign-in form for the active Laserfiche repository.</summary>
+    /// <summary>
+    /// Renders the sign-in form, or transparently redirects to LFDS SSO when
+    /// <c>Laserfiche:Sso:LfdsBaseUrl</c> is configured.
+    /// Pass <c>?ssoFailed=true</c> to suppress the SSO redirect and display the form.
+    /// </summary>
     [HttpGet]
-    public async Task<IActionResult> Index(CancellationToken cancellationToken)
+    public async Task<IActionResult> Index(
+        bool   ssoFailed         = false,
+        string? returnUrl        = null,
+        CancellationToken cancellationToken = default)
     {
+        var opts = _options.CurrentValue;
+
+        // ── SSO fast-path ─────────────────────────────────────────────────────
+        // When LFDS is configured and SSO has not already failed this session,
+        // redirect transparently so the credential form is never shown.
+        if (opts.Sso.IsConfigured && !ssoFailed)
+        {
+            _logger.LogInformation("[SSO] LFDS configured — redirecting to StartSso.");
+            return RedirectToAction("StartSso", new { returnUrl });
+        }
+
+        // ── Password-grant form ───────────────────────────────────────────────
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
-        return View(new LoginViewModel
+        var vm   = new LoginViewModel
         {
             ActiveRepository     = repo.RepositoryId,
             AllowRepositoryInput = AllowRepositoryInput(),
-            SubmittedRepository  = repo.RepositoryId
-        });
-    }
-
-    /// <summary>
-    /// Repository selection is allowed only for direct browser sessions.
-    /// Sessions launched from the Laserfiche Desktop or Web Client carry their
-    /// repository in the launch URL and must not be able to switch it here.
-    /// </summary>
-    private bool AllowRepositoryInput()
-    {
-        var source = HttpContext.Session.GetString(
-            RepositorySessionMiddleware.SessionKeySource);
-        return string.IsNullOrEmpty(source);
+            SubmittedRepository  = repo.RepositoryId,
+            SsoFailed            = ssoFailed && opts.Sso.IsConfigured,
+        };
+        return View(vm);
     }
 
     // ------------------------------------------------------------------ //
@@ -93,9 +118,6 @@ public sealed class LoginController : Controller
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
         var allowRepoInput = AllowRepositoryInput();
 
-        // Resolve which repository this login targets:
-        //   - Direct browser sessions may type/override the repository name.
-        //   - Desktop / Web Client sessions always use the launch-context repository.
         var repoId = allowRepoInput && !string.IsNullOrWhiteSpace(input.Repository)
             ? input.Repository.Trim()
             : repo.RepositoryId;
@@ -109,12 +131,8 @@ public sealed class LoginController : Controller
             ErrorMessage         = error
         };
 
-        // Username is required; ModelState captures that via [Required] on LoginInputModel.
-        // Password is intentionally NOT required — blank passwords are valid Laserfiche accounts.
         if (!ModelState.IsValid)
-        {
             return View(ViewWithError(null));
-        }
 
         if (string.IsNullOrWhiteSpace(repoId))
         {
@@ -122,18 +140,12 @@ public sealed class LoginController : Controller
                 "Enter the name of the Laserfiche repository to sign in to."));
         }
 
-        // Repository is runtime session context: authenticate against exactly
-        // the repository this session targets.
         var targetRepo = repo with { RepositoryId = repoId, DisplayName = repoId };
 
-        // Log the attempt before hitting the network — gives administrators a
-        // clear entry point in the log for diagnosing login failures.
-        // NEVER log the password.
         _logger.LogInformation(
             "Login: authenticating user {Username} for repository {RepoId}.",
             input.Username, repoId);
 
-        // Attempt authentication — never log the password.
         bool success;
         try
         {
@@ -145,9 +157,6 @@ public sealed class LoginController : Controller
         }
         catch (Exception ex)
         {
-            // Full exception chain (type/message/HResult per level) is emitted
-            // by the logging provider; add the request context an administrator
-            // needs: configured server, request host, and repository.
             _logger.LogError(ex,
                 "Login: error while authenticating for repository {RepoId}: {ErrorType} " +
                 "(HResult=0x{HResult:X8}). ServerUrl={ServerUrl} Host={Host}.",
@@ -159,9 +168,6 @@ public sealed class LoginController : Controller
             if (classification.Code == "tls-error" &&
                 Uri.TryCreate(targetRepo.ServerUrl, UriKind.Absolute, out var serverUri))
             {
-                // Diagnostic-only certificate inspection: logs subject, issuer,
-                // thumbprint, validity, SAN, and SslPolicyErrors. Never affects
-                // the (already failed) authentication request.
                 await Diagnostics.TlsCertificateInspector.InspectAndLogAsync(
                     serverUri, _logger, cancellationToken);
             }
@@ -172,25 +178,18 @@ public sealed class LoginController : Controller
         if (!success)
         {
             _logger.LogInformation(
-                "Login: invalid credentials submitted for repository {RepoId}.",
-                repoId);
-
+                "Login: invalid credentials submitted for repository {RepoId}.", repoId);
             return View(ViewWithError(
                 $"Unable to sign in to {repoId}. Check the username and password."));
         }
 
         // ── Authentication succeeded ──────────────────────────────────────────
 
-        // Store encrypted credentials in session so the token service can refresh
-        // the Bearer token when it expires without re-prompting the user.
         await _sessionCredentialStore.StoreAsync(
             input.Username,
             input.Password ?? string.Empty,
             cancellationToken);
 
-        // Record the repository this session now works against (important for
-        // direct browser sessions that selected a repository on this form) and
-        // mark the session as authenticated for it.
         HttpContext.Session.SetString(
             RepositorySessionMiddleware.SessionKeyRepositoryId,
             repoId);
@@ -199,25 +198,204 @@ public sealed class LoginController : Controller
             repoId);
 
         _logger.LogInformation(
-            "Login: session authenticated for repository {RepoId}.",
-            repoId);
+            "Login: session authenticated for repository {RepoId}.", repoId);
 
         return RedirectToAction("Index", "Dashboard");
+    }
+
+    // ------------------------------------------------------------------ //
+    // GET /Login/StartSso                                                  //
+    // ------------------------------------------------------------------ //
+
+    /// <summary>
+    /// Initiates the LFDS OAuth2 Authorization Code + PKCE flow.
+    /// Generates a cryptographically random <c>state</c> and PKCE pair, stores them
+    /// server-side, writes the state to the session (CSRF binding), then redirects the
+    /// browser to the LFDS authorization endpoint.
+    /// </summary>
+    [HttpGet("/Login/StartSso")]
+    public async Task<IActionResult> StartSso(
+        string? returnUrl        = null,
+        CancellationToken cancellationToken = default)
+    {
+        var opts = _options.CurrentValue;
+
+        if (!opts.Sso.IsConfigured)
+        {
+            _logger.LogWarning("[SSO] StartSso called but LFDS is not configured. Falling back to Login.");
+            return RedirectToAction("Index", "Login");
+        }
+
+        // Validate returnUrl — anti-open-redirect.
+        if (!IsLocalUrl(returnUrl))
+            returnUrl = Url.Action("Index", "Dashboard")!;
+
+        // Resolve active repository (populated by RepositorySessionMiddleware).
+        var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+
+        // ── PKCE ─────────────────────────────────────────────────────────────
+        var codeVerifier  = GenerateCryptoRandomBase64Url(byteCount: 64);  // 64 bytes → 86-char verifier
+        var codeChallenge = ComputeS256Challenge(codeVerifier);
+
+        // ── State (CSRF protection) ───────────────────────────────────────────
+        var state = GenerateCryptoRandomBase64Url(byteCount: 32);          // 32 bytes → 43-char state
+
+        // ── Redirect URI ──────────────────────────────────────────────────────
+        var redirectUri = BuildCallbackUri(opts);
+
+        // ── Server-side state entry ───────────────────────────────────────────
+        var entry = new OAuthStateEntry
+        {
+            RepositoryId = repo.RepositoryId,
+            ReturnUrl    = returnUrl ?? "/",
+            CodeVerifier = codeVerifier,
+            RedirectUri  = redirectUri,
+            ExpiresAt    = DateTimeOffset.UtcNow.AddMinutes(10),
+        };
+        _oAuthStateStore.Store(state, entry);
+
+        // Bind state to this session so the callback can validate CSRF.
+        HttpContext.Session.SetString(SessionKeyOAuthPendingState, state);
+
+        _logger.LogInformation(
+            "[SSO] Starting authorization flow: Repo={Repo} RedirectUri={RedirectUri} " +
+            "AuthEndpoint={AuthEndpoint}",
+            repo.RepositoryId,
+            redirectUri,
+            opts.Sso.AuthorizationEndpoint);
+
+        // ── Build authorization URL ───────────────────────────────────────────
+        var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri, repo.RepositoryId);
+
+        return Redirect(authUrl);
+    }
+
+    // ------------------------------------------------------------------ //
+    // GET /Login/Callback                                                  //
+    // ------------------------------------------------------------------ //
+
+    /// <summary>
+    /// Handles the LFDS authorization callback.
+    /// Validates the state (CSRF + anti-replay), exchanges the authorization code for
+    /// a Bearer token via PKCE, marks the session as authenticated, and redirects to
+    /// the originally requested URL.
+    /// </summary>
+    [HttpGet("/Login/Callback")]
+    public async Task<IActionResult> Callback(
+        string? code             = null,
+        string? state            = null,
+        string? error            = null,
+        string? errorDescription = null,
+        CancellationToken cancellationToken = default)
+    {
+        // ── LFDS returned an error ────────────────────────────────────────────
+        if (!string.IsNullOrEmpty(error))
+        {
+            _logger.LogWarning(
+                "[SSO] LFDS returned error in callback: {Error} — {Description}",
+                error,
+                errorDescription ?? "(no description)");
+            return FallBackToLoginForm();
+        }
+
+        // ── Code and state must both be present ───────────────────────────────
+        if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
+        {
+            _logger.LogWarning("[SSO] Callback missing code or state parameter.");
+            return FallBackToLoginForm();
+        }
+
+        // ── CSRF validation: state must match what we stored in the session ───
+        var sessionState = HttpContext.Session.GetString(SessionKeyOAuthPendingState);
+        if (sessionState is null || sessionState != state)
+        {
+            _logger.LogWarning(
+                "[SSO] State mismatch. Session state is {SessionState} but callback state starts with {CallbackPrefix}. " +
+                "Possible CSRF attempt.",
+                sessionState is null ? "(null)" : "(set)",
+                state.Length >= 8 ? state[..8] + "…" : state);
+            return FallBackToLoginForm();
+        }
+
+        // ── Consume state entry (anti-replay, expiry check) ───────────────────
+        var entry = _oAuthStateStore.TryConsume(state);
+        if (entry is null)
+        {
+            // OAuthStateStore already logged the reason (expired / replay / unknown).
+            return FallBackToLoginForm();
+        }
+
+        // Clear pending state from session — successfully retrieved from store.
+        HttpContext.Session.Remove(SessionKeyOAuthPendingState);
+
+        // ── Repository consistency check ──────────────────────────────────────
+        var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+
+        if (!string.IsNullOrEmpty(entry.RepositoryId) &&
+            !string.Equals(repo.RepositoryId, entry.RepositoryId, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "[SSO] Repository mismatch: state={StateRepo} active={ActiveRepo}. " +
+                "Browser repository may have changed during the SSO flow.",
+                entry.RepositoryId,
+                repo.RepositoryId);
+            return FallBackToLoginForm();
+        }
+
+        var opts = _options.CurrentValue;
+
+        // ── Token exchange ────────────────────────────────────────────────────
+        bool success;
+        try
+        {
+            success = await _authService.ExchangeAuthorizationCodeAsync(
+                repo,
+                code,
+                entry.CodeVerifier,
+                entry.RedirectUri,
+                opts.Sso.ClientId,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "[SSO] Token exchange threw an exception for repository {Repo}.",
+                repo.RepositoryId);
+            return FallBackToLoginForm();
+        }
+
+        if (!success)
+        {
+            _logger.LogWarning(
+                "[SSO] Token exchange returned failure for repository {Repo}. " +
+                "Falling back to Login form.",
+                repo.RepositoryId);
+            return FallBackToLoginForm();
+        }
+
+        // ── Mark session as authenticated ─────────────────────────────────────
+        HttpContext.Session.SetString(
+            SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
+            repo.RepositoryId);
+
+        _logger.LogInformation(
+            "[SSO] Session authenticated via LFDS for repository {Repo}.",
+            repo.RepositoryId);
+
+        // ── Redirect to original destination ──────────────────────────────────
+        var returnUrl = entry.ReturnUrl;
+        if (!IsLocalUrl(returnUrl))
+            returnUrl = Url.Action("Index", "Dashboard")!;
+
+        return LocalRedirect(returnUrl);
     }
 
     // ------------------------------------------------------------------ //
     // Error classification                                                 //
     // ------------------------------------------------------------------ //
 
-    /// <summary>
-    /// Maps an authentication failure to a precise, user-facing message that
-    /// distinguishes TLS problems, connectivity failures, timeouts, an unknown
-    /// repository, and Laserfiche server errors — instead of a single generic
-    /// "could not reach the server" message.
-    /// </summary>
     private static string ClassifyLoginError(Exception ex, string repoId)
     {
-        // Laserfiche API answered with an HTTP error the auth service propagated.
         if (ex is LaserficheException lex)
         {
             if (lex.StatusCode == 404)
@@ -226,9 +404,6 @@ public sealed class LoginController : Controller
 
             if (lex.StatusCode >= 500)
             {
-                // Include a diagnostic ID when one is available so the administrator
-                // can find the corresponding Error log entry that contains the full
-                // sanitized Laserfiche response body.
                 var diagPart = lex.DiagnosticId is not null
                     ? $" Diagnostic ID: {lex.DiagnosticId}."
                     : string.Empty;
@@ -239,9 +414,6 @@ public sealed class LoginController : Controller
             return $"The Laserfiche server rejected the request (HTTP {lex.StatusCode}).";
         }
 
-        // Transport-level causes — shared classifier evaluates the precise
-        // HttpRequestError kind first (DNS / TLS / refused / timeout) before
-        // falling back to inner-exception inspection.
         return Diagnostics.LaserficheErrorClassifier.Classify(ex).Detail;
     }
 
@@ -250,24 +422,110 @@ public sealed class LoginController : Controller
     // ------------------------------------------------------------------ //
 
     /// <summary>
-    /// Clears the session authentication state and session credentials, then
-    /// redirects to the Login page.  The active repository is preserved.
-    /// Settings-stored fallback credentials are not affected.
+    /// Clears the session authentication state and cached tokens, then redirects to the
+    /// Login page.  Does <em>not</em> log the user out of LFDS or Laserfiche.
     /// </summary>
     [HttpGet("/Login/SignOut")]
     public async Task<IActionResult> SignOut(CancellationToken cancellationToken)
     {
-        // Evict cached Bearer tokens FIRST — the session id (used as the token
-        // cache scope) is only resolvable while session keys are still present.
         await _authService.InvalidateCurrentSessionTokensAsync();
 
         HttpContext.Session.Remove(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId);
+        HttpContext.Session.Remove(SessionKeyOAuthPendingState);
         await _sessionCredentialStore.ClearAsync(cancellationToken);
 
         _logger.LogInformation("Login: session authentication cleared (Change Account).");
 
         return RedirectToAction("Index", "Login");
     }
+
+    // ------------------------------------------------------------------ //
+    // Private helpers                                                      //
+    // ------------------------------------------------------------------ //
+
+    /// <summary>
+    /// Repository selection is allowed only for direct browser sessions.
+    /// Desktop / Web Client sessions carry their repository in the launch URL.
+    /// </summary>
+    private bool AllowRepositoryInput()
+    {
+        var source = HttpContext.Session.GetString(
+            RepositorySessionMiddleware.SessionKeySource);
+        return string.IsNullOrEmpty(source);
+    }
+
+    /// <summary>
+    /// Builds the OAuth2 redirect URI to register on LFDS.
+    /// Uses the configured override when set; otherwise derives it from the current request.
+    /// </summary>
+    private string BuildCallbackUri(LaserficheOptions opts)
+    {
+        if (!string.IsNullOrWhiteSpace(opts.Sso.RedirectUri))
+            return opts.Sso.RedirectUri.TrimEnd('/');
+
+        var req = HttpContext.Request;
+        return $"{req.Scheme}://{req.Host}/Login/Callback";
+    }
+
+    /// <summary>Redirects to the Login form with the SSO-failed flag set.</summary>
+    private RedirectToActionResult FallBackToLoginForm() =>
+        RedirectToAction("Index", "Login", new { ssoFailed = true });
+
+    /// <summary>Returns true when the URL is local to this application (anti-open-redirect).</summary>
+    private bool IsLocalUrl(string? url) =>
+        !string.IsNullOrEmpty(url) && Url.IsLocalUrl(url);
+
+    /// <summary>Builds the full LFDS authorization URL with all required parameters.</summary>
+    private static string BuildAuthorizationUrl(
+        LaserficheOptions opts,
+        string            state,
+        string            codeChallenge,
+        string            redirectUri,
+        string            repositoryId)
+    {
+        var endpoint = opts.Sso.AuthorizationEndpoint;
+
+        var query = new StringBuilder();
+        query.Append("response_type=code");
+        query.Append("&client_id=");        query.Append(Uri.EscapeDataString(opts.Sso.ClientId));
+        query.Append("&redirect_uri=");     query.Append(Uri.EscapeDataString(redirectUri));
+        query.Append("&state=");            query.Append(Uri.EscapeDataString(state));
+        query.Append("&code_challenge=");   query.Append(Uri.EscapeDataString(codeChallenge));
+        query.Append("&code_challenge_method=S256");
+        if (!string.IsNullOrEmpty(repositoryId))
+        {
+            query.Append("&repository=");
+            query.Append(Uri.EscapeDataString(repositoryId));
+        }
+
+        return $"{endpoint}?{query}";
+    }
+
+    // ── PKCE helpers ──────────────────────────────────────────────────────────
+
+    /// <summary>Generates a cryptographically random base64url-encoded string.</summary>
+    private static string GenerateCryptoRandomBase64Url(int byteCount)
+    {
+        var bytes = RandomNumberGenerator.GetBytes(byteCount);
+        return Base64UrlEncode(bytes);
+    }
+
+    /// <summary>
+    /// Computes the PKCE S256 code challenge from a code verifier:
+    /// <c>BASE64URL(SHA-256(ASCII(code_verifier)))</c>.
+    /// </summary>
+    private static string ComputeS256Challenge(string codeVerifier)
+    {
+        var hash = SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier));
+        return Base64UrlEncode(hash);
+    }
+
+    /// <summary>Encodes bytes as a URL-safe base64 string without padding.</summary>
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes)
+               .TrimEnd('=')
+               .Replace('+', '-')
+               .Replace('/', '_');
 }
 
 // ── View models ──────────────────────────────────────────────────────────────
@@ -275,40 +533,35 @@ public sealed class LoginController : Controller
 /// <summary>View model passed to the Login view.</summary>
 public sealed class LoginViewModel
 {
-    /// <summary>Repository name displayed read-only on the login form.</summary>
+    /// <summary>Repository name displayed on the login form.</summary>
     public string ActiveRepository { get; init; } = string.Empty;
 
     /// <summary>
-    /// True for direct browser sessions, which may choose the repository on the
-    /// login form. False for Desktop / Web Client launches, where the repository
-    /// comes from the launch context and is displayed read-only.
+    /// True for direct browser sessions that may choose the repository on the form.
+    /// False for Desktop / Web Client launches where the repository is fixed.
     /// </summary>
     public bool AllowRepositoryInput { get; init; }
 
     /// <summary>Preserves the repository name the user entered after a failed attempt.</summary>
     public string SubmittedRepository { get; init; } = string.Empty;
 
-    /// <summary>Error message shown below the form after a failed sign-in attempt. Null when none.</summary>
+    /// <summary>Error message shown below the form after a failed sign-in attempt.</summary>
     public string? ErrorMessage { get; init; }
 
-    /// <summary>
-    /// Preserves the username the user entered so the field is re-populated
-    /// when the form is returned after a failed sign-in attempt.
-    /// </summary>
+    /// <summary>Preserves the username the user entered on a failed attempt.</summary>
     public string SubmittedUsername { get; init; } = string.Empty;
+
+    /// <summary>
+    /// True when SSO is configured but the SSO flow failed and the user has been
+    /// redirected back to the password form as a fallback.
+    /// </summary>
+    public bool SsoFailed { get; init; }
 }
 
-/// <summary>
-/// Binds the login form POST payload.
-/// Password is intentionally <em>not</em> marked <c>[Required]</c> — some Laserfiche
-/// accounts have an empty password and must be accepted without a validation error.
-/// </summary>
+/// <summary>Binds the login form POST payload.</summary>
 public sealed class LoginInputModel
 {
-    /// <summary>
-    /// Repository name for direct browser sessions. Ignored for Desktop /
-    /// Web Client launches, whose repository is fixed by the launch context.
-    /// </summary>
+    /// <summary>Repository name for direct browser sessions.</summary>
     public string? Repository { get; set; }
 
     /// <summary>Laserfiche username. Required.</summary>
@@ -316,9 +569,8 @@ public sealed class LoginInputModel
     public string Username { get; set; } = string.Empty;
 
     /// <summary>
-    /// Laserfiche password. Optional — a <c>null</c> or empty value is treated as
-    /// an intentional blank password and sent to Laserfiche as-is.
-    /// Do NOT add <c>[Required]</c> here.
+    /// Laserfiche password. Optional — blank passwords are valid Laserfiche accounts.
+    /// Do NOT add [Required] here.
     /// </summary>
     public string? Password { get; set; }
 }
