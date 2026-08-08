@@ -1,0 +1,65 @@
+Keep the LFDS OAuth2 SSO implementation DORMANT.
+
+Do not remove the SSO code.
+
+Requirements:
+
+1. SSO must be DISABLED by default.
+
+2. With the default/current configuration:
+   - No LFDS redirects.
+   - No authorization-code flow.
+   - No calls to LFDS.
+   - No calls to the V2 token endpoint for SSO.
+   - No SSO callback flow should execute automatically.
+   - The existing username/password Login flow must behave exactly as before.
+
+3. Do NOT modify:
+   - Laserfiche API Server configuration
+   - LFDS
+   - WebSTS
+   - WhitelistedRedirectUris
+   - LFDSSTSBaseUrl on the Laserfiche server
+   - Laserfiche IIS configuration
+
+4. Keep the SSO implementation available for future activation.
+
+5. SSO may activate ONLY when an administrator explicitly configures the Dashboard-side SSO settings required by the implementation.
+
+6. An empty:
+   Laserfiche:Sso:LfdsBaseUrl
+   must mean SSO is disabled.
+
+7. Make sure SessionAuthGuardMiddleware/LoginController cannot accidentally start SSO when it is disabled.
+
+8. Preserve the existing V1 username/password authentication as the default active authentication method.
+
+9. Add/verify regression tests proving:
+   - default configuration => SSO disabled
+   - /Login renders normal login
+   - no LFDS redirect
+   - no V2 SSO token request
+   - existing V1 login still works
+   - repository selection still works
+   - sign-out still works
+   - existing session/repository isolation still works
+
+10. In the Settings Configuration Reference UI, show:
+    SSO Status: Disabled
+   when SSO is dormant.
+
+11. Do not show this as an error or warning. It is an intentional dormant optional feature.
+
+12. Do not change unrelated code.
+
+Run the complete test suite and Release build afterward.
+
+Report:
+- whether any code actually needed modification
+- final default authentication flow
+- confirmation that SSO is dormant
+- confirmation that Laserfiche itself was not modified
+- build result
+- test result
+
+Proceed now.

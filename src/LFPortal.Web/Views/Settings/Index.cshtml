@@ -383,21 +383,17 @@ else
         }
         else
         {
-            <span class="badge badge--amber">SSO Disabled</span>
+            <span class="badge" style="background:#e5e7eb;color:#6b7280;border:1px solid #d1d5db;">SSO Disabled</span>
         }
     </div>
 
     @if (!Model.SsoEnabled)
     {
-        <div class="alert alert--info" style="margin-bottom:16px;">
-            <span>&#8505;</span>
-            <div>
-                LFDS Single Sign-On is <strong>not configured</strong>.
-                Set <code>Laserfiche:Sso:LfdsBaseUrl</code> in
-                <code>%ProgramData%\Dashboard\laserfiche.config.json</code> to enable SSO.
-                Users will continue to sign in with username and password.
-            </div>
-        </div>
+        <p style="font-size:.85rem;color:#6b7280;margin-bottom:16px;">
+            SSO is dormant. Set <code>Laserfiche:Sso:LfdsBaseUrl</code> in
+            <code>%ProgramData%\Dashboard\laserfiche.config.json</code> to activate it.
+            Until then users sign in with username and password — no other behaviour changes.
+        </p>
     }
     else
     {
