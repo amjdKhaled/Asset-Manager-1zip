@@ -270,11 +270,11 @@ footer.site-footer { background: #0a1020 !important; }
         }
         <a href="/Dashboard/Probe" style="display:inline-flex;align-items:center;gap:6px;background:var(--d-surf2);border:1px solid var(--d-border);color:var(--d-secondary);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            Probe API
+            @L["ProbeApi"]
         </a>
         <a href="/Dashboard" style="display:inline-flex;align-items:center;gap:6px;background:var(--d-surf2);border:1px solid var(--d-border);color:var(--d-secondary);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-            Refresh
+            @L["Refresh"]
         </a>
     </div>
 </div>
@@ -295,35 +295,35 @@ footer.site-footer { background: #0a1020 !important; }
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         </div>
         <div class="d-kpi-val">@s.TotalFolders.ToString("N0")</div>
-        <div class="d-kpi-lbl">Total Folders</div>
+        <div class="d-kpi-lbl">@L["TotalFolders"]</div>
     </div>
     <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
         <div class="d-kpi-icon" style="background:rgba(20,184,166,.15)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         </div>
         <div class="d-kpi-val">@s.TotalDocuments.ToString("N0")</div>
-        <div class="d-kpi-lbl">Total Documents</div>
+        <div class="d-kpi-lbl">@L["TotalDocuments"]</div>
     </div>
     <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
         <div class="d-kpi-icon" style="background:rgba(139,92,246,.15)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         </div>
         <div class="d-kpi-val">@s.TotalTemplates.ToString("N0")</div>
-        <div class="d-kpi-lbl">Total Templates</div>
+        <div class="d-kpi-lbl">@L["TotalTemplates"]</div>
     </div>
     <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
         <div class="d-kpi-icon" style="background:rgba(34,197,94,.15)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
         <div class="d-kpi-val">@s.DocsWithTemplate.ToString("N0")</div>
-        <div class="d-kpi-lbl">Docs with Template</div>
+        <div class="d-kpi-lbl">@L["DocsWithTemplate"]</div>
     </div>
     <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
         <div class="d-kpi-icon" style="background:rgba(249,115,22,.15)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </div>
         <div class="d-kpi-val">@s.DocsWithoutTemplate.ToString("N0")</div>
-        <div class="d-kpi-lbl">Docs without Template</div>
+        <div class="d-kpi-lbl">@L["DocsWithoutTemplate"]</div>
     </div>
 </div>
 
@@ -337,15 +337,15 @@ footer.site-footer { background: #0a1020 !important; }
     <div class="d-card">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
             <div>
-                <div class="d-card-title"><span class="d-section-bar"></span>Documents by Folder</div>
-                <div class="d-card-sub" style="margin-top:3px;margin-left:12px">Root-level folders · live from @s.RepositoryId</div>
+                <div class="d-card-title"><span class="d-section-bar"></span>@L["DocumentsByFolder"]</div>
+                <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@string.Format(L["RootLevelFolders"], s.RepositoryId)</div>
             </div>
         </div>
         @if (s.RootFolders.Count == 0)
         {
             <div class="d-empty">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
-                <span style="font-size:.8rem">No folder data available.</span>
+                <span style="font-size:.8rem">@L["NoFolderData"]</span>
             </div>
         }
         else
@@ -359,14 +359,14 @@ footer.site-footer { background: #0a1020 !important; }
     <!-- Template Distribution donut -->
     <div class="d-card">
         <div style="margin-bottom:12px">
-            <div class="d-card-title"><span class="d-section-bar"></span>Template Distribution</div>
-            <div class="d-card-sub" style="margin-top:3px;margin-left:12px">Auto-discovered · each template a different colour</div>
+            <div class="d-card-title"><span class="d-section-bar"></span>@L["TemplateDistribution"]</div>
+            <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@L["AutoDiscovered"]</div>
         </div>
         @if (s.TemplateStats.Count == 0)
         {
             <div class="d-empty">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
-                <span style="font-size:.8rem">No templates assigned to documents.</span>
+                <span style="font-size:.8rem">@L["NoTemplatesAssigned"]</span>
             </div>
         }
         else
@@ -385,15 +385,15 @@ footer.site-footer { background: #0a1020 !important; }
     <div class="d-card">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
             <div>
-                <div class="d-card-title"><span class="d-section-bar" style="background:#14b8a6"></span>Document Activity</div>
-                <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@actRangeLabel · created vs. modified · real timestamps</div>
+                <div class="d-card-title"><span class="d-section-bar" style="background:#14b8a6"></span>@L["DocumentActivity"]</div>
+                <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@actRangeLabel · @L["CreatedVsModified"]</div>
             </div>
         </div>
         @if (allActivityDates.Count == 0)
         {
             <div class="d-empty">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                <span style="font-size:.8rem">No creation or modification timestamps found on scanned documents.</span>
+                <span style="font-size:.8rem">@L["NoActivityData"]</span>
             </div>
         }
         else
@@ -407,7 +407,7 @@ footer.site-footer { background: #0a1020 !important; }
     <!-- Panel B: Documents by User Activity -->
     <div class="d-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <div class="d-card-title"><span class="d-section-bar"></span>Documents by User Activity</div>
+            <div class="d-card-title"><span class="d-section-bar"></span>@L["DocumentsByUserActivity"]</div>
             <span class="d-badge d-badge-indigo">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                 @userActivity.Count user@(userActivity.Count != 1 ? "s" : "") (LF)
@@ -417,14 +417,14 @@ footer.site-footer { background: #0a1020 !important; }
         {
             <div class="d-empty">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                <span style="font-size:.8rem">No user activity data available (Creator field empty on all scanned documents).</span>
+                <span style="font-size:.8rem">@L["NoUserActivity"]</span>
             </div>
         }
         else
         {
             <div class="d-tbl-wrap">
                 <table class="d-tbl" id="table1">
-                    <thead><tr><th>User</th><th>Documents Created</th><th>Last Activity</th></tr></thead>
+                    <thead><tr><th>@L["User"]</th><th>@L["DocumentsCreated"]</th><th>@L["LastActivity"]</th></tr></thead>
                     <tbody>
                         @foreach (var u in userActivity)
                         {
@@ -447,12 +447,12 @@ footer.site-footer { background: #0a1020 !important; }
 {
 <div class="d-card" style="margin-bottom:18px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div class="d-card-title"><span class="d-section-bar"></span>Template Statistics</div>
+        <div class="d-card-title"><span class="d-section-bar"></span>@L["TemplateStatistics"]</div>
         <span class="d-badge d-badge-violet">@s.TemplateStats.Count template@(s.TemplateStats.Count != 1 ? "s" : "")</span>
     </div>
     <div class="d-tbl-wrap">
         <table class="d-tbl" id="table2">
-            <thead><tr><th>#</th><th>Template Name</th><th>Documents</th><th>% of Total</th></tr></thead>
+            <thead><tr><th>@L["Number"]</th><th>@L["TemplateName"]</th><th>@L["Documents"]</th><th>@L["PercentOfTotal"]</th></tr></thead>
             <tbody>
                 @for (var i = 0; i < s.TemplateStats.Count; i++)
                 {
@@ -477,14 +477,14 @@ footer.site-footer { background: #0a1020 !important; }
     <!-- Document Type Distribution -->
     <div class="d-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <div class="d-card-title"><span class="d-section-bar"></span>Document Type Distribution</div>
-            <span class="d-badge d-badge-blue">By template / type</span>
+            <div class="d-card-title"><span class="d-section-bar"></span>@L["DocumentTypeDistribution"]</div>
+            <span class="d-badge d-badge-blue">@L["ByTemplate"]</span>
         </div>
         @if (s.TemplateStats.Count == 0)
         {
             <div class="d-empty">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
-                <span style="font-size:.8rem">No document type data available.</span>
+                <span style="font-size:.8rem">@L["NoDocTypeData"]</span>
             </div>
         }
         else
@@ -508,45 +508,57 @@ footer.site-footer { background: #0a1020 !important; }
     <!-- System Health -->
     <div class="d-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <div class="d-card-title"><span class="d-section-bar"></span>System Health</div>
+            <div class="d-card-title"><span class="d-section-bar"></span>@L["SystemHealth"]</div>
             <span class="d-badge @(s.IsConnected ? "d-badge-green" : "d-badge-red")">
-                @(s.IsConnected ? "✓ Connected" : "✗ Disconnected")
+                @(s.IsConnected ? $"✓ {L["Connected"]}" : $"✗ {L["Disconnected"]}")
             </span>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
             <div class="d-health-cell">
                 <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Status
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> @L["Status"]
                 </div>
-                <div class="d-health-val @(s.IsConnected ? "d-connected" : "d-disc")">@(s.IsConnected ? "Connected" : "Disconnected")</div>
+                <div class="d-health-val @(s.IsConnected ? "d-connected" : "d-disc")">@(s.IsConnected ? L["Connected"].Value : L["Disconnected"].Value)</div>
             </div>
             <div class="d-health-cell">
                 <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg> Repository
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg> @L["Repository"]
                 </div>
                 <div class="d-health-val">@(s.RepositoryId ?? "N/A")</div>
             </div>
             <div class="d-health-cell" style="grid-column:span 2">
                 <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> Server URL
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> @L["ServerUrl"]
                 </div>
                 <div class="d-health-val">@(s.ServerUrl ?? "N/A")</div>
             </div>
             <div class="d-health-cell">
                 <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Username
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> @L["Username"]
                 </div>
                 <div class="d-health-val">@(s.ConnectedUser ?? "N/A")</div>
             </div>
             <div class="d-health-cell">
                 <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Last Refresh
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> @L["LastRefresh"]
                 </div>
                 <div class="d-health-val">@FmtAgo(s.LastCheckedAt)</div>
             </div>
             <div class="d-health-cell" style="grid-column:span 2">
                 <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Scan Duration
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> @L["Authentication"]
+                </div>
+                <div class="d-health-val">
+                    @L[s.AuthenticationMode]
+                    @if (s.AuthenticationMode == "FallbackCredentials")
+                    {
+                        <span style="display:block;font-size:.72rem;color:var(--d-muted);opacity:.7;margin-top:2px">(per-user delegation requires LFDS OAuth)</span>
+                    }
+                </div>
+            </div>
+            <div class="d-health-cell" style="grid-column:span 2">
+                <div class="d-health-lbl">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> @L["ScanDuration"]
                 </div>
                 <div class="d-health-val">@FmtMs(s.ScanDurationMs)</div>
             </div>
@@ -557,7 +569,7 @@ footer.site-footer { background: #0a1020 !important; }
 <!-- ── Recently Created Documents ─────────────────────────────────────────── -->
 <div class="d-card" style="margin-bottom:18px" >
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div class="d-card-title"><span class="d-section-bar"></span>Recently Created Documents</div>
+        <div class="d-card-title"><span class="d-section-bar"></span>@L["RecentlyCreatedDocuments"]</div>
         <span class="d-badge d-badge-teal">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             @s.RecentDocs.Count doc@(s.RecentDocs.Count != 1 ? "s" : "")
@@ -567,14 +579,14 @@ footer.site-footer { background: #0a1020 !important; }
     {
         <div class="d-empty">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            <span style="font-size:.8rem">No recently created documents found.</span>
+            <span style="font-size:.8rem">@L["NoRecentDocs"]</span>
         </div>
     }
     else
     {
         <div class="d-tbl-wrap">
             <table class="d-tbl" id="table3">
-                <thead><tr><th>Document Name</th><th>Template</th><th>Folder</th><th>Created</th><th>Created By</th></tr></thead>
+                <thead><tr><th>@L["DocumentName"]</th><th>@L["Template"]</th><th>@L["Folder"]</th><th>@L["Created"]</th><th>@L["CreatedBy"]</th></tr></thead>
                 <tbody>
                     @foreach (var d in s.RecentDocs)
                     {
@@ -597,14 +609,14 @@ footer.site-footer { background: #0a1020 !important; }
 <!-- ── Recent Document Activity ────────────────────────────────────────────── -->
 <div class="d-card" style="margin-bottom:18px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div class="d-card-title"><span class="d-section-bar" style="background:#f97316"></span>Recent Document Activity</div>
+        <div class="d-card-title"><span class="d-section-bar" style="background:#f97316"></span>@L["RecentDocumentActivity"]</div>
         <span class="d-badge d-badge-orange">@recentActivity.Count doc@(recentActivity.Count != 1 ? "s" : "")</span>
     </div>
     @if (recentActivity.Count == 0)
     {
         <div class="d-empty">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            <span style="font-size:.8rem">No documents found in the repository scan.</span>
+            <span style="font-size:.8rem">@L["NoDocumentsFound"]</span>
         </div>
     }
     else
@@ -613,14 +625,14 @@ footer.site-footer { background: #0a1020 !important; }
             <table class="d-tbl" id="table4">
                 <thead>
                     <tr>
-                        <th>Document Name</th>
-                        <th>Folder</th>
-                        <th>Template</th>
-                        <th>Created</th>
-                        <th>Modified</th>
+                        <th>@L["DocumentName"]</th>
+                        <th>@L["Folder"]</th>
+                        <th>@L["Template"]</th>
+                        <th>@L["Created"]</th>
+                        <th>@L["Modified"]</th>
                         @if (recentActivity.Any(d => !string.IsNullOrWhiteSpace(d.Creator)))
                         {
-                            <th>Creator</th>
+                            <th>@L["CreatedBy"]</th>
                         }
                     </tr>
                 </thead>

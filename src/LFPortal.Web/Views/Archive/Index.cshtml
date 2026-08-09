@@ -147,8 +147,8 @@ footer.site-footer { background: #0a1020 !important; }
 <!-- ── Header ─────────────────────────────────────────────────────────────── -->
 <div class="arc-header">
     <div>
-        <h1 class="arc-title">🗂️ Document Archive</h1>
-        <p class="arc-sub">Browse the Laserfiche repository · live data</p>
+        <h1 class="arc-title">🗂️ @L["DocumentArchive"]</h1>
+        <p class="arc-sub">@L["BrowseRepository"]</p>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:.75rem;color:var(--a-muted)">
@@ -188,7 +188,7 @@ footer.site-footer { background: #0a1020 !important; }
         <!-- Toolbar -->
         <div class="arc-toolbar">
             <input id="arcFilter" class="arc-filter" type="text"
-                   placeholder="Filter current folder…" autocomplete="off" />
+                   placeholder="@L["FilterCurrentFolder"]" autocomplete="off" />
             <span class="arc-count" id="arcCount">
                 @Model.Entries.Count entr@(Model.Entries.Count == 1 ? "y" : "ies")
             </span>
@@ -208,7 +208,7 @@ footer.site-footer { background: #0a1020 !important; }
             {
                 <div class="arc-empty">
                     <svg class="arc-empty-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                    <span class="arc-empty-text">This folder is empty.</span>
+                    <span class="arc-empty-text">@L["ThisFolderIsEmpty"]</span>
                 </div>
             }
             else if (Model.Entries.Count > 0)
@@ -216,12 +216,12 @@ footer.site-footer { background: #0a1020 !important; }
                 <table class="arc-tbl" id="arcTable">
                     <thead>
                         <tr>
-                            <th data-col="name"     class="sorted" style="min-width:220px">Name <span class="sort-icon">▲</span></th>
-                            <th data-col="type"     style="width:100px">Type <span class="sort-icon">⇅</span></th>
-                            <th data-col="template" style="width:160px">Template <span class="sort-icon">⇅</span></th>
-                            <th data-col="created"  style="width:130px">Created <span class="sort-icon">⇅</span></th>
-                            <th data-col="modified" style="width:130px">Modified <span class="sort-icon">⇅</span></th>
-                            <th data-col="creator"  style="width:130px">Created By <span class="sort-icon">⇅</span></th>
+                            <th data-col="name"     class="sorted" style="min-width:220px">@L["Name"] <span class="sort-icon">▲</span></th>
+                            <th data-col="type"     style="width:100px">@L["Type"] <span class="sort-icon">⇅</span></th>
+                            <th data-col="template" style="width:160px">@L["Template"] <span class="sort-icon">⇅</span></th>
+                            <th data-col="created"  style="width:130px">@L["Created"] <span class="sort-icon">⇅</span></th>
+                            <th data-col="modified" style="width:130px">@L["Modified"] <span class="sort-icon">⇅</span></th>
+                            <th data-col="creator"  style="width:130px">@L["CreatedBy"] <span class="sort-icon">⇅</span></th>
                         </tr>
                     </thead>
                     <tbody id="arcTbody">

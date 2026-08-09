@@ -6,7 +6,7 @@
 }
 
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
-    <h1 style="font-size:1.5rem;font-weight:700;color:var(--lfp-text);">&#9881;&#65039; Settings</h1>
+    <h1 style="font-size:1.5rem;font-weight:700;color:var(--lfp-text);">&#9881;&#65039; @L["Settings"]</h1>
 </div>
 
 @* ── Success / error banners ───────────────────────────────────────────── *@
@@ -15,7 +15,7 @@
     <div class="alert alert--success" style="margin-bottom:16px;">
         <span>&#10003;</span>
         <div>
-            <strong>Settings saved.</strong>
+            <strong>@L["SettingsSaved"]</strong>
             All Laserfiche services are now using the updated configuration.
         </div>
     </div>
@@ -24,7 +24,7 @@
 {
     <div class="alert alert--error" style="margin-bottom:16px;">
         <span>&#9888;</span>
-        <div><strong>Save failed:</strong> @Model.ErrorMessage</div>
+        <div><strong>@L["SettingsFailed"]</strong> @Model.ErrorMessage</div>
     </div>
 }
 
@@ -79,14 +79,14 @@ else
 {
     <div class="card" style="margin-bottom:16px;">
         <div class="card__title" style="display:flex;align-items:center;justify-content:space-between;">
-            <span>Connection Status</span>
+            <span>@L["ConnectionStatus"]</span>
             @if (connected)
             {
-                <span class="badge badge--green">Connected</span>
+                <span class="badge badge--green">@L["Connected"]</span>
             }
             else
             {
-                <span class="badge badge--red">Disconnected</span>
+                <span class="badge badge--red">@L["Disconnected"]</span>
             }
         </div>
 
@@ -103,15 +103,15 @@ else
 
         <div class="status-grid">
             <div class="status-item">
-                <span class="status-item__label">Active Repository</span>
+                <span class="status-item__label">@L["ActiveRepository"]</span>
                 <span class="status-item__value">@(Model.ConnectionStatus.RepositoryId ?? Model.EffectiveRepositoryId)</span>
             </div>
             <div class="status-item">
-                <span class="status-item__label">Repository Name</span>
+                <span class="status-item__label">@L["RepositoryName"]</span>
                 <span class="status-item__value">@(Model.ConnectionStatus.RepositoryName ?? "—")</span>
             </div>
             <div class="status-item">
-                <span class="status-item__label">Server Version</span>
+                <span class="status-item__label">@L["ServerVersion"]</span>
                 <span class="status-item__value">@(Model.ConnectionStatus.ServerVersion ?? "—")</span>
             </div>
             <div class="status-item">
@@ -119,11 +119,11 @@ else
                 <span class="status-item__value">@(Model.ConnectionStatus.ApiVersion ?? "—")</span>
             </div>
             <div class="status-item">
-                <span class="status-item__label">Last Checked</span>
+                <span class="status-item__label">@L["LastChecked"]</span>
                 <span class="status-item__value">@Model.ConnectionStatus.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
             </div>
             <div class="status-item">
-                <span class="status-item__label">Launch Source</span>
+                <span class="status-item__label">@L["LaunchSource"]</span>
                 <span class="status-item__value">
                     @if (Model.EffectiveRepositorySource == "Laserfiche Desktop Client")
                     {
@@ -145,14 +145,14 @@ else
 
 @* ── Settings form ─────────────────────────────────────────────────────── *@
 <div class="card">
-    <div class="card__title">Laserfiche Connection</div>
+    <div class="card__title">@L["LaserficheConnection"]</div>
 
     <form id="settings-form" method="post" asp-controller="Settings" asp-action="Save" novalidate>
         @Html.AntiForgeryToken()
 
         @* ── API Version ─────────────────────────────────────────────── *@
         <div class="form-section">
-            <div class="form-section__title">API Version</div>
+            <div class="form-section__title">@L["ApiVersion"]</div>
             <div class="settings-grid">
                 <div class="field-group">
                     <label class="field-label" for="ApiVersion">Laserfiche API Version</label>
@@ -186,10 +186,10 @@ else
 
         @* ── Repository ─────────────────────────────────────────────── *@
         <div class="form-section">
-            <div class="form-section__title">Repository</div>
+            <div class="form-section__title">@L["Repository"]</div>
             <div class="settings-grid">
                 <div class="field-group" style="grid-column: span 2;">
-                    <label class="field-label" for="ServerUrl">API Server URL</label>
+                    <label class="field-label" for="ServerUrl">@L["ApiServerUrl"]</label>
                     <input class="field-input" type="text" id="ServerUrl" name="ServerUrl"
                            value="@Model.ServerUrl"
                            placeholder="https://lf-server.corp.local"
@@ -203,7 +203,7 @@ else
                 </div>
                 <div class="field-group">
                     <label class="field-label" for="RepositoryId">
-                        Default Repository (Fallback)
+                        @L["DefaultRepository"]
                         <button type="button" id="discover-btn" class="btn btn--secondary"
                                 style="margin-left:8px;padding:3px 10px;font-size:.75rem;">
                             &#128269; Discover
@@ -223,8 +223,8 @@ else
                 </div>
                 <div class="field-group">
                     <label class="field-label" for="DisplayName">
-                        Display Name
-                        <span style="font-weight:400;color:var(--lfp-muted);">(optional)</span>
+                        @L["DisplayName"]
+                        <span style="font-weight:400;color:var(--lfp-muted);">@L["Optional"]</span>
                     </label>
                     <input class="field-input" type="text" id="DisplayName" name="DisplayName"
                            value="@Model.DisplayName"
@@ -237,10 +237,10 @@ else
 
         @* ── Browse settings ──────────────────────────────────────────── *@
         <div class="form-section" style="margin-top:24px;">
-            <div class="form-section__title">Browse Settings</div>
+            <div class="form-section__title">@L["BrowseSettings"]</div>
             <div class="settings-grid">
                 <div class="field-group">
-                    <label class="field-label" for="RootEntryId">Root Entry ID</label>
+                    <label class="field-label" for="RootEntryId">@L["RootEntryId"]</label>
                     <input class="field-input" type="number" id="RootEntryId" name="RootEntryId"
                            value="@Model.RootEntryId" min="1" />
                     <span class="field-hint">
@@ -249,7 +249,7 @@ else
                     </span>
                 </div>
                 <div class="field-group">
-                    <label class="field-label" for="TimeoutSeconds">API Timeout (seconds)</label>
+                    <label class="field-label" for="TimeoutSeconds">@L["ApiTimeout"]</label>
                     <input class="field-input" type="number" id="TimeoutSeconds" name="TimeoutSeconds"
                            value="@Model.TimeoutSeconds" min="5" max="300" />
                     <span class="field-hint">
@@ -285,16 +285,16 @@ else
 
         @* ── Credentials ─────────────────────────────────────────────── *@
         <div class="form-section" style="margin-top:24px;">
-            <div class="form-section__title">Credentials</div>
+            <div class="form-section__title">@L["Credentials"]</div>
             <div class="settings-grid">
                 <div class="field-group">
-                    <label class="field-label" for="Username">Username</label>
+                    <label class="field-label" for="Username">@L["Username"]</label>
                     <input class="field-input" type="text" id="Username" name="Username"
                            placeholder="@(Model.HasSavedCredentials ? "Leave blank to keep saved credentials" : "laserfiche-admin")"
                            autocomplete="username" />
                 </div>
                 <div class="field-group">
-                    <label class="field-label" for="Password">Password</label>
+                    <label class="field-label" for="Password">@L["Password"]</label>
                     <input class="field-input" type="password" id="Password" name="Password"
                            placeholder="@(Model.HasSavedCredentials ? "Leave blank to keep saved credentials" : "Enter password")"
                            autocomplete="current-password" />
@@ -309,10 +309,10 @@ else
 
         <div style="display:flex;gap:12px;margin-top:24px;flex-wrap:wrap;">
             <button type="submit" class="btn btn--primary">
-                &#128190; Save Settings
+                &#128190; @L["SaveSettings"]
             </button>
             <button type="button" id="test-btn" class="btn btn--secondary">
-                &#128268; Test Connection
+                &#128268; @L["TestConnection"]
             </button>
         </div>
     </form>
@@ -323,7 +323,7 @@ else
 
 @* ── Quick-reference card ──────────────────────────────────────────────── *@
 <div class="card" style="margin-top:16px;">
-    <div class="card__title">Configuration Reference</div>
+    <div class="card__title">@L["ConfigReference"]</div>
     <div class="status-grid">
         <div class="status-item">
             <span class="status-item__label">Token URL (current)</span>

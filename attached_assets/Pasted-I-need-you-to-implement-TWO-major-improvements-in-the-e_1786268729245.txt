@@ -1,0 +1,753 @@
+I need you to implement TWO major improvements in the existing LFPortal / Laserfiche Dashboard project.
+
+IMPORTANT:
+Do not immediately start changing random files.
+
+First inspect the existing authentication, Laserfiche API credential flow,
+repository-session flow, middleware, Dashboard services, controllers, views,
+JavaScript, and CSS.
+
+Then implement the changes carefully without breaking the currently working
+repository selection, V2 API support, dark theme, or fast deployment.
+
+============================================================
+GOAL 1 — DASHBOARD DATA MUST FOLLOW THE ACTUAL LASERFICHE USER
+============================================================
+
+CURRENT PROBLEM:
+
+The Dashboard currently retrieves repository information using the stored
+fallback/admin credentials.
+
+For example System Health currently shows a user such as:
+
+admin
+
+This means that even when another Laserfiche user opens the Dashboard,
+repository API requests may still be executed using the stored admin
+credentials.
+
+This is NOT the desired behavior.
+
+I want Dashboard data to respect the CURRENT Laserfiche user's identity and
+permissions whenever a real per-user Laserfiche authentication/session is
+available.
+
+Examples:
+
+If ADMIN opens the Dashboard:
+    Dashboard should show everything ADMIN is allowed to see.
+
+If Khaled opens the Dashboard:
+    Dashboard should show only folders/documents/metadata Khaled is allowed
+    to see.
+
+If UserA cannot access Folder X in Laserfiche:
+    Folder X must NOT appear in Dashboard for UserA.
+
+The Dashboard must never display data merely because the fallback admin
+account can access it.
+
+============================================================
+CRITICAL SECURITY REQUIREMENT
+============================================================
+
+Do NOT fake per-user authorization.
+
+Changing:
+
+DisplayedUsername = "Khaled"
+
+while API requests still use:
+
+admin + stored password
+
+IS NOT ACCEPTABLE.
+
+The identity used for Laserfiche API requests must actually correspond to the
+user whose permissions are supposed to be enforced.
+
+============================================================
+FIRST — TRACE THE CURRENT AUTHENTICATION PATH
+============================================================
+
+Before implementation, determine exactly:
+
+1. How the Dashboard currently authenticates to Laserfiche.
+2. Where the admin credentials come from.
+3. Where DPAPI credentials are loaded.
+4. How Bearer tokens are created and cached.
+5. Whether BearerTokenHandler uses a global credential/token or a per-session
+   token.
+6. How RepositorySessionMiddleware works.
+7. What information the Web Client button sends to Dashboard.
+8. Whether the Web Client launch currently provides:
+   - username
+   - repository
+   - session identifier
+   - token
+   - authorization code
+   - or only repository/source
+9. Whether the Desktop Client extension provides any authenticated
+   Laserfiche session information.
+10. Whether the current project has any existing OAuth/LFDS SSO code and
+    whether it is enabled or dormant.
+
+Produce the architecture internally before modifying authentication behavior.
+
+============================================================
+VERY IMPORTANT — DO NOT CLAIM SOMETHING IS POSSIBLE IF IT IS NOT
+============================================================
+
+The existing Web Client launch may only provide something like:
+
+?repository=NewEmployeeTest&source=webclient
+
+If that is all that is available, DO NOT pretend that Dashboard knows which
+Laserfiche user is authenticated.
+
+Repository identity and user identity are different things.
+
+If there is no secure way to obtain/delegate the authenticated Laserfiche
+user using the current integration WITHOUT changing Laserfiche configuration,
+then clearly document that limitation.
+
+Do NOT:
+
+- steal Laserfiche cookies
+- read HttpOnly cookies
+- scrape credentials
+- put passwords in URLs
+- put bearer tokens in URLs
+- expose tokens to JavaScript
+- store plaintext passwords
+- impersonate a user using admin credentials
+- infer permissions by username while still querying as admin
+- create fake permission filtering after retrieving everything as admin
+
+============================================================
+DESIRED AUTHENTICATION ARCHITECTURE
+============================================================
+
+The project should support TWO clearly separated authentication modes.
+
+MODE A — USER SESSION
+
+When Dashboard has a legitimate authenticated Laserfiche token/session for
+the current user:
+
+Dashboard API calls must use that user's token.
+
+Token cache must be isolated per Dashboard session/user/repository.
+
+Conceptually:
+
+DashboardSession
+    User = Khaled
+    Repository = NewEmployeeTest
+    LaserficheToken = Khaled's token
+
+All API calls:
+
+Entries
+Folders
+Documents
+Templates
+Fields
+Search
+Metadata
+Dashboard statistics
+
+must use Khaled's authenticated context.
+
+Therefore Laserfiche itself enforces ACL/security.
+
+Do not manually recreate Laserfiche ACL logic in Dashboard.
+
+------------------------------------------------------------
+
+MODE B — FALLBACK / SERVICE CREDENTIALS
+
+Keep the existing DPAPI stored credentials ONLY as an explicit fallback mode
+where necessary.
+
+Do not silently describe this mode as "current Laserfiche user".
+
+If Dashboard is querying as the fallback account, the application must know
+that the effective identity is the fallback account.
+
+The architecture should distinguish:
+
+AuthenticationMode.UserSession
+
+from:
+
+AuthenticationMode.FallbackCredentials
+
+or an equivalent design.
+
+============================================================
+PER-SESSION TOKEN ISOLATION
+============================================================
+
+Audit all token caching.
+
+This is critical.
+
+A token must NEVER be globally cached only by repository ID if multiple users
+can access the Dashboard.
+
+Bad:
+
+TokenCache["NewEmployeeTest"] = adminToken
+
+Then Khaled opens NewEmployeeTest and accidentally receives adminToken.
+
+Correct concept:
+
+TokenCache[
+    DashboardSessionId,
+    RepositoryId,
+    UserIdentity
+]
+
+or another secure per-session isolation design.
+
+User A must never reuse User B's Laserfiche token.
+
+Repository switching must also invalidate or select the correct token.
+
+Logout/session expiration must remove the corresponding token.
+
+============================================================
+DASHBOARD DATA PIPELINE
+============================================================
+
+Once an authenticated user context exists, ALL dashboard services must use it.
+
+Audit:
+
+- DashboardController
+- LaserficheEntryService
+- RepositoryService
+- Search services
+- Template services
+- Metadata services
+- report services
+- activity services
+- BearerTokenHandler
+- HttpClient registrations
+- token cache
+- repository context
+
+Do not leave one service using admin while another uses the current user.
+
+The authentication context must flow consistently through the complete
+request pipeline.
+
+============================================================
+DASHBOARD PERMISSION BEHAVIOR
+============================================================
+
+Do NOT retrieve the entire repository as admin and then filter it manually.
+
+Instead:
+
+Authenticated user
+        ↓
+Laserfiche API
+        ↓
+Laserfiche security/ACL enforcement
+        ↓
+Only authorized entries returned
+        ↓
+Dashboard statistics generated from those entries
+
+Therefore:
+
+Total Documents
+Total Folders
+Documents by Folder
+Template Distribution
+Document Activity
+Documents by User Activity
+Document Type Distribution
+Recently Created Documents
+Recent Document Activity
+
+must all be calculated ONLY from data returned for the effective user.
+
+============================================================
+SYSTEM HEALTH / USER DISPLAY
+============================================================
+
+Update System Health so it clearly shows the effective Laserfiche identity.
+
+For example:
+
+User:
+Khaled
+
+Authentication:
+Laserfiche User Session
+
+Repository:
+NewEmployeeTest
+
+Or when fallback credentials are actually being used:
+
+User:
+admin
+
+Authentication:
+Fallback Credentials
+
+Repository:
+NewEmployeeTest
+
+Do not show "Khaled" if requests are really executing as admin.
+
+============================================================
+DO NOT REINTRODUCE THE OLD LOGIN PAGE
+============================================================
+
+The previous requirement to remove the unnecessary Change Account/Login UX
+must remain.
+
+Do NOT reintroduce a second username/password prompt simply to make this
+feature appear complete.
+
+If true same-user delegation cannot be achieved with the current Laserfiche
+integration/configuration, keep the current working fallback behavior and
+report exactly what is missing for true same-user authorization.
+
+Do not break Dashboard access.
+
+============================================================
+GOAL 2 — ADD COMPLETE ARABIC LANGUAGE SUPPORT
+============================================================
+
+The Dashboard currently uses English.
+
+Add complete bilingual support:
+
+English
+Arabic
+
+Use proper ASP.NET Core localization.
+
+Do NOT implement translation by duplicating entire Razor views.
+
+Use resource-based localization.
+
+Recommended architecture:
+
+Resources/
+    SharedResource.en.resx
+    SharedResource.ar.resx
+
+or another clean ASP.NET Core localization structure.
+
+Use:
+
+IStringLocalizer
+
+and proper RequestLocalization middleware.
+
+============================================================
+SUPPORTED CULTURES
+============================================================
+
+Support:
+
+en
+ar
+
+Default language:
+
+English
+
+The user's selected language should persist.
+
+Use a culture cookie or another standard ASP.NET Core localization mechanism.
+
+Do not require login to select a language.
+
+============================================================
+LANGUAGE SWITCHER
+============================================================
+
+Add a language selector to the top navigation.
+
+Example:
+
+English | العربية
+
+or a compact language dropdown.
+
+When English is selected:
+
+<html lang="en" dir="ltr">
+
+When Arabic is selected:
+
+<html lang="ar" dir="rtl">
+
+The selected language must remain active while navigating between:
+
+Dashboard
+Archive
+Settings
+Probe/Diagnostics
+and other existing pages.
+
+============================================================
+ARABIC RTL SUPPORT
+============================================================
+
+Arabic must be true RTL.
+
+Do NOT merely translate the text.
+
+When Arabic is active:
+
+dir="rtl"
+
+and the layout must adapt appropriately.
+
+Check:
+
+navigation
+cards
+tables
+badges
+forms
+buttons
+dropdowns
+alerts
+pagination
+charts
+tooltips
+settings
+diagnostic panels
+system health
+empty-state messages
+
+Use logical CSS properties where practical:
+
+margin-inline-start
+margin-inline-end
+padding-inline-start
+padding-inline-end
+text-align: start
+
+instead of hardcoded left/right rules.
+
+Do not destroy the existing dark theme.
+
+============================================================
+TRANSLATE THE COMPLETE USER INTERFACE
+============================================================
+
+Translate all user-facing text.
+
+This includes at minimum:
+
+Dashboard
+Archive
+Settings
+
+Total Folders
+Total Documents
+Total Templates
+Docs with Template
+Docs without Template
+
+Documents by Folder
+Template Distribution
+Document Activity
+Documents by User Activity
+Document Type Distribution
+System Health
+Recently Created Documents
+Recent Document Activity
+
+Connected
+Disconnected
+Status
+Repository
+Server URL
+Username
+Authentication
+Last Refresh
+Scan Duration
+
+No folder data available
+No templates assigned to documents
+No creation or modification timestamps found
+No user activity data available
+No document type data available
+No recently created documents found
+No documents found in repository scan
+
+Settings page labels
+Save Settings
+Test Connection
+Discover
+API Version
+API Server URL
+Default Repository
+Display Name
+Root Entry ID
+API Timeout
+Username
+Password
+
+Connection messages
+Validation messages
+Error messages
+Success messages
+
+Pagination:
+Previous
+Next
+Page
+Showing
+of
+
+Probe/diagnostic UI labels.
+
+Do not translate:
+
+- repository names
+- usernames
+- document names
+- folder names
+- template names
+- metadata values
+- server URLs
+- API paths
+- technical exception details
+
+unless they are actual UI labels.
+
+============================================================
+ARABIC TRANSLATION QUALITY
+============================================================
+
+Use professional Arabic suitable for an enterprise document-management
+Dashboard.
+
+Examples:
+
+Dashboard
+→ لوحة المعلومات
+
+Archive
+→ الأرشيف
+
+Settings
+→ الإعدادات
+
+Total Documents
+→ إجمالي المستندات
+
+Total Folders
+→ إجمالي المجلدات
+
+System Health
+→ حالة النظام
+
+Connected
+→ متصل
+
+Disconnected
+→ غير متصل
+
+Recently Created Documents
+→ المستندات المنشأة حديثًا
+
+Documents by Folder
+→ المستندات حسب المجلد
+
+Template Distribution
+→ توزيع القوالب
+
+Document Activity
+→ نشاط المستندات
+
+Documents by User Activity
+→ المستندات حسب نشاط المستخدم
+
+Document Type Distribution
+→ توزيع أنواع المستندات
+
+Save Settings
+→ حفظ الإعدادات
+
+Test Connection
+→ اختبار الاتصال
+
+Do not use awkward machine-translated Arabic.
+
+============================================================
+CHART.JS LOCALIZATION
+============================================================
+
+Charts must also respect the selected culture.
+
+Translate chart labels and empty states.
+
+Do not translate actual Laserfiche data.
+
+Example:
+
+English:
+Documents
+
+Arabic:
+المستندات
+
+For Arabic, ensure legends/tooltips remain readable with RTL.
+
+Do not break existing Chart.js functionality.
+
+============================================================
+DATE / NUMBER LOCALIZATION
+============================================================
+
+Where reasonable, format dates and numbers according to the selected culture.
+
+However:
+
+Do NOT change the underlying stored values.
+
+Do NOT change Laserfiche metadata.
+
+This is presentation-only localization.
+
+============================================================
+DARK THEME MUST REMAIN
+============================================================
+
+Keep the current dark theme.
+
+Do NOT revert to the previous white/light Dashboard.
+
+Both:
+
+English LTR
+Arabic RTL
+
+must use the same dark visual identity.
+
+============================================================
+NO LASERFICHE CONFIGURATION CHANGES
+============================================================
+
+Do NOT modify:
+
+Laserfiche API Server appsettings.json
+LFDS
+LFDSSTS
+WebSTS
+Repository configuration
+Laserfiche IIS applications
+Laserfiche registry settings
+
+Any change must remain inside the Dashboard project.
+
+If Goal 1 cannot be fully achieved under this constraint, explain exactly
+which portion cannot be achieved rather than implementing an insecure fake
+solution.
+
+============================================================
+REGRESSION TESTS — AUTHENTICATION
+============================================================
+
+Add tests covering:
+
+1. User-session token is isolated per Dashboard session.
+2. User A cannot receive User B token.
+3. Different repositories do not share tokens incorrectly.
+4. Fallback credentials remain isolated from user-session authentication.
+5. Effective identity reports the real credential/token being used.
+6. Dashboard statistics are built from the authenticated API response.
+7. Repository context continues to follow the selected repository.
+8. Web Client launch does not reintroduce the Login page.
+9. Logout/session expiration clears per-user authentication state.
+
+============================================================
+REGRESSION TESTS — LOCALIZATION
+============================================================
+
+Add tests covering:
+
+1. Default culture is English.
+2. Arabic culture can be selected.
+3. Culture persists.
+4. Arabic produces dir="rtl".
+5. English produces dir="ltr".
+6. Major navigation labels are translated.
+7. Dashboard card labels are translated.
+8. Settings labels are translated.
+9. Validation messages can be localized.
+10. Repository/document/folder names are not translated.
+
+============================================================
+BUILD AND VALIDATION
+============================================================
+
+After implementation:
+
+1. Build LFPortal.Web in Release mode.
+2. Run Infrastructure tests.
+3. Run Web tests.
+4. Fix all compilation errors.
+5. Fix all test failures.
+6. Do not stop after saying something is theoretically impossible.
+   Implement every portion that CAN safely be implemented.
+
+============================================================
+FINAL REPORT
+============================================================
+
+At the end give me a detailed report containing:
+
+AUTHENTICATION:
+
+1. What identity Dashboard used before.
+2. Where admin credentials were coming from.
+3. What identity Dashboard uses after the change.
+4. Whether true current-Laserfiche-user authentication is actually possible
+   with the current integration and zero Laserfiche configuration changes.
+5. If not fully possible, explain precisely why.
+6. What fallback behavior remains.
+7. How token/session isolation works.
+8. Files modified.
+
+LOCALIZATION:
+
+9. Localization architecture.
+10. Resource files added.
+11. How language selection works.
+12. How language preference persists.
+13. How RTL/LTR switching works.
+14. Which pages were localized.
+15. How Chart.js was localized.
+
+VALIDATION:
+
+16. Release build result.
+17. Infrastructure test total.
+18. Web test total.
+19. Total failures.
+20. Any remaining limitations.
+
+IMPORTANT:
+
+Do not tell me that Dashboard is using the current Laserfiche user's
+permissions unless you have verified that the actual Laserfiche API requests
+are authenticated as that user.
+
+I want real permission enforcement, not cosmetic user switching.

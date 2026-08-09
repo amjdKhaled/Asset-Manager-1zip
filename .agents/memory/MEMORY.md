@@ -1,5 +1,8 @@
 # Memory Index
 
+- [Localization RESX naming](localization-resx-naming.md) — no ResourcesPath in AddLocalization() when marker class uses root namespace as codebehind; mismatch causes key fallback.
+- [AuthenticationMode in DashboardStatsDto](auth-mode-dto.md) — always "FallbackCredentials" until LFDS OAuth configured; set in LaserficheDashboardService; displayed in System Health.
+
 - [SSO OAuth2 Architecture](sso-oauth-architecture.md) — V2 token endpoint for LFDS code exchange; V1 resource URLs unchanged; loop prevention via ssoFailed param; state in IMemoryCache + session.
 
 - [API version independence](api-version-independence.md) — build URLs only from EffectiveApiVersion; probe 401/403 = version exists; empty MSI LF_API_VERSION preserves a legacy v1 pin.

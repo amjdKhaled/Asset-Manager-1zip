@@ -75,49 +75,49 @@ else if (Model.Entry is {} entry)
     </div>
 
     <!-- Core fields -->
-    <div class="det-section-lbl" style="margin-top:0">Entry Information</div>
+    <div class="det-section-lbl" style="margin-top:0">@L["EntryInformation"]</div>
 
     <div class="det-row">
-        <span class="det-label">Entry ID</span>
+        <span class="det-label">@L["EntryId"]</span>
         <span class="det-value" style="font-family:monospace;color:var(--a-accent)">@entry.Id</span>
     </div>
     <div class="det-row">
-        <span class="det-label">Type</span>
+        <span class="det-label">@L["Type"]</span>
         <span class="det-value">@typeLabel</span>
     </div>
     @if (!string.IsNullOrWhiteSpace(entry.TemplateName))
     {
         <div class="det-row">
-            <span class="det-label">Template</span>
+            <span class="det-label">@L["Template"]</span>
             <span class="det-value"><span class="det-tmpl-badge">@entry.TemplateName</span></span>
         </div>
     }
     <div class="det-row">
-        <span class="det-label">Created</span>
+        <span class="det-label">@L["Created"]</span>
         <span class="det-value">@FmtDate(entry.CreationTime)</span>
     </div>
     <div class="det-row">
-        <span class="det-label">Modified</span>
+        <span class="det-label">@L["Modified"]</span>
         <span class="det-value">@FmtDate(entry.LastModifiedTime ?? entry.CreationTime)</span>
     </div>
     @if (!string.IsNullOrWhiteSpace(entry.Creator))
     {
         <div class="det-row">
-            <span class="det-label">Created By</span>
+            <span class="det-label">@L["CreatedBy"]</span>
             <span class="det-value">@entry.Creator</span>
         </div>
     }
     @if (isDoc && entry.PageCount is > 0)
     {
         <div class="det-row">
-            <span class="det-label">Pages</span>
+            <span class="det-label">@L["Pages"]</span>
             <span class="det-value">@entry.PageCount</span>
         </div>
     }
     @if (isDoc && entry.FileSizeBytes is > 0)
     {
         <div class="det-row">
-            <span class="det-label">File Size</span>
+            <span class="det-label">@L["FileSize"]</span>
             <span class="det-value">@FmtSize(entry.FileSizeBytes)</span>
         </div>
     }
@@ -128,12 +128,12 @@ else if (Model.Entry is {} entry)
             <a class="det-action det-action-primary"
                asp-controller="Document" asp-action="View" asp-route-entryId="@entry.Id">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12Z"/><circle cx="12" cy="12" r="3"/></svg>
-                View Document
+                @L["ViewDocument"]
             </a>
             <a class="det-action"
                asp-controller="Document" asp-action="Download" asp-route-entryId="@entry.Id">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
-                Download Original
+                @L["DownloadOriginal"]
             </a>
         </div>
     }
@@ -142,7 +142,7 @@ else if (Model.Entry is {} entry)
     @if (!string.IsNullOrWhiteSpace(entry.FullPath))
     {
         <div class="det-section">
-            <div class="det-section-lbl">Repository Path</div>
+            <div class="det-section-lbl">@L["RepositoryPath"]</div>
             <div class="det-path">@entry.FullPath</div>
         </div>
     }
@@ -151,7 +151,7 @@ else if (Model.Entry is {} entry)
     @if (!string.IsNullOrWhiteSpace(entry.TemplateName))
     {
         <div class="det-section">
-            <div class="det-section-lbl">Metadata Fields</div>
+            <div class="det-section-lbl">@L["MetadataFields"]</div>
 
             @if (!string.IsNullOrWhiteSpace(Model.FieldsError))
             {
@@ -162,12 +162,12 @@ else if (Model.Entry is {} entry)
             }
             else if (Model.Fields.Count == 0)
             {
-                <div style="font-size:.78rem;color:var(--a-muted)">No field values recorded.</div>
+                <div style="font-size:.78rem;color:var(--a-muted)">@L["NoFieldValues"]</div>
             }
             else
             {
                 <table class="det-field-tbl">
-                    <thead><tr><th>Field</th><th>Value</th></tr></thead>
+                    <thead><tr><th>@L["Field"]</th><th>@L["Value"]</th></tr></thead>
                     <tbody>
                         @foreach (var f in Model.Fields)
                         {

@@ -1,7 +1,14 @@
 @inject Microsoft.Extensions.Options.IOptions<LFPortal.Infrastructure.Options.LaserficheOptions> _lfOpts
 
+@{
+    var _uiCulture = System.Globalization.CultureInfo.CurrentUICulture.Name;
+    var _isRtl     = _uiCulture.StartsWith("ar", StringComparison.OrdinalIgnoreCase);
+    var _htmlLang  = _isRtl ? "ar" : "en";
+    var _htmlDir   = _isRtl ? "rtl" : "ltr";
+    var _returnUrl = Uri.EscapeDataString(Context.Request.Path + Context.Request.QueryString);
+}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="@_htmlLang" dir="@_htmlDir">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -315,6 +322,52 @@
         .breakdown-row  { display: grid; grid-template-columns: 100px 1fr 80px; align-items: center; gap: 12px; }
         .breakdown-row__label { font-size: .875rem; color: var(--lfp-text); font-weight: 500; }
         .breakdown-row__bar-wrap { background: #1E293B; border-radius: 100px; height: 8px; overflow: hidden; }
+
+        /* ── Language switcher ─────────────────────────────────────────────── */
+        .lang-switcher {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: .78rem;
+            color: rgba(255,255,255,.6);
+            margin-inline-start: 8px;
+            flex-shrink: 0;
+        }
+        .lang-switcher a {
+            color: rgba(255,255,255,.65);
+            text-decoration: none;
+            padding: 3px 7px;
+            border-radius: 4px;
+            transition: background .15s, color .15s;
+        }
+        .lang-switcher a:hover { background: rgba(255,255,255,.1); color: #fff; }
+        .lang-switcher a.lang-active {
+            background: rgba(59,130,246,.35);
+            color: #93c5fd;
+            font-weight: 600;
+        }
+        .lang-sep { color: rgba(255,255,255,.3); }
+
+        /* ── RTL layout overrides ──────────────────────────────────────────── */
+        [dir=rtl] .site-header { flex-direction: row-reverse; }
+        [dir=rtl] .site-header__nav { margin-left: 0; margin-inline-start: auto; }
+        [dir=rtl] .site-header__logo { margin-right: 0; }
+        [dir=rtl] .lang-switcher { margin-inline-start: 0; margin-inline-end: 8px; }
+        [dir=rtl] .repo-badge { margin-left: 4px; margin-right: 0; }
+        [dir=rtl] .repo-badge__name { direction: ltr; }  /* keep repo names LTR */
+        [dir=rtl] .field-label,
+        [dir=rtl] .field-hint { text-align: right; }
+        [dir=rtl] .badge::before { margin-inline-end: 4px; margin-inline-start: 0; }
+        [dir=rtl] .data-table th,
+        [dir=rtl] .data-table td { text-align: right; }
+        [dir=rtl] .breakdown-row__count { text-align: left; }
+        [dir=rtl] .status-item__label,
+        [dir=rtl] .status-item__value { text-align: right; }
+        [dir=rtl] .alert { flex-direction: row-reverse; }
+        [dir=rtl] .btn { flex-direction: row-reverse; }
+        [dir=rtl] main { direction: rtl; }
+        [dir=rtl] .card__title { text-align: right; }
+        [dir=rtl] .form-section__title { text-align: right; }
         .breakdown-row__bar { height: 100%; border-radius: 100px; transition: width .4s ease; min-width: 2px; }
         .breakdown-row__count { font-size: .875rem; color: var(--lfp-muted); font-variant-numeric: tabular-nums; text-align: right; }
 
@@ -371,10 +424,15 @@
         }
 
         <nav class="site-header__nav" aria-label="Primary navigation">
-            <a asp-controller="Dashboard" asp-action="Index" class="@(_ctrl == "Dashboard" ? "active" : "")">Dashboard</a>
-            <a asp-controller="Archive"   asp-action="Index" class="@(_ctrl == "Archive"   ? "active" : "")">Archive</a>
-            <a asp-controller="Settings"  asp-action="Index" class="@(_ctrl == "Settings"  ? "active" : "")">Settings</a>
+            <a asp-controller="Dashboard" asp-action="Index" class="@(_ctrl == "Dashboard" ? "active" : "")">@L["Dashboard"]</a>
+            <a asp-controller="Archive"   asp-action="Index" class="@(_ctrl == "Archive"   ? "active" : "")">@L["Archive"]</a>
+            <a asp-controller="Settings"  asp-action="Index" class="@(_ctrl == "Settings"  ? "active" : "")">@L["Settings"]</a>
         </nav>
+        <div class="lang-switcher" aria-label="Language">
+            <a href="/SetCulture?culture=en&returnUrl=@_returnUrl" class="@(!_isRtl ? "lang-active" : "")">@L["LangEn"]</a>
+            <span class="lang-sep">|</span>
+            <a href="/SetCulture?culture=ar&returnUrl=@_returnUrl" class="@(_isRtl ? "lang-active" : "")">@L["LangAr"]</a>
+        </div>
     </header>
 
     <main>
@@ -383,7 +441,7 @@
 
     <footer class="site-footer">
         Dashboard @LFPortal.Domain.Version.LFPortalVersion.Full
-        &mdash; Laserfiche Enterprise Administration Dashboard
+        &mdash; @L["EnterpriseAdminDashboard"]
     </footer>
 
     @await RenderSectionAsync("Scripts", required: false)

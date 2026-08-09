@@ -40,6 +40,18 @@ public sealed record DashboardStatsDto
     /// <summary>Laserfiche username of the currently authenticated service account.</summary>
     public string? ConnectedUser { get; init; }
 
+    /// <summary>
+    /// Describes the credential type used for all Laserfiche API calls in this session.
+    /// <list type="bullet">
+    ///   <item><c>"FallbackCredentials"</c> — stored DPAPI/env service-account credentials (current default).</item>
+    ///   <item><c>"UserSession"</c> — a real per-user Laserfiche Bearer token obtained via LFDS OAuth
+    ///         (requires LFDS configuration; currently dormant).</item>
+    /// </list>
+    /// This value is displayed in the System Health panel so operators can see the effective
+    /// identity without having to read log files.
+    /// </summary>
+    public string AuthenticationMode { get; init; } = "FallbackCredentials";
+
     // ── Entry counts (from recursive folder scan) ──────────────────────────
 
     /// <summary>Total number of document entries found by the recursive scan.</summary>

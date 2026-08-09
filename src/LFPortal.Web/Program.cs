@@ -81,8 +81,15 @@ try
     // ── ASP.NET Core Data Protection (cross-platform credential encryption) ───
     builder.Services.AddDataProtection();
 
+    // ── Localization — Arabic (ar) + English (en, default) ────────────────────
+    // No ResourcesPath: the RESX in Resources/SharedResource.resx has a C# codebehind
+    // (SharedResource.cs) in namespace LFPortal.Web, so MSBuild embeds the binary resource
+    // as "LFPortal.Web.SharedResource".  ResourcesPath="" keeps the lookup consistent.
+    builder.Services.AddLocalization();
+
     // ── MVC ───────────────────────────────────────────────────────────────────
-    builder.Services.AddControllersWithViews();
+    builder.Services.AddControllersWithViews()
+                    .AddViewLocalization();
 
     // ── Laserfiche Infrastructure layer ───────────────────────────────────────
     builder.Services.AddLaserficheInfrastructure(builder.Configuration);
@@ -160,6 +167,15 @@ try
 
     // ── Static files ──────────────────────────────────────────────────────────
     app.UseStaticFiles();
+
+    // ── Request localization — culture cookie sets en / ar ────────────────────
+    {
+        var supported = new[] { "en", "ar" };
+        app.UseRequestLocalization(new RequestLocalizationOptions()
+            .SetDefaultCulture("en")
+            .AddSupportedCultures(supported)
+            .AddSupportedUICultures(supported));
+    }
 
     // ── Routing ───────────────────────────────────────────────────────────────
     app.UseRouting();

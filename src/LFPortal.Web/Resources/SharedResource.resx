@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <!-- Navigation -->
+  <data name="Dashboard"               xml:space="preserve"><value>Dashboard</value></data>
+  <data name="Archive"                 xml:space="preserve"><value>Archive</value></data>
+  <data name="Settings"                xml:space="preserve"><value>Settings</value></data>
+  <data name="LangEn"                  xml:space="preserve"><value>English</value></data>
+  <data name="LangAr"                  xml:space="preserve"><value>العربية</value></data>
+  <data name="EnterpriseAdminDashboard" xml:space="preserve"><value>Laserfiche Enterprise Administration Dashboard</value></data>
+
+  <!-- KPI cards -->
+  <data name="TotalFolders"            xml:space="preserve"><value>Total Folders</value></data>
+  <data name="TotalDocuments"          xml:space="preserve"><value>Total Documents</value></data>
+  <data name="TotalTemplates"          xml:space="preserve"><value>Total Templates</value></data>
+  <data name="DocsWithTemplate"        xml:space="preserve"><value>Docs with Template</value></data>
+  <data name="DocsWithoutTemplate"     xml:space="preserve"><value>Docs without Template</value></data>
+
+  <!-- Chart / section titles -->
+  <data name="DocumentsByFolder"       xml:space="preserve"><value>Documents by Folder</value></data>
+  <data name="TemplateDistribution"    xml:space="preserve"><value>Template Distribution</value></data>
+  <data name="DocumentActivity"        xml:space="preserve"><value>Document Activity</value></data>
+  <data name="DocumentsByUserActivity" xml:space="preserve"><value>Documents by User Activity</value></data>
+  <data name="DocumentTypeDistribution" xml:space="preserve"><value>Document Type Distribution</value></data>
+  <data name="SystemHealth"            xml:space="preserve"><value>System Health</value></data>
+  <data name="RecentlyCreatedDocuments" xml:space="preserve"><value>Recently Created Documents</value></data>
+  <data name="RecentDocumentActivity"  xml:space="preserve"><value>Recent Document Activity</value></data>
+  <data name="RootLevelFolders"        xml:space="preserve"><value>Root-level folders · live from {0}</value></data>
+  <data name="AutoDiscovered"          xml:space="preserve"><value>Auto-discovered · each template a different colour</value></data>
+  <data name="CreatedVsModified"       xml:space="preserve"><value>created vs. modified · real timestamps</value></data>
+  <data name="ByTemplate"             xml:space="preserve"><value>By template / type</value></data>
+
+  <!-- System health labels -->
+  <data name="Status"                  xml:space="preserve"><value>Status</value></data>
+  <data name="Repository"              xml:space="preserve"><value>Repository</value></data>
+  <data name="ServerUrl"               xml:space="preserve"><value>Server URL</value></data>
+  <data name="Username"                xml:space="preserve"><value>Username</value></data>
+  <data name="Authentication"          xml:space="preserve"><value>Authentication</value></data>
+  <data name="LastRefresh"             xml:space="preserve"><value>Last Refresh</value></data>
+  <data name="ScanDuration"            xml:space="preserve"><value>Scan Duration</value></data>
+  <data name="Connected"               xml:space="preserve"><value>Connected</value></data>
+  <data name="Disconnected"            xml:space="preserve"><value>Disconnected</value></data>
+  <data name="FallbackCredentials"     xml:space="preserve"><value>Fallback Credentials</value></data>
+  <data name="UserSession"             xml:space="preserve"><value>User Session</value></data>
+
+  <!-- Table headers -->
+  <data name="DocumentName"            xml:space="preserve"><value>Document Name</value></data>
+  <data name="Folder"                  xml:space="preserve"><value>Folder</value></data>
+  <data name="Template"                xml:space="preserve"><value>Template</value></data>
+  <data name="Created"                 xml:space="preserve"><value>Created</value></data>
+  <data name="Modified"                xml:space="preserve"><value>Modified</value></data>
+  <data name="CreatedBy"               xml:space="preserve"><value>Created By</value></data>
+  <data name="Name"                    xml:space="preserve"><value>Name</value></data>
+  <data name="Type"                    xml:space="preserve"><value>Type</value></data>
+  <data name="Documents"               xml:space="preserve"><value>Documents</value></data>
+  <data name="User"                    xml:space="preserve"><value>User</value></data>
+  <data name="DocumentsCreated"        xml:space="preserve"><value>Documents Created</value></data>
+  <data name="LastActivity"            xml:space="preserve"><value>Last Activity</value></data>
+  <data name="Number"                  xml:space="preserve"><value>#</value></data>
+  <data name="TemplateName"            xml:space="preserve"><value>Template Name</value></data>
+  <data name="PercentOfTotal"          xml:space="preserve"><value>% of Total</value></data>
+
+  <!-- Empty states -->
+  <data name="NoFolderData"            xml:space="preserve"><value>No folder data available.</value></data>
+  <data name="NoTemplatesAssigned"     xml:space="preserve"><value>No templates assigned to documents.</value></data>
+  <data name="NoActivityData"          xml:space="preserve"><value>No creation or modification timestamps found on scanned documents.</value></data>
+  <data name="NoUserActivity"          xml:space="preserve"><value>No user activity data available (Creator field empty on all scanned documents).</value></data>
+  <data name="NoDocTypeData"           xml:space="preserve"><value>No document type data available.</value></data>
+  <data name="NoRecentDocs"            xml:space="preserve"><value>No recently created documents found.</value></data>
+  <data name="NoDocumentsFound"        xml:space="preserve"><value>No documents found in the repository scan.</value></data>
+
+  <!-- Dashboard toolbar -->
+  <data name="ProbeApi"                xml:space="preserve"><value>Probe API</value></data>
+  <data name="Refresh"                 xml:space="preserve"><value>Refresh</value></data>
+  <data name="NotConnected"            xml:space="preserve"><value>Not connected</value></data>
+  <data name="LaserlicheRepoLiveStats" xml:space="preserve"><value>Laserfiche Repository Live Statistics</value></data>
+
+  <!-- Settings page -->
+  <data name="SettingsSaved"           xml:space="preserve"><value>Settings saved.</value></data>
+  <data name="SettingsFailed"          xml:space="preserve"><value>Save failed:</value></data>
+  <data name="SaveSettings"            xml:space="preserve"><value>Save Settings</value></data>
+  <data name="TestConnection"          xml:space="preserve"><value>Test Connection</value></data>
+  <data name="Discover"                xml:space="preserve"><value>Discover</value></data>
+  <data name="ApiVersion"              xml:space="preserve"><value>API Version</value></data>
+  <data name="ApiServerUrl"            xml:space="preserve"><value>API Server URL</value></data>
+  <data name="DefaultRepository"       xml:space="preserve"><value>Default Repository (Fallback)</value></data>
+  <data name="DisplayName"             xml:space="preserve"><value>Display Name</value></data>
+  <data name="RootEntryId"             xml:space="preserve"><value>Root Entry ID</value></data>
+  <data name="ApiTimeout"              xml:space="preserve"><value>API Timeout (seconds)</value></data>
+  <data name="Password"                xml:space="preserve"><value>Password</value></data>
+  <data name="Credentials"             xml:space="preserve"><value>Credentials</value></data>
+  <data name="ApiBasePath"             xml:space="preserve"><value>API Base Path</value></data>
+  <data name="ConnectionStatus"        xml:space="preserve"><value>Connection Status</value></data>
+  <data name="ActiveRepository"        xml:space="preserve"><value>Active Repository</value></data>
+  <data name="RepositoryName"          xml:space="preserve"><value>Repository Name</value></data>
+  <data name="ServerVersion"           xml:space="preserve"><value>Server Version</value></data>
+  <data name="LastChecked"             xml:space="preserve"><value>Last Checked</value></data>
+  <data name="LaunchSource"            xml:space="preserve"><value>Launch Source</value></data>
+  <data name="ConfigReference"         xml:space="preserve"><value>Configuration Reference</value></data>
+  <data name="EnterPassword"           xml:space="preserve"><value>Enter password</value></data>
+  <data name="Optional"                xml:space="preserve"><value>(optional)</value></data>
+  <data name="LaserficheConnection"    xml:space="preserve"><value>Laserfiche Connection</value></data>
+  <data name="BrowseSettings"          xml:space="preserve"><value>Browse Settings</value></data>
+  <data name="AdvancedApiPath"         xml:space="preserve"><value>Advanced — API path</value></data>
+  <data name="AutoDetectRecommended"   xml:space="preserve"><value>Auto Detect (recommended)</value></data>
+
+  <!-- Archive page -->
+  <data name="DocumentArchive"         xml:space="preserve"><value>Document Archive</value></data>
+  <data name="BrowseRepository"        xml:space="preserve"><value>Browse the Laserfiche repository · live data</value></data>
+  <data name="FilterCurrentFolder"     xml:space="preserve"><value>Filter current folder…</value></data>
+  <data name="ThisFolderIsEmpty"       xml:space="preserve"><value>This folder is empty.</value></data>
+  <data name="Loading"                 xml:space="preserve"><value>Loading…</value></data>
+  <data name="NotConnectedSettings"    xml:space="preserve"><value>Not connected to Laserfiche. Please check Settings.</value></data>
+
+  <!-- Entry detail panel -->
+  <data name="EntryInformation"        xml:space="preserve"><value>Entry Information</value></data>
+  <data name="EntryId"                 xml:space="preserve"><value>Entry ID</value></data>
+  <data name="Pages"                   xml:space="preserve"><value>Pages</value></data>
+  <data name="FileSize"                xml:space="preserve"><value>File Size</value></data>
+  <data name="ViewDocument"            xml:space="preserve"><value>View Document</value></data>
+  <data name="DownloadOriginal"        xml:space="preserve"><value>Download Original</value></data>
+  <data name="RepositoryPath"          xml:space="preserve"><value>Repository Path</value></data>
+  <data name="MetadataFields"          xml:space="preserve"><value>Metadata Fields</value></data>
+  <data name="Field"                   xml:space="preserve"><value>Field</value></data>
+  <data name="Value"                   xml:space="preserve"><value>Value</value></data>
+  <data name="NoFieldValues"           xml:space="preserve"><value>No field values recorded.</value></data>
+  <data name="Close"                   xml:space="preserve"><value>Close</value></data>
+
+  <!-- Pagination -->
+  <data name="Previous"                xml:space="preserve"><value>Previous</value></data>
+  <data name="Next"                    xml:space="preserve"><value>Next</value></data>
+  <data name="TemplateStatistics"      xml:space="preserve"><value>Template Statistics</value></data>
+</root>

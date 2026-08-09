@@ -223,6 +223,10 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 ServerVersion            = status.ServerVersion,
                 ServerUrl                = serverUrl,
                 ConnectedUser            = connectedUser,
+                // Currently always FallbackCredentials — DPAPI/env service-account is the
+                // only credential source available without LFDS OAuth configuration.
+                // Set to "UserSession" here when a real per-user LFDS token is obtained.
+                AuthenticationMode       = "FallbackCredentials",
                 TotalDocuments           = totalDocuments,
                 TotalFolders             = totalFolders,
                 TotalTemplates           = templateDefs.Count,

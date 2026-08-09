@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <!-- Navigation -->
+  <data name="Dashboard"               xml:space="preserve"><value>لوحة المعلومات</value></data>
+  <data name="Archive"                 xml:space="preserve"><value>الأرشيف</value></data>
+  <data name="Settings"                xml:space="preserve"><value>الإعدادات</value></data>
+  <data name="LangEn"                  xml:space="preserve"><value>English</value></data>
+  <data name="LangAr"                  xml:space="preserve"><value>العربية</value></data>
+  <data name="EnterpriseAdminDashboard" xml:space="preserve"><value>لوحة إدارة Laserfiche المؤسسية</value></data>
+
+  <!-- KPI cards -->
+  <data name="TotalFolders"            xml:space="preserve"><value>إجمالي المجلدات</value></data>
+  <data name="TotalDocuments"          xml:space="preserve"><value>إجمالي المستندات</value></data>
+  <data name="TotalTemplates"          xml:space="preserve"><value>إجمالي القوالب</value></data>
+  <data name="DocsWithTemplate"        xml:space="preserve"><value>مستندات بقالب</value></data>
+  <data name="DocsWithoutTemplate"     xml:space="preserve"><value>مستندات بدون قالب</value></data>
+
+  <!-- Chart / section titles -->
+  <data name="DocumentsByFolder"       xml:space="preserve"><value>المستندات حسب المجلد</value></data>
+  <data name="TemplateDistribution"    xml:space="preserve"><value>توزيع القوالب</value></data>
+  <data name="DocumentActivity"        xml:space="preserve"><value>نشاط المستندات</value></data>
+  <data name="DocumentsByUserActivity" xml:space="preserve"><value>المستندات حسب نشاط المستخدم</value></data>
+  <data name="DocumentTypeDistribution" xml:space="preserve"><value>توزيع أنواع المستندات</value></data>
+  <data name="SystemHealth"            xml:space="preserve"><value>حالة النظام</value></data>
+  <data name="RecentlyCreatedDocuments" xml:space="preserve"><value>المستندات المنشأة حديثًا</value></data>
+  <data name="RecentDocumentActivity"  xml:space="preserve"><value>نشاط المستندات الأخير</value></data>
+  <data name="RootLevelFolders"        xml:space="preserve"><value>مجلدات الجذر · مباشر من {0}</value></data>
+  <data name="AutoDiscovered"          xml:space="preserve"><value>مكتشفة تلقائيًا · كل قالب بلون مختلف</value></data>
+  <data name="CreatedVsModified"       xml:space="preserve"><value>الإنشاء مقابل التعديل · طوابع زمنية فعلية</value></data>
+  <data name="ByTemplate"             xml:space="preserve"><value>حسب القالب / النوع</value></data>
+
+  <!-- System health labels -->
+  <data name="Status"                  xml:space="preserve"><value>الحالة</value></data>
+  <data name="Repository"              xml:space="preserve"><value>المستودع</value></data>
+  <data name="ServerUrl"               xml:space="preserve"><value>عنوان الخادم</value></data>
+  <data name="Username"                xml:space="preserve"><value>اسم المستخدم</value></data>
+  <data name="Authentication"          xml:space="preserve"><value>المصادقة</value></data>
+  <data name="LastRefresh"             xml:space="preserve"><value>آخر تحديث</value></data>
+  <data name="ScanDuration"            xml:space="preserve"><value>مدة الفحص</value></data>
+  <data name="Connected"               xml:space="preserve"><value>متصل</value></data>
+  <data name="Disconnected"            xml:space="preserve"><value>غير متصل</value></data>
+  <data name="FallbackCredentials"     xml:space="preserve"><value>بيانات الاعتماد الاحتياطية</value></data>
+  <data name="UserSession"             xml:space="preserve"><value>جلسة المستخدم</value></data>
+
+  <!-- Table headers -->
+  <data name="DocumentName"            xml:space="preserve"><value>اسم المستند</value></data>
+  <data name="Folder"                  xml:space="preserve"><value>المجلد</value></data>
+  <data name="Template"                xml:space="preserve"><value>القالب</value></data>
+  <data name="Created"                 xml:space="preserve"><value>تاريخ الإنشاء</value></data>
+  <data name="Modified"                xml:space="preserve"><value>تاريخ التعديل</value></data>
+  <data name="CreatedBy"               xml:space="preserve"><value>أنشأه</value></data>
+  <data name="Name"                    xml:space="preserve"><value>الاسم</value></data>
+  <data name="Type"                    xml:space="preserve"><value>النوع</value></data>
+  <data name="Documents"               xml:space="preserve"><value>المستندات</value></data>
+  <data name="User"                    xml:space="preserve"><value>المستخدم</value></data>
+  <data name="DocumentsCreated"        xml:space="preserve"><value>المستندات المنشأة</value></data>
+  <data name="LastActivity"            xml:space="preserve"><value>آخر نشاط</value></data>
+  <data name="Number"                  xml:space="preserve"><value>#</value></data>
+  <data name="TemplateName"            xml:space="preserve"><value>اسم القالب</value></data>
+  <data name="PercentOfTotal"          xml:space="preserve"><value>% من الإجمالي</value></data>
+
+  <!-- Empty states -->
+  <data name="NoFolderData"            xml:space="preserve"><value>لا توجد بيانات مجلدات متاحة.</value></data>
+  <data name="NoTemplatesAssigned"     xml:space="preserve"><value>لا توجد قوالب مخصصة للمستندات.</value></data>
+  <data name="NoActivityData"          xml:space="preserve"><value>لم يتم العثور على طوابع زمنية للإنشاء أو التعديل في المستندات الممسوحة.</value></data>
+  <data name="NoUserActivity"          xml:space="preserve"><value>لا تتوفر بيانات نشاط المستخدم (حقل المنشئ فارغ في جميع المستندات الممسوحة).</value></data>
+  <data name="NoDocTypeData"           xml:space="preserve"><value>لا توجد بيانات لأنواع المستندات.</value></data>
+  <data name="NoRecentDocs"            xml:space="preserve"><value>لم يتم العثور على مستندات منشأة حديثًا.</value></data>
+  <data name="NoDocumentsFound"        xml:space="preserve"><value>لم يتم العثور على مستندات في فحص المستودع.</value></data>
+
+  <!-- Dashboard toolbar -->
+  <data name="ProbeApi"                xml:space="preserve"><value>فحص الواجهة</value></data>
+  <data name="Refresh"                 xml:space="preserve"><value>تحديث</value></data>
+  <data name="NotConnected"            xml:space="preserve"><value>غير متصل</value></data>
+  <data name="LaserlicheRepoLiveStats" xml:space="preserve"><value>إحصائيات مستودع Laserfiche المباشرة</value></data>
+
+  <!-- Settings page -->
+  <data name="SettingsSaved"           xml:space="preserve"><value>تم حفظ الإعدادات.</value></data>
+  <data name="SettingsFailed"          xml:space="preserve"><value>فشل الحفظ:</value></data>
+  <data name="SaveSettings"            xml:space="preserve"><value>حفظ الإعدادات</value></data>
+  <data name="TestConnection"          xml:space="preserve"><value>اختبار الاتصال</value></data>
+  <data name="Discover"                xml:space="preserve"><value>استكشاف</value></data>
+  <data name="ApiVersion"              xml:space="preserve"><value>إصدار الواجهة</value></data>
+  <data name="ApiServerUrl"            xml:space="preserve"><value>عنوان خادم الواجهة</value></data>
+  <data name="DefaultRepository"       xml:space="preserve"><value>المستودع الافتراضي (الاحتياطي)</value></data>
+  <data name="DisplayName"             xml:space="preserve"><value>اسم العرض</value></data>
+  <data name="RootEntryId"             xml:space="preserve"><value>معرف الإدخال الجذري</value></data>
+  <data name="ApiTimeout"              xml:space="preserve"><value>مهلة الواجهة (ثانية)</value></data>
+  <data name="Password"                xml:space="preserve"><value>كلمة المرور</value></data>
+  <data name="Credentials"             xml:space="preserve"><value>بيانات الاعتماد</value></data>
+  <data name="ApiBasePath"             xml:space="preserve"><value>مسار الواجهة الأساسي</value></data>
+  <data name="ConnectionStatus"        xml:space="preserve"><value>حالة الاتصال</value></data>
+  <data name="ActiveRepository"        xml:space="preserve"><value>المستودع النشط</value></data>
+  <data name="RepositoryName"          xml:space="preserve"><value>اسم المستودع</value></data>
+  <data name="ServerVersion"           xml:space="preserve"><value>إصدار الخادم</value></data>
+  <data name="LastChecked"             xml:space="preserve"><value>آخر فحص</value></data>
+  <data name="LaunchSource"            xml:space="preserve"><value>مصدر التشغيل</value></data>
+  <data name="ConfigReference"         xml:space="preserve"><value>مرجع الإعداد</value></data>
+  <data name="EnterPassword"           xml:space="preserve"><value>أدخل كلمة المرور</value></data>
+  <data name="Optional"                xml:space="preserve"><value>(اختياري)</value></data>
+  <data name="LaserficheConnection"    xml:space="preserve"><value>اتصال Laserfiche</value></data>
+  <data name="BrowseSettings"          xml:space="preserve"><value>إعدادات الاستعراض</value></data>
+  <data name="AdvancedApiPath"         xml:space="preserve"><value>خيارات متقدمة — مسار الواجهة</value></data>
+  <data name="AutoDetectRecommended"   xml:space="preserve"><value>اكتشاف تلقائي (موصى به)</value></data>
+
+  <!-- Archive page -->
+  <data name="DocumentArchive"         xml:space="preserve"><value>أرشيف المستندات</value></data>
+  <data name="BrowseRepository"        xml:space="preserve"><value>استعراض مستودع Laserfiche · بيانات مباشرة</value></data>
+  <data name="FilterCurrentFolder"     xml:space="preserve"><value>تصفية المجلد الحالي...</value></data>
+  <data name="ThisFolderIsEmpty"       xml:space="preserve"><value>هذا المجلد فارغ.</value></data>
+  <data name="Loading"                 xml:space="preserve"><value>جارٍ التحميل...</value></data>
+  <data name="NotConnectedSettings"    xml:space="preserve"><value>غير متصل بـ Laserfiche. يرجى التحقق من الإعدادات.</value></data>
+
+  <!-- Entry detail panel -->
+  <data name="EntryInformation"        xml:space="preserve"><value>معلومات الإدخال</value></data>
+  <data name="EntryId"                 xml:space="preserve"><value>معرف الإدخال</value></data>
+  <data name="Pages"                   xml:space="preserve"><value>الصفحات</value></data>
+  <data name="FileSize"                xml:space="preserve"><value>حجم الملف</value></data>
+  <data name="ViewDocument"            xml:space="preserve"><value>عرض المستند</value></data>
+  <data name="DownloadOriginal"        xml:space="preserve"><value>تنزيل الأصل</value></data>
+  <data name="RepositoryPath"          xml:space="preserve"><value>مسار المستودع</value></data>
+  <data name="MetadataFields"          xml:space="preserve"><value>حقول البيانات الوصفية</value></data>
+  <data name="Field"                   xml:space="preserve"><value>الحقل</value></data>
+  <data name="Value"                   xml:space="preserve"><value>القيمة</value></data>
+  <data name="NoFieldValues"           xml:space="preserve"><value>لا توجد قيم للحقول.</value></data>
+  <data name="Close"                   xml:space="preserve"><value>إغلاق</value></data>
+
+  <!-- Pagination -->
+  <data name="Previous"                xml:space="preserve"><value>السابق</value></data>
+  <data name="Next"                    xml:space="preserve"><value>التالي</value></data>
+  <data name="TemplateStatistics"      xml:space="preserve"><value>إحصائيات القوالب</value></data>
+</root>
