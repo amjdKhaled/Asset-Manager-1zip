@@ -7,4 +7,26 @@
     <ImplicitUsings>disable</ImplicitUsings>
   </PropertyGroup>
 
+  <!--
+    Source-link the shared JSON helpers from Dashboard.SetupHelper so the tests
+    always run against the REAL implementation, not a hand-maintained copy.
+
+    WHY COMPILE-LINK INSTEAD OF PROJECT-REFERENCE:
+      Dashboard.SetupHelper targets net48 (required by the MSI ExeCommand pattern).
+      Dashboard.SetupHelper.Tests targets net8.0 (required to run on Linux CI
+      without .NET Framework).  A <ProjectReference> across different target
+      frameworks requires multi-targeting or framework-specific workarounds.
+      Compile-linking the helper source file directly avoids all of that:
+      the .cs file is compiled once per framework, each in its own assembly.
+      'internal' access works because the file is compiled into the same
+      (test) assembly.
+
+    MAINTENANCE CONTRACT:
+      Any new shared helper extracted to JsonHelpers.cs is automatically picked
+      up here.  There is no second copy to update.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Dashboard.SetupHelper\JsonHelpers.cs" />
+  </ItemGroup>
+
 </Project>

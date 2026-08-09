@@ -185,12 +185,18 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
     <Property Id="INSTALL_DESKTOP_BUTTON" Value="1" />
     <Property Id="INSTALL_WEB_BUTTON"     Value="0" />
     <!--
-      DASHBOARD_PORT: the TCP port selected by the wizard (default 5000).
+      DASHBOARD_PORT: the TCP port selected by the wizard.
+      INTENTIONALLY NO DEFAULT: when the property is empty (direct-MSI repair /
+      upgrade without the bundle UI), WriteConfig reads the current port from
+      appsettings.json and preserves it — a non-default port (e.g. 8080) is
+      never silently reset to 5000.  Fresh installs with no existing
+      appsettings.json default to 5000 inside WriteConfigAction.
+      This mirrors exactly how LF_API_VERSION is handled.
       Secure="yes": required so the value is passed into the elevated deferred
-      execution context where SetIisBindingPort and SetAppPoolNoManagedCode
-      custom actions reference it via [DASHBOARD_PORT] in ExeCommand.
+      execution context where SetIisBindingPort and WriteConfig reference it via
+      [DASHBOARD_PORT] in ExeCommand.
     -->
-    <Property Id="DASHBOARD_PORT"         Value="5000" Secure="yes" />
+    <Property Id="DASHBOARD_PORT"         Secure="yes" />
     <!--
       TRUST_LF_CERT: operator consent (from the Bundle wizard checkbox) to
       trust a detected SELF-SIGNED Laserfiche API certificate on this machine.

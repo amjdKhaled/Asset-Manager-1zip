@@ -7,7 +7,7 @@
 //       --lf-api       <laserfiche-api-url>
 //       --repo-id      <repository-id>       (LEGACY, optional; ignored by new MSI)
 //       --display-name <display-name>        (LEGACY, optional; ignored by new MSI)
-//       --port         <tcp-port>          (optional; default 5000)
+//       --port         <tcp-port>          (optional; omitted on direct-MSI repair)
 //       --webapp-path  <path-to-webappfolder>  (optional; required to write Urls)
 //
 // Both ProgramData files are always written (overwriting any existing content).
@@ -20,6 +20,15 @@
 // correct port when started outside IIS (e.g. via dotnet run or a service
 // wrapper).  Under IIS/ANCM the Urls value is overridden by IIS and is
 // therefore harmless but useful as a human-readable record of the chosen port.
+//
+// PORT PRESERVATION ON DIRECT-MSI REPAIR:
+//   When the MSI is repaired or upgraded directly (msiexec /fa, not via the
+//   Burn bundle), the DASHBOARD_PORT property has no default value — it is
+//   intentionally left blank, exactly like LF_API_VERSION.  This means --port
+//   is absent from the WriteConfig command line.  In that case this action
+//   reads the port already written in appsettings.json and re-uses it, so a
+//   non-default port (e.g. 8080) is never silently reset to 5000.
+//   If appsettings.json has no Urls key (fresh file), the fallback is 5000.
 //
 // Credentials are NEVER handled here (entered via Dashboard Settings page,
 // encrypted with Windows DPAPI, stored in %ProgramData%\Dashboard\credentials\).
@@ -40,7 +49,14 @@ namespace Dashboard.SetupHelper
             string apiVersion  = Opt(opts, "api-version");
             string repoId      = Opt(opts, "repo-id");
             string displayName = Opt(opts, "display-name");
-            string portStr     = Opt(opts, "port", "5000");
+            // INTENTIONALLY NO DEFAULT: when the property is empty (direct-MSI
+            // repair / upgrade without the bundle UI), WriteConfig reads the
+            // current port from appsettings.json and preserves it.  A non-default
+            // port (e.g. 8080) is never silently reset to 5000.
+            // Fresh installs with no existing appsettings.json default to 5000
+            // inside the port-resolution block below.
+            // This mirrors exactly how LF_API_VERSION is handled.
+            string portStr     = Opt(opts, "port");
             // SanitizeDir: strips stray '"' characters produced by the MSI
             // trailing-backslash-quote (\") escaping bug and any other invalid
             // path characters.  Without this, Path.Combine on net48 throws
@@ -59,12 +75,37 @@ namespace Dashboard.SetupHelper
             // When absent, any RepositoryId already present in an existing
             // laserfiche.config.json is preserved as a fallback default.
 
-            // Validate port: must be a positive integer in the valid TCP range.
+            // Resolve the port:
+            //   1. If --port was supplied and is valid, use it (new install / bundle repair).
+            //   2. If --port was omitted or empty (direct-MSI repair), read the
+            //      current port from appsettings.json so the existing setting is
+            //      preserved rather than silently reset to 5000.
+            //   3. Fall back to 5000 only when neither source has a usable value.
             int port;
-            if (!int.TryParse(portStr, out port) || port < 1 || port > 65535)
+            if (!string.IsNullOrEmpty(portStr))
             {
-                Console.Error.WriteLine($"[SetupHelper] Warning: invalid --port value '{portStr}'; defaulting to 5000.");
-                port = 5000;
+                if (!int.TryParse(portStr, out port) || port < 1 || port > 65535)
+                {
+                    Console.Error.WriteLine($"[SetupHelper] Warning: invalid --port value '{portStr}'; defaulting to 5000.");
+                    port = 5000;
+                }
+            }
+            else
+            {
+                // --port not supplied: preserve the port already in appsettings.json
+                // (direct-MSI repair path — Burn persisted variables are not passed
+                // when the MSI is invoked directly without the bundle wizard).
+                int existing = JsonHelpers.ReadPortFromAppsettings(webAppPath);
+                if (existing > 0)
+                {
+                    port = existing;
+                    SetupLog.Info($"WriteConfig: --port not supplied; preserved existing port {port} from appsettings.json.");
+                }
+                else
+                {
+                    port = 5000;
+                    SetupLog.Info("WriteConfig: --port not supplied and no existing Urls in appsettings.json; defaulting to 5000.");
+                }
             }
 
             // Resolve %ProgramData%\Dashboard\ without hard-coding C:\ProgramData
@@ -129,7 +170,7 @@ namespace Dashboard.SetupHelper
                 {
                     try
                     {
-                        string updated = SetJsonStringField(
+                        string updated = JsonHelpers.SetJsonStringField(
                             File.ReadAllText(appSettingsPath, Encoding.UTF8),
                             "Urls",
                             $"http://0.0.0.0:{port}");
@@ -182,7 +223,7 @@ namespace Dashboard.SetupHelper
         private static string BuildExtensionConfig(string dashUrl)
         {
             return "{\r\n" +
-                   $"  \"portalUrl\": \"{EscJson(dashUrl.TrimEnd('/'))}\",\r\n" +
+                   $"  \"portalUrl\": \"{JsonHelpers.EscJson(dashUrl.TrimEnd('/'))}\",\r\n" +
                    "  \"buttonLabel\": \"Dashboard\",\r\n" +
                    "  \"iconPath\": \"\"\r\n" +
                    "}\r\n";
@@ -219,9 +260,9 @@ namespace Dashboard.SetupHelper
 
             return "{\r\n" +
                    "  \"Laserfiche\": {\r\n" +
-                   $"    \"ServerUrl\": \"{EscJson(existingServerUrl)}\",\r\n" +
-                   $"    \"ApiBasePath\": \"{EscJson(existingApiBase)}\",\r\n" +
-                   $"    \"ApiVersion\": \"{EscJson(existingApiVersion)}\",\r\n" +
+                   $"    \"ServerUrl\": \"{JsonHelpers.EscJson(existingServerUrl)}\",\r\n" +
+                   $"    \"ApiBasePath\": \"{JsonHelpers.EscJson(existingApiBase)}\",\r\n" +
+                   $"    \"ApiVersion\": \"{JsonHelpers.EscJson(existingApiVersion)}\",\r\n" +
                    $"    \"TimeoutSeconds\": {existingTimeout},\r\n" +
                    "    \"CredentialProvider\": \"DPAPI\"\r\n" +
                    "  }\r\n" +
@@ -241,42 +282,11 @@ namespace Dashboard.SetupHelper
             ref int timeout)
         {
             string text = File.ReadAllText(path, Encoding.UTF8);
-            serverUrl  = ExtractJsonString(text, "ServerUrl")    ?? serverUrl;
-            apiBase    = ExtractJsonString(text, "ApiBasePath")  ?? apiBase;
-            apiVersion = ExtractJsonString(text, "ApiVersion")   ?? apiVersion;
-            string? ts = ExtractJsonString(text, "TimeoutSeconds");
+            serverUrl  = JsonHelpers.ExtractJsonString(text, "ServerUrl")    ?? serverUrl;
+            apiBase    = JsonHelpers.ExtractJsonString(text, "ApiBasePath")  ?? apiBase;
+            apiVersion = JsonHelpers.ExtractJsonString(text, "ApiVersion")   ?? apiVersion;
+            string? ts = JsonHelpers.ExtractJsonString(text, "TimeoutSeconds");
             if (ts != null && int.TryParse(ts, out int t)) timeout = t;
-        }
-
-        // Extracts the value of a JSON string or number field by name.
-        // Returns null if the field is not found.
-        private static string? ExtractJsonString(string json, string fieldName)
-        {
-            string search = $"\"{fieldName}\":";
-            int idx = json.IndexOf(search, StringComparison.OrdinalIgnoreCase);
-            if (idx < 0) return null;
-            int valueStart = idx + search.Length;
-            // skip whitespace
-            while (valueStart < json.Length && json[valueStart] == ' ') valueStart++;
-            if (valueStart >= json.Length) return null;
-            if (json[valueStart] == '"')
-            {
-                // String value
-                int end = json.IndexOf('"', valueStart + 1);
-                if (end < 0) return null;
-                return json.Substring(valueStart + 1, end - valueStart - 1)
-                           .Replace("\\\"", "\"")
-                           .Replace("\\\\", "\\")
-                           .Replace("\\/", "/");
-            }
-            else
-            {
-                // Numeric value: read until comma, newline, or }
-                int end = valueStart;
-                while (end < json.Length && json[end] != ',' && json[end] != '}' && json[end] != '\r' && json[end] != '\n')
-                    end++;
-                return json.Substring(valueStart, end - valueStart).Trim();
-            }
         }
 
         // Dictionary helper: net48-compatible alternative to GetValueOrDefault
@@ -285,70 +295,6 @@ namespace Dashboard.SetupHelper
         {
             string v;
             return d.TryGetValue(key, out v) ? v : def;
-        }
-
-        // Sets (or adds) a top-level JSON string field in a JSON document.
-        // Uses simple string scanning — avoids any JSON library dependency.
-        //
-        // If the field already exists its value is replaced in-place.
-        // If it does not exist it is inserted before the closing '}' of the
-        // outermost object.
-        //
-        // Limitations: works correctly only for top-level string fields in a
-        // well-formed JSON object.  The appsettings.json written by the SDK
-        // publish always satisfies this constraint.
-        private static string SetJsonStringField(string json, string fieldName, string value)
-        {
-            string escapedValue = EscJson(value);
-            string fieldKey     = $"\"{fieldName}\"";
-
-            int idx = json.IndexOf(fieldKey, StringComparison.OrdinalIgnoreCase);
-            if (idx >= 0)
-            {
-                // Field exists — find the colon, then the opening quote of the value,
-                // then the closing quote, and replace just the value portion.
-                int colon = json.IndexOf(':', idx + fieldKey.Length);
-                if (colon >= 0)
-                {
-                    int openQuote = json.IndexOf('"', colon + 1);
-                    if (openQuote >= 0)
-                    {
-                        int closeQuote = json.IndexOf('"', openQuote + 1);
-                        if (closeQuote >= 0)
-                        {
-                            return json.Substring(0, openQuote + 1)
-                                 + escapedValue
-                                 + json.Substring(closeQuote);
-                        }
-                    }
-                }
-            }
-
-            // Field not present — insert before the last closing brace.
-            int lastBrace = json.LastIndexOf('}');
-            if (lastBrace < 0)
-                return json; // malformed; leave unchanged
-
-            // Determine whether a trailing comma is needed (i.e. there is
-            // already at least one field in the object).
-            string before = json.Substring(0, lastBrace).TrimEnd();
-            string insert  = $",\r\n  {fieldKey}: \"{escapedValue}\"\r\n";
-            // If the object is empty (just '{' + optional whitespace) use no comma.
-            if (before.EndsWith("{"))
-                insert = $"\r\n  {fieldKey}: \"{escapedValue}\"\r\n";
-
-            return before + insert + json.Substring(lastBrace);
-        }
-
-        // JSON string escaping (no external dependencies).
-        private static string EscJson(string s)
-        {
-            if (string.IsNullOrEmpty(s)) return "";
-            return s.Replace("\\", "\\\\")
-                    .Replace("\"", "\\\"")
-                    .Replace("\r", "\\r")
-                    .Replace("\n", "\\n")
-                    .Replace("\t", "\\t");
         }
     }
 }

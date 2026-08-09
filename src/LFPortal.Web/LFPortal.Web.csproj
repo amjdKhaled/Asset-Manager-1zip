@@ -11,10 +11,29 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- appsettings.json MUST ship: WriteConfigAction patches the "Urls" key
+         in this file at install time so the ASP.NET Core app binds the
+         wizard-selected port.  The explicit PreserveNewest overrides any
+         accidental CopyToPublishDirectory="Never" elsewhere, and makes the
+         intent self-documenting alongside the Development exclusion below. -->
+    <Content Update="appsettings.json" CopyToPublishDirectory="PreserveNewest" />
     <!-- Development settings never ship: excluded from publish output so a
          production deployment can never pick up development-only values. -->
     <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
   </ItemGroup>
+
+  <!--
+    Guard: fail the publish immediately if appsettings.json is absent from the
+    output directory.  This catches any future accidental exclusion (e.g. a
+    typo that changes the Content item above) before the MSI is assembled.
+    The publish.ps1 build pipeline performs the same check at the staging level,
+    but this MSBuild target fires even for a plain 'dotnet publish' invocation.
+  -->
+  <Target Name="EnsureAppSettingsPublished" AfterTargets="Publish">
+    <Error
+      Condition="!Exists('$(PublishDir)appsettings.json')"
+      Text="appsettings.json is missing from the publish output ('$(PublishDir)'). The MSI WriteConfigAction patches this file at install time; a missing file means the app would bind the wrong port. Check CopyToPublishDirectory in LFPortal.Web.csproj." />
+  </Target>
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>

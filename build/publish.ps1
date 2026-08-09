@@ -1170,7 +1170,7 @@ else {
         $smokeErrors.Add("WriteConfig log line not found in SetupHelper stdout.")
     }
 
-    # 12. Repair/upgrade preservation: a second WriteConfig run WITHOUT
+    # 12. ApiVersion repair preservation: a second WriteConfig run WITHOUT
     #     --api-version (the direct-MSI repair path, where LF_API_VERSION is
     #     empty) against a config pinned to "v1" must keep "v1" — a legacy pin
     #     is never silently rewritten to "Auto".
@@ -1202,6 +1202,66 @@ else {
     } else {
         $smokeErrors.Add("laserfiche.config.json missing before repair-simulation check.")
     }
+
+    # 13. Port preservation (Task #34): direct-MSI repair WITHOUT --port.
+    #     When msiexec is invoked directly (not via the Burn bundle UI),
+    #     DASHBOARD_PORT has no default value and is absent from the WriteConfig
+    #     command line.  WriteConfig must read the port already written in
+    #     appsettings.json and re-use it — a non-default port must never be
+    #     silently reset to 5000.
+    #
+    #     Simulate: appsettings.json already contains Urls=8081 (an arbitrary
+    #     non-default port the wizard chose).  Run WriteConfig without --port.
+    #     The file must still contain 8081 afterwards.
+    $portSmokeDir    = Join-Path $env:TEMP ("DashSmoke-Port-" + [guid]::NewGuid().ToString("N"))
+    $portSmokeWebApp = Join-Path $portSmokeDir "WebApp"
+    $portSmokeConfig = Join-Path $portSmokeDir "Config"
+    $null = New-Item -ItemType Directory -Path $portSmokeWebApp -Force
+    $null = New-Item -ItemType Directory -Path $portSmokeConfig -Force
+
+    # Pre-condition: appsettings.json with a non-default port (8081).
+    @'
+{
+  "Logging": { "LogLevel": { "Default": "Information" } },
+  "AllowedHosts": "*",
+  "Urls": "http://0.0.0.0:8081"
+}
+'@ | Set-Content -Path (Join-Path $portSmokeWebApp "appsettings.json") -Encoding UTF8
+
+    $portSmokeWebAppArg = $portSmokeWebApp + "\."
+    $portSmokeStdout    = Join-Path $portSmokeDir "stdout_port_repair.txt"
+
+    # WriteConfig WITHOUT --port (simulates direct-MSI repair where DASHBOARD_PORT
+    # property has no default and is therefore absent from the command line).
+    $portRepairProc = Start-Process -FilePath $setupHelperStaged `
+        -ArgumentList @(
+            "--write-config",
+            "--url",        ("http://{0}:8081" -f $env:COMPUTERNAME.ToLowerInvariant()),
+            "--lf-api",     "https://localhost/LFRepositoryAPI",
+            "--api-version", "Auto",
+            # NOTE: --port intentionally omitted — this is the direct-MSI repair path.
+            "--webapp-path", $portSmokeWebAppArg,
+            "--config-dir",  $portSmokeConfig
+        ) `
+        -NoNewWindow -Wait -PassThru `
+        -RedirectStandardOutput $portSmokeStdout
+
+    if ($portRepairProc.ExitCode -ne 0) {
+        $smokeErrors.Add("Port-preservation WriteConfig run (no --port) exited with code $($portRepairProc.ExitCode).")
+    } else {
+        $portRepairAppSettings = Join-Path $portSmokeWebApp "appsettings.json"
+        if (Test-Path $portRepairAppSettings) {
+            $portRepairObj = (Get-Content $portRepairAppSettings -Raw) | ConvertFrom-Json
+            $actualUrls = $portRepairObj.Urls
+            if ($actualUrls -ne "http://0.0.0.0:8081") {
+                $smokeErrors.Add(("Port-preservation: WriteConfig without --port reset the port. " +
+                    "Expected Urls=http://0.0.0.0:8081 -- Actual: {0}" -f $actualUrls))
+            }
+        } else {
+            $smokeErrors.Add("Port-preservation: appsettings.json missing after WriteConfig without --port.")
+        }
+    }
+    Remove-Item $portSmokeDir -Recurse -Force -ErrorAction SilentlyContinue
 
     Remove-Item $smokeDir -Recurse -Force -ErrorAction SilentlyContinue
 

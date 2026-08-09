@@ -1,0 +1,543 @@
+The Arabic localization is incomplete.
+
+I tested the latest build and many UI strings are still displayed in English while the selected culture is Arabic.
+
+DO NOT only fix the strings visible in the screenshots.
+Perform a COMPLETE localization audit of the entire LFPortal.Web project.
+
+==================================================
+GOAL
+==================================================
+
+When culture = "ar":
+
+ALL user-facing Dashboard UI text must be Arabic.
+
+When culture = "en":
+
+ALL user-facing Dashboard UI text must be English.
+
+Do not leave mixed Arabic/English UI except for technical values that should not be translated.
+
+==================================================
+CURRENT CONFIRMED UNTRANSLATED TEXT
+==================================================
+
+The following are examples currently still appearing in English:
+
+Dashboard
+Laserfiche Repository Live Statistics
+
+Discover
+
+Auto Detect probes the server (v2 first, then v1) and remembers the result.
+Currently detected: v2.
+
+Base URL of your Laserfiche API Server...
+Used when Dashboard is opened directly from a browser...
+Label shown in the portal UI...
+HTTP request timeout for all Laserfiche API calls...
+Entry ID of the root folder to browse...
+
+ADVANCED — API PATH
+API Base Path
+
+Virtual directory where the Laserfiche API Server is installed.
+
+Leave blank to keep saved credentials
+
+Stored securely using Windows DPAPI (machine-encrypted).
+Never written to configuration files.
+
+There may be many more untranslated strings.
+
+These are examples only.
+
+==================================================
+FULL PROJECT AUDIT
+==================================================
+
+Search ALL files under:
+
+src/LFPortal.Web/
+
+Especially:
+
+Views/
+Controllers/
+wwwroot/js/
+wwwroot/css/
+ViewComponents/
+TagHelpers/
+Models/
+
+Search for ALL hardcoded user-facing English strings.
+
+This includes:
+
+headings
+subheadings
+labels
+buttons
+tooltips
+placeholders
+help text
+validation messages
+alerts
+errors
+success messages
+empty states
+badges
+table headers
+chart titles
+chart legends
+chart labels
+modal text
+filter labels
+pagination text
+navigation
+settings descriptions
+diagnostic UI
+connection status
+authentication status
+archive UI
+dashboard UI
+JavaScript-generated messages
+
+Do not assume localization is complete just because Razor headings use IStringLocalizer.
+
+==================================================
+RESOURCE FILES
+==================================================
+
+Use the existing localization architecture:
+
+SharedResource.resx
+SharedResource.ar.resx
+
+Do NOT create a second localization system.
+
+Every user-facing static string should have a resource key.
+
+Example:
+
+SharedResource.resx:
+
+DashboardTitle = Dashboard
+DashboardSubtitle = Laserfiche Repository Live Statistics
+Discover = Discover
+AdvancedApiPath = ADVANCED — API PATH
+ApiBasePath = API Base Path
+KeepSavedCredentials = Leave blank to keep saved credentials
+
+SharedResource.ar.resx:
+
+DashboardTitle = لوحة المعلومات
+DashboardSubtitle = إحصائيات مباشرة لمستودع Laserfiche
+Discover = استكشاف
+AdvancedApiPath = متقدم — مسار واجهة API
+ApiBasePath = المسار الأساسي لواجهة API
+KeepSavedCredentials = اترك الحقل فارغًا للاحتفاظ ببيانات الاعتماد المحفوظة
+
+Use natural professional Arabic.
+
+Do NOT use awkward literal machine translation.
+
+==================================================
+SETTINGS PAGE
+==================================================
+
+The Settings page currently has the largest amount of untranslated text.
+
+Audit the ENTIRE Settings/Index.cshtml.
+
+Translate:
+
+section titles
+field labels
+field descriptions
+buttons
+placeholders
+connection messages
+repository discovery messages
+API version descriptions
+browse settings
+credentials section
+configuration reference
+SSO section if present
+authentication descriptions
+all validation/error/success messages
+
+For example:
+
+"Discover"
+→ "استكشاف"
+
+"Display Name (optional)"
+→ "اسم العرض (اختياري)"
+
+"Browse Settings"
+→ "إعدادات الاستعراض"
+
+"Root Entry ID"
+→ "معرّف الإدخال الجذري"
+
+"API Timeout (seconds)"
+→ "مهلة واجهة API (بالثواني)"
+
+"Credentials"
+→ "بيانات الاعتماد"
+
+"Username"
+→ "اسم المستخدم"
+
+"Password"
+→ "كلمة المرور"
+
+"API Base Path"
+→ "المسار الأساسي لواجهة API"
+
+"Leave blank to keep saved credentials"
+→ "اترك الحقل فارغًا للاحتفاظ ببيانات الاعتماد المحفوظة"
+
+"Stored securely using Windows DPAPI (machine-encrypted). Never written to configuration files."
+→
+"يتم حفظها بشكل آمن باستخدام Windows DPAPI ومشفرة على مستوى الجهاز، ولا تتم كتابتها في ملفات الإعدادات."
+
+==================================================
+DASHBOARD PAGE
+==================================================
+
+Audit Dashboard/Index.cshtml completely.
+
+Currently even:
+
+Dashboard
+Laserfiche Repository Live Statistics
+
+remain English.
+
+Arabic:
+
+Dashboard
+→ لوحة المعلومات
+
+Laserfiche Repository Live Statistics
+→ إحصائيات مباشرة لمستودع Laserfiche
+
+Also localize:
+
+Refresh
+Probe / Test API
+Connected
+Not Connected
+Total Folders
+Total Documents
+Total Templates
+Documents with Template
+Documents without Template
+Documents by Folder
+Template Distribution
+Document Activity
+Documents by User Activity
+Document Type Distribution
+System Health
+Recently Created Documents
+Recent Document Activity
+Repository
+Server URL
+Username
+Authentication
+Last Refresh
+Scan Duration
+
+and every empty-state/error/status string.
+
+==================================================
+ARCHIVE PAGE
+==================================================
+
+Audit the complete Archive UI.
+
+Translate all:
+
+search fields
+filters
+buttons
+column headers
+entry details
+document/folder types
+pagination
+empty states
+loading states
+error states
+
+==================================================
+DIAGNOSTIC PROBE
+==================================================
+
+Also localize the Diagnostic Probe page.
+
+For Arabic mode translate UI labels such as:
+
+API Diagnostic Probe
+Dashboard
+Re-run probe
+Authenticated Username
+Root Entry ID
+Repository ID
+Server URL
+probes fired
+passed
+failed
+Complete Raw Response Body
+
+BUT:
+
+Do NOT translate raw API responses.
+Do NOT translate URLs.
+Do NOT translate JSON.
+Do NOT translate stack traces.
+Do NOT translate HTTP method names such as GET/POST.
+Do NOT translate HTTP status codes.
+
+Those are technical diagnostic data.
+
+==================================================
+JAVASCRIPT
+==================================================
+
+This is important.
+
+Search JavaScript for hardcoded English strings.
+
+Razor localization alone will NOT fix strings generated by JavaScript.
+
+Do not leave things like:
+
+"No data available"
+"Loading..."
+"Failed to load"
+"Connected"
+"Disconnected"
+
+hardcoded in JS.
+
+Expose the required localized strings from Razor to JavaScript safely.
+
+For example create a JS localization object from Razor:
+
+window.dashboardStrings = {
+    loading: @Json.Serialize(L["Loading"].Value),
+    noData: @Json.Serialize(L["NoData"].Value),
+    connected: @Json.Serialize(L["Connected"].Value),
+    disconnected: @Json.Serialize(L["Disconnected"].Value)
+};
+
+Then JS must consume those values.
+
+Do not duplicate Arabic translations directly inside JavaScript.
+
+==================================================
+ERROR MESSAGES
+==================================================
+
+User-facing exception messages must also be localized.
+
+For example the current Dashboard displays:
+
+Laserfiche API returned HTTP 429
+
+In Arabic mode display a friendly Arabic message such as:
+
+"تعذر الاتصال بـ Laserfiche مؤقتًا بسبب كثرة الطلبات. يرجى المحاولة بعد قليل."
+
+Do not expose internal exception text directly in normal UI.
+
+Diagnostic Probe may show the raw technical exception separately.
+
+==================================================
+RTL
+==================================================
+
+Arabic must use:
+
+<html lang="ar" dir="rtl">
+
+English:
+
+<html lang="en" dir="ltr">
+
+Review RTL layout after completing translation.
+
+Specifically check:
+
+navigation
+buttons
+forms
+labels
+input alignment
+cards
+tables
+badges
+icons
+pagination
+charts
+alerts
+
+Do not simply apply text-align:right globally.
+
+Maintain correct spacing and alignment.
+
+==================================================
+DO NOT TRANSLATE TECHNICAL VALUES
+==================================================
+
+Do NOT translate or modify:
+
+Laserfiche
+Windows
+DPAPI
+API
+HTTP
+JSON
+OAuth
+LFDS
+SSO
+
+URLs
+
+https://localhost/LFRepositoryAPI
+
+repository IDs such as:
+
+NewLFWorkflow
+LFNewRepoWF
+TestEmployee
+
+API versions:
+
+v1
+v2
+
+numeric values
+
+Entry IDs
+
+usernames
+
+raw API responses
+
+stack traces
+
+code/path values
+
+These are data, not UI labels.
+
+==================================================
+LANGUAGE SWITCHER
+==================================================
+
+Keep:
+
+العربية | English
+
+When Arabic is active:
+
+- العربية should visually appear selected
+- entire UI changes to Arabic
+- dir=rtl
+
+When English is active:
+
+- English should visually appear selected
+- entire UI changes to English
+- dir=ltr
+
+The selected language must persist while navigating between:
+
+Dashboard
+Archive
+Settings
+Diagnostic Probe
+
+and after refresh.
+
+==================================================
+AUTOMATED AUDIT
+==================================================
+
+After implementing localization, search the Razor and JavaScript files again for hardcoded English UI strings.
+
+Produce a list of any remaining English literals.
+
+For every remaining literal explain why it intentionally should NOT be translated.
+
+There should be no unexplained user-facing English text.
+
+==================================================
+TESTS
+==================================================
+
+Add localization regression tests.
+
+Verify at minimum:
+
+Arabic Dashboard contains:
+"لوحة المعلومات"
+
+Arabic Settings contains:
+"إعدادات الاستعراض"
+"بيانات الاعتماد"
+"استكشاف"
+
+English Dashboard contains:
+"Dashboard"
+
+English Settings contains:
+"Browse Settings"
+"Credentials"
+"Discover"
+
+Verify:
+
+Arabic => dir="rtl"
+English => dir="ltr"
+
+Verify culture cookie persists.
+
+Verify technical values are unchanged between languages.
+
+==================================================
+IMPORTANT
+==================================================
+
+Do not modify the Laserfiche API integration while doing this task.
+
+Do not modify authentication.
+
+Do not modify token handling.
+
+Do not modify repository selection logic.
+
+This task is ONLY to complete localization and RTL support.
+
+Do not stop after fixing the screenshots.
+
+Audit the WHOLE application.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After implementation report:
+
+1. Number of localization keys before.
+2. Number after.
+3. Every view audited.
+4. JavaScript files audited.
+5. Remaining intentional English/technical strings.
+6. RTL fixes made.
+7. Localization tests added.
+8. Full test results.
+9. Build result.
