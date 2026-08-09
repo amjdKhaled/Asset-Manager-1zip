@@ -54,6 +54,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
     public async Task<DashboardStatsDto> GetDashboardStatsAsync(
         CancellationToken cancellationToken = default)
     {
+        var totalStart = Stopwatch.GetTimestamp();
         try
         {
             // ── 1. Verify connectivity ───────────────────────────────────────
@@ -214,6 +215,19 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 .Select(r => new DepartmentStatDto { Name = r.Name, DocumentCount = r.Documents })
                 .ToList()
                 .AsReadOnly();
+
+            var totalLoadMs = (long)Stopwatch.GetElapsedTime(totalStart).TotalMilliseconds;
+
+            _logger.LogInformation(
+                "DASHBOARD LOAD — total={TotalMs}ms | token+root={TokenMs}ms | scan={ScanMs}ms | " +
+                "docs={TotalDocs} | folders={TotalFolders} | templates={Templates} | " +
+                "authMode=FallbackCredentials",
+                totalLoadMs,
+                (long)tokenDurationMs,
+                scanDurationMs,
+                totalDocuments,
+                totalFolders,
+                templateDefs.Count);
 
             return new DashboardStatsDto
             {

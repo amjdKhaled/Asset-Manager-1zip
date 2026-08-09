@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -17,34 +18,56 @@ namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
 /// Acquires and caches Laserfiche Bearer tokens using the password-grant flow
-/// against the Repository API v1 token endpoint:
-/// <c>{ServerUrl}{ApiBasePath}/{EffectiveApiVersion}/Repositories/{repositoryId}/Token</c>.
+/// against the Repository API token endpoint.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Tokens are cached in an <see cref="IMemoryCache"/> under a key derived from the
-/// repository key. The cache entry expires 60 seconds before the token's reported
-/// <c>expires_in</c> value to provide a safety margin against clock skew.
+/// <strong>Single-flight acquisition</strong>: a per-cache-key
+/// <see cref="SemaphoreSlim"/> guarantees that when the token cache is empty
+/// and N requests arrive simultaneously for the same key, exactly ONE token
+/// POST is sent to the Laserfiche API.  All other concurrent callers wait for
+/// the in-flight request and share its result.  This prevents the "token storm"
+/// that causes HTTP 429 when many parallel dashboard API calls all experience a
+/// cache miss at the same time.
 /// </para>
 /// <para>
-/// Token requests are not retried automatically — if the credential store returns
-/// invalid credentials, the <see cref="LaserficheAuthService"/> propagates the
-/// <see cref="Domain.Exceptions.LaserficheException"/> to the caller without caching
-/// a failure result.
+/// <strong>Double-checked locking</strong>: the cache is checked once before
+/// acquiring the semaphore (fast path, no lock) and again immediately after
+/// (slow path, under lock), so a token written by a concurrent winner is reused
+/// without a redundant POST.
+/// </para>
+/// <para>
+/// <strong>Bounded 429 retry</strong>: when the token endpoint responds with
+/// HTTP 429, the implementation retries up to <see cref="MaxTokenRetries"/>
+/// times, honouring the <c>Retry-After</c> header when present and falling
+/// back to conservative exponential back-off (1 s, 2 s) otherwise.
+/// Deterministic 4xx errors (400, 401, 403, 404) are never retried.
+/// </para>
+/// <para>
+/// Tokens are cached in an <see cref="IMemoryCache"/> under a key derived from
+/// the repository key.  The cache entry expires 60 seconds before the token's
+/// reported <c>expires_in</c> value to provide a safety margin.
 /// </para>
 /// </remarks>
 internal sealed class LaserficheAuthService : ILaserficheAuthService
 {
     private const int EarlyExpiryBufferSeconds = 60;
-    private const string CacheKeyPrefix = "LFToken:";
+    private const int MaxTokenRetries          = 2;
+    private const string CacheKeyPrefix        = "LFToken:";
 
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ICredentialProvider _credentialProvider;
-    private readonly ILaserficheApiAdapter _adapter;
-    private readonly IMemoryCache _cache;
-    private readonly LaserficheOptions _options;
-    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IHttpClientFactory      _httpClientFactory;
+    private readonly ICredentialProvider     _credentialProvider;
+    private readonly ILaserficheApiAdapter   _adapter;
+    private readonly IMemoryCache            _cache;
+    private readonly LaserficheOptions       _options;
+    private readonly IHttpContextAccessor    _httpContextAccessor;
     private readonly ILogger<LaserficheAuthService> _logger;
+
+    // Per-cache-key semaphores that guarantee single-flight token acquisition.
+    // A new SemaphoreSlim(1,1) is created on first use for each key and kept for
+    // the lifetime of the service.  Memory impact is negligible (≈100 B each)
+    // because the number of unique keys is bounded by active sessions × repos.
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks = new();
 
     /// <summary>Initialises the auth service with all required dependencies.</summary>
     public LaserficheAuthService(
@@ -56,13 +79,13 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         IHttpContextAccessor httpContextAccessor,
         ILogger<LaserficheAuthService> logger)
     {
-        _httpClientFactory = httpClientFactory;
-        _credentialProvider = credentialProvider;
-        _adapter = adapter;
+        _httpClientFactory   = httpClientFactory;
+        _credentialProvider  = credentialProvider;
+        _adapter             = adapter;
         _httpContextAccessor = httpContextAccessor;
-        _cache = cache;
-        _options = options.Value;
-        _logger = logger;
+        _cache               = cache;
+        _options             = options.Value;
+        _logger              = logger;
     }
 
     /// <summary>
@@ -107,8 +130,6 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     /// requests that started before sign-out (their key embeds the old
     /// generation and is never read again; the orphaned entry expires via its
     /// normal TTL). This is race-free by construction, unlike explicit eviction.
-    /// Entries are one small int per signed-out session scope, bounded by
-    /// session turnover; a scope with no sign-outs stores nothing (generation 0).
     /// </summary>
     private static readonly ConcurrentDictionary<string, int> _scopeGenerations = new();
 
@@ -133,46 +154,82 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// <strong>Algorithm</strong>:
+    /// <list type="number">
+    ///   <item>Check cache — if a valid token exists, return it immediately (no lock).</item>
+    ///   <item>Acquire the per-key <see cref="SemaphoreSlim"/> (async, respects cancellation).</item>
+    ///   <item>Check cache again — another concurrent caller may have populated it while we waited.</item>
+    ///   <item>If still empty, call <see cref="RequestTokenAsync"/> (this is the sole HTTP POST).</item>
+    ///   <item>Store the token in the cache, then release the semaphore.</item>
+    /// </list>
+    /// Callers 2–N that were queued on the semaphore all hit the cache in step 3 and
+    /// return without making any additional HTTP calls.
+    /// </para>
+    /// </remarks>
     public async Task<string> GetTokenAsync(
         RepositoryDescriptor repository,
         CancellationToken cancellationToken = default)
     {
         var cacheKey = CacheKeyFor(repository);
 
+        // ── Fast path: token is already cached ───────────────────────────────
         if (_cache.TryGetValue(cacheKey, out string? cachedToken) && cachedToken is not null)
-        {
             return cachedToken;
+
+        // ── Slow path: acquire per-key lock to serialise acquisition ─────────
+        // GetOrAdd is atomic — every concurrent caller for the same key gets the
+        // same SemaphoreSlim instance, so only ONE token POST is ever in flight.
+        var sem = _keyLocks.GetOrAdd(cacheKey, static _ => new SemaphoreSlim(1, 1));
+
+        await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // ── Double-check: another caller may have set the cache while we waited
+            if (_cache.TryGetValue(cacheKey, out cachedToken) && cachedToken is not null)
+            {
+                _logger.LogDebug(
+                    "Token cache hit (after lock) for repository {Key}. Reusing token acquired by concurrent request.",
+                    repository.Key);
+                return cachedToken;
+            }
+
+            // ── We are the sole caller acquiring a token for this key right now
+            _logger.LogDebug(
+                "Token cache miss for repository {Key}. Acquiring new token.",
+                repository.Key);
+
+            var credentials = await _credentialProvider
+                .GetCredentialsAsync(repository.Key, cancellationToken)
+                .ConfigureAwait(false);
+
+            var tokenUrl = _adapter.BuildTokenUrl(repository.RepositoryId);
+
+            _logger.LogInformation(
+                "[LF AUTH] POST {TokenUrl} (acquiring token, repository {RepoId})",
+                tokenUrl,
+                repository.RepositoryId);
+
+            var tokenResponse = await RequestTokenAsync(
+                    tokenUrl, credentials.Username, credentials.Password, cancellationToken)
+                .ConfigureAwait(false);
+
+            var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
+            _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
+
+            _logger.LogDebug(
+                "Token acquired for repository {Key}. Expires in {Seconds}s (cached for {CacheSeconds}s).",
+                repository.Key,
+                tokenResponse.ExpiresIn,
+                expirySeconds);
+
+            return tokenResponse.AccessToken;
         }
-
-        _logger.LogDebug(
-            "Token cache miss for repository {Key}. Acquiring new token.",
-            repository.Key);
-
-        var credentials = await _credentialProvider
-            .GetCredentialsAsync(repository.Key, cancellationToken)
-            .ConfigureAwait(false);
-
-        var tokenUrl = _adapter.BuildTokenUrl(repository.RepositoryId);
-
-        _logger.LogInformation(
-            "[LF AUTH] POST {TokenUrl} (acquiring token, repository {RepoId})",
-            tokenUrl,
-            repository.RepositoryId);
-
-        var tokenResponse = await RequestTokenAsync(tokenUrl, credentials.Username, credentials.Password, cancellationToken)
-            .ConfigureAwait(false);
-
-        var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
-
-        _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
-
-        _logger.LogDebug(
-            "Token acquired for repository {Key}. Expires in {Seconds}s (cached for {CacheSeconds}s).",
-            repository.Key,
-            tokenResponse.ExpiresIn,
-            expirySeconds);
-
-        return tokenResponse.AccessToken;
+        finally
+        {
+            sem.Release();
+        }
     }
 
     /// <inheritdoc />
@@ -193,10 +250,6 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     {
         var tokenUrl = _adapter.BuildTokenUrl(repository.RepositoryId);
 
-        // Log the attempt WITHOUT logging the password.
-        // Include effective configuration values so an administrator reading the log
-        // can confirm the server URL, API base path, and API version without needing
-        // to inspect the config files separately.
         _logger.LogInformation(
             "[LF AUTH] Login attempt: TokenUrl={TokenUrl} Repository={RepoId} User={Username} " +
             "Server={ServerUrl} ApiBase={ApiBasePath} Version={ApiVersion} " +
@@ -228,7 +281,6 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         catch (Domain.Exceptions.LaserficheException ex)
             when (ex.StatusCode is 400 or 401 or 403)
         {
-            // Credential error — return false; do not propagate.
             _logger.LogInformation(
                 "[LF AUTH] Login failed for repository {RepoId}: HTTP {StatusCode}.",
                 repository.RepositoryId,
@@ -236,8 +288,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             return false;
         }
         // 404 (unknown repository), other 4xx, network failures and 5xx errors
-        // propagate to the caller so it can show a precise error message
-        // instead of a misleading "check username and password".
+        // propagate to the caller so it can show a precise error message.
     }
 
     /// <summary>
@@ -245,10 +296,14 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     /// and deserialises the response.
     /// </summary>
     /// <remarks>
-    /// Logs effective configuration (server, base path, API version, URL, Content-Type,
-    /// form field names) before the request and full sanitized Laserfiche response body
-    /// on failure — enabling administrators to diagnose 500 errors without exposing
-    /// credentials. Password is never logged.
+    /// <para>
+    /// Retries up to <see cref="MaxTokenRetries"/> times on HTTP 429, honouring the
+    /// <c>Retry-After</c> header when present and applying exponential back-off
+    /// (1 s, 2 s) otherwise.  All other error statuses are not retried.
+    /// </para>
+    /// <para>
+    /// The password is never logged.
+    /// </para>
     /// </remarks>
     private async Task<TokenResponse> RequestTokenAsync(
         string tokenUrl,
@@ -256,10 +311,8 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         string password,
         CancellationToken cancellationToken)
     {
-        using var client = _httpClientFactory.CreateClient("LaserficheRaw");
-
-        // Log the effective configuration so administrators can verify the exact URL
-        // and API contract being used.  Never log the password or the token.
+        // Log effective configuration once before the first attempt so administrators
+        // can verify the exact URL and API contract being used — never log the password.
         _logger.LogInformation(
             "[LF AUTH] Token POST: Url={TokenUrl} " +
             "Server={ServerUrl} ApiBase={ApiBasePath} Version={ApiVersion} " +
@@ -270,80 +323,127 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             _options.ApiBasePath,
             _options.EffectiveApiVersion);
 
-        var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        for (int attempt = 0; attempt <= MaxTokenRetries; attempt++)
         {
-            ["grant_type"] = "password",
-            ["username"]   = username,
-            ["password"]   = password
-        });
+            if (attempt > 0)
+            {
+                _logger.LogInformation(
+                    "[LF AUTH] Token POST retry {Attempt}/{MaxRetries}: Url={TokenUrl}",
+                    attempt, MaxTokenRetries, tokenUrl);
+            }
 
-        var sw = Stopwatch.StartNew();
-        using var response = await client
-            .PostAsync(tokenUrl, form, cancellationToken)
-            .ConfigureAwait(false);
-        sw.Stop();
+            using var client = _httpClientFactory.CreateClient("LaserficheRaw");
 
-        // Response content is read here; LaserficheRequestLoggingHandler (which is
-        // in the LaserficheRaw pipeline) already read, logged, and replaced the
-        // content so ReadAsStringAsync reads the replaced copy — not a double-read.
-        var body = await response.Content.ReadAsStringAsync(cancellationToken)
-            .ConfigureAwait(false);
+            var form = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "password",
+                ["username"]   = username,
+                ["password"]   = password
+            });
 
-        if (!response.IsSuccessStatusCode)
-        {
-            // Generate a short diagnostic ID so the admin can find this exact log entry
-            // by searching for the ID shown on the login page ("Diagnostic ID: XXXXXXXX").
-            var diagId    = GenerateDiagnosticId();
-            var sanitized = SanitizeBody(body);
-            var lfCode    = TryExtractLFErrorCode(body);
+            var sw = Stopwatch.StartNew();
+            using var response = await client
+                .PostAsync(tokenUrl, form, cancellationToken)
+                .ConfigureAwait(false);
+            sw.Stop();
 
-            _logger.LogError(
-                "[LF AUTH] [DiagID:{DiagId}] Token request FAILED: " +
-                "HTTP {StatusCode} {ReasonPhrase} from {TokenUrl} ({DurationMs}ms). " +
-                "Server={ServerUrl} ApiBase={ApiBasePath} Version={ApiVersion}. " +
-                "Laserfiche response body (sanitized): {Body}",
-                diagId,
-                (int)response.StatusCode,
-                response.ReasonPhrase,
-                tokenUrl,
-                sw.ElapsedMilliseconds,
-                _options.ServerUrl,
-                _options.ApiBasePath,
-                _options.EffectiveApiVersion,
-                sanitized);
+            // ── HTTP 429 — rate limited ───────────────────────────────────────
+            // Retry up to MaxTokenRetries times with Retry-After / exponential back-off.
+            // This should rarely trigger after the single-flight fix eliminates the storm.
+            if (response.StatusCode == HttpStatusCode.TooManyRequests && attempt < MaxTokenRetries)
+            {
+                var delay = ComputeRetryDelay(response, attempt);
+                _logger.LogWarning(
+                    "[LF AUTH] Token POST returned 429 Too Many Requests (attempt {Attempt}/{Max}). " +
+                    "Retry-After header: {RetryAfter}. Waiting {DelayMs}ms before retry.",
+                    attempt + 1, MaxTokenRetries + 1,
+                    response.Headers.RetryAfter?.Delta?.ToString() ?? "not set",
+                    (int)delay.TotalMilliseconds);
 
-            throw new Domain.Exceptions.LaserficheException(
-                $"Laserfiche API returned HTTP {(int)response.StatusCode}.",
-                (int)response.StatusCode,
-                lfCode,
-                sanitized,
-                diagId);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                continue; // response disposed by using block; start next iteration
+            }
+
+            // ── Non-success (including 429 after retries exhausted) ───────────
+            var body = await response.Content
+                .ReadAsStringAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var diagId    = GenerateDiagnosticId();
+                var sanitized = SanitizeBody(body);
+                var lfCode    = TryExtractLFErrorCode(body);
+
+                _logger.LogError(
+                    "[LF AUTH] [DiagID:{DiagId}] Token request FAILED: " +
+                    "HTTP {StatusCode} {ReasonPhrase} from {TokenUrl} ({DurationMs}ms). " +
+                    "Server={ServerUrl} ApiBase={ApiBasePath} Version={ApiVersion}. " +
+                    "Laserfiche response body (sanitized): {Body}",
+                    diagId,
+                    (int)response.StatusCode,
+                    response.ReasonPhrase,
+                    tokenUrl,
+                    sw.ElapsedMilliseconds,
+                    _options.ServerUrl,
+                    _options.ApiBasePath,
+                    _options.EffectiveApiVersion,
+                    sanitized);
+
+                throw new Domain.Exceptions.LaserficheException(
+                    $"Laserfiche API returned HTTP {(int)response.StatusCode}.",
+                    (int)response.StatusCode,
+                    lfCode,
+                    sanitized,
+                    diagId);
+            }
+
+            _logger.LogDebug(
+                "[LF AUTH] Token POST succeeded: HTTP {StatusCode} from {TokenUrl} ({DurationMs}ms).",
+                (int)response.StatusCode, tokenUrl, sw.ElapsedMilliseconds);
+
+            var tokenResponse = JsonSerializer.Deserialize<TokenResponse>(body, JsonOptions.Default);
+
+            if (tokenResponse is null || string.IsNullOrWhiteSpace(tokenResponse.AccessToken))
+            {
+                var diagId    = GenerateDiagnosticId();
+                var sanitized = SanitizeBody(body);
+                _logger.LogError(
+                    "[LF AUTH] [DiagID:{DiagId}] Token response from {Url} was empty or malformed " +
+                    "({DurationMs}ms). Body: {Body}",
+                    diagId, tokenUrl, sw.ElapsedMilliseconds, sanitized);
+                throw new Domain.Exceptions.LaserficheException(
+                    "The Laserfiche API Server returned an empty token response. " +
+                    "Ensure the API Server is running and the repository ID is correct.",
+                    (int)response.StatusCode,
+                    null,
+                    sanitized,
+                    diagId);
+            }
+
+            return tokenResponse;
         }
 
-        _logger.LogDebug(
-            "[LF AUTH] Token POST succeeded: HTTP {StatusCode} from {TokenUrl} ({DurationMs}ms).",
-            (int)response.StatusCode, tokenUrl, sw.ElapsedMilliseconds);
+        // Unreachable: the loop either returns or throws inside the body.
+        throw new InvalidOperationException("RequestTokenAsync: retry loop exited without result.");
+    }
 
-        var tokenResponse = JsonSerializer.Deserialize<TokenResponse>(body, JsonOptions.Default);
-
-        if (tokenResponse is null || string.IsNullOrWhiteSpace(tokenResponse.AccessToken))
+    /// <summary>
+    /// Computes the delay before the next retry attempt.
+    /// Honours the <c>Retry-After</c> header (delta-seconds form) when present
+    /// and reasonable (≤ 30 s); otherwise falls back to exponential back-off:
+    /// attempt 0 → 1 s, attempt 1 → 2 s.
+    /// </summary>
+    private static TimeSpan ComputeRetryDelay(HttpResponseMessage response, int attempt)
+    {
+        if (response.Headers.RetryAfter?.Delta is { } delta && delta > TimeSpan.Zero)
         {
-            var diagId    = GenerateDiagnosticId();
-            var sanitized = SanitizeBody(body);
-            _logger.LogError(
-                "[LF AUTH] [DiagID:{DiagId}] Token response from {Url} was empty or malformed " +
-                "({DurationMs}ms). Body: {Body}",
-                diagId, tokenUrl, sw.ElapsedMilliseconds, sanitized);
-            throw new Domain.Exceptions.LaserficheException(
-                "The Laserfiche API Server returned an empty token response. " +
-                "Ensure the API Server is running and the repository ID is correct.",
-                (int)response.StatusCode,
-                null,
-                sanitized,
-                diagId);
+            // Cap at 30 s to avoid blocking the request pipeline indefinitely.
+            return delta <= TimeSpan.FromSeconds(30) ? delta : TimeSpan.FromSeconds(30);
         }
 
-        return tokenResponse;
+        // Exponential back-off: 1 s, 2 s
+        return TimeSpan.FromSeconds(Math.Pow(2, attempt));
     }
 
     // ──────────────────────────── Authorization Code exchange ────────────────
@@ -366,8 +466,6 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             "FormFields=[grant_type, code, code_verifier, redirect_uri, client_id]",
             tokenUrl,
             repository.RepositoryId);
-
-        // Authorization code and code verifier are NEVER logged.
 
         using var client = _httpClientFactory.CreateClient("LaserficheRaw");
 
@@ -406,12 +504,9 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 sw.ElapsedMilliseconds,
                 sanitized);
 
-            // 4xx = code rejected (expired, replayed, bad verifier, mismatched redirect_uri)
-            //       → return false so the controller can fall back to the Login form.
             if ((int)response.StatusCode < 500)
                 return false;
 
-            // 5xx = server-side error → propagate so the caller sees a real failure.
             throw new Domain.Exceptions.LaserficheException(
                 $"LFDS token exchange returned HTTP {(int)response.StatusCode}.",
                 (int)response.StatusCode,
@@ -437,9 +532,6 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             return false;
         }
 
-        // Cache under the same key that GetTokenAsync / BearerTokenHandler will look up,
-        // so all subsequent resource requests use the SSO-acquired token seamlessly —
-        // whether the EffectiveApiVersion is v1 or v2.
         var cacheKey      = CacheKeyFor(repository);
         var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
         _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
@@ -455,22 +547,12 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
 
     // ──────────────────────────── Diagnostic helpers ─────────────────────────
 
-    /// <summary>
-    /// Generates an 8-character uppercase hex diagnostic ID for a single token failure.
-    /// The same ID appears in both the Error log entry and the user-facing UI message.
-    /// </summary>
     private static string GenerateDiagnosticId() =>
         Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
 
-    /// <summary>
-    /// Redacts sensitive JSON fields from a Laserfiche error response body and
-    /// truncates bodies longer than 2 000 characters.  Returns <c>(empty)</c> for
-    /// null/whitespace, and the raw (possibly truncated) body when JSON parsing fails.
-    /// </summary>
     private static string SanitizeBody(string body)
     {
         if (string.IsNullOrWhiteSpace(body)) return "(empty)";
-
         if (body.Length > 2000)
             body = body[..2000] + "...[truncated]";
 
@@ -505,11 +587,6 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         }
     }
 
-    /// <summary>
-    /// Attempts to extract a human-readable Laserfiche error code from the response body.
-    /// Checks common shapes: <c>errorCode</c> (numeric), <c>code</c> (string),
-    /// <c>title</c> (HTTP Problem Details).  Returns null when not present or parseable.
-    /// </summary>
     private static string? TryExtractLFErrorCode(string body)
     {
         if (string.IsNullOrWhiteSpace(body)) return null;

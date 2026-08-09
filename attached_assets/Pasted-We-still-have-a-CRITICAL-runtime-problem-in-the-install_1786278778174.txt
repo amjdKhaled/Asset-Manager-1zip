@@ -1,0 +1,504 @@
+We still have a CRITICAL runtime problem in the installed Dashboard.
+
+DO NOT work on the installer, MSI, localization, CSS, or UI right now.
+
+The current live Dashboard shows:
+
+    Laserfiche API returned HTTP 429
+
+and the entire Dashboard is extremely slow.
+
+Repository:
+    NewLFWorkflow
+
+API:
+    https://localhost/LFRepositoryAPI
+
+The API diagnostic probe previously showed HTTP 429 occurring inside:
+
+    LaserficheAuthService.RequestTokenAsync(...)
+    LaserficheAuthService.GetTokenAsync(...)
+    BearerTokenHandler.SendAsync(...)
+
+The important clue is that multiple completely different API calls all fail because
+GetTokenAsync / RequestTokenAsync is being called repeatedly.
+
+Examples:
+
+    GET /v2/Repositories
+    GET /v2/Repositories/NewLFWorkflow/Entries/1
+    GET /v2/Repositories/NewLFWorkflow/Entries/1/Folder/Children
+    GET /v2/Repositories/NewLFWorkflow/TemplateDefinitions
+
+All of them eventually attempt token acquisition and return HTTP 429.
+
+This strongly suggests a TOKEN REQUEST STORM.
+
+I need you to investigate and FIX the architecture, not hide the error.
+
+========================================================
+GOAL 1 — FIND EXACTLY WHY TOKEN REQUESTS ARE REPEATED
+========================================================
+
+Trace the complete runtime path:
+
+DashboardController
+    ↓
+LaserficheDashboardService
+    ↓
+LaserficheEntryService / RepositoryService / Template services
+    ↓
+HttpClient
+    ↓
+BearerTokenHandler
+    ↓
+LaserficheAuthService.GetTokenAsync
+    ↓
+RequestTokenAsync
+
+Determine:
+
+1. How many times GetTokenAsync is called during ONE Dashboard request.
+2. How many times RequestTokenAsync actually performs HTTP POST to the Laserfiche token endpoint.
+3. Whether Dashboard services execute API calls in parallel.
+4. Whether every parallel request sees an empty token cache and independently requests a token.
+5. Whether token caching is actually working.
+6. What the cache key is.
+7. Whether repository/session IDs cause unnecessary different cache keys.
+8. Whether token expiration is parsed correctly.
+9. Whether tokens are invalidated unnecessarily.
+10. Whether 401 handling causes token refresh loops.
+11. Whether IHttpClientFactory / handler lifetime is causing the token cache to be recreated.
+12. Whether LaserficheAuthService is Singleton, Scoped, or Transient.
+13. Whether its token cache is instance-local.
+14. Whether the API Diagnostic Probe bypasses/recreates the cache.
+15. Whether Dashboard refresh launches multiple scans simultaneously.
+
+Do not assume any of these are correct.
+Verify them from the real code.
+
+========================================================
+GOAL 2 — SINGLE-FLIGHT TOKEN ACQUISITION
+========================================================
+
+Implement proper concurrency-safe token acquisition.
+
+There must NEVER be multiple simultaneous token requests for the same:
+
+    server + repository + credential identity
+
+If 20 API requests arrive simultaneously and no valid token exists:
+
+WRONG:
+
+Request 1 → POST token
+Request 2 → POST token
+Request 3 → POST token
+...
+Request 20 → POST token
+
+CORRECT:
+
+Request 1 → acquire lock → POST token
+Requests 2-20 → await same token acquisition
+
+Then all 20 requests reuse the resulting token.
+
+Use a proper per-cache-key asynchronous single-flight mechanism.
+
+For example:
+
+ConcurrentDictionary<string, SemaphoreSlim>
+
+or a cached Task<Token>
+
+but implement it safely.
+
+Required algorithm:
+
+GetTokenAsync(cacheKey):
+
+    check cache
+
+    if valid token exists:
+        return immediately
+
+    acquire async lock for cacheKey
+
+    check cache AGAIN after acquiring lock
+
+    if another request already refreshed token:
+        return it
+
+    request ONE token
+
+    cache token with expiration
+
+    release lock
+
+Do NOT use Thread.Sleep.
+Do NOT use synchronous locks around async code.
+Do NOT create a global lock unnecessarily across different repositories.
+
+========================================================
+GOAL 3 — TOKEN CACHE MUST SURVIVE HTTP REQUESTS
+========================================================
+
+Verify DI lifetime.
+
+The token cache must not disappear after every ASP.NET request.
+
+If LaserficheAuthService contains the token cache and is registered as:
+
+    AddTransient
+
+or
+
+    AddScoped
+
+then fix the architecture.
+
+Prefer a singleton token-cache component such as:
+
+    ILaserficheTokenCache
+    LaserficheTokenCache
+
+that safely stores tokens across requests.
+
+Credential/session-specific information can remain scoped.
+
+Do NOT put HttpContext inside a singleton.
+
+Cache key must distinguish credentials/repository appropriately without storing
+plain-text passwords in the key.
+
+========================================================
+GOAL 4 — TOKEN EXPIRATION
+========================================================
+
+Inspect the actual Laserfiche token response.
+
+Correctly parse its expiration information.
+
+Do not request a new token for every API request.
+
+Reuse a token until shortly before expiration.
+
+Use a safety window such as:
+
+    expiresAt - 60 seconds
+
+If the token endpoint does not return expiration explicitly, investigate the actual
+Laserfiche API authentication behavior before inventing a lifetime.
+
+========================================================
+GOAL 5 — HANDLE HTTP 429 CORRECTLY
+========================================================
+
+HTTP 429 must NOT trigger aggressive immediate retries.
+
+Inspect:
+
+    Retry-After
+
+If Laserfiche sends Retry-After, honor it.
+
+But more importantly, eliminate the token storm so 429 should normally disappear.
+
+Implement bounded retry ONLY for token acquisition:
+
+Maximum:
+    2 retries
+
+Use Retry-After when supplied.
+
+Otherwise use conservative exponential backoff.
+
+Example:
+
+attempt 1
+wait ~1 second
+attempt 2
+wait ~2 seconds
+attempt 3 → fail
+
+DO NOT create infinite retries.
+
+DO NOT retry ordinary deterministic 400/401/403 errors blindly.
+
+========================================================
+GOAL 6 — FIX DASHBOARD PERFORMANCE
+========================================================
+
+The Dashboard is currently extremely slow.
+
+Profile ONE Dashboard load.
+
+Measure separately:
+
+    token acquisition
+    repository lookup
+    root discovery
+    folder scan
+    document scan
+    template retrieval
+    statistics aggregation
+
+Add Stopwatch-based structured logging.
+
+Example:
+
+Dashboard load:
+    Token: 150ms
+    Repository: 80ms
+    Root discovery: 50ms
+    Folder scan: 900ms
+    Templates: 120ms
+    Aggregation: 15ms
+    TOTAL: 1315ms
+
+Do not expose this diagnostic information to normal users.
+
+========================================================
+GOAL 7 — DO NOT RE-SCAN EVERYTHING MULTIPLE TIMES
+========================================================
+
+Inspect LaserficheDashboardService.
+
+Make sure these KPIs:
+
+    Total Folders
+    Total Documents
+    Total Templates
+    Docs with Template
+    Docs without Template
+
+do NOT independently scan the repository.
+
+There should be ONE repository traversal per Dashboard refresh.
+
+Collect documents/folders once.
+
+Then calculate all statistics in memory.
+
+WRONG:
+
+GetTotalFolders()    → scan repository
+GetTotalDocuments()  → scan repository again
+GetTemplates()       → scan again
+GetRecentDocs()      → scan again
+...
+
+CORRECT:
+
+RepositorySnapshot snapshot =
+    await BuildRepositorySnapshotAsync()
+
+Then:
+
+TotalFolders = snapshot.Folders.Count
+TotalDocuments = snapshot.Documents.Count
+...
+
+========================================================
+GOAL 8 — REQUEST-LEVEL DASHBOARD CACHE
+========================================================
+
+Prevent duplicate API calls during the same Dashboard load.
+
+If multiple components need the same:
+
+    repository information
+    root entry
+    folder children
+    templates
+
+reuse the already retrieved result.
+
+Do not call Laserfiche API twice for identical information during one dashboard request.
+
+========================================================
+GOAL 9 — ROOT ENTRY
+========================================================
+
+We previously had problems with:
+
+    /Entries/1/Folder/Children
+
+Do NOT undo the corrected V2 route:
+
+    /v2/Repositories/{repositoryId}/Entries/{entryId}/Folder/Children
+
+But also verify RootEntryId=1 is actually valid for the ACTIVE repository.
+
+Do not blindly trust configuration if authoritative root discovery is available.
+
+Log:
+
+    Active repository
+    Configured root ID
+    Discovered root ID
+    Route being called
+
+========================================================
+GOAL 10 — DIAGNOSTIC PROBE MUST NOT CREATE TOKEN STORM
+========================================================
+
+The Probe API page currently makes several probes.
+
+It must acquire/reuse ONE authentication token rather than triggering a new token
+request for every probe.
+
+The probe itself must not be capable of causing HTTP 429.
+
+========================================================
+GOAL 11 — PREVENT OVERLAPPING REFRESHES
+========================================================
+
+Check Dashboard JavaScript.
+
+Make sure:
+
+    page load
+    automatic refresh
+    Refresh button
+    Probe API
+
+are not accidentally starting overlapping Dashboard scans.
+
+Disable the Refresh button while a refresh is running.
+
+If an automatic refresh exists, do not start another refresh until the previous one
+has completed.
+
+========================================================
+GOAL 12 — USER AUTHENTICATION ARCHITECTURE
+========================================================
+
+IMPORTANT:
+
+Do NOT break the per-user authentication work.
+
+The Dashboard eventually needs to retrieve data according to the Laserfiche user
+who launched it.
+
+However, do not solve HTTP 429 by hardcoding admin or globally sharing admin tokens
+across different users.
+
+Token cache keys MUST prevent tokens belonging to different authenticated identities
+from being mixed.
+
+If the current Web Client launch still uses fallback admin credentials, clearly
+document that separately.
+
+Do not pretend it is per-user authentication if it isn't.
+
+========================================================
+TESTS REQUIRED
+========================================================
+
+Add concurrency tests.
+
+TEST 1:
+
+Start 20 simultaneous calls to GetTokenAsync for the same cache key.
+
+Assert:
+
+    token endpoint HTTP calls == 1
+
+All callers receive the same token.
+
+TEST 2:
+
+Cached valid token.
+
+Call GetTokenAsync 20 times.
+
+Assert:
+
+    token endpoint calls == 0
+
+TEST 3:
+
+Expired token.
+
+20 simultaneous requests.
+
+Assert:
+
+    refresh calls == 1
+
+TEST 4:
+
+Different repositories.
+
+RepoA and RepoB may acquire independently.
+
+TEST 5:
+
+Different user identities.
+
+Tokens must never cross users.
+
+TEST 6:
+
+429 + Retry-After.
+
+Verify bounded retry behavior.
+
+TEST 7:
+
+401 invalidation.
+
+Only the affected token is invalidated.
+
+No infinite refresh loop.
+
+TEST 8:
+
+One Dashboard load.
+
+Instrument/mock the services and verify identical endpoints are not unnecessarily
+called repeatedly.
+
+========================================================
+IMPORTANT
+========================================================
+
+Do not simply increase the timeout.
+
+Do not increase Laserfiche API rate limits.
+
+Do not add arbitrary delays.
+
+Do not catch HTTP 429 and return zero statistics.
+
+Do not hide the Not Connected status.
+
+Do not hardcode admin.
+
+Do not modify the installer.
+
+Do not modify localization.
+
+Do not redesign the UI.
+
+Fix the underlying API/authentication architecture.
+
+After implementation:
+
+1. Run ALL tests.
+2. Build Release.
+3. Report exactly:
+   - root cause
+   - previous token requests per Dashboard load
+   - new token requests per Dashboard load
+   - previous API calls per Dashboard load
+   - new API calls per Dashboard load
+   - Dashboard load time before
+   - Dashboard load time after
+4. List every modified file.
+5. Tell me whether the current Web Client integration is genuinely using the
+   logged-in Laserfiche user or still using fallback credentials.
+6. Do NOT claim HTTP 429 is solved unless the actual token request count proves it.

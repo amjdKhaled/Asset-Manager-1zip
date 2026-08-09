@@ -43,6 +43,7 @@
 - [Repository is runtime session context](repo-as-session-context.md) — repo never an installer setting; token cache keyed by repo + established-session id; 404/TLS/network errors propagate for classified login messages.
 - [BA stale DLL guards](ba-stale-dll-guards.md) — publish.ps1 must clean Dashboard.BA/bin+obj in Step 1, compare source vs staged SHA256, and scan staged DLL for removed UI strings.
 - [Smoke test WriteConfig validation](smoke-test-writecofig-validation.md) — parse WriteConfig log line for VALUES not raw stdout; Invoked: line legitimately contains both --webapp-path and --config-dir tokens.
+- [Token single-flight acquisition](token-single-flight.md) — per-key SemaphoreSlim(1,1) + double-checked lock prevents 429 storm from parallel Task.WhenAll dashboard API calls; 429 retries up to 2 times with Retry-After.
 - [Scan root entry ID discovery](scan-root-discovery.md) — always call ByPath("\\") first; default configuredRootId=1 is not guaranteed to be the root; short-circuiting on it silently returns 0 entries.
 - [V2 folder-children route](v2-folder-children-route.md) — V2 uses Folder/Children (not Laserfiche.Repository.Folder/children); V1 path returns HTTP 404 on V2 servers; BuildFolderChildrenUrl is version-aware.
 - [Repository JSON parser — V1 vs V2](repo-json-parser-v1-v2.md) — V2 GET /Repositories returns OData envelope {"value":[…]}; use RepositoryJsonParser.TryParse, never raw Deserialize<List<RepositoryDto>>; auto-detect must validate body shape, not just HTTP status.
