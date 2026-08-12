@@ -609,6 +609,12 @@ public sealed class LoginControllerSsoDormantTests
             _entries[state] = entry;
         }
 
+        public void Store(string state, OAuthStateEntry entry)
+        {
+            StoreCallCount++;
+            _entries[state] = entry;
+        }
+
         public OAuthStateEntry? TryConsume(string state)
         {
             if (!_entries.Remove(state, out var entry))
