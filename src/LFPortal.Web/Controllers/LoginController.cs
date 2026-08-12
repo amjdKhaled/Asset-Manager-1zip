@@ -239,6 +239,27 @@ public sealed class LoginController : Controller
             return RedirectToAction("Index", "Login");
         }
 
+        var invalidKeys = opts.MarkdownConfigurationKeys();
+        if (invalidKeys.Count > 0 || string.IsNullOrWhiteSpace(opts.SsoCallbackUrl))
+        {
+            var detail = invalidKeys.Count > 0
+                ? "Invalid Markdown URL configuration: " + string.Join(", ", invalidKeys)
+                : "Laserfiche:DashboardPublicBaseUrl is required for SSO.";
+            _logger.LogCritical("[SSO] Cannot start SSO. {ConfigurationError}", detail);
+            return RedirectToAction("Diagnostic", new { reason = "configuration_error", detail });
+        }
+
+        if (!string.IsNullOrWhiteSpace(opts.Sso.RedirectUri) &&
+            !string.Equals(opts.Sso.RedirectUri.TrimEnd('/'), opts.SsoCallbackUrl,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var detail = $"Redirect URI mismatch: Dashboard generated {opts.SsoCallbackUrl}, " +
+                $"but configured expected callback is {opts.Sso.RedirectUri.TrimEnd('/')}. " +
+                $"Laserfiche API must whitelist exactly {opts.SsoCallbackUrl}.";
+            _logger.LogError("[SSO] {ConfigurationError}", detail);
+            return RedirectToAction("Diagnostic", new { reason = "redirect_uri_mismatch", detail });
+        }
+
         // Validate returnUrl — anti-open-redirect.
         if (!IsLocalUrl(returnUrl))
             returnUrl = Url.Action("Index", "Dashboard")!;
@@ -407,6 +428,16 @@ public sealed class LoginController : Controller
             _logger.LogError(ex,
                 "[SSO] Token exchange threw an exception for repository {Repo}.",
                 repo.RepositoryId);
+            if (IsUntrustedSamlToken(ex))
+            {
+                return RedirectToAction("Diagnostic", new
+                {
+                    reason = "saml_token_untrusted",
+                    repositoryId = repo.RepositoryId,
+                    tokenEndpoint = opts.GetSsoTokenEndpoint(repo.RepositoryId),
+                    callbackUrl = entry.RedirectUri,
+                });
+            }
             return FallBackToLoginForm("callback_exception", ex.GetType().Name);
         }
 
@@ -427,6 +458,19 @@ public sealed class LoginController : Controller
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
             repo.RepositoryId);
 
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+
+        _logger.LogInformation(
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
         await EstablishDashboardIdentityAsync(
             identityName: null,
             repositoryId: repo.RepositoryId,
@@ -568,11 +612,33 @@ public sealed class LoginController : Controller
     /// </summary>
     private string BuildCallbackUri(LaserficheOptions opts)
     {
-        if (!string.IsNullOrWhiteSpace(opts.Sso.RedirectUri))
-            return opts.Sso.RedirectUri.TrimEnd('/');
+        return opts.SsoCallbackUrl;
+    }
 
-        var req = HttpContext.Request;
-        return $"{req.Scheme}://{req.Host}/Login/Callback";
+    private static bool IsUntrustedSamlToken(Exception exception) =>
+        exception is LaserficheException { StatusCode: 403 } laserfiche &&
+        (laserfiche.ResponseBody?.Contains("invalid or untrusted SAML token",
+             StringComparison.OrdinalIgnoreCase) == true ||
+         string.Equals(laserfiche.LFErrorCode, "9530", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Displays actionable SSO/configuration failures without password fallback.</summary>
+    [HttpGet("/Login/SsoDiagnostic")]
+    public IActionResult Diagnostic(
+        string reason,
+        string? detail = null,
+        string? repositoryId = null,
+        string? tokenEndpoint = null,
+        string? callbackUrl = null)
+    {
+        var opts = _options.CurrentValue;
+        return View("SsoDiagnostic", new SsoDiagnosticViewModel
+        {
+            Reason = reason,
+            Detail = detail,
+            RepositoryId = repositoryId ?? opts.RepositoryId,
+            TokenEndpoint = tokenEndpoint ?? opts.GetSsoTokenEndpoint(repositoryId ?? opts.RepositoryId),
+            CallbackUrl = callbackUrl ?? opts.SsoCallbackUrl,
+        });
     }
 
     /// <summary>Redirects to the Login form with the SSO-failed flag set.</summary>
@@ -592,15 +658,8 @@ public sealed class LoginController : Controller
             ? "(missing)"
             : state.Length > 8 ? state[..8] + "…" : state;
 
-    private static string BuildTokenEndpointForLog(LaserficheOptions opts, string repositoryId)
-    {
-        var authorizeEndpoint = opts.SsoAuthorizationEndpoint;
-        if (!authorizeEndpoint.EndsWith("Authorize", StringComparison.OrdinalIgnoreCase))
-            return "(invalid Repository API configuration)";
-
-        return authorizeEndpoint[..^"Authorize".Length] + "Repositories/" +
-            $"{Uri.EscapeDataString(repositoryId)}/Token";
-    }
+    private static string BuildTokenEndpointForLog(LaserficheOptions opts, string repositoryId) =>
+        opts.GetSsoTokenEndpoint(repositoryId);
 
     private static string DescribeSsoFailure(string? reason) => reason switch
     {
@@ -665,6 +724,15 @@ public sealed class LoginController : Controller
                .TrimEnd('=')
                .Replace('+', '-')
                .Replace('/', '_');
+}
+
+public sealed class SsoDiagnosticViewModel
+{
+    public string Reason { get; init; } = string.Empty;
+    public string? Detail { get; init; }
+    public string RepositoryId { get; init; } = string.Empty;
+    public string TokenEndpoint { get; init; } = string.Empty;
+    public string CallbackUrl { get; init; } = string.Empty;
 }
 
 // ── View models ──────────────────────────────────────────────────────────────

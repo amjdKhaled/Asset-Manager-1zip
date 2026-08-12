@@ -2,6 +2,7 @@ using LFPortal.Application.DTOs;
 using System.Security.Claims;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Common;
+using LFPortal.Domain.Exceptions;
 using LFPortal.Infrastructure.OAuth;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Controllers;
@@ -53,6 +54,7 @@ public sealed class LoginControllerSsoDormantTests
     private static LaserficheOptions SsoOptions() => new()
     {
         ServerUrl   = "http://lf-server.test",
+        DashboardPublicBaseUrl = "https://dashboard.test",
         ApiBasePath = "/LFRepositoryAPI",
         ApiVersion  = "v1",
         Sso         = new LaserficheOAuthOptions { LfdsBaseUrl = "https://lfds.example.com/LFDS" }
@@ -176,6 +178,24 @@ public sealed class LoginControllerSsoDormantTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("http://localhost:5000", "http://localhost:5000/login/Callback")]
+    [InlineData("http://desktop-k1svi53:5000", "http://desktop-k1svi53:5000/login/Callback")]
+    public void DashboardPublicBaseUrl_ProducesDeterministicCallback(string baseUrl, string expected)
+    {
+        var opts = SsoOptions();
+        opts.DashboardPublicBaseUrl = baseUrl;
+        Assert.Equal(expected, opts.SsoCallbackUrl);
+    }
+
+    [Fact]
+    public void MarkdownUrlConfiguration_IsRejected()
+    {
+        var opts = SsoOptions();
+        opts.ServerUrl = "[https://localhost](https://localhost)";
+        Assert.Contains("Laserfiche:ServerUrl", opts.MarkdownConfigurationKeys());
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 2. GET /Login renders the password form — no LFDS redirect
     // ─────────────────────────────────────────────────────────────────────────
@@ -297,7 +317,7 @@ public sealed class LoginControllerSsoDormantTests
             StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("LFDS", redirect.Url, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("response_type=code", uri.Query);
-        Assert.Contains("redirect_uri=https%3A%2F%2Fdashboard.test%2FLogin%2FCallback", uri.Query);
+        Assert.Contains("redirect_uri=https%3A%2F%2Fdashboard.test%2Flogin%2FCallback", uri.Query);
         Assert.Contains("state=", uri.Query);
         Assert.Contains("code_challenge=", uri.Query);
         Assert.Contains("code_challenge_method=S256", uri.Query);
@@ -481,6 +501,23 @@ public sealed class LoginControllerSsoDormantTests
             model.SsoFailureReason);
     }
 
+    [Fact]
+    public async Task Sso_Callback_UntrustedSaml_ReturnsDiagnosticPageWithoutPasswordFallback()
+    {
+        var (ctrl, auth, _) = Build(SsoOptions(), directBrowser: false);
+        auth.ExchangeException = new LaserficheException(
+            "Rejected", 403, "9530", "Received an invalid or untrusted SAML token. [9530]");
+        await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default);
+        var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
+
+        var result = await ctrl.Callback("code", state, cancellationToken: default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Diagnostic", redirect.ActionName);
+        Assert.Equal("saml_token_untrusted", redirect.RouteValues?["reason"]);
+        Assert.NotEqual("Index", redirect.ActionName);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 6. Repository selection works (direct browser vs. client launch)
     // ─────────────────────────────────────────────────────────────────────────
@@ -621,6 +658,7 @@ public sealed class LoginControllerSsoDormantTests
         public int  TryAuthenticateCallCount    { get; private set; }
         public int  ExchangeAuthCodeCallCount   { get; private set; }
         public bool InvalidateCurrentSessionCalled { get; private set; }
+        public Exception? ExchangeException { get; set; }
 
         public Task<bool> TryAuthenticateAsync(
             RepositoryDescriptor r, string u, string p, CancellationToken ct = default)
@@ -634,6 +672,8 @@ public sealed class LoginControllerSsoDormantTests
             string redirectUri, string clientId, CancellationToken ct = default)
         {
             ExchangeAuthCodeCallCount++;
+            if (ExchangeException is not null)
+                return Task.FromException<bool>(ExchangeException);
             return Task.FromResult(true);
         }
 

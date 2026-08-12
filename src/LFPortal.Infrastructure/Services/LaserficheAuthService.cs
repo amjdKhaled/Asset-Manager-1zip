@@ -528,9 +528,6 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 sw.ElapsedMilliseconds,
                 sanitized);
 
-            if ((int)response.StatusCode < 500)
-                return false;
-
             throw new Domain.Exceptions.LaserficheException(
                 $"LFDS token exchange returned HTTP {(int)response.StatusCode}.",
                 (int)response.StatusCode,

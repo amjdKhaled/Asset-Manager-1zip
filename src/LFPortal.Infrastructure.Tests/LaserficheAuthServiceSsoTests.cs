@@ -193,31 +193,34 @@ public sealed class LaserficheAuthServiceSsoTests
     }
 
     [Fact]
-    public async Task ExchangeCode_400_ReturnsFalse_DoesNotThrow()
+    public async Task ExchangeCode_400_ThrowsDiagnosticException()
     {
         var svc = CreateService(StatusHandler(HttpStatusCode.BadRequest));
-        var result = await svc.ExchangeAuthorizationCodeAsync(
-            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard");
-        Assert.False(result);
+        var ex = await Assert.ThrowsAsync<LaserficheException>(() => svc.ExchangeAuthorizationCodeAsync(
+            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard"));
+        Assert.Equal(400, ex.StatusCode);
     }
 
     [Fact]
-    public async Task ExchangeCode_401_ReturnsFalse_DoesNotThrow()
+    public async Task ExchangeCode_401_ThrowsDiagnosticException()
     {
         // 401 = code already used or expired
         var svc = CreateService(StatusHandler(HttpStatusCode.Unauthorized));
-        var result = await svc.ExchangeAuthorizationCodeAsync(
-            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard");
-        Assert.False(result);
+        var ex = await Assert.ThrowsAsync<LaserficheException>(() => svc.ExchangeAuthorizationCodeAsync(
+            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard"));
+        Assert.Equal(401, ex.StatusCode);
     }
 
     [Fact]
-    public async Task ExchangeCode_403_ReturnsFalse_DoesNotThrow()
+    public async Task ExchangeCode_403_UntrustedSaml_PreservesSanitizedDiagnostic()
     {
-        var svc = CreateService(StatusHandler(HttpStatusCode.Forbidden));
-        var result = await svc.ExchangeAuthorizationCodeAsync(
-            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard");
-        Assert.False(result);
+        var svc = CreateService(StatusHandler(
+            HttpStatusCode.Forbidden,
+            "Received an invalid or untrusted SAML token. [9530]"));
+        var ex = await Assert.ThrowsAsync<LaserficheException>(() => svc.ExchangeAuthorizationCodeAsync(
+            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard"));
+        Assert.Equal(403, ex.StatusCode);
+        Assert.Contains("invalid or untrusted SAML token", ex.ResponseBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

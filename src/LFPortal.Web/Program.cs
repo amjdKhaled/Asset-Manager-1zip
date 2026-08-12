@@ -143,6 +143,9 @@ try
     // without reading config files.  Credentials are never logged.
     {
         var opts = app.Services.GetRequiredService<IOptions<LaserficheOptions>>().Value;
+        var invalidMarkdownKeys = opts.MarkdownConfigurationKeys();
+        if (invalidMarkdownKeys.Count > 0)
+            Log.Fatal("Invalid Markdown characters in URL configuration: {ConfigurationKeys}", invalidMarkdownKeys);
         Log.Information(
             "Laserfiche config: ServerUrl={ServerUrl} ApiBasePath={ApiBasePath} " +
             "ApiVersion={ApiVersion} (effective: {EffectiveApiVersion}) Timeout={Timeout}s CredentialProvider={Provider} " +
@@ -161,13 +164,16 @@ try
         {
             Log.Information(
                 "SSO config: LfdsBaseUrl={LfdsBaseUrl} ClientId={ClientId} " +
-                "AuthEndpoint={AuthEndpoint} RedirectUri={RedirectUri}",
+                "DashboardPublicBaseUrl={DashboardPublicBaseUrl} CallbackUrl={CallbackUrl} " +
+                "AuthEndpoint={AuthEndpoint} TokenEndpoint={TokenEndpoint} LFDSSTS={LfdsSts} Repository={Repository}",
                 opts.Sso.LfdsBaseUrl,
                 opts.Sso.ClientId,
+                opts.DashboardPublicBaseUrl,
+                opts.SsoCallbackUrl,
                 opts.SsoAuthorizationEndpoint,
-                string.IsNullOrEmpty(opts.Sso.RedirectUri)
-                    ? "(computed from request at runtime)"
-                    : opts.Sso.RedirectUri);
+                opts.GetSsoTokenEndpoint(opts.RepositoryId),
+                opts.Sso.LfdsBaseUrl,
+                opts.RepositoryId);
         }
         else
         {
@@ -215,6 +221,26 @@ try
     // and MVC endpoints so HttpContext.User is restored on every request.
     app.UseAuthentication();
     app.UseAuthorization();
+
+    // Reject malformed pasted Markdown URLs before any authentication or repository
+    // operation. The diagnostic endpoint remains reachable so the error is actionable.
+    app.Use(async (context, next) =>
+    {
+        var options = context.RequestServices
+            .GetRequiredService<IOptions<LaserficheOptions>>().Value;
+        var invalidKeys = options.MarkdownConfigurationKeys();
+        if (invalidKeys.Count > 0 &&
+            !context.Request.Path.StartsWithSegments("/Login/SsoDiagnostic",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var detail = Uri.EscapeDataString(
+                "Invalid Markdown URL configuration: " + string.Join(", ", invalidKeys));
+            context.Response.Redirect(
+                $"/Login/SsoDiagnostic?reason=configuration_error&detail={detail}");
+            return;
+        }
+        await next(context);
+    });
 
     // ── Repository session middleware — captures ?repository= from Desktop Client ──
     app.UseMiddleware<RepositorySessionMiddleware>();

@@ -46,6 +46,9 @@ public sealed class LaserficheOptions
     /// </summary>
     public string ServerUrl { get; set; } = string.Empty;
 
+    /// <summary>Public browser origin of the Dashboard, used for every OAuth callback.</summary>
+    public string DashboardPublicBaseUrl { get; set; } = string.Empty;
+
     /// <summary>
     /// Optional fallback repository identifier, e.g. <c>Documents</c>.
     /// The repository is normally supplied per session at runtime — by the
@@ -167,5 +170,33 @@ public sealed class LaserficheOptions
 
             return $"{apiRoot}/v2/Authorize";
         }
+    }
+
+    /// <summary>Deterministic Dashboard callback URI used throughout an OAuth flow.</summary>
+    public string SsoCallbackUrl => string.IsNullOrWhiteSpace(DashboardPublicBaseUrl)
+        ? string.Empty
+        : $"{DashboardPublicBaseUrl.TrimEnd('/')}/login/Callback";
+
+    /// <summary>Repository-specific V2 authorization-code token endpoint.</summary>
+    public string GetSsoTokenEndpoint(string repositoryId)
+    {
+        var authorize = SsoAuthorizationEndpoint;
+        if (!authorize.EndsWith("Authorize", StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
+        return authorize[..^"Authorize".Length] + "Repositories/" +
+            Uri.EscapeDataString(repositoryId) + "/Token";
+    }
+
+    /// <summary>Detects pasted Markdown links, which are never valid URL settings.</summary>
+    public IReadOnlyList<string> MarkdownConfigurationKeys()
+    {
+        static bool Invalid(string? value) => value?.IndexOfAny(['[', ']', '(', ')']) >= 0;
+        var invalid = new List<string>();
+        if (Invalid(ServerUrl)) invalid.Add("Laserfiche:ServerUrl");
+        if (Invalid(ApiBasePath)) invalid.Add("Laserfiche:ApiBasePath");
+        if (Invalid(DashboardPublicBaseUrl)) invalid.Add("Laserfiche:DashboardPublicBaseUrl");
+        if (Invalid(Sso.LfdsBaseUrl)) invalid.Add("Laserfiche:Sso:LfdsBaseUrl");
+        if (Invalid(Sso.RedirectUri)) invalid.Add("Laserfiche:Sso:RedirectUri");
+        return invalid;
     }
 }
