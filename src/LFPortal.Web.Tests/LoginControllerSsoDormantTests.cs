@@ -160,6 +160,22 @@ public sealed class LoginControllerSsoDormantTests
             opts.SsoAuthorizationEndpoint);
     }
 
+    [Fact]
+    public void SsoAuthorizationEndpoint_DoesNotDuplicateApiBasePathAlreadyInServerUrl()
+    {
+        var opts = SsoOptions();
+        opts.ServerUrl = "https://localhost/LFRepositoryAPI/";
+        opts.ApiBasePath = "/LFRepositoryAPI";
+
+        Assert.Equal(
+            "https://localhost/LFRepositoryAPI/v2/Authorize",
+            opts.SsoAuthorizationEndpoint);
+        Assert.DoesNotContain(
+            "/LFRepositoryAPI/LFRepositoryAPI",
+            opts.SsoAuthorizationEndpoint,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 2. GET /Login renders the password form — no LFDS redirect
     // ─────────────────────────────────────────────────────────────────────────
@@ -275,6 +291,10 @@ public sealed class LoginControllerSsoDormantTests
         var redirect = Assert.IsType<RedirectResult>(result);
         var uri = new Uri(redirect.Url!);
         Assert.Equal("http://lf-server.test/LFRepositoryAPI/v2/Authorize", uri.GetLeftPart(UriPartial.Path));
+        Assert.DoesNotContain(
+            "/LFRepositoryAPI/LFRepositoryAPI",
+            redirect.Url,
+            StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("LFDS", redirect.Url, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("response_type=code", uri.Query);
         Assert.Contains("redirect_uri=https%3A%2F%2Fdashboard.test%2FLogin%2FCallback", uri.Query);
@@ -606,12 +626,6 @@ public sealed class LoginControllerSsoDormantTests
         {
             StoreCallCount++;
             LastStoredEntry = entry;
-            _entries[state] = entry;
-        }
-
-        public void Store(string state, OAuthStateEntry entry)
-        {
-            StoreCallCount++;
             _entries[state] = entry;
         }
 

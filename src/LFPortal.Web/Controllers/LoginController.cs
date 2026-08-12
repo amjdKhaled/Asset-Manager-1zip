@@ -266,15 +266,15 @@ public sealed class LoginController : Controller
         // Bind state to this session so the callback can validate CSRF.
         HttpContext.Session.SetString(SessionKeyOAuthPendingState, state);
 
-        _logger.LogInformation(
-            "[SSO] Starting authorization flow: Repo={Repo} RedirectUri={RedirectUri} " +
-            "AuthEndpoint={AuthEndpoint}",
-            repo.RepositoryId,
-            redirectUri,
-            opts.SsoAuthorizationEndpoint);
-
         // ── Build authorization URL ───────────────────────────────────────────
         var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
+
+        _logger.LogInformation(
+            "[SSO] Redirecting to Repository API authorize URL: {AuthorizeUrl} " +
+            "(Repo={Repo}, RedirectUri={RedirectUri})",
+            authUrl,
+            repo.RepositoryId,
+            redirectUri);
 
         return Redirect(authUrl);
     }

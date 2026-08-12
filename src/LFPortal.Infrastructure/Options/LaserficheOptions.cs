@@ -155,8 +155,17 @@ public sealed class LaserficheOptions
             if (string.IsNullOrWhiteSpace(ServerUrl))
                 return string.Empty;
 
+            var serverUrl = ServerUrl.TrimEnd('/');
             var apiBasePath = "/" + ApiBasePath.Trim('/');
-            return $"{ServerUrl.TrimEnd('/')}{apiBasePath}/v2/Authorize";
+
+            // ServerUrl is configured as an origin, while ApiBasePath owns the
+            // Repository API virtual directory. Tolerate an older persisted
+            // ServerUrl that already contains that directory without duplicating it.
+            var apiRoot = serverUrl.EndsWith(apiBasePath, StringComparison.OrdinalIgnoreCase)
+                ? serverUrl
+                : serverUrl + apiBasePath;
+
+            return $"{apiRoot}/v2/Authorize";
         }
     }
 }
