@@ -1,0 +1,657 @@
+We now have a working Dashboard and the HTTP 429/token storm issue is fixed.
+
+DO NOT break the working token single-flight/cache implementation.
+DO NOT redesign the Dashboard.
+DO NOT change the installer unless absolutely required.
+
+I now need TWO major fixes:
+
+============================================================
+GOAL 1 — USE THE ACTUAL LASERFICHE USER, NOT ADMIN/FALLBACK
+============================================================
+
+CURRENT BEHAVIOR
+----------------
+
+Repository propagation from Laserfiche Web Client is working.
+
+Example:
+
+I open repository:
+
+    TestEmployee
+
+from Laserfiche Web Client and Dashboard correctly shows:
+
+    WEB CLIENT | TestEmployee
+
+So repository context propagation works.
+
+BUT authentication does NOT follow the Laserfiche user.
+
+The Dashboard still calls Laserfiche Repository API using the username/password
+stored under Settings → Fallback Credentials.
+
+Example:
+
+Fallback credentials may contain:
+
+    admin
+
+If I log into Laserfiche Web Client as:
+
+    user1
+
+and launch Dashboard:
+
+Repository:
+    TestEmployee        ← CORRECT
+
+API identity:
+    admin               ← WRONG
+
+I need:
+
+Laserfiche Web Client:
+    Repository = TestEmployee
+    Logged-in user = user1
+
+Dashboard:
+    Repository = TestEmployee
+    API identity = user1
+
+Therefore Laserfiche permissions must naturally apply.
+
+If user1 can see only Folder A in Laserfiche:
+
+    Dashboard must see only Folder A.
+
+If admin can see A+B+C:
+
+    Dashboard opened by admin can see A+B+C.
+
+THIS MUST BE REAL AUTHORIZATION.
+
+Do NOT merely display "user1" while API calls still execute as admin.
+
+============================================================
+CRITICAL SECURITY REQUIREMENT
+============================================================
+
+DO NOT:
+
+- send the user's password in the URL
+- put credentials in query strings
+- put passwords in JavaScript
+- store passwords in localStorage
+- expose bearer tokens to page JavaScript unnecessarily
+- impersonate a user by changing only a username label
+- use admin and manually filter results
+- assume repository permissions
+- share admin tokens across users
+- create a fake "current user"
+
+The Repository API must actually receive credentials/token representing the
+appropriate Laserfiche identity.
+
+============================================================
+FIRST: INVESTIGATE THE EXISTING LASERFICHE LAUNCH PATH
+============================================================
+
+Before changing code, trace the complete integration.
+
+Inspect:
+
+    lf-webclient-button.js
+    RepositorySessionMiddleware
+    SessionAuthGuardMiddleware
+    SessionAwareRepositoryContext
+    LaserficheAuthService
+    BearerTokenHandler
+    ICredentialProvider
+    DpapiCredentialProvider
+    LoginController
+    SettingsController
+    Program.cs
+
+Determine exactly what information is available when Dashboard is launched from
+Laserfiche Web Client.
+
+Current URL is approximately:
+
+    /?repository=TestEmployee&source=webclient
+
+Determine whether the Web Client integration has access to:
+
+- current Laserfiche username
+- current authenticated session
+- session ticket
+- access token
+- LFDS identity
+- Web Client server-side authentication context
+- any supported Laserfiche SSO/OAuth mechanism
+
+DO NOT guess.
+
+============================================================
+PREFERRED ARCHITECTURE
+============================================================
+
+I want proper delegated authentication / SSO if supported by this environment.
+
+The ideal flow is:
+
+Laserfiche user logs in
+        ↓
+Laserfiche Web Client
+        ↓
+Dashboard launched
+        ↓
+Dashboard establishes authenticated identity for SAME user
+        ↓
+Repository API token for SAME user
+        ↓
+Laserfiche Repository API
+        ↓
+Laserfiche permissions automatically determine visible data
+
+Investigate the supported authentication mechanism available with the installed
+Laserfiche API / LFDS environment.
+
+If LFDS OAuth / authorization-code flow is the correct supported mechanism,
+implement it properly.
+
+If another supported Laserfiche mechanism is appropriate for this on-prem
+installation, use that instead.
+
+DO NOT invent an authentication protocol.
+
+============================================================
+IMPORTANT — WEB CLIENT SESSION CANNOT JUST BE ASSUMED
+============================================================
+
+Do not assume that because both applications are on the same machine/domain,
+Dashboard can automatically reuse the Laserfiche Web Client cookie.
+
+Verify:
+
+- cookie name
+- cookie domain
+- cookie path
+- SameSite
+- authentication scheme
+- whether Repository API accepts that session
+- whether Web Client exposes a supported delegation mechanism
+
+Only reuse something if Laserfiche officially supports it.
+
+============================================================
+FALLBACK MODE
+============================================================
+
+Keep Fallback Credentials ONLY for:
+
+    direct browser access
+
+Example:
+
+    http://localhost:5000
+
+when there is no authenticated Laserfiche launch context.
+
+Fallback credentials must NOT silently override a known per-user authenticated
+session.
+
+Authentication priority should become approximately:
+
+1. Valid delegated Laserfiche user identity/token
+2. Explicit Dashboard login/session if such a supported flow is required
+3. Fallback credentials ONLY for direct browser/admin fallback
+
+Create an explicit authentication-context abstraction, for example:
+
+    ILaserficheAuthenticationContext
+
+that provides:
+
+    AuthenticationMode
+    RepositoryId
+    UserIdentity
+    TokenScope
+
+Possible modes:
+
+    DelegatedUser
+    ExplicitUserSession
+    FallbackCredentials
+
+Do not scatter this decision across controllers.
+
+============================================================
+TOKEN CACHE MUST REMAIN USER-SAFE
+============================================================
+
+The recently implemented single-flight token cache MUST remain.
+
+But its cache key must include the authentication identity.
+
+Conceptually:
+
+    Server
+    Repository
+    AuthenticationIdentity
+
+NOT only:
+
+    Server
+    Repository
+
+Otherwise:
+
+user1 opens Dashboard
+    → token cached
+
+user2 opens Dashboard
+    → accidentally receives user1 token
+
+That would be a serious security bug.
+
+Add tests proving this cannot happen.
+
+Never put the plaintext password in the cache key.
+
+============================================================
+SYSTEM HEALTH
+============================================================
+
+Update System Health so it truthfully shows:
+
+Authentication:
+    Laserfiche User
+
+User:
+    user1
+
+Repository:
+    TestEmployee
+
+when delegated authentication is active.
+
+If fallback is being used:
+
+Authentication:
+    Fallback Credentials
+
+User:
+    admin
+
+Never claim "Laserfiche User" unless API calls genuinely use that user's token.
+
+============================================================
+GOAL 2 — COMPLETE ARABIC LOCALIZATION
+============================================================
+
+Arabic exists now but it is incomplete and RTL layout has visible problems.
+
+The screenshots show English text still appearing while Arabic is selected.
+
+Examples include:
+
+    Dashboard
+    Laserfiche Repository Live Statistics
+    Laserfiche API Version
+    Auto Detect (recommended)
+    Auto Detect probes the server...
+    Discover
+    Documents Repository
+    Base URL of your Laserfiche API Server...
+    Used when Dashboard is opened directly...
+    Label shown in the portal UI...
+    HTTP request timeout for all Laserfiche API calls...
+    ADVANCED — API PATH
+    API Base Path
+    Leave blank to keep saved credentials
+    Stored securely using Windows DPAPI...
+    Desktop Client sessions use the Login screen...
+    Fallback credentials saved...
+    English chart labels such as:
+        Created
+        Modified
+        Last 7 days
+
+These must all be localized.
+
+============================================================
+DO A FULL STRING AUDIT
+============================================================
+
+Search ALL of:
+
+    Views/**/*.cshtml
+    Controllers/**/*.cs
+    wwwroot/**/*.js
+    wwwroot/**/*.css
+    ViewModels
+    DTO display strings
+
+for user-visible English strings.
+
+Do not fix only the strings visible in my screenshots.
+
+Every user-visible static string must come from localization resources.
+
+Use the existing:
+
+    SharedResource.resx
+    SharedResource.ar.resx
+
+architecture.
+
+Do NOT duplicate localization systems.
+
+============================================================
+LOCALIZE JAVASCRIPT / CHART.JS
+============================================================
+
+Some Dashboard labels are generated by JavaScript / Chart.js.
+
+Those must also change with the selected culture.
+
+Do not hardcode:
+
+    Created
+    Modified
+    Documents
+    Folders
+    Users
+    No data
+    etc.
+
+Provide localized strings from Razor to JavaScript safely.
+
+For example create a JS localization object from Razor/resource values.
+
+Then Chart.js should use those translated values.
+
+Arabic:
+
+    Created  → تم الإنشاء
+    Modified → تم التعديل
+
+etc.
+
+============================================================
+SETTINGS PAGE — FULL ARABIC
+============================================================
+
+When Arabic is active, the Settings page must contain no unexplained English
+instructional text.
+
+Translate all descriptions/help text.
+
+Examples:
+
+"Auto Detect probes the server (v2 first, then v1) and remembers the result."
+
+"Base URL of your Laserfiche API Server..."
+
+"Used when Dashboard is opened directly from a browser..."
+
+"Label shown in the portal UI..."
+
+"HTTP request timeout for all Laserfiche API calls..."
+
+"Stored securely using Windows DPAPI..."
+
+Translate them professionally into Arabic.
+
+Technical identifiers may remain unchanged where appropriate:
+
+    API
+    URL
+    HTTP
+    Windows DPAPI
+    v1
+    v2
+    Laserfiche
+
+============================================================
+FIX RTL SPACING / TEXT COLLISION
+============================================================
+
+The Arabic UI currently has text too close to controls and some labels visually
+collide with surrounding UI.
+
+Do a complete RTL layout pass.
+
+For Arabic:
+
+    html[dir="rtl"]
+
+Fix spacing for:
+
+- labels
+- inputs
+- select controls
+- buttons
+- help text
+- section headings
+- badges
+- cards
+- alerts
+- navbar
+- language selector
+- tables
+- charts
+- legends
+- icons
+- validation messages
+
+Do not solve this with random individual margins.
+
+Create consistent RTL-aware spacing.
+
+Prefer logical CSS properties:
+
+    margin-inline-start
+    margin-inline-end
+    padding-inline-start
+    padding-inline-end
+    text-align: start
+
+instead of:
+
+    margin-left
+    margin-right
+
+where appropriate.
+
+============================================================
+SETTINGS GRID RTL
+============================================================
+
+The Settings two-column layout must remain visually balanced in Arabic.
+
+Currently some headings/labels sit extremely close to inputs.
+
+Each form group should follow:
+
+    Label
+    [reasonable vertical gap]
+    Input
+    [reasonable vertical gap]
+    Help text
+
+For example:
+
+    gap: 6px / 8px
+
+There must be clear separation between:
+
+    Repository heading
+    Server URL label
+    input
+    description
+
+and the neighboring column.
+
+============================================================
+ARABIC TYPOGRAPHY
+============================================================
+
+Use the existing application font if it renders Arabic correctly.
+
+Ensure:
+
+    line-height approximately 1.6–1.8 for Arabic explanatory text
+
+Do not globally enlarge everything.
+
+Help text should be readable and not compressed.
+
+============================================================
+LANGUAGE SWITCHER
+============================================================
+
+Keep:
+
+    English | العربية
+
+Switching language must:
+
+- preserve the current page
+- preserve repository context
+- preserve authentication session
+- preserve query parameters where required
+
+It must NOT log the user out.
+It must NOT reset the active repository.
+
+============================================================
+DO NOT TRANSLATE DATA
+============================================================
+
+Do NOT translate actual Laserfiche data.
+
+For example:
+
+Repository:
+    TestEmployee
+
+Folder:
+    إدخال الوثيقة
+
+Template:
+    SASO
+
+Username:
+    amjd
+
+These are data and must be shown exactly as Laserfiche returns them.
+
+Only UI labels/descriptions are localized.
+
+============================================================
+TESTS — AUTHENTICATION
+============================================================
+
+Add tests for:
+
+1. user1 / TestEmployee gets user1 authentication context.
+2. user2 / TestEmployee gets a different authentication context.
+3. Tokens never cross users.
+4. Tokens never cross repositories.
+5. Fallback admin is NOT selected when a valid delegated user session exists.
+6. Direct browser access can still use fallback credentials.
+7. Changing language does not lose authentication context.
+8. Changing language does not lose repository context.
+9. Single-flight token acquisition still works per user.
+10. Twenty concurrent calls for user1 → one token request.
+11. Twenty concurrent calls for user2 → one separate token request.
+
+============================================================
+TESTS — LOCALIZATION
+============================================================
+
+Add localization regression tests.
+
+When culture = ar:
+
+Verify rendered pages do not contain known untranslated strings such as:
+
+    Auto Detect (recommended)
+    Discover
+    Leave blank to keep saved credentials
+    Laserfiche Repository Live Statistics
+    Created
+    Modified
+
+When culture = en:
+
+Verify normal English labels remain.
+
+Also verify:
+
+    lang="ar"
+    dir="rtl"
+
+and English:
+
+    lang="en"
+    dir="ltr"
+
+============================================================
+FINAL VERIFICATION
+============================================================
+
+After implementation:
+
+1. Build Release.
+2. Run ALL tests.
+3. Launch Dashboard in English.
+4. Launch Dashboard in Arabic.
+5. Verify Dashboard.
+6. Verify Settings.
+7. Verify Archive.
+8. Verify charts.
+9. Verify language switching.
+10. Verify Web Client launch.
+
+Then give me an exact report:
+
+AUTHENTICATION
+--------------
+- What identity information was actually available from Laserfiche Web Client?
+- Which supported authentication mechanism was implemented?
+- Is Dashboard genuinely calling Repository API as the logged-in Laserfiche user?
+- How was the token transferred/acquired?
+- How are tokens isolated between users?
+- When exactly are fallback credentials used?
+
+LOCALIZATION
+------------
+- Number of untranslated strings found.
+- Number fixed.
+- Files changed.
+- JS/chart strings fixed.
+- RTL CSS changes.
+
+TESTING
+-------
+- Total tests.
+- Passed.
+- Failed.
+- Release build result.
+
+CRITICAL:
+
+Do NOT say "per-user authentication is fixed" merely because the username is
+displayed.
+
+Prove that Repository API calls use that user's actual authenticated token.
+
+If the current Laserfiche Web Client integration does NOT expose enough information
+to securely obtain a per-user API token, STOP and explain exactly what is missing
+and what supported Laserfiche server-side configuration is required.
+
+Do not fake it.

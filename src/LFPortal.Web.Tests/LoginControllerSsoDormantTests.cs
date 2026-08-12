@@ -4,11 +4,16 @@ using LFPortal.Domain.Common;
 using LFPortal.Infrastructure.OAuth;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Controllers;
+using LFPortal.Web.Authentication;
 using LFPortal.Web.Middleware;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -77,6 +82,16 @@ public sealed class LoginControllerSsoDormantTests
 
         var httpCtx  = new DefaultHttpContext();
         var session  = new TestSession();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDataProtection();
+        services.AddControllersWithViews();
+        services.AddAuthentication(DashboardAuthenticationDefaults.Scheme)
+            .AddCookie(DashboardAuthenticationDefaults.Scheme);
+        httpCtx.RequestServices = services.BuildServiceProvider();
+        httpCtx.Request.Scheme = "https";
+        httpCtx.Request.Host = new HostString("dashboard.test");
 
         // Simulate a direct-browser session by leaving the source key absent.
         // For Desktop/Web Client sessions set source to the value the middleware writes.
@@ -305,6 +320,35 @@ public sealed class LoginControllerSsoDormantTests
         Assert.Equal("TestRepo", authRepo);
     }
 
+    [Fact]
+    public async Task Login_Post_ValidCredentials_WritesAuthenticationCookie()
+    {
+        var (ctrl, authSpy, _) = Build();
+        authSpy.TryAuthenticateResult = true;
+
+        await ctrl.Index(
+            new LoginInputModel { Username = "alice", Password = "secret" }, default);
+
+        Assert.Contains("Dashboard.Cookie", ctrl.HttpContext.Response.Headers.SetCookie.ToString());
+    }
+
+    [Fact]
+    public async Task Sso_Callback_Success_WritesAuthenticationCookieAndSessionMarker()
+    {
+        var (ctrl, _, store) = Build(SsoOptions(), directBrowser: false);
+
+        await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default);
+        var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
+        Assert.False(string.IsNullOrWhiteSpace(state));
+
+        var result = await ctrl.Callback(code: "valid-code", state: state, cancellationToken: default);
+
+        var redirect = Assert.IsType<LocalRedirectResult>(result);
+        Assert.Equal("/Dashboard", redirect.Url);
+        Assert.Equal("TestRepo", ctrl.HttpContext.Session.GetString("AuthenticatedRepositoryId"));
+        Assert.Contains("Dashboard.Cookie", ctrl.HttpContext.Response.Headers.SetCookie.ToString());
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 6. Repository selection works (direct browser vs. client launch)
     // ─────────────────────────────────────────────────────────────────────────
@@ -463,10 +507,21 @@ public sealed class LoginControllerSsoDormantTests
 
     private sealed class SpyOAuthStateStore : IOAuthStateStore
     {
+        private readonly Dictionary<string, OAuthStateEntry> _entries = new();
         public int StoreCallCount { get; private set; }
 
-        public void Store(string state, OAuthStateEntry entry) => StoreCallCount++;
-        public OAuthStateEntry? TryConsume(string state) => null;
+        public void Store(string state, OAuthStateEntry entry)
+        {
+            StoreCallCount++;
+            _entries[state] = entry;
+        }
+
+        public OAuthStateEntry? TryConsume(string state)
+        {
+            if (!_entries.Remove(state, out var entry))
+                return null;
+            return entry.ExpiresAt > DateTimeOffset.UtcNow ? entry : null;
+        }
     }
 
     private sealed class StubRepositoryContext : IRepositoryContext
