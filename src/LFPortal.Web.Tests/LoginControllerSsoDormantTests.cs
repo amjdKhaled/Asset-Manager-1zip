@@ -448,6 +448,39 @@ public sealed class LoginControllerSsoDormantTests
             authentication.Principal?.FindFirst(ClaimTypes.AuthenticationMethod)?.Value);
     }
 
+    [Fact]
+    public async Task Sso_Callback_WhenSessionWasLost_ReturnsSpecificFailureReason()
+    {
+        var (ctrl, auth, _) = Build(SsoOptions(), directBrowser: false);
+
+        var result = await ctrl.Callback(
+            code: "valid-code",
+            state: "state-from-another-session",
+            cancellationToken: default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("session_lost", redirect.RouteValues?["ssoFailure"]);
+        Assert.Equal(0, auth.ExchangeAuthCodeCallCount);
+    }
+
+    [Fact]
+    public async Task Login_Get_SsoFailure_DisplaysSanitizedSpecificReason()
+    {
+        var (ctrl, _, _) = Build(SsoOptions(), directBrowser: false);
+
+        var result = await ctrl.Index(
+            ssoFailed: true,
+            ssoFailure: "token_exchange_failed",
+            cancellationToken: default);
+
+        var view = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<LoginViewModel>(view.Model);
+        Assert.True(model.SsoFailed);
+        Assert.Equal(
+            "Repository API rejected the authorization-code exchange.",
+            model.SsoFailureReason);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 6. Repository selection works (direct browser vs. client launch)
     // ─────────────────────────────────────────────────────────────────────────

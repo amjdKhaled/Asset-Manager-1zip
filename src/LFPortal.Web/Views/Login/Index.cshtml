@@ -189,8 +189,9 @@
                 <div class="login-error" role="alert" style="background:#fff3cd;border-color:#ffc107;color:#856404;">
                     <span class="login-error__icon">&#9888;&#65039;</span>
                     <span>
-                        Single sign-on was unsuccessful. Sign in with your Laserfiche
-                        username and password below, or contact your administrator.
+                        Single sign-on was unsuccessful: @(Model.SsoFailureReason ?? "Unknown callback failure")
+                        Start authentication from the Dashboard or Laserfiche Web Client;
+                        do not open the Repository API authorize URL manually.
                     </span>
                 </div>
             }
