@@ -1,5 +1,7 @@
 using LFPortal.Infrastructure.Options;
+using LFPortal.Web.Authentication;
 using LFPortal.Web.Middleware;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -51,6 +53,18 @@ public sealed class SessionAuthGuardMiddlewareTests
         if (activeRepoId     != null) session.SetString("ActiveRepositoryId",       activeRepoId);
         if (authenticatedRepoId != null) session.SetString("AuthenticatedRepositoryId", authenticatedRepoId);
         ctx.Session = session;
+
+        if (authenticatedRepoId != null)
+        {
+            var identity = new ClaimsIdentity(
+                new[]
+                {
+                    new Claim(ClaimTypes.Name, "test-user"),
+                    new Claim(DashboardAuthenticationDefaults.RepositoryClaimType, authenticatedRepoId),
+                },
+                DashboardAuthenticationDefaults.Scheme);
+            ctx.User = new ClaimsPrincipal(identity);
+        }
         return ctx;
     }
 
@@ -150,6 +164,22 @@ public sealed class SessionAuthGuardMiddlewareTests
         await mw.InvokeAsync(ctx);
 
         Assert.True(nextCalled);
+    }
+
+    [Fact]
+    public async Task Invoke_DesktopClient_SessionMarkerWithoutCookie_RedirectsToLogin()
+    {
+        bool nextCalled = false;
+        var mw = MakeMiddleware(next: _ => { nextCalled = true; return Task.CompletedTask; });
+        var ctx = MakeContext(
+            source: "Laserfiche Desktop Client",
+            activeRepoId: "LFNewRepoWF");
+        ctx.Session.SetString("AuthenticatedRepositoryId", "LFNewRepoWF");
+
+        await mw.InvokeAsync(ctx);
+
+        Assert.False(nextCalled);
+        Assert.Equal("/Login", ctx.Response.Headers.Location);
     }
 
     // ── Direct browser (no source) ────────────────────────────────────────────

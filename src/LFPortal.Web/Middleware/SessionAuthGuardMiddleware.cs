@@ -1,4 +1,5 @@
 using LFPortal.Infrastructure.Options;
+using LFPortal.Web.Authentication;
 using Microsoft.Extensions.Options;
 
 namespace LFPortal.Web.Middleware;
@@ -108,23 +109,33 @@ public sealed class SessionAuthGuardMiddleware
             return;
         }
 
-        // Check whether the session is authenticated for the currently active repository.
+        // Require the authenticated cookie identity and bind it to the active
+        // repository. The session key is retained as token/session state, but is
+        // not by itself proof of an authenticated browser on subsequent requests.
         var activeRepoId        = context.Session.GetString(SessionKeyActiveRepoId);
         var authenticatedRepoId = context.Session.GetString(SessionKeyAuthenticatedRepoId);
+        var claimedRepoId       = context.User.FindFirst(
+            DashboardAuthenticationDefaults.RepositoryClaimType)?.Value;
 
         bool isAuthenticated =
+            context.User.Identity?.IsAuthenticated == true &&
             !string.IsNullOrWhiteSpace(authenticatedRepoId) &&
             !string.IsNullOrWhiteSpace(activeRepoId) &&
-            string.Equals(authenticatedRepoId, activeRepoId, StringComparison.OrdinalIgnoreCase);
+            !string.IsNullOrWhiteSpace(claimedRepoId) &&
+            string.Equals(authenticatedRepoId, activeRepoId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(claimedRepoId, activeRepoId, StringComparison.OrdinalIgnoreCase);
 
         if (!isAuthenticated)
         {
             _logger.LogInformation(
                 "{Source} session not authenticated for repository {ActiveRepo} " +
-                "(authenticated: {AuthRepo}). Redirecting to /Login.",
+                "(authenticated: {AuthRepo}, cookie authenticated: {CookieAuthenticated}, " +
+                "claimed repository: {ClaimedRepo}). Redirecting to /Login.",
                 source,
                 activeRepoId ?? "(none)",
-                authenticatedRepoId ?? "(none)");
+                authenticatedRepoId ?? "(none)",
+                context.User.Identity?.IsAuthenticated == true,
+                claimedRepoId ?? "(none)");
 
             context.Response.Redirect("/Login");
             return;
