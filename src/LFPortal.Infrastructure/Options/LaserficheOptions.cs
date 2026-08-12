@@ -142,4 +142,21 @@ public sealed class LaserficheOptions
     /// Nested under <c>Laserfiche:Sso</c> in <c>appsettings.json</c>.
     /// </summary>
     public LaserficheOAuthOptions Sso { get; set; } = new();
+
+    /// <summary>
+    /// Repository API endpoint that initiates the V2 authorization-code flow.
+    /// The API Server delegates to LFDS/WebSTS; browser clients must not call
+    /// the LFDS STS application directly.
+    /// </summary>
+    public string SsoAuthorizationEndpoint
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(ServerUrl))
+                return string.Empty;
+
+            var apiBasePath = "/" + ApiBasePath.Trim('/');
+            return $"{ServerUrl.TrimEnd('/')}{apiBasePath}/v2/Authorize";
+        }
+    }
 }

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Claims;
 using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Common;
@@ -307,6 +308,38 @@ public sealed class LaserficheAuthServiceSsoTests
         Assert.Equal(0, callCount); // counting handler never hit
     }
 
+    [Fact]
+    public async Task GetToken_LfdsPrincipalWithCacheMiss_NeverUsesFallbackCredentials()
+    {
+        var opts = new LaserficheOptions
+        {
+            ServerUrl = "http://lf-server.test",
+            ApiBasePath = "/LFRepositoryAPI",
+        };
+        var adapter = new LaserficheApiAdapter(new StaticOptionsMonitor<LaserficheOptions>(opts));
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.AuthenticationMethod, "LFDS")],
+                "Dashboard.Cookie")),
+        };
+        var accessor = new HttpContextAccessor { HttpContext = context };
+        var credentials = new ThrowingCredentialProvider();
+
+        var svc = new LaserficheAuthService(
+            new TestHttpClientFactory(SuccessHandler("must-not-be-requested")),
+            credentials,
+            adapter,
+            new MemoryCache(new MemoryCacheOptions()),
+            new OptionsWrapper<LaserficheOptions>(opts),
+            accessor,
+            NullLogger<LaserficheAuthService>.Instance);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => svc.GetTokenAsync(MakeRepo()));
+        Assert.Equal(0, credentials.CallCount);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Secrets must not appear in logs
     // ─────────────────────────────────────────────────────────────────────────
@@ -460,6 +493,25 @@ public sealed class LaserficheAuthServiceSsoTests
             => Task.FromResult(new LaserficheCredential(_u, _p));
         public Task StoreCredentialsAsync(string key, string u, string p, CancellationToken ct = default)
             => Task.CompletedTask;
+    }
+
+    private sealed class ThrowingCredentialProvider : ICredentialProvider
+    {
+        public int CallCount { get; private set; }
+
+        public Task<LaserficheCredential> GetCredentialsAsync(
+            string key,
+            CancellationToken ct = default)
+        {
+            CallCount++;
+            throw new InvalidOperationException("Fallback credentials must not be read.");
+        }
+
+        public Task StoreCredentialsAsync(
+            string key,
+            string username,
+            string password,
+            CancellationToken ct = default) => Task.CompletedTask;
     }
 }
 
