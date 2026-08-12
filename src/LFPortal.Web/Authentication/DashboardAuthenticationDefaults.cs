@@ -8,4 +8,10 @@ public static class DashboardAuthenticationDefaults
 
     /// <summary>Claim that binds an authenticated identity to its Laserfiche repository.</summary>
     public const string RepositoryClaimType = "lf:repository";
+
+    /// <summary>Claim value used for identities established by the LFDS code flow.</summary>
+    public const string LfdsAuthenticationMethod = "LFDS";
+
+    /// <summary>Claim value used for identities established by the password flow.</summary>
+    public const string PasswordAuthenticationMethod = "Password";
 }

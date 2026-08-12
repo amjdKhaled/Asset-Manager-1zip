@@ -1,4 +1,5 @@
 using LFPortal.Application.DTOs;
+using System.Security.Claims;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Common;
 using LFPortal.Infrastructure.OAuth;
@@ -88,7 +89,10 @@ public sealed class LoginControllerSsoDormantTests
         services.AddDataProtection();
         services.AddControllersWithViews();
         services.AddAuthentication(DashboardAuthenticationDefaults.Scheme)
-            .AddCookie(DashboardAuthenticationDefaults.Scheme);
+            .AddCookie(DashboardAuthenticationDefaults.Scheme, options =>
+            {
+                options.Cookie.Name = ".Dashboard.Authentication";
+            });
         httpCtx.RequestServices = services.BuildServiceProvider();
         httpCtx.Request.Scheme = "https";
         httpCtx.Request.Host = new HostString("dashboard.test");
@@ -329,7 +333,9 @@ public sealed class LoginControllerSsoDormantTests
         await ctrl.Index(
             new LoginInputModel { Username = "alice", Password = "secret" }, default);
 
-        Assert.Contains("Dashboard.Cookie", ctrl.HttpContext.Response.Headers.SetCookie.ToString());
+        Assert.Contains(
+            ".Dashboard.Authentication=",
+            ctrl.HttpContext.Response.Headers.SetCookie.ToString());
     }
 
     [Fact]
@@ -345,8 +351,46 @@ public sealed class LoginControllerSsoDormantTests
 
         var redirect = Assert.IsType<LocalRedirectResult>(result);
         Assert.Equal("/Dashboard", redirect.Url);
+        Assert.Equal("TestRepo", ctrl.HttpContext.Session.GetString("ActiveRepositoryId"));
         Assert.Equal("TestRepo", ctrl.HttpContext.Session.GetString("AuthenticatedRepositoryId"));
-        Assert.Contains("Dashboard.Cookie", ctrl.HttpContext.Response.Headers.SetCookie.ToString());
+        Assert.Contains(
+            ".Dashboard.Authentication=",
+            ctrl.HttpContext.Response.Headers.SetCookie.ToString());
+    }
+
+    [Fact]
+    public async Task Sso_Callback_CookieAuthenticatesPrincipalOnNextRequest()
+    {
+        var (ctrl, _, _) = Build(SsoOptions(), directBrowser: false);
+        await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default);
+        var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
+
+        await ctrl.Callback(code: "valid-code", state: state, cancellationToken: default);
+
+        var setCookie = ctrl.HttpContext.Response.Headers.SetCookie.ToString();
+        var cookiePair = setCookie.Split(';', 2)[0];
+        using var nextScope = ctrl.HttpContext.RequestServices.CreateScope();
+        var nextRequest = new DefaultHttpContext
+        {
+            RequestServices = nextScope.ServiceProvider,
+        };
+        nextRequest.Request.Scheme = "https";
+        nextRequest.Request.Host = new HostString("dashboard.test");
+        nextRequest.Request.Headers.Cookie = cookiePair;
+
+        var authentication = await nextRequest.AuthenticateAsync(
+            DashboardAuthenticationDefaults.Scheme);
+
+        Assert.True(authentication.Succeeded,
+            authentication.Failure?.ToString() ?? "No authentication failure was reported.");
+        Assert.True(authentication.Principal?.Identity?.IsAuthenticated);
+        Assert.Equal(
+            "TestRepo",
+            authentication.Principal?.FindFirst(
+                DashboardAuthenticationDefaults.RepositoryClaimType)?.Value);
+        Assert.Equal(
+            DashboardAuthenticationDefaults.LfdsAuthenticationMethod,
+            authentication.Principal?.FindFirst(ClaimTypes.AuthenticationMethod)?.Value);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -427,6 +471,18 @@ public sealed class LoginControllerSsoDormantTests
         await ctrl.SignOut(default);
 
         Assert.Null(session.GetString("OAuth_PendingState"));
+    }
+
+    [Fact]
+    public async Task SignOut_ExpiresAuthenticationCookie()
+    {
+        var (ctrl, _, _) = Build();
+
+        await ctrl.SignOut(default);
+
+        var setCookie = ctrl.HttpContext.Response.Headers.SetCookie.ToString();
+        Assert.Contains(".Dashboard.Authentication=", setCookie);
+        Assert.Contains("expires=Thu, 01 Jan 1970", setCookie, StringComparison.OrdinalIgnoreCase);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -200,7 +200,10 @@ public sealed class LoginController : Controller
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
             repoId);
 
-        await EstablishDashboardIdentityAsync(input.Username, repoId);
+        await EstablishDashboardIdentityAsync(
+            input.Username,
+            repoId,
+            DashboardAuthenticationDefaults.PasswordAuthenticationMethod);
 
         _logger.LogInformation(
             "Login: session authenticated for repository {RepoId}.", repoId);
@@ -380,12 +383,16 @@ public sealed class LoginController : Controller
 
         // ── Mark session as authenticated ─────────────────────────────────────
         HttpContext.Session.SetString(
+            RepositorySessionMiddleware.SessionKeyRepositoryId,
+            repo.RepositoryId);
+        HttpContext.Session.SetString(
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
             repo.RepositoryId);
 
         await EstablishDashboardIdentityAsync(
             identityName: null,
-            repositoryId: repo.RepositoryId);
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
 
         _logger.LogInformation(
             "[SSO] Session authenticated via LFDS for repository {Repo}.",
@@ -458,12 +465,15 @@ public sealed class LoginController : Controller
     /// Persists the Dashboard identity established by a successful Laserfiche
     /// password or LFDS authorization-code exchange.
     /// </summary>
-    private Task EstablishDashboardIdentityAsync(string? identityName, string repositoryId)
+    private Task EstablishDashboardIdentityAsync(
+        string? identityName,
+        string repositoryId,
+        string authenticationMethod)
     {
         var claims = new List<Claim>
         {
             new Claim(DashboardAuthenticationDefaults.RepositoryClaimType, repositoryId),
-            new Claim(ClaimTypes.AuthenticationMethod, "Laserfiche"),
+            new Claim(ClaimTypes.AuthenticationMethod, authenticationMethod),
         };
 
         // The password flow knows the submitted username. The LFDS token response
