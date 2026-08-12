@@ -1,9 +1,11 @@
 using LFPortal.Domain.Version;
+using LFPortal.Web.Authentication;
 using LFPortal.Infrastructure.Configuration;
 using LFPortal.Infrastructure.Extensions;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Middleware;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Serilog;
 
 // ── Bootstrap logger — captures startup errors before full logging is configured ──
@@ -91,6 +93,30 @@ try
     builder.Services.AddControllersWithViews()
                     .AddViewLocalization();
 
+    // ── Dashboard browser authentication ─────────────────────────────────────
+    // LFDS authenticates the user and issues the Repository API token; this
+    // cookie persists the resulting Dashboard identity across the callback
+    // redirect and subsequent page refreshes.
+    builder.Services
+        .AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = DashboardAuthenticationDefaults.Scheme;
+            options.DefaultChallengeScheme    = DashboardAuthenticationDefaults.Scheme;
+            options.DefaultSignInScheme       = DashboardAuthenticationDefaults.Scheme;
+        })
+        .AddCookie(DashboardAuthenticationDefaults.Scheme, options =>
+        {
+            options.Cookie.Name       = ".Dashboard.Authentication";
+            options.Cookie.HttpOnly   = true;
+            options.Cookie.IsEssential = true;
+            options.Cookie.SameSite   = SameSiteMode.Lax;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            options.LoginPath         = "/Login";
+            options.ExpireTimeSpan    = TimeSpan.FromHours(8);
+            options.SlidingExpiration = true;
+        });
+    builder.Services.AddAuthorization();
+
     // ── Laserfiche Infrastructure layer ───────────────────────────────────────
     builder.Services.AddLaserficheInfrastructure(builder.Configuration);
 
@@ -105,6 +131,8 @@ try
         opts.Cookie.IsEssential = true;
         opts.IdleTimeout      = TimeSpan.FromHours(8);
         opts.Cookie.Name      = ".Dashboard.Session";
+        opts.Cookie.SameSite  = SameSiteMode.Lax;
+        opts.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
     });
 
     // ── Build ─────────────────────────────────────────────────────────────────
@@ -136,7 +164,7 @@ try
                 "AuthEndpoint={AuthEndpoint} RedirectUri={RedirectUri}",
                 opts.Sso.LfdsBaseUrl,
                 opts.Sso.ClientId,
-                opts.Sso.AuthorizationEndpoint,
+                opts.SsoAuthorizationEndpoint,
                 string.IsNullOrEmpty(opts.Sso.RedirectUri)
                     ? "(computed from request at runtime)"
                     : opts.Sso.RedirectUri);
@@ -182,6 +210,11 @@ try
 
     // ── Session — must be after UseRouting, before controllers ───────────────
     app.UseSession();
+
+    // Authentication must run after routing/session and before the custom guard
+    // and MVC endpoints so HttpContext.User is restored on every request.
+    app.UseAuthentication();
+    app.UseAuthorization();
 
     // ── Repository session middleware — captures ?repository= from Desktop Client ──
     app.UseMiddleware<RepositorySessionMiddleware>();

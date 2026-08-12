@@ -315,7 +315,7 @@ public sealed class SettingsController : Controller
             SsoLfdsBaseUrl                    = opts.Sso.LfdsBaseUrl,
             SsoClientId                       = opts.Sso.ClientId,
             SsoCallbackUrl                    = BuildSsoCallbackUrl(opts),
-            SsoAuthorizationEndpoint          = opts.Sso.AuthorizationEndpoint,
+            SsoAuthorizationEndpoint          = opts.SsoAuthorizationEndpoint,
         };
     }
 
@@ -504,7 +504,7 @@ public sealed class SettingsViewModel
     /// <summary>Computed OAuth2 callback URL for Laserfiche-side registration.</summary>
     public string SsoCallbackUrl { get; init; } = string.Empty;
 
-    /// <summary>LFDS authorization endpoint (derived from LfdsBaseUrl).</summary>
+    /// <summary>Repository API authorization endpoint derived from ServerUrl and ApiBasePath.</summary>
     public string SsoAuthorizationEndpoint { get; init; } = string.Empty;
 
     /// <summary>True when SSO is enabled (LfdsBaseUrl is set).</summary>

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using LFPortal.Application.Interfaces;
@@ -6,6 +7,8 @@ using LFPortal.Domain.Exceptions;
 using LFPortal.Infrastructure.OAuth;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Middleware;
+using LFPortal.Web.Authentication;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -197,6 +200,11 @@ public sealed class LoginController : Controller
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
             repoId);
 
+        await EstablishDashboardIdentityAsync(
+            input.Username,
+            repoId,
+            DashboardAuthenticationDefaults.PasswordAuthenticationMethod);
+
         _logger.LogInformation(
             "Login: session authenticated for repository {RepoId}.", repoId);
 
@@ -211,7 +219,8 @@ public sealed class LoginController : Controller
     /// Initiates the LFDS OAuth2 Authorization Code + PKCE flow.
     /// Generates a cryptographically random <c>state</c> and PKCE pair, stores them
     /// server-side, writes the state to the session (CSRF binding), then redirects the
-    /// browser to the LFDS authorization endpoint.
+    /// browser to the Repository API authorization endpoint. The Repository API
+    /// performs the LFDS/WebSTS interaction.
     /// </summary>
     [HttpGet("/Login/StartSso")]
     public async Task<IActionResult> StartSso(
@@ -257,15 +266,15 @@ public sealed class LoginController : Controller
         // Bind state to this session so the callback can validate CSRF.
         HttpContext.Session.SetString(SessionKeyOAuthPendingState, state);
 
-        _logger.LogInformation(
-            "[SSO] Starting authorization flow: Repo={Repo} RedirectUri={RedirectUri} " +
-            "AuthEndpoint={AuthEndpoint}",
-            repo.RepositoryId,
-            redirectUri,
-            opts.Sso.AuthorizationEndpoint);
-
         // ── Build authorization URL ───────────────────────────────────────────
-        var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri, repo.RepositoryId);
+        var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
+
+        _logger.LogInformation(
+            "[SSO] Redirecting to Repository API authorize URL: {AuthorizeUrl} " +
+            "(Repo={Repo}, RedirectUri={RedirectUri})",
+            authUrl,
+            repo.RepositoryId,
+            redirectUri);
 
         return Redirect(authUrl);
     }
@@ -375,8 +384,16 @@ public sealed class LoginController : Controller
 
         // ── Mark session as authenticated ─────────────────────────────────────
         HttpContext.Session.SetString(
+            RepositorySessionMiddleware.SessionKeyRepositoryId,
+            repo.RepositoryId);
+        HttpContext.Session.SetString(
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
             repo.RepositoryId);
+
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
 
         _logger.LogInformation(
             "[SSO] Session authenticated via LFDS for repository {Repo}.",
@@ -430,6 +447,8 @@ public sealed class LoginController : Controller
     {
         await _authService.InvalidateCurrentSessionTokensAsync();
 
+        await HttpContext.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
+
         HttpContext.Session.Remove(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId);
         HttpContext.Session.Remove(SessionKeyOAuthPendingState);
         await _sessionCredentialStore.ClearAsync(cancellationToken);
@@ -442,6 +461,40 @@ public sealed class LoginController : Controller
     // ------------------------------------------------------------------ //
     // Private helpers                                                      //
     // ------------------------------------------------------------------ //
+
+    /// <summary>
+    /// Persists the Dashboard identity established by a successful Laserfiche
+    /// password or LFDS authorization-code exchange.
+    /// </summary>
+    private Task EstablishDashboardIdentityAsync(
+        string? identityName,
+        string repositoryId,
+        string authenticationMethod)
+    {
+        var claims = new List<Claim>
+        {
+            new Claim(DashboardAuthenticationDefaults.RepositoryClaimType, repositoryId),
+            new Claim(ClaimTypes.AuthenticationMethod, authenticationMethod),
+        };
+
+        // The password flow knows the submitted username. The LFDS token response
+        // currently does not expose a verified username claim, so do not invent one.
+        if (!string.IsNullOrWhiteSpace(identityName))
+            claims.Add(new Claim(ClaimTypes.Name, identityName));
+
+        var identity  = new ClaimsIdentity(claims, DashboardAuthenticationDefaults.Scheme);
+        var principal = new ClaimsPrincipal(identity);
+
+        return HttpContext.SignInAsync(
+            DashboardAuthenticationDefaults.Scheme,
+            principal,
+            new AuthenticationProperties
+            {
+                IsPersistent = false,
+                AllowRefresh = true,
+                ExpiresUtc   = DateTimeOffset.UtcNow.AddHours(8),
+            });
+    }
 
     /// <summary>
     /// Repository selection is allowed only for direct browser sessions.
@@ -475,28 +528,21 @@ public sealed class LoginController : Controller
     private bool IsLocalUrl(string? url) =>
         !string.IsNullOrEmpty(url) && Url.IsLocalUrl(url);
 
-    /// <summary>Builds the full LFDS authorization URL with all required parameters.</summary>
+    /// <summary>Builds the Repository API authorization URL with all required PKCE parameters.</summary>
     private static string BuildAuthorizationUrl(
         LaserficheOptions opts,
         string            state,
         string            codeChallenge,
-        string            redirectUri,
-        string            repositoryId)
+        string            redirectUri)
     {
-        var endpoint = opts.Sso.AuthorizationEndpoint;
+        var endpoint = opts.SsoAuthorizationEndpoint;
 
         var query = new StringBuilder();
         query.Append("response_type=code");
-        query.Append("&client_id=");        query.Append(Uri.EscapeDataString(opts.Sso.ClientId));
         query.Append("&redirect_uri=");     query.Append(Uri.EscapeDataString(redirectUri));
         query.Append("&state=");            query.Append(Uri.EscapeDataString(state));
         query.Append("&code_challenge=");   query.Append(Uri.EscapeDataString(codeChallenge));
         query.Append("&code_challenge_method=S256");
-        if (!string.IsNullOrEmpty(repositoryId))
-        {
-            query.Append("&repository=");
-            query.Append(Uri.EscapeDataString(repositoryId));
-        }
 
         return $"{endpoint}?{query}";
     }
