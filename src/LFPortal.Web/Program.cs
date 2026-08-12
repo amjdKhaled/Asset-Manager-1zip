@@ -164,7 +164,7 @@ try
                 "AuthEndpoint={AuthEndpoint} RedirectUri={RedirectUri}",
                 opts.Sso.LfdsBaseUrl,
                 opts.Sso.ClientId,
-                opts.Sso.AuthorizationEndpoint,
+                opts.SsoAuthorizationEndpoint,
                 string.IsNullOrEmpty(opts.Sso.RedirectUri)
                     ? "(computed from request at runtime)"
                     : opts.Sso.RedirectUri);

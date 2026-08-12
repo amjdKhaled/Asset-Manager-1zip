@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -200,6 +201,19 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 "Token cache miss for repository {Key}. Acquiring new token.",
                 repository.Key);
 
+            // An LFDS-authenticated browser must never cross over to the configured
+            // service account. A cache miss means its user token is no longer available;
+            // fail authentication so the web flow can acquire a new authorization code.
+            if (IsLfdsUserSession())
+            {
+                _logger.LogWarning(
+                    "[LF AUTH][SSO] User-session token is unavailable for repository {RepoId}; " +
+                    "configured fallback credentials will not be used.",
+                    repository.RepositoryId);
+                throw new UnauthorizedAccessException(
+                    "The LFDS user session token is no longer available. Reauthentication is required.");
+            }
+
             var credentials = await _credentialProvider
                 .GetCredentialsAsync(repository.Key, cancellationToken)
                 .ConfigureAwait(false);
@@ -230,6 +244,16 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         {
             sem.Release();
         }
+    }
+
+    private bool IsLfdsUserSession()
+    {
+        var principal = _httpContextAccessor.HttpContext?.User;
+        return principal?.Identity?.IsAuthenticated == true &&
+            string.Equals(
+                principal.FindFirst(ClaimTypes.AuthenticationMethod)?.Value,
+                "LFDS",
+                StringComparison.Ordinal);
     }
 
     /// <inheritdoc />

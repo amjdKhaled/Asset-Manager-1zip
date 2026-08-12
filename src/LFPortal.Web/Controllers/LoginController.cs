@@ -219,7 +219,8 @@ public sealed class LoginController : Controller
     /// Initiates the LFDS OAuth2 Authorization Code + PKCE flow.
     /// Generates a cryptographically random <c>state</c> and PKCE pair, stores them
     /// server-side, writes the state to the session (CSRF binding), then redirects the
-    /// browser to the LFDS authorization endpoint.
+    /// browser to the Repository API authorization endpoint. The Repository API
+    /// performs the LFDS/WebSTS interaction.
     /// </summary>
     [HttpGet("/Login/StartSso")]
     public async Task<IActionResult> StartSso(
@@ -270,10 +271,10 @@ public sealed class LoginController : Controller
             "AuthEndpoint={AuthEndpoint}",
             repo.RepositoryId,
             redirectUri,
-            opts.Sso.AuthorizationEndpoint);
+            opts.SsoAuthorizationEndpoint);
 
         // ── Build authorization URL ───────────────────────────────────────────
-        var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri, repo.RepositoryId);
+        var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
 
         return Redirect(authUrl);
     }
@@ -527,28 +528,21 @@ public sealed class LoginController : Controller
     private bool IsLocalUrl(string? url) =>
         !string.IsNullOrEmpty(url) && Url.IsLocalUrl(url);
 
-    /// <summary>Builds the full LFDS authorization URL with all required parameters.</summary>
+    /// <summary>Builds the Repository API authorization URL with all required PKCE parameters.</summary>
     private static string BuildAuthorizationUrl(
         LaserficheOptions opts,
         string            state,
         string            codeChallenge,
-        string            redirectUri,
-        string            repositoryId)
+        string            redirectUri)
     {
-        var endpoint = opts.Sso.AuthorizationEndpoint;
+        var endpoint = opts.SsoAuthorizationEndpoint;
 
         var query = new StringBuilder();
         query.Append("response_type=code");
-        query.Append("&client_id=");        query.Append(Uri.EscapeDataString(opts.Sso.ClientId));
         query.Append("&redirect_uri=");     query.Append(Uri.EscapeDataString(redirectUri));
         query.Append("&state=");            query.Append(Uri.EscapeDataString(state));
         query.Append("&code_challenge=");   query.Append(Uri.EscapeDataString(codeChallenge));
         query.Append("&code_challenge_method=S256");
-        if (!string.IsNullOrEmpty(repositoryId))
-        {
-            query.Append("&repository=");
-            query.Append(Uri.EscapeDataString(repositoryId));
-        }
 
         return $"{endpoint}?{query}";
     }

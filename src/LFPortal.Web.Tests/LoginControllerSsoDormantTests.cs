@@ -148,6 +148,18 @@ public sealed class LoginControllerSsoDormantTests
         Assert.True(opts.IsConfigured);
     }
 
+    [Fact]
+    public void SsoAuthorizationEndpoint_IsAlwaysRepositoryApiV2Authorize()
+    {
+        var opts = SsoOptions();
+        opts.ServerUrl = "https://localhost/";
+        opts.ApiBasePath = "LFRepositoryAPI/";
+
+        Assert.Equal(
+            "https://localhost/LFRepositoryAPI/v2/Authorize",
+            opts.SsoAuthorizationEndpoint);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 2. GET /Login renders the password form — no LFDS redirect
     // ─────────────────────────────────────────────────────────────────────────
@@ -247,6 +259,29 @@ public sealed class LoginControllerSsoDormantTests
 
         // Must never be an external Redirect (which would hit LFDS).
         Assert.IsNotType<RedirectResult>(result);
+    }
+
+    [Fact]
+    public async Task StartSso_WebClient_UsesRepositoryApiAuthorizeAndPreservesReturnUrl()
+    {
+        var options = SsoOptions();
+        options.Sso.RedirectUri = "https://dashboard.test/Login/Callback";
+        var (ctrl, _, store) = Build(options, directBrowser: false);
+
+        var result = await ctrl.StartSso(
+            returnUrl: "/Dashboard?repository=TestRepo&source=webclient",
+            cancellationToken: default);
+
+        var redirect = Assert.IsType<RedirectResult>(result);
+        var uri = new Uri(redirect.Url!);
+        Assert.Equal("http://lf-server.test/LFRepositoryAPI/v2/Authorize", uri.GetLeftPart(UriPartial.Path));
+        Assert.DoesNotContain("LFDS", redirect.Url, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("response_type=code", uri.Query);
+        Assert.Contains("redirect_uri=https%3A%2F%2Fdashboard.test%2FLogin%2FCallback", uri.Query);
+        Assert.Contains("state=", uri.Query);
+        Assert.Contains("code_challenge=", uri.Query);
+        Assert.Contains("code_challenge_method=S256", uri.Query);
+        Assert.Equal("/Dashboard?repository=TestRepo&source=webclient", store.LastStoredEntry?.ReturnUrl);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -565,6 +600,14 @@ public sealed class LoginControllerSsoDormantTests
     {
         private readonly Dictionary<string, OAuthStateEntry> _entries = new();
         public int StoreCallCount { get; private set; }
+        public OAuthStateEntry? LastStoredEntry { get; private set; }
+
+        public void Store(string state, OAuthStateEntry entry)
+        {
+            StoreCallCount++;
+            LastStoredEntry = entry;
+            _entries[state] = entry;
+        }
 
         public void Store(string state, OAuthStateEntry entry)
         {
