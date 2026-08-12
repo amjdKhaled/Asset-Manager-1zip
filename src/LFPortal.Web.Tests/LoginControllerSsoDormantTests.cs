@@ -1,14 +1,20 @@
 using LFPortal.Application.DTOs;
+using System.Security.Claims;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Common;
 using LFPortal.Infrastructure.OAuth;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Controllers;
+using LFPortal.Web.Authentication;
 using LFPortal.Web.Middleware;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -78,6 +84,19 @@ public sealed class LoginControllerSsoDormantTests
         var httpCtx  = new DefaultHttpContext();
         var session  = new TestSession();
 
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDataProtection();
+        services.AddControllersWithViews();
+        services.AddAuthentication(DashboardAuthenticationDefaults.Scheme)
+            .AddCookie(DashboardAuthenticationDefaults.Scheme, options =>
+            {
+                options.Cookie.Name = ".Dashboard.Authentication";
+            });
+        httpCtx.RequestServices = services.BuildServiceProvider();
+        httpCtx.Request.Scheme = "https";
+        httpCtx.Request.Host = new HostString("dashboard.test");
+
         // Simulate a direct-browser session by leaving the source key absent.
         // For Desktop/Web Client sessions set source to the value the middleware writes.
         // "ActiveRepositorySource" is the internal session key in RepositorySessionMiddleware.
@@ -127,6 +146,34 @@ public sealed class LoginControllerSsoDormantTests
     {
         var opts = new LaserficheOAuthOptions { LfdsBaseUrl = "https://lfds.example.com/LFDS" };
         Assert.True(opts.IsConfigured);
+    }
+
+    [Fact]
+    public void SsoAuthorizationEndpoint_IsAlwaysRepositoryApiV2Authorize()
+    {
+        var opts = SsoOptions();
+        opts.ServerUrl = "https://localhost/";
+        opts.ApiBasePath = "LFRepositoryAPI/";
+
+        Assert.Equal(
+            "https://localhost/LFRepositoryAPI/v2/Authorize",
+            opts.SsoAuthorizationEndpoint);
+    }
+
+    [Fact]
+    public void SsoAuthorizationEndpoint_DoesNotDuplicateApiBasePathAlreadyInServerUrl()
+    {
+        var opts = SsoOptions();
+        opts.ServerUrl = "https://localhost/LFRepositoryAPI/";
+        opts.ApiBasePath = "/LFRepositoryAPI";
+
+        Assert.Equal(
+            "https://localhost/LFRepositoryAPI/v2/Authorize",
+            opts.SsoAuthorizationEndpoint);
+        Assert.DoesNotContain(
+            "/LFRepositoryAPI/LFRepositoryAPI",
+            opts.SsoAuthorizationEndpoint,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -230,6 +277,33 @@ public sealed class LoginControllerSsoDormantTests
         Assert.IsNotType<RedirectResult>(result);
     }
 
+    [Fact]
+    public async Task StartSso_WebClient_UsesRepositoryApiAuthorizeAndPreservesReturnUrl()
+    {
+        var options = SsoOptions();
+        options.Sso.RedirectUri = "https://dashboard.test/Login/Callback";
+        var (ctrl, _, store) = Build(options, directBrowser: false);
+
+        var result = await ctrl.StartSso(
+            returnUrl: "/Dashboard?repository=TestRepo&source=webclient",
+            cancellationToken: default);
+
+        var redirect = Assert.IsType<RedirectResult>(result);
+        var uri = new Uri(redirect.Url!);
+        Assert.Equal("http://lf-server.test/LFRepositoryAPI/v2/Authorize", uri.GetLeftPart(UriPartial.Path));
+        Assert.DoesNotContain(
+            "/LFRepositoryAPI/LFRepositoryAPI",
+            redirect.Url,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("LFDS", redirect.Url, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("response_type=code", uri.Query);
+        Assert.Contains("redirect_uri=https%3A%2F%2Fdashboard.test%2FLogin%2FCallback", uri.Query);
+        Assert.Contains("state=", uri.Query);
+        Assert.Contains("code_challenge=", uri.Query);
+        Assert.Contains("code_challenge_method=S256", uri.Query);
+        Assert.Equal("/Dashboard?repository=TestRepo&source=webclient", store.LastStoredEntry?.ReturnUrl);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 4. No V2 SSO token request during the password-grant flow
     // ─────────────────────────────────────────────────────────────────────────
@@ -303,6 +377,108 @@ public sealed class LoginControllerSsoDormantTests
         // "AuthenticatedRepositoryId" is the internal key in SessionAuthGuardMiddleware.
         var authRepo = session.GetString("AuthenticatedRepositoryId");
         Assert.Equal("TestRepo", authRepo);
+    }
+
+    [Fact]
+    public async Task Login_Post_ValidCredentials_WritesAuthenticationCookie()
+    {
+        var (ctrl, authSpy, _) = Build();
+        authSpy.TryAuthenticateResult = true;
+
+        await ctrl.Index(
+            new LoginInputModel { Username = "alice", Password = "secret" }, default);
+
+        Assert.Contains(
+            ".Dashboard.Authentication=",
+            ctrl.HttpContext.Response.Headers.SetCookie.ToString());
+    }
+
+    [Fact]
+    public async Task Sso_Callback_Success_WritesAuthenticationCookieAndSessionMarker()
+    {
+        var (ctrl, _, store) = Build(SsoOptions(), directBrowser: false);
+
+        await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default);
+        var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
+        Assert.False(string.IsNullOrWhiteSpace(state));
+
+        var result = await ctrl.Callback(code: "valid-code", state: state, cancellationToken: default);
+
+        var redirect = Assert.IsType<LocalRedirectResult>(result);
+        Assert.Equal("/Dashboard", redirect.Url);
+        Assert.Equal("TestRepo", ctrl.HttpContext.Session.GetString("ActiveRepositoryId"));
+        Assert.Equal("TestRepo", ctrl.HttpContext.Session.GetString("AuthenticatedRepositoryId"));
+        Assert.Contains(
+            ".Dashboard.Authentication=",
+            ctrl.HttpContext.Response.Headers.SetCookie.ToString());
+    }
+
+    [Fact]
+    public async Task Sso_Callback_CookieAuthenticatesPrincipalOnNextRequest()
+    {
+        var (ctrl, _, _) = Build(SsoOptions(), directBrowser: false);
+        await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default);
+        var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
+
+        await ctrl.Callback(code: "valid-code", state: state, cancellationToken: default);
+
+        var setCookie = ctrl.HttpContext.Response.Headers.SetCookie.ToString();
+        var cookiePair = setCookie.Split(';', 2)[0];
+        using var nextScope = ctrl.HttpContext.RequestServices.CreateScope();
+        var nextRequest = new DefaultHttpContext
+        {
+            RequestServices = nextScope.ServiceProvider,
+        };
+        nextRequest.Request.Scheme = "https";
+        nextRequest.Request.Host = new HostString("dashboard.test");
+        nextRequest.Request.Headers.Cookie = cookiePair;
+
+        var authentication = await nextRequest.AuthenticateAsync(
+            DashboardAuthenticationDefaults.Scheme);
+
+        Assert.True(authentication.Succeeded,
+            authentication.Failure?.ToString() ?? "No authentication failure was reported.");
+        Assert.True(authentication.Principal?.Identity?.IsAuthenticated);
+        Assert.Equal(
+            "TestRepo",
+            authentication.Principal?.FindFirst(
+                DashboardAuthenticationDefaults.RepositoryClaimType)?.Value);
+        Assert.Equal(
+            DashboardAuthenticationDefaults.LfdsAuthenticationMethod,
+            authentication.Principal?.FindFirst(ClaimTypes.AuthenticationMethod)?.Value);
+    }
+
+    [Fact]
+    public async Task Sso_Callback_WhenSessionWasLost_ReturnsSpecificFailureReason()
+    {
+        var (ctrl, auth, _) = Build(SsoOptions(), directBrowser: false);
+
+        var result = await ctrl.Callback(
+            code: "valid-code",
+            state: "state-from-another-session",
+            cancellationToken: default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("session_lost", redirect.RouteValues?["ssoFailure"]);
+        Assert.Equal(0, auth.ExchangeAuthCodeCallCount);
+    }
+
+    [Fact]
+    public async Task Login_Get_SsoFailure_DisplaysSanitizedSpecificReason()
+    {
+        var (ctrl, _, _) = Build(SsoOptions(), directBrowser: false);
+
+        var result = await ctrl.Index(
+            ssoFailed: true,
+            ssoFailure: "token_exchange_failed",
+            cancellationToken: default);
+
+        var view = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<LoginViewModel>(view.Model);
+        Assert.True(model.SsoFailed);
+        Assert.Equal(
+            "Repository API rejected the authorization-code exchange.",
+            model.SsoFailureReason);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -385,6 +561,18 @@ public sealed class LoginControllerSsoDormantTests
         Assert.Null(session.GetString("OAuth_PendingState"));
     }
 
+    [Fact]
+    public async Task SignOut_ExpiresAuthenticationCookie()
+    {
+        var (ctrl, _, _) = Build();
+
+        await ctrl.SignOut(default);
+
+        var setCookie = ctrl.HttpContext.Response.Headers.SetCookie.ToString();
+        Assert.Contains(".Dashboard.Authentication=", setCookie);
+        Assert.Contains("expires=Thu, 01 Jan 1970", setCookie, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 8. Session / repository isolation
     // ─────────────────────────────────────────────────────────────────────────
@@ -463,10 +651,23 @@ public sealed class LoginControllerSsoDormantTests
 
     private sealed class SpyOAuthStateStore : IOAuthStateStore
     {
+        private readonly Dictionary<string, OAuthStateEntry> _entries = new();
         public int StoreCallCount { get; private set; }
+        public OAuthStateEntry? LastStoredEntry { get; private set; }
 
-        public void Store(string state, OAuthStateEntry entry) => StoreCallCount++;
-        public OAuthStateEntry? TryConsume(string state) => null;
+        public void Store(string state, OAuthStateEntry entry)
+        {
+            StoreCallCount++;
+            LastStoredEntry = entry;
+            _entries[state] = entry;
+        }
+
+        public OAuthStateEntry? TryConsume(string state)
+        {
+            if (!_entries.Remove(state, out var entry))
+                return null;
+            return entry.ExpiresAt > DateTimeOffset.UtcNow ? entry : null;
+        }
     }
 
     private sealed class StubRepositoryContext : IRepositoryContext
