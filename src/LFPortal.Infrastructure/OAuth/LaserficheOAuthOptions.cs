@@ -47,11 +47,4 @@ public sealed class LaserficheOAuthOptions
     /// </summary>
     public bool IsConfigured => !string.IsNullOrWhiteSpace(LfdsBaseUrl);
 
-    /// <summary>
-    /// The LFDS authorization endpoint:
-    /// <c>{LfdsBaseUrl}/authorize</c>.
-    /// Empty when SSO is not configured.
-    /// </summary>
-    public string AuthorizationEndpoint =>
-        IsConfigured ? LfdsBaseUrl.TrimEnd('/') + "/authorize" : string.Empty;
 }
