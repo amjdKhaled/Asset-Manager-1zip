@@ -293,7 +293,7 @@ public sealed class LoginController : Controller
 
         var launchSource = HttpContext.Session.GetString(
             RepositorySessionMiddleware.SessionKeySource);
-        _oAuthTransactionCookie.Write(HttpContext, new OAuthTransaction(
+        var cookieWrite = _oAuthTransactionCookie.Write(HttpContext, new OAuthTransaction(
             state, codeVerifier, repo.RepositoryId, returnUrl ?? "/",
             DateTimeOffset.UtcNow, launchSource, redirectUri));
 
@@ -304,18 +304,35 @@ public sealed class LoginController : Controller
         var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
 
         _logger.LogInformation(
-            "[SSO] OAuth correlation written. State={State}; CookieWritten=true; " +
-            "Repository={Repository}; CallbackUrl={CallbackUrl}; ReturnUrl={ReturnUrl}.",
-            StateForLog(state), repo.RepositoryId, redirectUri, returnUrl);
+            "[SSO] OAuth correlation cookie. State={State}; CookieName={CookieName}; " +
+            "CookieWritten={CookieWritten}; SameSite={SameSite}; Secure={Secure}; Path={Path}; " +
+            "ExpiresUtc={ExpiresUtc:o}; Repository={Repository}; CallbackUrl={CallbackUrl}; " +
+            "ReturnUrl={ReturnUrl}.",
+            StateForLog(state),
+            cookieWrite.CookieName,
+            cookieWrite.Written,
+            cookieWrite.SameSite,
+            cookieWrite.Secure,
+            cookieWrite.Path,
+            cookieWrite.ExpiresUtc,
+            repo.RepositoryId,
+            redirectUri,
+            returnUrl);
 
-        // ── Build authorization URL ───────────────────────────────────────────
-       
+        if (!cookieWrite.Written)
+        {
+            _logger.LogError("[SSO] Correlation Set-Cookie header was not emitted; aborting authorization.");
+            return RedirectToSsoDiagnostic("oauth_correlation_cookie_missing");
+        }
 
+        // Merge invariant: declare one authorizeUrl only. Logging and Redirect must
+        // consume this exact value so conflict resolution cannot split the names again.
+        var authorizeUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
 
         _logger.LogInformation(
             "[SSO] Redirecting to Repository API authorize URL: {AuthorizeUrl} " +
             "(Repo={Repo}, RedirectUri={RedirectUri})",
-            authUrl,
+            authorizeUrl,
             repo.RepositoryId,
             redirectUri);
 
@@ -418,16 +435,6 @@ public sealed class LoginController : Controller
             // OAuthStateStore already logged the reason (expired / replay / unknown).
             return RedirectToSsoDiagnostic("oauth_correlation_cookie_missing");
         }
-        if (string.IsNullOrWhiteSpace(entry.RepositoryId))
-            return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
-
-        if (string.IsNullOrWhiteSpace(entry.CodeVerifier))
-        {
-            _logger.LogError("[SSO] Callback rejected: stored PKCE verifier is missing.");
-            return RedirectToSsoDiagnostic("pkce_verifier_missing", cookieResult.Transaction);
-        }
-        if (string.IsNullOrWhiteSpace(entry.RepositoryId))
-            return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
 
         if (string.IsNullOrWhiteSpace(entry.CodeVerifier))
         {
@@ -552,6 +559,20 @@ public sealed class LoginController : Controller
             identityName: null,
             repositoryId: repo.RepositoryId,
             authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+
+        _logger.LogInformation(
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+        _oAuthTransactionCookie.Delete(HttpContext);
 
         _logger.LogInformation(
             "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
