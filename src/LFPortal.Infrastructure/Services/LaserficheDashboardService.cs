@@ -3,6 +3,8 @@ using System.Diagnostics;
 using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Entities;
+using Microsoft.AspNetCore.Http;
+using System.Security.Claims;
 using Microsoft.Extensions.Logging;
 
 namespace LFPortal.Infrastructure.Services;
@@ -30,6 +32,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
     private readonly ISearchAuditLog                 _auditLog;
     private readonly ICredentialProvider             _credentialProvider;
     private readonly IRepositoryContext              _repositoryContext;
+    private readonly IHttpContextAccessor            _httpContextAccessor;
     private readonly ILogger<LaserficheDashboardService> _logger;
 
     public LaserficheDashboardService(
@@ -39,6 +42,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         ISearchAuditLog                 auditLog,
         ICredentialProvider             credentialProvider,
         IRepositoryContext              repositoryContext,
+        IHttpContextAccessor            httpContextAccessor,
         ILogger<LaserficheDashboardService> logger)
     {
         _repositoryService  = repositoryService;
@@ -47,6 +51,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         _auditLog           = auditLog;
         _credentialProvider = credentialProvider;
         _repositoryContext  = repositoryContext;
+        _httpContextAccessor = httpContextAccessor;
         _logger             = logger;
     }
 
@@ -73,18 +78,29 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             }
 
             // ── 2. Connected user ────────────────────────────────────────────
-            string? connectedUser = null;
+            var principal = _httpContextAccessor.HttpContext?.User;
+            var authMethod = principal?.FindFirst(ClaimTypes.AuthenticationMethod)?.Value;
+            var isUserSession = principal?.Identity?.IsAuthenticated == true &&
+                string.Equals(authMethod, "LFDS", StringComparison.Ordinal);
+
+            string? connectedUser = principal?.Identity?.Name;
             string? serverUrl     = null;
             try
             {
                 var repoDesc = await _repositoryContext
                     .GetActiveRepositoryAsync(cancellationToken)
                     .ConfigureAwait(false);
-                var creds    = await _credentialProvider
-                    .GetCredentialsAsync(repoDesc.Key, cancellationToken)
-                    .ConfigureAwait(false);
-                connectedUser = creds.Username;
                 serverUrl     = repoDesc.ServerUrl;
+
+                // An LFDS access token does not currently expose a verified username
+                // here. Never mislabel the configured fallback account as the LFDS user.
+                if (!isUserSession)
+                {
+                    var creds = await _credentialProvider
+                        .GetCredentialsAsync(repoDesc.Key, cancellationToken)
+                        .ConfigureAwait(false);
+                    connectedUser = creds.Username;
+                }
             }
             catch (Exception ex)
             {
@@ -221,13 +237,14 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             _logger.LogInformation(
                 "DASHBOARD LOAD — total={TotalMs}ms | token+root={TokenMs}ms | scan={ScanMs}ms | " +
                 "docs={TotalDocs} | folders={TotalFolders} | templates={Templates} | " +
-                "authMode=FallbackCredentials",
+                "authMode={AuthenticationMode}",
                 totalLoadMs,
                 (long)tokenDurationMs,
                 scanDurationMs,
                 totalDocuments,
                 totalFolders,
-                templateDefs.Count);
+                templateDefs.Count,
+                isUserSession ? "UserSession" : "FallbackCredentials");
 
             return new DashboardStatsDto
             {
@@ -237,10 +254,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 ServerVersion            = status.ServerVersion,
                 ServerUrl                = serverUrl,
                 ConnectedUser            = connectedUser,
-                // Currently always FallbackCredentials — DPAPI/env service-account is the
-                // only credential source available without LFDS OAuth configuration.
-                // Set to "UserSession" here when a real per-user LFDS token is obtained.
-                AuthenticationMode       = "FallbackCredentials",
+                AuthenticationMode       = isUserSession ? "UserSession" : "FallbackCredentials",
                 TotalDocuments           = totalDocuments,
                 TotalFolders             = totalFolders,
                 TotalTemplates           = templateDefs.Count,

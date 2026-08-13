@@ -1,9 +1,11 @@
 using LFPortal.Domain.Version;
+using LFPortal.Web.Authentication;
 using LFPortal.Infrastructure.Configuration;
 using LFPortal.Infrastructure.Extensions;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Middleware;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Serilog;
 
 // ── Bootstrap logger — captures startup errors before full logging is configured ──
@@ -91,6 +93,31 @@ try
     builder.Services.AddControllersWithViews()
                     .AddViewLocalization();
 
+    // ── Dashboard browser authentication ─────────────────────────────────────
+    // LFDS authenticates the user and issues the Repository API token; this
+    // cookie persists the resulting Dashboard identity across the callback
+    // redirect and subsequent page refreshes.
+    builder.Services
+        .AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = DashboardAuthenticationDefaults.Scheme;
+            options.DefaultChallengeScheme    = DashboardAuthenticationDefaults.Scheme;
+            options.DefaultSignInScheme       = DashboardAuthenticationDefaults.Scheme;
+        })
+        .AddCookie(DashboardAuthenticationDefaults.Scheme, options =>
+        {
+            options.Cookie.Name       = ".Dashboard.Authentication";
+            options.Cookie.HttpOnly   = true;
+            options.Cookie.IsEssential = true;
+            options.Cookie.SameSite   = SameSiteMode.Lax;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            options.LoginPath         = "/Login";
+            options.ExpireTimeSpan    = TimeSpan.FromHours(8);
+            options.SlidingExpiration = true;
+        });
+    builder.Services.AddAuthorization();
+    builder.Services.AddSingleton<IOAuthTransactionCookie, OAuthTransactionCookie>();
+
     // ── Laserfiche Infrastructure layer ───────────────────────────────────────
     builder.Services.AddLaserficheInfrastructure(builder.Configuration);
 
@@ -105,6 +132,8 @@ try
         opts.Cookie.IsEssential = true;
         opts.IdleTimeout      = TimeSpan.FromHours(8);
         opts.Cookie.Name      = ".Dashboard.Session";
+        opts.Cookie.SameSite  = SameSiteMode.Lax;
+        opts.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
     });
 
     // ── Build ─────────────────────────────────────────────────────────────────
@@ -115,6 +144,9 @@ try
     // without reading config files.  Credentials are never logged.
     {
         var opts = app.Services.GetRequiredService<IOptions<LaserficheOptions>>().Value;
+        var invalidMarkdownKeys = opts.MarkdownConfigurationKeys();
+        if (invalidMarkdownKeys.Count > 0)
+            Log.Fatal("Invalid Markdown characters in URL configuration: {ConfigurationKeys}", invalidMarkdownKeys);
         Log.Information(
             "Laserfiche config: ServerUrl={ServerUrl} ApiBasePath={ApiBasePath} " +
             "ApiVersion={ApiVersion} (effective: {EffectiveApiVersion}) Timeout={Timeout}s CredentialProvider={Provider} " +
@@ -133,13 +165,16 @@ try
         {
             Log.Information(
                 "SSO config: LfdsBaseUrl={LfdsBaseUrl} ClientId={ClientId} " +
-                "AuthEndpoint={AuthEndpoint} RedirectUri={RedirectUri}",
+                "DashboardPublicBaseUrl={DashboardPublicBaseUrl} CallbackUrl={CallbackUrl} " +
+                "AuthEndpoint={AuthEndpoint} TokenEndpoint={TokenEndpoint} LFDSSTS={LfdsSts} Repository={Repository}",
                 opts.Sso.LfdsBaseUrl,
                 opts.Sso.ClientId,
-                opts.Sso.AuthorizationEndpoint,
-                string.IsNullOrEmpty(opts.Sso.RedirectUri)
-                    ? "(computed from request at runtime)"
-                    : opts.Sso.RedirectUri);
+                opts.DashboardPublicBaseUrl,
+                opts.SsoCallbackUrl,
+                opts.SsoAuthorizationEndpoint,
+                opts.GetSsoTokenEndpoint(opts.RepositoryId),
+                opts.Sso.LfdsBaseUrl,
+                opts.RepositoryId);
         }
         else
         {
@@ -182,6 +217,31 @@ try
 
     // ── Session — must be after UseRouting, before controllers ───────────────
     app.UseSession();
+
+    // Authentication must run after routing/session and before the custom guard
+    // and MVC endpoints so HttpContext.User is restored on every request.
+    app.UseAuthentication();
+    app.UseAuthorization();
+
+    // Reject malformed pasted Markdown URLs before any authentication or repository
+    // operation. The diagnostic endpoint remains reachable so the error is actionable.
+    app.Use(async (context, next) =>
+    {
+        var options = context.RequestServices
+            .GetRequiredService<IOptions<LaserficheOptions>>().Value;
+        var invalidKeys = options.MarkdownConfigurationKeys();
+        if (invalidKeys.Count > 0 &&
+            !context.Request.Path.StartsWithSegments("/Login/SsoDiagnostic",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var detail = Uri.EscapeDataString(
+                "Invalid Markdown URL configuration: " + string.Join(", ", invalidKeys));
+            context.Response.Redirect(
+                $"/Login/SsoDiagnostic?reason=configuration_error&detail={detail}");
+            return;
+        }
+        await next(context);
+    });
 
     // ── Repository session middleware — captures ?repository= from Desktop Client ──
     app.UseMiddleware<RepositorySessionMiddleware>();
