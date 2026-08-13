@@ -321,11 +321,11 @@ public sealed class LoginController : Controller
         _logger.LogInformation(
             "[SSO] Redirecting to Repository API authorize URL: {AuthorizeUrl} " +
             "(Repo={Repo}, RedirectUri={RedirectUri})",
-            authUrl,
+            authorizeUrl,
             repo.RepositoryId,
             redirectUri);
 
-        return Redirect(authUrl);
+        return Redirect(authorizeUrl);
     }
 
     // ------------------------------------------------------------------ //
