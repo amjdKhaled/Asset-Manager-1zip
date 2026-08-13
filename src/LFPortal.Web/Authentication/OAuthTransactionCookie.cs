@@ -6,7 +6,7 @@ namespace LFPortal.Web.Authentication;
 
 public interface IOAuthTransactionCookie
 {
-    OAuthTransactionCookieWriteResult Write(HttpContext context, OAuthTransaction transaction);
+    void Write(HttpContext context, OAuthTransaction transaction);
     OAuthTransactionCookieResult Read(HttpContext context);
     void Delete(HttpContext context);
 }
@@ -15,14 +15,6 @@ public sealed record OAuthTransaction(string State, string CodeVerifier, string 
     string ReturnUrl, DateTimeOffset CreatedAtUtc, string? LaunchSource, string RedirectUri);
 
 public sealed record OAuthTransactionCookieResult(OAuthTransaction? Transaction, bool CookiePresent, bool IsValid);
-
-public sealed record OAuthTransactionCookieWriteResult(
-    string CookieName,
-    bool Written,
-    SameSiteMode SameSite,
-    bool Secure,
-    string Path,
-    DateTimeOffset ExpiresUtc);
 
 /// <summary>Data-Protection-encrypted, short-lived browser correlation for LFDS PKCE.</summary>
 public sealed class OAuthTransactionCookie : IOAuthTransactionCookie
@@ -34,22 +26,9 @@ public sealed class OAuthTransactionCookie : IOAuthTransactionCookie
     public OAuthTransactionCookie(IDataProtectionProvider provider) =>
         _protector = provider.CreateProtector("LFPortal.Web.LFDS.OAuthTransaction.v1");
 
-    public OAuthTransactionCookieWriteResult Write(HttpContext context, OAuthTransaction transaction)
-    {
-        var options = CookieOptions(context);
+    public void Write(HttpContext context, OAuthTransaction transaction) =>
         context.Response.Cookies.Append(CookieName,
-            _protector.Protect(JsonSerializer.Serialize(transaction)), options);
-
-        var written = context.Response.Headers.SetCookie.Any(value =>
-            value?.StartsWith(CookieName + "=", StringComparison.Ordinal) == true);
-        return new(
-            CookieName,
-            written,
-            options.SameSite,
-            options.Secure,
-            options.Path!,
-            options.Expires!.Value);
-    }
+            _protector.Protect(JsonSerializer.Serialize(transaction)), CookieOptions(context));
 
     public OAuthTransactionCookieResult Read(HttpContext context)
     {

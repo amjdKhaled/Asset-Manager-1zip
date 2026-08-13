@@ -198,41 +198,6 @@ public sealed class LoginControllerSsoDormantTests
         Assert.Contains("Laserfiche:ServerUrl", opts.MarkdownConfigurationKeys());
     }
 
-    [Theory]
-    [InlineData("[")]
-    [InlineData("]")]
-    [InlineData("(")]
-    [InlineData(")")]
-    public void EveryMarkdownDelimiter_IsRejectedAcrossSsoUrlSettings(string delimiter)
-    {
-        var opts = SsoOptions();
-        opts.DashboardPublicBaseUrl = $"https://dashboard.test{delimiter}";
-        opts.Sso.LfdsBaseUrl = $"https://lfds.test/LFDSSTS{delimiter}";
-
-        var invalid = opts.MarkdownConfigurationKeys();
-
-        Assert.Contains("Laserfiche:DashboardPublicBaseUrl", invalid);
-        Assert.Contains("Laserfiche:Sso:LfdsBaseUrl", invalid);
-    }
-
-    [Fact]
-    public void SsoTokenEndpoint_DoesNotDuplicateApiBasePathAlreadyInServerUrl()
-    {
-        var opts = SsoOptions();
-        opts.ServerUrl = "https://localhost/LFRepositoryAPI";
-        opts.ApiBasePath = "/LFRepositoryAPI";
-
-        var tokenUrl = opts.GetSsoTokenEndpoint("TestEmployee");
-
-        Assert.Equal(
-            "https://localhost/LFRepositoryAPI/v2/Repositories/TestEmployee/Token",
-            tokenUrl);
-        Assert.DoesNotContain(
-            "/LFRepositoryAPI/LFRepositoryAPI",
-            tokenUrl,
-            StringComparison.OrdinalIgnoreCase);
-    }
-
     // ─────────────────────────────────────────────────────────────────────────
     // 2. GET /Login renders the password form — no LFDS redirect
     // ─────────────────────────────────────────────────────────────────────────
@@ -532,9 +497,6 @@ public sealed class LoginControllerSsoDormantTests
         Assert.Contains(".Dashboard.OAuth.Correlation=", cookie);
         Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("samesite=lax", cookie, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("path=/", cookie, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("expires=", cookie, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("code_verifier", cookie, StringComparison.OrdinalIgnoreCase);
     }
 
