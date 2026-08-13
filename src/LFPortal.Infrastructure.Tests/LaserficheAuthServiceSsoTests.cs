@@ -311,8 +311,11 @@ public sealed class LaserficheAuthServiceSsoTests
         Assert.Equal(0, callCount); // counting handler never hit
     }
 
-    [Fact]
-    public async Task GetToken_LfdsPrincipalWithCacheMiss_NeverUsesFallbackCredentials()
+    [Theory]
+    [InlineData("LFDS")]
+    [InlineData("RepositoryPassword")]
+    public async Task GetToken_InteractivePrincipalWithCacheMiss_NeverUsesFallbackCredentials(
+        string authenticationMethod)
     {
         var opts = new LaserficheOptions
         {
@@ -323,7 +326,7 @@ public sealed class LaserficheAuthServiceSsoTests
         var context = new DefaultHttpContext
         {
             User = new ClaimsPrincipal(new ClaimsIdentity(
-                [new Claim(ClaimTypes.AuthenticationMethod, "LFDS")],
+                [new Claim(ClaimTypes.AuthenticationMethod, authenticationMethod)],
                 "Dashboard.Cookie")),
         };
         var accessor = new HttpContextAccessor { HttpContext = context };

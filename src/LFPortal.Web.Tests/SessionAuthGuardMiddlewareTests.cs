@@ -27,6 +27,7 @@ public sealed class SessionAuthGuardMiddlewareTests
     private static SessionAuthGuardMiddleware MakeMiddleware(
         string? configuredRepoId = "LFNewRepoWF",
         bool ssoConfigured = false,
+        LaserficheAuthenticationMode authenticationMode = LaserficheAuthenticationMode.LfdsSso,
         RequestDelegate? next = null)
     {
         next ??= _ => Task.CompletedTask;
@@ -35,6 +36,7 @@ public sealed class SessionAuthGuardMiddlewareTests
             new LaserficheOptions
             {
                 RepositoryId = configuredRepoId ?? string.Empty,
+                AuthenticationMode = authenticationMode,
                 Sso = new LaserficheOAuthOptions
                 {
                     LfdsBaseUrl = ssoConfigured ? "https://lf.example/LFDSSTS" : string.Empty,
@@ -45,6 +47,21 @@ public sealed class SessionAuthGuardMiddlewareTests
             next,
             new TestOptionsMonitor(options.Value),
             NullLogger<SessionAuthGuardMiddleware>.Instance);
+    }
+
+    [Fact]
+    public async Task Invoke_WebClient_RepositoryPasswordMode_RedirectsToLoginWithReturnUrl()
+    {
+        var mw = MakeMiddleware(
+            authenticationMode: LaserficheAuthenticationMode.RepositoryPassword);
+        var ctx = MakeContext(
+            path: "/?repository=TestEmployee&source=webclient",
+            source: "Laserfiche Web Client",
+            activeRepoId: "TestEmployee");
+
+        await mw.InvokeAsync(ctx);
+
+        Assert.StartsWith("/Login?returnUrl=", ctx.Response.Headers.Location.ToString());
     }
 
     private static DefaultHttpContext MakeContext(

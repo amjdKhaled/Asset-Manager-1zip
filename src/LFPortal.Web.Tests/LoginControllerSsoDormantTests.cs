@@ -57,6 +57,7 @@ public sealed class LoginControllerSsoDormantTests
         DashboardPublicBaseUrl = "https://dashboard.test",
         ApiBasePath = "/LFRepositoryAPI",
         ApiVersion  = "v1",
+        AuthenticationMode = LaserficheAuthenticationMode.LfdsSso,
         Sso         = new LaserficheOAuthOptions { LfdsBaseUrl = "https://lfds.example.com/LFDS" }
     };
 
@@ -451,6 +452,51 @@ public sealed class LoginControllerSsoDormantTests
     }
 
     [Fact]
+    public async Task RepositoryPassword_Login_CookieContainsUserRepositoryAndMethod()
+    {
+        var (ctrl, authSpy, _) = Build(DefaultOptions());
+        authSpy.TryAuthenticateResult = true;
+
+        await ctrl.Index(new LoginInputModel
+        {
+            Repository = "TestRepo",
+            Username = "alice",
+            Password = "request-only-secret",
+        }, default);
+
+        var cookiePair = ctrl.Response.Headers.SetCookie.ToString().Split(';', 2)[0];
+        using var scope = ctrl.HttpContext.RequestServices.CreateScope();
+        var nextRequest = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        nextRequest.Request.Headers.Cookie = cookiePair;
+        var authentication = await nextRequest.AuthenticateAsync(
+            DashboardAuthenticationDefaults.Scheme);
+
+        Assert.True(authentication.Succeeded);
+        Assert.Equal("alice", authentication.Principal?.Identity?.Name);
+        Assert.Equal("TestRepo", authentication.Principal?.FindFirst(
+            DashboardAuthenticationDefaults.RepositoryClaimType)?.Value);
+        Assert.Equal("RepositoryPassword", authentication.Principal?.FindFirst(
+            ClaimTypes.AuthenticationMethod)?.Value);
+        Assert.DoesNotContain("request-only-secret", ctrl.Response.Headers.ToString());
+        Assert.Null(ctrl.HttpContext.Session.GetString("SessionCredUsername"));
+        Assert.Null(ctrl.HttpContext.Session.GetString("SessionCredPasswordProtected"));
+    }
+
+    [Fact]
+    public async Task RepositoryPassword_StartSso_DoesNotRedirectToLfdsAuthorize()
+    {
+        var options = DefaultOptions();
+        options.Sso.LfdsBaseUrl = "https://lfds.example/LFDSSTS";
+        var (ctrl, _, _) = Build(options);
+
+        var result = await ctrl.StartSso("/Dashboard", default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Index", redirect.ActionName);
+        Assert.Equal("Login", redirect.ControllerName);
+    }
+
+    [Fact]
     public async Task Sso_Callback_Success_WritesAuthenticationCookieAndSessionMarker()
     {
         var (ctrl, _, store) = Build(SsoOptions(), directBrowser: false);
@@ -695,6 +741,18 @@ public sealed class LoginControllerSsoDormantTests
 
         var authRepo = session.GetString("AuthenticatedRepositoryId");
         Assert.Null(authRepo);
+    }
+
+    [Fact]
+    public async Task SignOut_RemovesActiveRepositoryAndInvalidatesUserTokens()
+    {
+        var (ctrl, auth, _) = Build();
+        ctrl.HttpContext.Session.SetString("ActiveRepositoryId", "TestRepo");
+
+        await ctrl.SignOut(default);
+
+        Assert.Null(ctrl.HttpContext.Session.GetString("ActiveRepositoryId"));
+        Assert.True(auth.InvalidateCurrentSessionCalled);
     }
 
     [Fact]

@@ -183,6 +183,13 @@
 
         <div class="login-body">
 
+            @if (Model.IsRepositoryPasswordMode)
+            {
+                <p style="margin-bottom:18px;color:#475569;">
+                    Sign in with your Laserfiche repository username and password.
+                </p>
+            }
+
             @* ── SSO fallback notice ── *@
             @if (Model.SsoFailed)
             {
@@ -221,6 +228,7 @@
             @* ── Credentials form ── *@
             <form method="post" asp-controller="Login" asp-action="Index" novalidate>
                 @Html.AntiForgeryToken()
+                <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
 
                 @if (Model.AllowRepositoryInput)
                 {

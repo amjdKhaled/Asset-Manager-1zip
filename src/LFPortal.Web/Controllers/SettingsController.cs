@@ -296,6 +296,7 @@ public sealed class SettingsController : Controller
         return new SettingsViewModel
         {
             ServerUrl                         = opts.ServerUrl,
+            AuthenticationMode                = opts.AuthenticationMode.ToString(),
             DashboardPublicBaseUrl            = opts.DashboardPublicBaseUrl,
             RepositoryId                      = opts.RepositoryId,
             DisplayName                       = opts.DisplayName,
@@ -477,6 +478,7 @@ public sealed class SettingsViewModel
     // ── SSO / LFDS Configuration Reference ───────────────────────────────────
 
     /// <summary>Configured LFDS Base URL. Empty = SSO disabled.</summary>
+    public string AuthenticationMode { get; init; } = string.Empty;
     public string SsoLfdsBaseUrl { get; init; } = string.Empty;
 
     /// <summary>Configured OAuth2 client ID.</summary>

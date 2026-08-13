@@ -5,6 +5,7 @@ using LFPortal.Infrastructure.Extensions;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Middleware;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Serilog;
 
@@ -222,6 +223,28 @@ try
     // and MVC endpoints so HttpContext.User is restored on every request.
     app.UseAuthentication();
     app.UseAuthorization();
+
+    // An interactive Repository API token that cannot be refreshed must return
+    // the browser to Login; it must never fall through to configured credentials.
+    app.Use(async (context, next) =>
+    {
+        try
+        {
+            await next(context);
+        }
+        catch (UnauthorizedAccessException) when (
+            context.User.Identity?.IsAuthenticated == true && !context.Response.HasStarted)
+        {
+            var authService = context.RequestServices
+                .GetRequiredService<LFPortal.Application.Interfaces.ILaserficheAuthService>();
+            await authService.InvalidateCurrentSessionTokensAsync();
+            await context.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
+            context.Session.Remove("AuthenticatedRepositoryId");
+            var returnUrl = Uri.EscapeDataString(
+                context.Request.PathBase + context.Request.Path + context.Request.QueryString);
+            context.Response.Redirect($"/Login?returnUrl={returnUrl}");
+        }
+    });
 
     // Reject malformed pasted Markdown URLs before any authentication or repository
     // operation. The diagnostic endpoint remains reachable so the error is actionable.

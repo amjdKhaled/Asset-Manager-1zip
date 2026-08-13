@@ -325,6 +325,11 @@ else
 <div class="card" style="margin-top:16px;">
     <div class="card__title">@L["ConfigReference"]</div>
     <div class="status-grid">
+        <div class="status-item"><span class="status-item__label">Authentication Mode</span><span class="status-item__value">@Model.AuthenticationMode</span></div>
+        <div class="status-item">
+            <span class="status-item__label">Dashboard Public Base URL</span>
+            <span class="status-item__value" style="font-family:monospace;word-break:break-all;">@Model.DashboardPublicBaseUrl</span>
+        </div>
         <div class="status-item">
             <span class="status-item__label">Dashboard Public Base URL</span>
             <span class="status-item__value" style="font-family:monospace;word-break:break-all;">@Model.DashboardPublicBaseUrl</span>

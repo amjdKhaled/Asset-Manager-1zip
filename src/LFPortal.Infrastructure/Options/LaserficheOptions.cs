@@ -22,6 +22,12 @@ public enum CredentialProviderType
     Environment
 }
 
+public enum LaserficheAuthenticationMode
+{
+    RepositoryPassword,
+    LfdsSso,
+}
+
 /// <summary>
 /// Configuration options for the Laserfiche Repository API connection.
 /// Bound from the <c>Laserfiche</c> section in <c>appsettings.json</c> at startup.
@@ -45,6 +51,10 @@ public sealed class LaserficheOptions
     /// <c>ValidateOnStart</c> would crash the site before an administrator could configure it.
     /// </summary>
     public string ServerUrl { get; set; } = string.Empty;
+
+    /// <summary>Selects direct Repository API password login or LFDS PKCE SSO.</summary>
+    public LaserficheAuthenticationMode AuthenticationMode { get; set; } =
+        LaserficheAuthenticationMode.RepositoryPassword;
 
     /// <summary>Public browser origin of the Dashboard, used for every OAuth callback.</summary>
     public string DashboardPublicBaseUrl { get; set; } = string.Empty;

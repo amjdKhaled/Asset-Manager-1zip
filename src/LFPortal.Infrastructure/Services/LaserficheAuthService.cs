@@ -55,6 +55,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     private const int EarlyExpiryBufferSeconds = 60;
     private const int MaxTokenRetries          = 2;
     private const string CacheKeyPrefix        = "LFToken:";
+    private const string RefreshKeyPrefix      = "LFRefresh:";
 
     private readonly IHttpClientFactory      _httpClientFactory;
     private readonly ICredentialProvider     _credentialProvider;
@@ -101,6 +102,9 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         var scope = CurrentScope();
         return $"{CacheKeyPrefix}{repository.Key}:{repository.RepositoryId}:{scope}:g{GenerationFor(scope)}";
     }
+
+    private string RefreshKeyFor(RepositoryDescriptor repository) =>
+        RefreshKeyPrefix + CacheKeyFor(repository);
 
     /// <summary>Resolves the token-cache scope for the current request.</summary>
     private string CurrentScope()
@@ -201,13 +205,26 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 "Token cache miss for repository {Key}. Acquiring new token.",
                 repository.Key);
 
-            // An LFDS-authenticated browser must never cross over to the configured
+            if (_cache.TryGetValue(RefreshKeyFor(repository), out string? refreshToken) &&
+                !string.IsNullOrWhiteSpace(refreshToken))
+            {
+                var refreshed = await RequestRefreshTokenAsync(
+                    _adapter.BuildTokenUrlV2(repository.RepositoryId),
+                    refreshToken,
+                    cancellationToken).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(refreshed.AccessToken))
+                    throw new UnauthorizedAccessException("The Repository API refresh response had no access token.");
+                CacheTokenResponse(repository, cacheKey, refreshed);
+                return refreshed.AccessToken;
+            }
+
+            // An authenticated browser must never cross over to the configured
             // service account. A cache miss means its user token is no longer available;
             // fail authentication so the web flow can acquire a new authorization code.
-            if (IsLfdsUserSession())
+            if (IsInteractiveUserSession())
             {
                 _logger.LogWarning(
-                    "[LF AUTH][SSO] User-session token is unavailable for repository {RepoId}; " +
+                    "[LF AUTH] Interactive user-session token is unavailable for repository {RepoId}; " +
                     "configured fallback credentials will not be used.",
                     repository.RepositoryId);
                 throw new UnauthorizedAccessException(
@@ -231,6 +248,8 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
 
             var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
             _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
+            if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken))
+                _cache.Set(RefreshKeyFor(repository), tokenResponse.RefreshToken, TimeSpan.FromHours(8));
 
             _logger.LogDebug(
                 "Token acquired for repository {Key}. Expires in {Seconds}s (cached for {CacheSeconds}s).",
@@ -246,14 +265,13 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         }
     }
 
-    private bool IsLfdsUserSession()
+    private bool IsInteractiveUserSession()
     {
         var principal = _httpContextAccessor.HttpContext?.User;
+        var method = principal?.FindFirst(ClaimTypes.AuthenticationMethod)?.Value;
         return principal?.Identity?.IsAuthenticated == true &&
-            string.Equals(
-                principal.FindFirst(ClaimTypes.AuthenticationMethod)?.Value,
-                "LFDS",
-                StringComparison.Ordinal);
+            (string.Equals(method, "LFDS", StringComparison.Ordinal) ||
+             string.Equals(method, "RepositoryPassword", StringComparison.Ordinal));
     }
 
     /// <inheritdoc />
@@ -272,7 +290,9 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         string password,
         CancellationToken cancellationToken = default)
     {
-        var tokenUrl = _adapter.BuildTokenUrl(repository.RepositoryId);
+        // Interactive repository-password authentication always uses the V2 token
+        // contract. Only grant_type, username, and password are submitted.
+        var tokenUrl = _adapter.BuildTokenUrlV2(repository.RepositoryId);
 
         _logger.LogInformation(
             "[LF AUTH] Login attempt: TokenUrl={TokenUrl} Repository={RepoId} User={Username} " +
@@ -294,6 +314,8 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             var cacheKey      = CacheKeyFor(repository);
             var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
             _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
+            if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken))
+                _cache.Set(RefreshKeyFor(repository), tokenResponse.RefreshToken, TimeSpan.FromHours(8));
 
             _logger.LogInformation(
                 "[LF AUTH] Login succeeded for repository {RepoId}. Token cached for {CacheSeconds}s.",
@@ -313,6 +335,37 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         }
         // 404 (unknown repository), other 4xx, network failures and 5xx errors
         // propagate to the caller so it can show a precise error message.
+    }
+
+    private async Task<TokenResponse> RequestRefreshTokenAsync(
+        string tokenUrl,
+        string refreshToken,
+        CancellationToken cancellationToken)
+    {
+        using var client = _httpClientFactory.CreateClient("LaserficheRaw");
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+        });
+        using var response = await client.PostAsync(tokenUrl, form, cancellationToken)
+            .ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            throw new UnauthorizedAccessException("The Repository API refresh token was rejected.");
+        return JsonSerializer.Deserialize<TokenResponse>(body, JsonOptions.Default)
+            ?? throw new UnauthorizedAccessException("The Repository API refresh response was invalid.");
+    }
+
+    private void CacheTokenResponse(
+        RepositoryDescriptor repository,
+        string cacheKey,
+        TokenResponse response)
+    {
+        var expirySeconds = Math.Max(response.ExpiresIn - EarlyExpiryBufferSeconds, 30);
+        _cache.Set(cacheKey, response.AccessToken, TimeSpan.FromSeconds(expirySeconds));
+        if (!string.IsNullOrWhiteSpace(response.RefreshToken))
+            _cache.Set(RefreshKeyFor(repository), response.RefreshToken, TimeSpan.FromHours(8));
     }
 
     /// <summary>
@@ -642,5 +695,8 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
 
         [JsonPropertyName("token_type")]
         public string TokenType { get; init; } = "Bearer";
+
+        [JsonPropertyName("refresh_token")]
+        public string? RefreshToken { get; init; }
     }
 }

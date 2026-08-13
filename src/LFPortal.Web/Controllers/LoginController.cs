@@ -19,10 +19,9 @@ namespace LFPortal.Web.Controllers;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Password-grant flow (primary):</b>  When LFDS SSO is not configured,
-/// <c>GET /Login</c> renders a credential form.  A valid POST stores a DPAPI-encrypted
-/// password in the session so subsequent token-refresh requests can acquire a new
-/// Bearer token without re-prompting the user.
+/// <b>Repository password flow:</b>  In <c>RepositoryPassword</c> mode,
+/// <c>GET /Login</c> renders a credential form. A valid POST obtains and caches a
+/// per-session Repository API token; the submitted password is not retained.
 /// </para>
 /// <para>
 /// <b>LFDS OAuth2 Authorization Code flow (SSO):</b>  When <c>Laserfiche:Sso:LfdsBaseUrl</c>
@@ -90,7 +89,8 @@ public sealed class LoginController : Controller
         // ── SSO fast-path ─────────────────────────────────────────────────────
         // When LFDS is configured and SSO has not already failed this session,
         // redirect transparently so the credential form is never shown.
-        if (opts.Sso.IsConfigured && !ssoFailed)
+        if (opts.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
+            opts.Sso.IsConfigured && !ssoFailed)
         {
             _logger.LogInformation("[SSO] LFDS configured — redirecting to StartSso.");
             return RedirectToAction("StartSso", new { returnUrl });
@@ -103,10 +103,17 @@ public sealed class LoginController : Controller
             ActiveRepository     = repo.RepositoryId,
             AllowRepositoryInput = AllowRepositoryInput(),
             SubmittedRepository  = repo.RepositoryId,
-            SsoFailed            = ssoFailed && opts.Sso.IsConfigured,
-            SsoFailureReason     = ssoFailed && opts.Sso.IsConfigured
+            SsoFailed            = ssoFailed &&
+                opts.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
+                opts.Sso.IsConfigured,
+            SsoFailureReason     = ssoFailed &&
+                opts.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
+                opts.Sso.IsConfigured
                 ? DescribeSsoFailure(ssoFailure)
                 : null,
+            IsRepositoryPasswordMode =
+                opts.AuthenticationMode == LaserficheAuthenticationMode.RepositoryPassword,
+            ReturnUrl = IsLocalUrl(returnUrl) ? returnUrl : null,
         };
         return View(vm);
     }
@@ -126,7 +133,9 @@ public sealed class LoginController : Controller
         CancellationToken cancellationToken)
     {
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
-        var allowRepoInput = AllowRepositoryInput();
+        var opts = _options.CurrentValue;
+        var allowRepoInput = opts.AuthenticationMode ==
+            LaserficheAuthenticationMode.RepositoryPassword || AllowRepositoryInput();
 
         var repoId = allowRepoInput && !string.IsNullOrWhiteSpace(input.Repository)
             ? input.Repository.Trim()
@@ -138,7 +147,10 @@ public sealed class LoginController : Controller
             AllowRepositoryInput = allowRepoInput,
             SubmittedRepository  = allowRepoInput ? (input.Repository ?? string.Empty) : repo.RepositoryId,
             SubmittedUsername    = input.Username,
-            ErrorMessage         = error
+            ErrorMessage         = error,
+            IsRepositoryPasswordMode = opts.AuthenticationMode ==
+                LaserficheAuthenticationMode.RepositoryPassword,
+            ReturnUrl = input.ReturnUrl,
         };
 
         if (!ModelState.IsValid)
@@ -151,6 +163,12 @@ public sealed class LoginController : Controller
         }
 
         var targetRepo = repo with { RepositoryId = repoId, DisplayName = repoId };
+
+        // Establish a stable per-browser cache scope before acquiring the token.
+        // This prevents a direct-login token from ever using the process-wide cache.
+        HttpContext.Session.SetString(
+            RepositorySessionMiddleware.SessionKeyRepositoryId,
+            repoId);
 
         _logger.LogInformation(
             "Login: authenticating user {Username} for repository {RepoId}.",
@@ -195,14 +213,10 @@ public sealed class LoginController : Controller
 
         // ── Authentication succeeded ──────────────────────────────────────────
 
-        await _sessionCredentialStore.StoreAsync(
-            input.Username,
-            input.Password ?? string.Empty,
-            cancellationToken);
+        // Direct Repository API password login deliberately retains only the token
+        // cached by TryAuthenticateAsync. The submitted password dies with this request.
+        await _sessionCredentialStore.ClearAsync(cancellationToken);
 
-        HttpContext.Session.SetString(
-            RepositorySessionMiddleware.SessionKeyRepositoryId,
-            repoId);
         HttpContext.Session.SetString(
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
             repoId);
@@ -215,7 +229,9 @@ public sealed class LoginController : Controller
         _logger.LogInformation(
             "Login: session authenticated for repository {RepoId}.", repoId);
 
-        return RedirectToAction("Index", "Dashboard");
+        return IsLocalUrl(input.ReturnUrl)
+            ? LocalRedirect(input.ReturnUrl!)
+            : RedirectToAction("Index", "Dashboard");
     }
 
     // ------------------------------------------------------------------ //
@@ -235,6 +251,13 @@ public sealed class LoginController : Controller
         CancellationToken cancellationToken = default)
     {
         var opts = _options.CurrentValue;
+
+        if (opts.AuthenticationMode != LaserficheAuthenticationMode.LfdsSso)
+        {
+            _logger.LogInformation("[SSO] StartSso ignored because AuthenticationMode is {Mode}.",
+                opts.AuthenticationMode);
+            return RedirectToAction("Index", "Login", new { returnUrl });
+        }
 
         if (!opts.Sso.IsConfigured)
         {
@@ -645,6 +668,20 @@ public sealed class LoginController : Controller
         _oAuthTransactionCookie.Delete(HttpContext);
 
         _logger.LogInformation(
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+        _oAuthTransactionCookie.Delete(HttpContext);
+
+        _logger.LogInformation(
             "[SSO] Session authenticated via LFDS for repository {Repo}.",
             repo.RepositoryId);
 
@@ -705,6 +742,8 @@ public sealed class LoginController : Controller
         _oAuthTransactionCookie.Delete(HttpContext);
 
         HttpContext.Session.Remove(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId);
+        HttpContext.Session.Remove(RepositorySessionMiddleware.SessionKeyRepositoryId);
+        HttpContext.Session.Remove(RepositorySessionMiddleware.SessionKeySource);
         HttpContext.Session.Remove(SessionKeyOAuthPendingState);
         await _sessionCredentialStore.ClearAsync(cancellationToken);
 
@@ -805,6 +844,8 @@ public sealed class LoginController : Controller
         string? callbackUrl = null)
     {
         var opts = _options.CurrentValue;
+        if (opts.AuthenticationMode != LaserficheAuthenticationMode.LfdsSso)
+            return RedirectToAction("Index", "Login");
         return View("SsoDiagnostic", new SsoDiagnosticViewModel
         {
             Reason = reason,
@@ -951,6 +992,9 @@ public sealed class LoginViewModel
     /// </summary>
     public bool SsoFailed { get; init; }
 
+    public bool IsRepositoryPasswordMode { get; init; }
+    public string? ReturnUrl { get; init; }
+
     /// <summary>Sanitized reason for an unsuccessful SSO callback.</summary>
     public string? SsoFailureReason { get; init; }
 }
@@ -970,4 +1014,5 @@ public sealed class LoginInputModel
     /// Do NOT add [Required] here.
     /// </summary>
     public string? Password { get; set; }
+    public string? ReturnUrl { get; set; }
 }

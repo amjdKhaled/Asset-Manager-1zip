@@ -82,13 +82,18 @@ public sealed class SessionAuthGuardMiddleware
         // Desktop launches always require authentication. Web Client launches use
         // the same guard when LFDS SSO is configured; with dormant/default SSO they
         // retain the legacy direct-open behavior.
+        var authenticationMode = _options.CurrentValue.AuthenticationMode;
         var mustAuthenticate =
+            authenticationMode == LaserficheAuthenticationMode.RepositoryPassword ||
             string.Equals(source, RepositorySessionMiddleware.SourceDesktop,
                 StringComparison.OrdinalIgnoreCase) ||
             (string.Equals(source, RepositorySessionMiddleware.SourceWebClient,
                  StringComparison.OrdinalIgnoreCase) &&
+             authenticationMode == LaserficheAuthenticationMode.LfdsSso &&
              _options.CurrentValue.Sso.IsConfigured) ||
-            (string.IsNullOrWhiteSpace(source) && _options.CurrentValue.Sso.IsConfigured);
+            (string.IsNullOrWhiteSpace(source) &&
+             authenticationMode == LaserficheAuthenticationMode.LfdsSso &&
+             _options.CurrentValue.Sso.IsConfigured);
 
         if (!mustAuthenticate)
         {

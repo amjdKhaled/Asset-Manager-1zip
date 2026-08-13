@@ -13,5 +13,5 @@ public static class DashboardAuthenticationDefaults
     public const string LfdsAuthenticationMethod = "LFDS";
 
     /// <summary>Claim value used for identities established by the password flow.</summary>
-    public const string PasswordAuthenticationMethod = "Password";
+    public const string PasswordAuthenticationMethod = "RepositoryPassword";
 }
