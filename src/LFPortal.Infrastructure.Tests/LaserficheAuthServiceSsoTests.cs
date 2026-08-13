@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Claims;
 using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Common;
@@ -192,31 +193,34 @@ public sealed class LaserficheAuthServiceSsoTests
     }
 
     [Fact]
-    public async Task ExchangeCode_400_ReturnsFalse_DoesNotThrow()
+    public async Task ExchangeCode_400_ThrowsDiagnosticException()
     {
         var svc = CreateService(StatusHandler(HttpStatusCode.BadRequest));
-        var result = await svc.ExchangeAuthorizationCodeAsync(
-            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard");
-        Assert.False(result);
+        var ex = await Assert.ThrowsAsync<LaserficheException>(() => svc.ExchangeAuthorizationCodeAsync(
+            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard"));
+        Assert.Equal(400, ex.StatusCode);
     }
 
     [Fact]
-    public async Task ExchangeCode_401_ReturnsFalse_DoesNotThrow()
+    public async Task ExchangeCode_401_ThrowsDiagnosticException()
     {
         // 401 = code already used or expired
         var svc = CreateService(StatusHandler(HttpStatusCode.Unauthorized));
-        var result = await svc.ExchangeAuthorizationCodeAsync(
-            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard");
-        Assert.False(result);
+        var ex = await Assert.ThrowsAsync<LaserficheException>(() => svc.ExchangeAuthorizationCodeAsync(
+            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard"));
+        Assert.Equal(401, ex.StatusCode);
     }
 
     [Fact]
-    public async Task ExchangeCode_403_ReturnsFalse_DoesNotThrow()
+    public async Task ExchangeCode_403_UntrustedSaml_PreservesSanitizedDiagnostic()
     {
-        var svc = CreateService(StatusHandler(HttpStatusCode.Forbidden));
-        var result = await svc.ExchangeAuthorizationCodeAsync(
-            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard");
-        Assert.False(result);
+        var svc = CreateService(StatusHandler(
+            HttpStatusCode.Forbidden,
+            "Received an invalid or untrusted SAML token. [9530]"));
+        var ex = await Assert.ThrowsAsync<LaserficheException>(() => svc.ExchangeAuthorizationCodeAsync(
+            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard"));
+        Assert.Equal(403, ex.StatusCode);
+        Assert.Contains("invalid or untrusted SAML token", ex.ResponseBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -305,6 +309,41 @@ public sealed class LaserficheAuthServiceSsoTests
 
         Assert.Equal("sso-bearer-token-xyz", token);
         Assert.Equal(0, callCount); // counting handler never hit
+    }
+
+    [Theory]
+    [InlineData("LFDS")]
+    [InlineData("RepositoryPassword")]
+    public async Task GetToken_InteractivePrincipalWithCacheMiss_NeverUsesFallbackCredentials(
+        string authenticationMethod)
+    {
+        var opts = new LaserficheOptions
+        {
+            ServerUrl = "http://lf-server.test",
+            ApiBasePath = "/LFRepositoryAPI",
+        };
+        var adapter = new LaserficheApiAdapter(new StaticOptionsMonitor<LaserficheOptions>(opts));
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.AuthenticationMethod, authenticationMethod)],
+                "Dashboard.Cookie")),
+        };
+        var accessor = new HttpContextAccessor { HttpContext = context };
+        var credentials = new ThrowingCredentialProvider();
+
+        var svc = new LaserficheAuthService(
+            new TestHttpClientFactory(SuccessHandler("must-not-be-requested")),
+            credentials,
+            adapter,
+            new MemoryCache(new MemoryCacheOptions()),
+            new OptionsWrapper<LaserficheOptions>(opts),
+            accessor,
+            NullLogger<LaserficheAuthService>.Instance);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => svc.GetTokenAsync(MakeRepo()));
+        Assert.Equal(0, credentials.CallCount);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -460,6 +499,25 @@ public sealed class LaserficheAuthServiceSsoTests
             => Task.FromResult(new LaserficheCredential(_u, _p));
         public Task StoreCredentialsAsync(string key, string u, string p, CancellationToken ct = default)
             => Task.CompletedTask;
+    }
+
+    private sealed class ThrowingCredentialProvider : ICredentialProvider
+    {
+        public int CallCount { get; private set; }
+
+        public Task<LaserficheCredential> GetCredentialsAsync(
+            string key,
+            CancellationToken ct = default)
+        {
+            CallCount++;
+            throw new InvalidOperationException("Fallback credentials must not be read.");
+        }
+
+        public Task StoreCredentialsAsync(
+            string key,
+            string username,
+            string password,
+            CancellationToken ct = default) => Task.CompletedTask;
     }
 }
 
