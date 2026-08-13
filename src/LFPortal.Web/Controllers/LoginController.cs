@@ -309,7 +309,7 @@ public sealed class LoginController : Controller
             StateForLog(state), repo.RepositoryId, redirectUri, returnUrl);
 
         // ── Build authorization URL ───────────────────────────────────────────
-        var authorizeUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
+       
 
         _logger.LogInformation(
             "[SSO] Redirecting to Repository API authorize URL: {AuthorizeUrl} " +
@@ -321,11 +321,11 @@ public sealed class LoginController : Controller
         _logger.LogInformation(
             "[SSO] Redirecting to Repository API authorize URL: {AuthorizeUrl} " +
             "(Repo={Repo}, RedirectUri={RedirectUri})",
-            authorizeUrl,
+            authUrl,
             repo.RepositoryId,
             redirectUri);
 
-        return Redirect(authorizeUrl);
+        return Redirect(authUrl);
     }
 
     // ------------------------------------------------------------------ //
