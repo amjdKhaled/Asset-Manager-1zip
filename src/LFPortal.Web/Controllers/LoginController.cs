@@ -46,6 +46,7 @@ public sealed class LoginController : Controller
     private readonly IRepositoryContext         _repositoryContext;
     private readonly ISessionCredentialStore    _sessionCredentialStore;
     private readonly IOAuthStateStore           _oAuthStateStore;
+    private readonly IOAuthTransactionCookie    _oAuthTransactionCookie;
     private readonly IOptionsMonitor<LaserficheOptions> _options;
     private readonly ILogger<LoginController>   _logger;
 
@@ -55,6 +56,7 @@ public sealed class LoginController : Controller
         IRepositoryContext           repositoryContext,
         ISessionCredentialStore      sessionCredentialStore,
         IOAuthStateStore             oAuthStateStore,
+        IOAuthTransactionCookie      oAuthTransactionCookie,
         IOptionsMonitor<LaserficheOptions> options,
         ILogger<LoginController>     logger)
     {
@@ -62,6 +64,7 @@ public sealed class LoginController : Controller
         _repositoryContext       = repositoryContext;
         _sessionCredentialStore  = sessionCredentialStore;
         _oAuthStateStore         = oAuthStateStore;
+        _oAuthTransactionCookie  = oAuthTransactionCookie;
         _options                 = options;
         _logger                  = logger;
     }
@@ -288,8 +291,22 @@ public sealed class LoginController : Controller
         };
         _oAuthStateStore.Store(state, entry);
 
+        var launchSource = HttpContext.Session.GetString(
+            RepositorySessionMiddleware.SessionKeySource);
+        _oAuthTransactionCookie.Write(HttpContext, new OAuthTransaction(
+            state, codeVerifier, repo.RepositoryId, returnUrl ?? "/",
+            DateTimeOffset.UtcNow, launchSource, redirectUri));
+
         // Bind state to this session so the callback can validate CSRF.
         HttpContext.Session.SetString(SessionKeyOAuthPendingState, state);
+
+        // ── Build authorization URL ───────────────────────────────────────────
+        var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
+
+        _logger.LogInformation(
+            "[SSO] OAuth correlation written. State={State}; CookieWritten=true; " +
+            "Repository={Repository}; CallbackUrl={CallbackUrl}; ReturnUrl={ReturnUrl}.",
+            StateForLog(state), repo.RepositoryId, redirectUri, returnUrl);
 
         // ── Build authorization URL ───────────────────────────────────────────
         var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
@@ -352,55 +369,83 @@ public sealed class LoginController : Controller
             return FallBackToLoginForm(reason);
         }
 
-        // ── CSRF validation: state must match what we stored in the session ───
+        // The protected correlation cookie is authoritative across the LFDS round
+        // trip. ASP.NET Session remains a compatibility fallback, not a dependency.
         var sessionState = HttpContext.Session.GetString(SessionKeyOAuthPendingState);
-        if (sessionState is null || sessionState != state)
+        var cookieResult = _oAuthTransactionCookie.Read(HttpContext);
+        OAuthStateEntry? entry = null;
+
+        if (cookieResult.IsValid && cookieResult.Transaction is { } transaction)
         {
-            _logger.LogWarning(
-                "[SSO] State mismatch. Session state is {SessionState} but callback state starts with {CallbackPrefix}. " +
-                "Possible CSRF attempt.",
-                sessionState is null ? "(null)" : "(set)",
-                state.Length >= 8 ? state[..8] + "…" : state);
-            return FallBackToLoginForm(
-                sessionState is null ? "session_lost" : "invalid_state");
+            if (!CryptographicOperations.FixedTimeEquals(
+                    Encoding.UTF8.GetBytes(transaction.State), Encoding.UTF8.GetBytes(state)))
+                return RedirectToSsoDiagnostic("oauth_state_mismatch", transaction);
+
+            entry = new OAuthStateEntry
+            {
+                RepositoryId = transaction.RepositoryId,
+                ReturnUrl = transaction.ReturnUrl,
+                CodeVerifier = transaction.CodeVerifier,
+                RedirectUri = transaction.RedirectUri,
+                ExpiresAt = transaction.CreatedAtUtc.AddMinutes(10),
+            };
+        }
+        else if (!string.IsNullOrWhiteSpace(sessionState) &&
+                 string.Equals(sessionState, state, StringComparison.Ordinal))
+        {
+            entry = _oAuthStateStore.TryConsume(state);
+        }
+        else
+        {
+            return RedirectToSsoDiagnostic(cookieResult.CookiePresent
+                ? "oauth_correlation_cookie_invalid"
+                : "oauth_correlation_cookie_missing");
         }
 
-        // ── Consume state entry (anti-replay, expiry check) ───────────────────
-        var entry = _oAuthStateStore.TryConsume(state);
         _logger.LogInformation(
-            "[SSO] State lookup completed. State={State}; Found={StateFound}; " +
-            "PkceVerifierPresent={PkceVerifierPresent}; StoredRepository={StoredRepository}.",
+            "[SSO] Correlation lookup completed. State={State}; CookiePresent={CookiePresent}; " +
+            "CookieValid={CookieValid}; Found={StateFound}; PkceVerifierPresent={PkceVerifierPresent}; " +
+            "StoredRepository={StoredRepository}.",
             StateForLog(state),
+            cookieResult.CookiePresent,
+            cookieResult.IsValid,
             entry is not null,
             !string.IsNullOrWhiteSpace(entry?.CodeVerifier),
             entry?.RepositoryId ?? "(none)");
         if (entry is null)
         {
             // OAuthStateStore already logged the reason (expired / replay / unknown).
-            return FallBackToLoginForm("state_not_found");
+            return RedirectToSsoDiagnostic("oauth_correlation_cookie_missing");
         }
 
         if (string.IsNullOrWhiteSpace(entry.CodeVerifier))
         {
             _logger.LogError("[SSO] Callback rejected: stored PKCE verifier is missing.");
-            return FallBackToLoginForm("missing_pkce_verifier");
+            return RedirectToSsoDiagnostic("pkce_verifier_missing", cookieResult.Transaction);
         }
+        if (string.IsNullOrWhiteSpace(entry.RepositoryId))
+            return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
 
         // Clear pending state from session — successfully retrieved from store.
         HttpContext.Session.Remove(SessionKeyOAuthPendingState);
 
         // ── Repository consistency check ──────────────────────────────────────
-        var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+        var activeRepo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+        var repo = activeRepo with
+        {
+            RepositoryId = entry.RepositoryId,
+            DisplayName = entry.RepositoryId,
+        };
 
-        if (!string.IsNullOrEmpty(entry.RepositoryId) &&
-            !string.Equals(repo.RepositoryId, entry.RepositoryId, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(sessionState) && !string.IsNullOrEmpty(entry.RepositoryId) &&
+            !string.Equals(activeRepo.RepositoryId, entry.RepositoryId, StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning(
                 "[SSO] Repository mismatch: state={StateRepo} active={ActiveRepo}. " +
                 "Browser repository may have changed during the SSO flow.",
                 entry.RepositoryId,
                 repo.RepositoryId);
-            return FallBackToLoginForm("repository_mismatch");
+            return RedirectToSsoDiagnostic("repository_mismatch", cookieResult.Transaction);
         }
 
         var opts = _options.CurrentValue;
@@ -438,7 +483,11 @@ public sealed class LoginController : Controller
                     callbackUrl = entry.RedirectUri,
                 });
             }
-            return FallBackToLoginForm("callback_exception", ex.GetType().Name);
+            return RedirectToSsoDiagnostic(
+                "token_exchange_failed",
+                cookieResult.Transaction,
+                repo.RepositoryId,
+                opts.GetSsoTokenEndpoint(repo.RepositoryId));
         }
 
         if (!success)
@@ -447,7 +496,11 @@ public sealed class LoginController : Controller
                 "[SSO] Token exchange returned failure for repository {Repo}. " +
                 "Falling back to Login form.",
                 repo.RepositoryId);
-            return FallBackToLoginForm("token_exchange_failed");
+            return RedirectToSsoDiagnostic(
+                "token_exchange_failed",
+                cookieResult.Transaction,
+                repo.RepositoryId,
+                opts.GetSsoTokenEndpoint(repo.RepositoryId));
         }
 
         // ── Mark session as authenticated ─────────────────────────────────────
@@ -488,6 +541,20 @@ public sealed class LoginController : Controller
             identityName: null,
             repositoryId: repo.RepositoryId,
             authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+
+        _logger.LogInformation(
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+        _oAuthTransactionCookie.Delete(HttpContext);
 
         _logger.LogInformation(
             "[SSO] Session authenticated via LFDS for repository {Repo}.",
@@ -547,6 +614,7 @@ public sealed class LoginController : Controller
         await _authService.InvalidateCurrentSessionTokensAsync();
 
         await HttpContext.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
+        _oAuthTransactionCookie.Delete(HttpContext);
 
         HttpContext.Session.Remove(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId);
         HttpContext.Session.Remove(SessionKeyOAuthPendingState);
@@ -607,8 +675,7 @@ public sealed class LoginController : Controller
     }
 
     /// <summary>
-    /// Builds the OAuth2 redirect URI to register on LFDS.
-    /// Uses the configured override when set; otherwise derives it from the current request.
+    /// Returns the deterministic OAuth2 redirect URI derived from DashboardPublicBaseUrl.
     /// </summary>
     private string BuildCallbackUri(LaserficheOptions opts)
     {
@@ -620,6 +687,25 @@ public sealed class LoginController : Controller
         (laserfiche.ResponseBody?.Contains("invalid or untrusted SAML token",
              StringComparison.OrdinalIgnoreCase) == true ||
          string.Equals(laserfiche.LFErrorCode, "9530", StringComparison.OrdinalIgnoreCase));
+
+    private RedirectToActionResult RedirectToSsoDiagnostic(
+        string reason,
+        OAuthTransaction? transaction = null,
+        string? repositoryId = null,
+        string? tokenEndpoint = null)
+    {
+        _logger.LogWarning(
+            "[SSO] Redirecting to diagnostic page. FailureReason={FailureReason}; Repository={Repository}.",
+            reason,
+            repositoryId ?? transaction?.RepositoryId ?? "(unknown)");
+        return RedirectToAction("Diagnostic", new
+        {
+            reason,
+            repositoryId = repositoryId ?? transaction?.RepositoryId,
+            tokenEndpoint,
+            callbackUrl = transaction?.RedirectUri,
+        });
+    }
 
     /// <summary>Displays actionable SSO/configuration failures without password fallback.</summary>
     [HttpGet("/Login/SsoDiagnostic")]
@@ -634,12 +720,24 @@ public sealed class LoginController : Controller
         return View("SsoDiagnostic", new SsoDiagnosticViewModel
         {
             Reason = reason,
-            Detail = detail,
+            Detail = detail ?? DescribeSsoDiagnostic(reason),
             RepositoryId = repositoryId ?? opts.RepositoryId,
             TokenEndpoint = tokenEndpoint ?? opts.GetSsoTokenEndpoint(repositoryId ?? opts.RepositoryId),
             CallbackUrl = callbackUrl ?? opts.SsoCallbackUrl,
         });
     }
+
+    private static string DescribeSsoDiagnostic(string reason) => reason switch
+    {
+        "oauth_correlation_cookie_missing" => "Dashboard did not receive the OAuth correlation cookie after LFDS returned. Check browser cookie policy, host mismatch, or IIS/app restart.",
+        "oauth_correlation_cookie_invalid" => "Dashboard received the OAuth correlation cookie, but it was invalid or expired.",
+        "oauth_state_mismatch" => "The OAuth state returned by LFDS did not match the protected Dashboard transaction.",
+        "pkce_verifier_missing" => "The protected OAuth transaction did not contain the PKCE verifier required for token exchange.",
+        "token_exchange_failed" => "LFDS returned to Dashboard, but Repository API rejected the authorization-code exchange.",
+        "repository_mismatch" => "The repository changed during the LFDS authentication transaction.",
+        "oauth_repository_missing" => "The protected OAuth transaction did not contain a repository identifier.",
+        _ => "The LFDS OAuth transaction could not be completed.",
+    };
 
     /// <summary>Redirects to the Login form with the SSO-failed flag set.</summary>
     private RedirectToActionResult FallBackToLoginForm(
@@ -666,10 +764,11 @@ public sealed class LoginController : Controller
         "provider_error"        => "Laserfiche returned an authorization error.",
         "missing_code"          => "The callback did not contain an authorization code.",
         "missing_state"         => "The callback did not contain OAuth state.",
-        "session_lost"          => "The Dashboard session was lost during the LFDS round trip.",
-        "invalid_state"         => "The OAuth state did not match the Dashboard session.",
-        "state_not_found"       => "The OAuth state expired, was already used, or was not issued by this Dashboard process.",
-        "missing_pkce_verifier" => "The stored PKCE verifier was missing.",
+        "oauth_correlation_cookie_missing" => "Dashboard did not receive the OAuth correlation cookie after LFDS returned. Check browser cookie policy, host mismatch, or IIS/app restart.",
+        "oauth_correlation_cookie_invalid" => "The OAuth correlation cookie could not be decrypted or has expired.",
+        "oauth_state_mismatch"   => "The returned OAuth state did not match the protected Dashboard transaction.",
+        "pkce_verifier_missing"  => "The protected OAuth transaction did not contain its PKCE verifier.",
+        "oauth_repository_missing" => "The protected OAuth transaction did not identify a repository.",
         "repository_mismatch"   => "The active repository changed during authentication.",
         "token_exchange_failed" => "Repository API rejected the authorization-code exchange.",
         "callback_exception"    => "An unexpected error occurred during the OAuth callback.",

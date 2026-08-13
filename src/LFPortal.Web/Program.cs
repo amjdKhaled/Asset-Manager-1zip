@@ -116,6 +116,7 @@ try
             options.SlidingExpiration = true;
         });
     builder.Services.AddAuthorization();
+    builder.Services.AddSingleton<IOAuthTransactionCookie, OAuthTransactionCookie>();
 
     // ── Laserfiche Infrastructure layer ───────────────────────────────────────
     builder.Services.AddLaserficheInfrastructure(builder.Configuration);

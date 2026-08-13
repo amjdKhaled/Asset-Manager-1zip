@@ -75,14 +75,6 @@ public sealed class LoginControllerSsoDormantTests
         var storeSpy  = new SpyOAuthStateStore();
         var monitor   = new StaticOptionsMonitor<LaserficheOptions>(opts);
 
-        var ctrl = new LoginController(
-            authSpy,
-            repoCtx,
-            credStore,
-            storeSpy,
-            monitor,
-            NullLogger<LoginController>.Instance);
-
         var httpCtx  = new DefaultHttpContext();
         var session  = new TestSession();
 
@@ -95,7 +87,8 @@ public sealed class LoginControllerSsoDormantTests
             {
                 options.Cookie.Name = ".Dashboard.Authentication";
             });
-        httpCtx.RequestServices = services.BuildServiceProvider();
+        var serviceProvider = services.BuildServiceProvider();
+        httpCtx.RequestServices = serviceProvider;
         httpCtx.Request.Scheme = "https";
         httpCtx.Request.Host = new HostString("dashboard.test");
 
@@ -106,6 +99,15 @@ public sealed class LoginControllerSsoDormantTests
             session.SetString("ActiveRepositorySource", "Laserfiche Web Client");
 
         httpCtx.Session = session;
+
+        var ctrl = new LoginController(
+            authSpy,
+            repoCtx,
+            credStore,
+            storeSpy,
+            new OAuthTransactionCookie(serviceProvider.GetRequiredService<IDataProtectionProvider>()),
+            monitor,
+            NullLogger<LoginController>.Instance);
 
         ctrl.ControllerContext = new ControllerContext
         {
@@ -469,7 +471,7 @@ public sealed class LoginControllerSsoDormantTests
     }
 
     [Fact]
-    public async Task Sso_Callback_WhenSessionWasLost_ReturnsSpecificFailureReason()
+    public async Task Sso_Callback_WithoutSessionOrCookie_ReturnsCorrelationCookieMissing()
     {
         var (ctrl, auth, _) = Build(SsoOptions(), directBrowser: false);
 
@@ -479,8 +481,81 @@ public sealed class LoginControllerSsoDormantTests
             cancellationToken: default);
 
         var redirect = Assert.IsType<RedirectToActionResult>(result);
-        Assert.Equal("session_lost", redirect.RouteValues?["ssoFailure"]);
+        Assert.Equal("Diagnostic", redirect.ActionName);
+        Assert.Equal("oauth_correlation_cookie_missing", redirect.RouteValues?["reason"]);
         Assert.Equal(0, auth.ExchangeAuthCodeCallCount);
+    }
+
+    [Fact]
+    public async Task StartSso_WritesProtectedHttpOnlyCorrelationCookie()
+    {
+        var (ctrl, _, _) = Build(SsoOptions(), directBrowser: false);
+
+        await ctrl.StartSso("/Dashboard", default);
+
+        var cookie = ctrl.Response.Headers.SetCookie.ToString();
+        Assert.Contains(".Dashboard.OAuth.Correlation=", cookie);
+        Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=lax", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("code_verifier", cookie, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Sso_Callback_ValidCookieSucceedsWhenAspNetSessionIsLost_AndDeletesCookie()
+    {
+        var (ctrl, auth, _) = Build(SsoOptions(), directBrowser: false);
+        await ctrl.StartSso("/Dashboard", default);
+        var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
+        var correlation = ctrl.Response.Headers.SetCookie.ToString().Split(';', 2)[0];
+        ctrl.HttpContext.Request.Headers.Cookie = correlation;
+        ctrl.HttpContext.Session = new TestSession();
+
+        var result = await ctrl.Callback("valid-code", state, cancellationToken: default);
+
+        Assert.IsType<LocalRedirectResult>(result);
+        Assert.Equal(1, auth.ExchangeAuthCodeCallCount);
+        Assert.Equal("https://dashboard.test/login/Callback", auth.LastExchangeRedirectUri);
+        Assert.Equal("TestRepo", ctrl.HttpContext.Session.GetString("ActiveRepositoryId"));
+        Assert.Equal("TestRepo", ctrl.HttpContext.Session.GetString("AuthenticatedRepositoryId"));
+        Assert.Contains(
+            ".Dashboard.OAuth.Correlation=; expires=",
+            ctrl.Response.Headers.SetCookie.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Sso_Callback_CookieStateMismatch_ReturnsSpecificReason()
+    {
+        var (ctrl, auth, _) = Build(SsoOptions(), directBrowser: false);
+        await ctrl.StartSso("/Dashboard", default);
+        var correlation = ctrl.Response.Headers.SetCookie.ToString().Split(';', 2)[0];
+        ctrl.HttpContext.Request.Headers.Cookie = correlation;
+        ctrl.HttpContext.Session = new TestSession();
+
+        var result = await ctrl.Callback("valid-code", "different-state", cancellationToken: default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Diagnostic", redirect.ActionName);
+        Assert.Equal("oauth_state_mismatch", redirect.RouteValues?["reason"]);
+        Assert.Equal(0, auth.ExchangeAuthCodeCallCount);
+    }
+
+    [Fact]
+    public async Task Sso_Callback_TokenExchangeFailure_ReturnsDiagnosticNotPasswordLogin()
+    {
+        var (ctrl, auth, _) = Build(SsoOptions(), directBrowser: false);
+        auth.ExchangeException = new LaserficheException("Rejected", 401);
+        await ctrl.StartSso("/Dashboard", default);
+        var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
+        ctrl.HttpContext.Request.Headers.Cookie =
+            ctrl.Response.Headers.SetCookie.ToString().Split(';', 2)[0];
+
+        var result = await ctrl.Callback("code", state, cancellationToken: default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Diagnostic", redirect.ActionName);
+        Assert.Equal("token_exchange_failed", redirect.RouteValues?["reason"]);
+        Assert.NotEqual("Index", redirect.ActionName);
     }
 
     [Fact]
@@ -659,6 +734,7 @@ public sealed class LoginControllerSsoDormantTests
         public int  ExchangeAuthCodeCallCount   { get; private set; }
         public bool InvalidateCurrentSessionCalled { get; private set; }
         public Exception? ExchangeException { get; set; }
+        public string? LastExchangeRedirectUri { get; private set; }
 
         public Task<bool> TryAuthenticateAsync(
             RepositoryDescriptor r, string u, string p, CancellationToken ct = default)
@@ -672,6 +748,7 @@ public sealed class LoginControllerSsoDormantTests
             string redirectUri, string clientId, CancellationToken ct = default)
         {
             ExchangeAuthCodeCallCount++;
+            LastExchangeRedirectUri = redirectUri;
             if (ExchangeException is not null)
                 return Task.FromException<bool>(ExchangeException);
             return Task.FromResult(true);
