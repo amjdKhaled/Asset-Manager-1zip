@@ -311,6 +311,7 @@ public sealed class LoginController : Controller
         // ── Build authorization URL ───────────────────────────────────────────
        
 
+
         _logger.LogInformation(
             "[SSO] Redirecting to Repository API authorize URL: {AuthorizeUrl} " +
             "(Repo={Repo}, RedirectUri={RedirectUri})",
@@ -318,14 +319,7 @@ public sealed class LoginController : Controller
             repo.RepositoryId,
             redirectUri);
 
-        _logger.LogInformation(
-            "[SSO] Redirecting to Repository API authorize URL: {AuthorizeUrl} " +
-            "(Repo={Repo}, RedirectUri={RedirectUri})",
-            authorizeUrl,
-            repo.RepositoryId,
-            redirectUri);
-
-        return Redirect(authorizeUrl);
+        return Redirect(authUrl);
     }
 
     // ------------------------------------------------------------------ //
