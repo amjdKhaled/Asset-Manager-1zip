@@ -300,12 +300,15 @@ public sealed class LoginController : Controller
         // Bind state to this session so the callback can validate CSRF.
         HttpContext.Session.SetString(SessionKeyOAuthPendingState, state);
 
+        // ── Build authorization URL ───────────────────────────────────────────
+        var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
+
         _logger.LogInformation(
             "[SSO] OAuth correlation written. State={State}; CookieWritten=true; " +
             "Repository={Repository}; CallbackUrl={CallbackUrl}; ReturnUrl={ReturnUrl}.",
             StateForLog(state), repo.RepositoryId, redirectUri, returnUrl);
 
-        // Build the authorize URL exactly once; the same value is logged and redirected.
+        // ── Build authorization URL ───────────────────────────────────────────
         var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
 
         _logger.LogInformation(
@@ -423,6 +426,14 @@ public sealed class LoginController : Controller
         if (string.IsNullOrWhiteSpace(entry.RepositoryId))
             return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
 
+        if (string.IsNullOrWhiteSpace(entry.CodeVerifier))
+        {
+            _logger.LogError("[SSO] Callback rejected: stored PKCE verifier is missing.");
+            return RedirectToSsoDiagnostic("pkce_verifier_missing", cookieResult.Transaction);
+        }
+        if (string.IsNullOrWhiteSpace(entry.RepositoryId))
+            return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
+
         // Clear pending state from session — successfully retrieved from store.
         HttpContext.Session.Remove(SessionKeyOAuthPendingState);
 
@@ -507,6 +518,65 @@ public sealed class LoginController : Controller
         HttpContext.Session.SetString(
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
             repo.RepositoryId);
+
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+
+        _logger.LogInformation(
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+
+        _logger.LogInformation(
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+
+        _logger.LogInformation(
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+        _oAuthTransactionCookie.Delete(HttpContext);
+
+        _logger.LogInformation(
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+        _oAuthTransactionCookie.Delete(HttpContext);
 
         _logger.LogInformation(
             "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
