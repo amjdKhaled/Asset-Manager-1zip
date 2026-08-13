@@ -318,7 +318,14 @@ public sealed class LoginController : Controller
             repo.RepositoryId,
             redirectUri);
 
-        return Redirect(authUrl);
+        _logger.LogInformation(
+            "[SSO] Redirecting to Repository API authorize URL: {AuthorizeUrl} " +
+            "(Repo={Repo}, RedirectUri={RedirectUri})",
+            authorizeUrl,
+            repo.RepositoryId,
+            redirectUri);
+
+        return Redirect(authorizeUrl);
     }
 
     // ------------------------------------------------------------------ //
@@ -549,6 +556,20 @@ public sealed class LoginController : Controller
             identityName: null,
             repositoryId: repo.RepositoryId,
             authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+
+        _logger.LogInformation(
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+        _oAuthTransactionCookie.Delete(HttpContext);
 
         _logger.LogInformation(
             "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
