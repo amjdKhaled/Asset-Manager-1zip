@@ -1,21 +1,21 @@
 using LFPortal.Infrastructure.Options;
+using LFPortal.Web.Authentication;
 using Microsoft.Extensions.Options;
 
 namespace LFPortal.Web.Middleware;
 
 /// <summary>
-/// Guards protected routes for Desktop Client sessions that have not yet completed
-/// the Login flow for the currently active repository.
+/// Guards protected routes until the browser has completed Laserfiche authentication
+/// for the currently active repository.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The guard fires when the session was opened from the Laserfiche Desktop Client
-/// (<c>ActiveRepositorySource == "Laserfiche Desktop Client"</c>).
+/// Desktop Client sessions are always guarded. Web Client and direct-browser sessions
+/// are also guarded when LFDS SSO is configured.
 /// </para>
 /// <para>
-/// <b>Web Client</b> and <b>direct browser</b> sessions are <em>not</em> guarded:
-/// they use the Dashboard's own DPAPI-protected server-side credentials for all API
-/// communication.  No username/password form is shown to the end user.
+/// When LFDS SSO is dormant, Web Client and configured direct-browser sessions preserve
+/// their legacy fallback behavior.
 /// </para>
 /// <para>
 /// A guarded session is considered authenticated when <c>AuthenticatedRepositoryId</c>
@@ -39,19 +39,8 @@ public sealed class SessionAuthGuardMiddleware
     private  const string SessionKeyActiveRepoSource    = "ActiveRepositorySource";
 
     /// <summary>
-    /// Sources that require an explicit Login before accessing repository data.
-    /// <para>
-    /// <b>Laserfiche Web Client</b> is intentionally excluded: the Dashboard uses its own
-    /// DPAPI-protected credentials and opens directly without a login prompt.
-    /// Direct browser access (null / empty source) is likewise not guarded.
-    /// </para>
+    /// Determines whether the current launch context requires authentication.
     /// </summary>
-    private static readonly HashSet<string> GuardedSources =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            "Laserfiche Desktop Client",
-        };
-
     private readonly RequestDelegate _next;
     private readonly IOptionsMonitor<LaserficheOptions> _options;
     private readonly ILogger<SessionAuthGuardMiddleware> _logger;
@@ -68,8 +57,7 @@ public sealed class SessionAuthGuardMiddleware
     }
 
     /// <summary>
-    /// Processes the request, redirecting unauthenticated Desktop Client or
-    /// Web Client sessions to Login.
+    /// Processes the request, redirecting protected unauthenticated sessions to Login.
     /// </summary>
     public async Task InvokeAsync(HttpContext context)
     {
@@ -81,7 +69,28 @@ public sealed class SessionAuthGuardMiddleware
         var source = context.Session.GetString(SessionKeyActiveRepoSource);
         var path   = context.Request.Path;
 
-        if (!GuardedSources.Contains(source ?? string.Empty))
+        // Cookie authentication proves the browser identity. Repository session
+        // markers remain required because the OAuth token cache is session-scoped;
+        // if that session is gone the flow must reacquire a token rather than silently
+        // falling back to a different credential source.
+        var claimedRepoId = context.User.FindFirst(
+            DashboardAuthenticationDefaults.RepositoryClaimType)?.Value;
+        var hasAuthenticatedRepository =
+            context.User.Identity?.IsAuthenticated == true &&
+            !string.IsNullOrWhiteSpace(claimedRepoId);
+
+        // Desktop launches always require authentication. Web Client launches use
+        // the same guard when LFDS SSO is configured; with dormant/default SSO they
+        // retain the legacy direct-open behavior.
+        var mustAuthenticate =
+            string.Equals(source, RepositorySessionMiddleware.SourceDesktop,
+                StringComparison.OrdinalIgnoreCase) ||
+            (string.Equals(source, RepositorySessionMiddleware.SourceWebClient,
+                 StringComparison.OrdinalIgnoreCase) &&
+             _options.CurrentValue.Sso.IsConfigured) ||
+            (string.IsNullOrWhiteSpace(source) && _options.CurrentValue.Sso.IsConfigured);
+
+        if (!mustAuthenticate)
         {
             var sessionRepo    = context.Session.GetString(SessionKeyActiveRepoId);
             var configuredRepo = _options.CurrentValue.RepositoryId;
@@ -108,25 +117,34 @@ public sealed class SessionAuthGuardMiddleware
             return;
         }
 
-        // Check whether the session is authenticated for the currently active repository.
+        // Require the authenticated cookie identity and bind it to the active
+        // repository. The session key is retained as token/session state, but is
+        // not by itself proof of an authenticated browser on subsequent requests.
         var activeRepoId        = context.Session.GetString(SessionKeyActiveRepoId);
         var authenticatedRepoId = context.Session.GetString(SessionKeyAuthenticatedRepoId);
-
         bool isAuthenticated =
+            hasAuthenticatedRepository &&
             !string.IsNullOrWhiteSpace(authenticatedRepoId) &&
             !string.IsNullOrWhiteSpace(activeRepoId) &&
-            string.Equals(authenticatedRepoId, activeRepoId, StringComparison.OrdinalIgnoreCase);
+            !string.IsNullOrWhiteSpace(claimedRepoId) &&
+            string.Equals(authenticatedRepoId, activeRepoId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(claimedRepoId, activeRepoId, StringComparison.OrdinalIgnoreCase);
 
         if (!isAuthenticated)
         {
             _logger.LogInformation(
                 "{Source} session not authenticated for repository {ActiveRepo} " +
-                "(authenticated: {AuthRepo}). Redirecting to /Login.",
+                "(authenticated: {AuthRepo}, cookie authenticated: {CookieAuthenticated}, " +
+                "claimed repository: {ClaimedRepo}). Redirecting to /Login.",
                 source,
                 activeRepoId ?? "(none)",
-                authenticatedRepoId ?? "(none)");
+                authenticatedRepoId ?? "(none)",
+                context.User.Identity?.IsAuthenticated == true,
+                claimedRepoId ?? "(none)");
 
-            context.Response.Redirect("/Login");
+            var returnUrl = Uri.EscapeDataString(
+                context.Request.PathBase + context.Request.Path + context.Request.QueryString);
+            context.Response.Redirect($"/Login?returnUrl={returnUrl}");
             return;
         }
 
