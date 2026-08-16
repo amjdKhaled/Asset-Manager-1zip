@@ -104,7 +104,6 @@ public sealed class LoginControllerSsoDormantTests
 
         var ctrl = new LoginController(
             authSpy,
-            new StubRepositoryService(),
             repoCtx,
             credStore,
             storeSpy,
@@ -274,10 +273,8 @@ public sealed class LoginControllerSsoDormantTests
         var (ctrl, _, _) = Build(SsoOptions());
         var result = await ctrl.Index(cancellationToken: default);
 
-        var view = Assert.IsType<ViewResult>(result);
-        var model = Assert.IsType<LoginViewModel>(view.Model);
-        Assert.Contains(model.Repositories, repository => repository.RepositoryId == "TestRepo");
-        Assert.False(model.IsRepositoryPasswordMode);
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("StartSso", redirect.ActionName);
     }
 
     [Fact]
@@ -364,17 +361,6 @@ public sealed class LoginControllerSsoDormantTests
         Assert.Contains("code_challenge=", uri.Query);
         Assert.Contains("code_challenge_method=S256", uri.Query);
         Assert.Equal("/Dashboard?repository=TestRepo&source=webclient", store.LastStoredEntry?.ReturnUrl);
-    }
-
-    [Fact]
-    public async Task StartSso_WithoutRepository_ReturnsToLoginWithValidationFailure()
-    {
-        var (ctrl, auth, _) = Build(SsoOptions());
-        var result = await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default);
-        var redirect = Assert.IsType<RedirectToActionResult>(result);
-        Assert.Equal("Index", redirect.ActionName);
-        Assert.Equal("invalid_repository", redirect.RouteValues?["ssoFailure"]);
-        Assert.Equal(0, auth.ExchangeAuthCodeCallCount);
     }
 
     [Fact]

@@ -213,34 +213,25 @@
             }
 
             @* ── Credentials form ── *@
-            <form method="@(Model.IsRepositoryPasswordMode ? "post" : "get")"
-                  asp-controller="Login"
-                  asp-action="@(Model.IsRepositoryPasswordMode ? "Index" : "StartSso")"
-                  novalidate>
-                @if (Model.IsRepositoryPasswordMode) { @Html.AntiForgeryToken() }
+            <form method="post" asp-controller="Login" asp-action="Index" novalidate>
+                @Html.AntiForgeryToken()
                 <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
 
-                <div class="field">
-                    <label for="Repository">Repository</label>
-                    <select id="Repository" name="Repository" required>
-                        <option value="">Select a repository</option>
-                        @foreach (var repository in Model.Repositories)
-                        {
-                            if (string.Equals(repository.RepositoryId, Model.SubmittedRepository, StringComparison.OrdinalIgnoreCase))
-                            {
-                                <option value="@repository.RepositoryId" selected>@repository.RepositoryName (@repository.RepositoryId)</option>
-                            }
-                            else
-                            {
-                                <option value="@repository.RepositoryId">@repository.RepositoryName (@repository.RepositoryId)</option>
-                            }
-                        }
-                    </select>
-                    @if (!string.IsNullOrWhiteSpace(Model.RepositoryLoadError))
-                    {
-                        <div class="field-error">@Model.RepositoryLoadError</div>
-                    }
-                </div>
+                @if (!Model.AllowRepositoryInput)
+                {
+                    <div class="repo-row" aria-label="Active repository: @Model.ActiveRepository">
+                        <div class="repo-row__icon">&#128193;</div>
+                        <div><div class="repo-row__label">Repository</div><div class="repo-row__name">@Model.ActiveRepository</div></div>
+                    </div>
+                }
+                else
+                {
+                    <div class="field">
+                        <label for="Repository">Repository</label>
+                        <input type="text" id="Repository" name="Repository"
+                               value="@Html.Encode(Model.SubmittedRepository)" required />
+                    </div>
+                }
 
                 @if (Model.IsRepositoryPasswordMode)
                 {
