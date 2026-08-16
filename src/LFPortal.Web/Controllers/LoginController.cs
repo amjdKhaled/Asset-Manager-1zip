@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Exceptions;
+using LFPortal.Domain.Entities;
 using LFPortal.Infrastructure.OAuth;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Middleware;
@@ -43,6 +44,7 @@ public sealed class LoginController : Controller
     internal const string SessionKeyAuthenticatedUser = "AuthenticatedLaserficheUser";
 
     private readonly ILaserficheAuthService     _authService;
+    private readonly ILaserficheRepositoryService _repositoryService;
     private readonly IRepositoryContext         _repositoryContext;
     private readonly ISessionCredentialStore    _sessionCredentialStore;
     private readonly IOAuthStateStore           _oAuthStateStore;
@@ -53,6 +55,7 @@ public sealed class LoginController : Controller
     /// <summary>Initialises the controller.</summary>
     public LoginController(
         ILaserficheAuthService       authService,
+        ILaserficheRepositoryService repositoryService,
         IRepositoryContext           repositoryContext,
         ISessionCredentialStore      sessionCredentialStore,
         IOAuthStateStore             oAuthStateStore,
@@ -61,6 +64,7 @@ public sealed class LoginController : Controller
         ILogger<LoginController>     logger)
     {
         _authService             = authService;
+        _repositoryService       = repositoryService;
         _repositoryContext       = repositoryContext;
         _sessionCredentialStore  = sessionCredentialStore;
         _oAuthStateStore         = oAuthStateStore;
@@ -83,27 +87,24 @@ public sealed class LoginController : Controller
         bool   ssoFailed         = false,
         string? ssoFailure       = null,
         string? returnUrl        = null,
+        string? repository       = null,
         CancellationToken cancellationToken = default)
     {
         var opts = _options.CurrentValue;
 
-        // ── SSO fast-path ─────────────────────────────────────────────────────
-        // When LFDS is configured and SSO has not already failed this session,
-        // redirect transparently so the credential form is never shown.
-        if (opts.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
-            opts.Sso.IsConfigured && !ssoFailed)
-        {
-            _logger.LogInformation("[SSO] LFDS configured — redirecting to StartSso.");
-            return RedirectToAction("StartSso", new { returnUrl });
-        }
-
-        // ── Password-grant form ───────────────────────────────────────────────
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+        var repositories = await LoadLoginRepositoriesAsync(cancellationToken);
+        var requestedRepository = !string.IsNullOrWhiteSpace(repository)
+            ? repository.Trim()
+            : !string.IsNullOrWhiteSpace(repo.RepositoryId)
+                ? repo.RepositoryId
+                : opts.AllowDefaultRepository ? opts.RepositoryId : string.Empty;
         var vm   = new LoginViewModel
         {
-            ActiveRepository     = repo.RepositoryId,
-            AllowRepositoryInput = AllowRepositoryInput(),
-            SubmittedRepository  = repo.RepositoryId,
+            ActiveRepository     = requestedRepository,
+            AllowRepositoryInput = true,
+            SubmittedRepository  = requestedRepository,
+            Repositories         = repositories,
             SsoFailed            = ssoFailed &&
                 opts.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
                 opts.Sso.IsConfigured,
@@ -115,6 +116,9 @@ public sealed class LoginController : Controller
             IsRepositoryPasswordMode =
                 opts.AuthenticationMode == LaserficheAuthenticationMode.RepositoryPassword,
             ReturnUrl = IsLocalUrl(returnUrl) ? returnUrl : null,
+            RepositoryLoadError = repositories.Count == 0
+                ? "No repositories were returned by the Repository API."
+                : null,
         };
         return View(vm);
     }
@@ -135,12 +139,9 @@ public sealed class LoginController : Controller
     {
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
         var opts = _options.CurrentValue;
-        var allowRepoInput = opts.AuthenticationMode ==
-            LaserficheAuthenticationMode.RepositoryPassword || AllowRepositoryInput();
-
-        var repoId = allowRepoInput && !string.IsNullOrWhiteSpace(input.Repository)
-            ? input.Repository.Trim()
-            : repo.RepositoryId;
+        var repositories = await LoadLoginRepositoriesAsync(cancellationToken);
+        var allowRepoInput = true;
+        var repoId = input.Repository?.Trim() ?? string.Empty;
 
         LoginViewModel ViewWithError(string? error) => new()
         {
@@ -152,6 +153,7 @@ public sealed class LoginController : Controller
             IsRepositoryPasswordMode = opts.AuthenticationMode ==
                 LaserficheAuthenticationMode.RepositoryPassword,
             ReturnUrl = input.ReturnUrl,
+            Repositories = repositories,
         };
 
         if (!ModelState.IsValid)
@@ -163,6 +165,12 @@ public sealed class LoginController : Controller
                 "Enter the name of the Laserfiche repository to sign in to."));
         }
 
+        if (!repositories.Any(repository => string.Equals(
+                repository.RepositoryId, repoId, StringComparison.OrdinalIgnoreCase)))
+            return View(ViewWithError("Select a valid repository from the list."));
+
+        await ResetForRepositoryChangeAsync(repoId, cancellationToken);
+
         var targetRepo = repo with { RepositoryId = repoId, DisplayName = repoId };
 
         // Establish a stable per-browser cache scope before acquiring the token.
@@ -170,6 +178,8 @@ public sealed class LoginController : Controller
         HttpContext.Session.SetString(
             RepositorySessionMiddleware.SessionKeyRepositoryId,
             repoId);
+        HttpContext.Session.SetString("AuthenticationScopeMethod", "RepositoryPassword");
+        HttpContext.Session.SetString("AuthenticationScopeSubject", input.Username);
 
         _logger.LogInformation(
             "Login: authenticating user {Username} for repository {RepoId}.",
@@ -249,7 +259,8 @@ public sealed class LoginController : Controller
     [HttpGet("/Login/StartSso")]
     public async Task<IActionResult> StartSso(
         string? returnUrl        = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? repository       = null)
     {
         var opts = _options.CurrentValue;
 
@@ -259,6 +270,24 @@ public sealed class LoginController : Controller
                 opts.AuthenticationMode);
             return RedirectToAction("Index", "Login", new { returnUrl });
         }
+
+        var repositories = await LoadLoginRepositoriesAsync(cancellationToken);
+        var selectedRepository = repository?.Trim();
+        if (string.IsNullOrWhiteSpace(selectedRepository) ||
+            !repositories.Any(item => string.Equals(
+                item.RepositoryId, selectedRepository, StringComparison.OrdinalIgnoreCase)))
+        {
+            _logger.LogWarning("[SSO] StartSso rejected missing/invalid repository {Repository}.", repository);
+            return RedirectToAction("Index", "Login", new
+            {
+                returnUrl,
+                repository,
+                ssoFailed = true,
+                ssoFailure = "invalid_repository"
+            });
+        }
+        if (!IsLocalUrl(returnUrl))
+            returnUrl = $"/Dashboard?repository={Uri.EscapeDataString(selectedRepository)}&source=dashboard-login";
 
         if (!opts.Sso.IsConfigured)
         {
@@ -291,12 +320,14 @@ public sealed class LoginController : Controller
         // Client may have changed users since the last Dashboard window, while the
         // Dashboard cookie/session is still alive. Invalidate the old token scope
         // before clearing the session so no token can cross that boundary.
-        if (IsWebClientLaunch(returnUrl))
+        if (IsWebClientLaunch(returnUrl) || !string.Equals(
+                HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId),
+                selectedRepository,
+                StringComparison.OrdinalIgnoreCase))
         {
             var oldUser = User?.Identity?.Name ??
                 HttpContext.Session.GetString(SessionKeyAuthenticatedUser) ?? "(unknown)";
-            var repositoryId = HttpContext.Session.GetString(
-                RepositorySessionMiddleware.SessionKeyRepositoryId);
+            var repositoryId = selectedRepository;
 
             _logger.LogInformation(
                 "[SSO] New Web Client launch. OldUser={OldUser}; invalidating previous Dashboard identity.",
@@ -323,9 +354,11 @@ public sealed class LoginController : Controller
                 repositoryId ?? "(configured default)");
         }
 
-        // Validate returnUrl — anti-open-redirect.
-        if (!IsLocalUrl(returnUrl))
-            returnUrl = Url.Action("Index", "Dashboard")!;
+        HttpContext.Session.SetString(
+            RepositorySessionMiddleware.SessionKeyRepositoryId, selectedRepository);
+        HttpContext.Session.SetString("AuthenticationScopeMethod", "LFDS");
+        HttpContext.Session.SetString("AuthenticationScopeSubject", Guid.NewGuid().ToString("N"));
+        _logger.LogInformation("[SSO] StartSso selected repository {RepositoryId}.", selectedRepository);
 
         // Resolve active repository (populated by RepositorySessionMiddleware).
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
@@ -495,8 +528,6 @@ public sealed class LoginController : Controller
             // OAuthStateStore already logged the reason (expired / replay / unknown).
             return RedirectToSsoDiagnostic("oauth_correlation_cookie_missing");
         }
-        if (string.IsNullOrWhiteSpace(entry.RepositoryId))
-            return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
 
         if (string.IsNullOrWhiteSpace(entry.CodeVerifier))
         {
@@ -621,90 +652,6 @@ public sealed class LoginController : Controller
             identityName: null,
             repositoryId: repo.RepositoryId,
             authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
-
-        _logger.LogInformation(
-            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
-            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
-            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
-            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
-            repo.RepositoryId);
-
-        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
-        await EstablishDashboardIdentityAsync(
-            identityName: null,
-            repositoryId: repo.RepositoryId,
-            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
-        _oAuthTransactionCookie.Delete(HttpContext);
-
-        _logger.LogInformation(
-            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
-            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
-            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
-            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
-            repo.RepositoryId);
-
-        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
-        await EstablishDashboardIdentityAsync(
-            identityName: null,
-            repositoryId: repo.RepositoryId,
-            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
-        _oAuthTransactionCookie.Delete(HttpContext);
-
-        _logger.LogInformation(
-            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
-            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
-            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
-            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
-            repo.RepositoryId);
-
-        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
-        await EstablishDashboardIdentityAsync(
-            identityName: null,
-            repositoryId: repo.RepositoryId,
-            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
-        _oAuthTransactionCookie.Delete(HttpContext);
-
-        _logger.LogInformation(
-            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
-            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
-            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
-            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
-            repo.RepositoryId);
-
-        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
-        await EstablishDashboardIdentityAsync(
-            identityName: null,
-            repositoryId: repo.RepositoryId,
-            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
-        _oAuthTransactionCookie.Delete(HttpContext);
-
-        _logger.LogInformation(
-            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
-            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
-            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
-            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
-            repo.RepositoryId);
-
-        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
-        await EstablishDashboardIdentityAsync(
-            identityName: null,
-            repositoryId: repo.RepositoryId,
-            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
-        _oAuthTransactionCookie.Delete(HttpContext);
-
-        _logger.LogInformation(
-            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
-            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
-            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
-            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
-            repo.RepositoryId);
-
-        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
-        await EstablishDashboardIdentityAsync(
-            identityName: null,
-            repositoryId: repo.RepositoryId,
-            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
-        _oAuthTransactionCookie.Delete(HttpContext);
 
         _logger.LogInformation(
             "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
@@ -888,6 +835,46 @@ public sealed class LoginController : Controller
             returnUrl.Contains("source=webclient", StringComparison.OrdinalIgnoreCase);
     }
 
+    private async Task<IReadOnlyList<RepositoryInfo>> LoadLoginRepositoriesAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var repositories = await _repositoryService
+                .GetRepositoriesForLoginAsync(cancellationToken);
+            _logger.LogInformation(
+                "Repositories loaded for login. Count={RepositoryCount}; Ids={RepositoryIds}.",
+                repositories.Count,
+                string.Join(",", repositories.Select(static repository => repository.RepositoryId)));
+            return repositories;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not load repositories for login.");
+            return [];
+        }
+    }
+
+    private async Task ResetForRepositoryChangeAsync(
+        string selectedRepository,
+        CancellationToken cancellationToken)
+    {
+        var oldRepository = HttpContext.Session.GetString(
+            RepositorySessionMiddleware.SessionKeyRepositoryId);
+        if (string.IsNullOrWhiteSpace(oldRepository) || string.Equals(
+                oldRepository, selectedRepository, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        await _authService.InvalidateCurrentSessionTokensAsync();
+        await HttpContext.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
+        _oAuthTransactionCookie.Delete(HttpContext);
+        await _sessionCredentialStore.ClearAsync(cancellationToken);
+        HttpContext.Session.Clear();
+        _logger.LogInformation(
+            "Repository changed from {OldRepository} to {SelectedRepository}; old Dashboard session and tokens cleared.",
+            oldRepository, selectedRepository);
+    }
+
     /// <summary>
     /// Returns the deterministic OAuth2 redirect URI derived from DashboardPublicBaseUrl.
     /// </summary>
@@ -1066,6 +1053,8 @@ public sealed class LoginViewModel
 
     /// <summary>Preserves the repository name the user entered after a failed attempt.</summary>
     public string SubmittedRepository { get; init; } = string.Empty;
+    public IReadOnlyList<RepositoryInfo> Repositories { get; init; } = [];
+    public string? RepositoryLoadError { get; init; }
 
     /// <summary>Error message shown below the form after a failed sign-in attempt.</summary>
     public string? ErrorMessage { get; init; }

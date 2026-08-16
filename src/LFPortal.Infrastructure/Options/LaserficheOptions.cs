@@ -69,6 +69,8 @@ public sealed class LaserficheOptions
     /// </summary>
     public string RepositoryId { get; set; } = string.Empty;
 
+    public bool AllowDefaultRepository { get; set; }
+
     /// <summary>
     /// Human-readable label shown in the portal UI to identify this repository.
     /// Defaults to the <see cref="RepositoryId"/> when not explicitly set.

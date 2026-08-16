@@ -366,12 +366,12 @@ public sealed class LaserficheAuthServiceSsoTests
             NullLogger<LaserficheAuthService>.Instance);
         var repo = MakeRepo("TestEmployee");
 
-        accessor.HttpContext = UserContext("session-amjd", "amjd");
+        accessor.HttpContext = UserContext("same-browser-session", "amjd");
         Assert.True(await service.TryAuthenticateAsync(repo, "amjd", "pw"));
         Assert.Equal("amjd-token", await service.GetTokenAsync(repo));
 
         await service.InvalidateCurrentSessionTokensAsync();
-        accessor.HttpContext = UserContext("session-admin", "admin");
+        accessor.HttpContext = UserContext("same-browser-session", "admin");
         Assert.True(await service.TryAuthenticateAsync(repo, "admin", "pw"));
         Assert.Equal("admin-token", await service.GetTokenAsync(repo));
     }
@@ -387,6 +387,8 @@ public sealed class LaserficheAuthServiceSsoTests
         };
         var session = new TestSession(sessionId);
         session.Set("AuthenticatedRepositoryId", [1]);
+        session.SetString("AuthenticationScopeMethod", "RepositoryPassword");
+        session.SetString("AuthenticationScopeSubject", username);
         context.Session = session;
         return context;
     }

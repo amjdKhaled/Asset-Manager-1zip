@@ -123,8 +123,13 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             // shared disk-stored fallback credentials — sharing the "app" scope
             // is then both correct and avoids re-authenticating every request.
             if (session is not null && session.Keys.Any() && !string.IsNullOrEmpty(session.Id))
-                scope = "session-" + Convert.ToHexString(
-                    SHA256.HashData(Encoding.UTF8.GetBytes(session.Id)))[..16];
+            {
+                var method = session.GetString("AuthenticationScopeMethod") ?? "Session";
+                var subject = session.GetString("AuthenticationScopeSubject") ?? session.Id;
+                var subjectHash = Convert.ToHexString(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(subject)))[..16];
+                scope = $"{method}:{subjectHash}";
+            }
         }
         catch
         {

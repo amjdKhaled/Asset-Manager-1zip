@@ -22,6 +22,8 @@ public interface ILaserficheApiAdapter
     /// </summary>
     string BuildRepositoriesUrl();
 
+    string BuildRepositoriesUrlV2();
+
     /// <summary>
     /// Builds the URL for <c>GET /Repositories</c> using an explicitly supplied
     /// server URL. Used by the Settings connection test before configuration is saved.

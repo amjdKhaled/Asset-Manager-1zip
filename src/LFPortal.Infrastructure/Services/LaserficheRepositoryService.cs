@@ -33,6 +33,24 @@ internal sealed class LaserficheRepositoryService : ILaserficheRepositoryService
         _logger = logger;
     }
 
+    public async Task<IReadOnlyList<RepositoryInfo>> GetRepositoriesForLoginAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var url = _adapter.BuildRepositoriesUrlV2();
+        using var client = _httpClientFactory.CreateClient("LaserficheRaw");
+        using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
+        var body = await ReadRepositoryJsonAsync(response, url, cancellationToken).ConfigureAwait(false);
+        var repositories = DeserializeRepositories(body, url)
+            .Select(repository => ToRepositoryInfo(repository))
+            .OrderBy(static repository => repository.RepositoryName, StringComparer.OrdinalIgnoreCase)
+            .ToList()
+            .AsReadOnly();
+        _logger.LogInformation(
+            "Loaded {RepositoryCount} repositories for Dashboard login from {RepositoriesUrl}.",
+            repositories.Count, url);
+        return repositories;
+    }
+
     /// <inheritdoc />
     public async Task<IReadOnlyList<RepositoryInfo>> DiscoverRepositoriesAsync(
         string serverUrl,

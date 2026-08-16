@@ -2,6 +2,7 @@ using LFPortal.Application.DTOs;
 using System.Security.Claims;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Common;
+using LFPortal.Domain.Entities;
 using LFPortal.Domain.Exceptions;
 using LFPortal.Infrastructure.OAuth;
 using LFPortal.Infrastructure.Options;
@@ -103,6 +104,7 @@ public sealed class LoginControllerSsoDormantTests
 
         var ctrl = new LoginController(
             authSpy,
+            new StubRepositoryService(),
             repoCtx,
             credStore,
             storeSpy,
@@ -242,7 +244,7 @@ public sealed class LoginControllerSsoDormantTests
     public async Task Login_Get_DefaultConfig_ReturnsView()
     {
         var (ctrl, _, _) = Build();
-        var result = await ctrl.Index(cancellationToken: default);
+        var result = await ctrl.Index(repository: "TestRepo", cancellationToken: default);
         Assert.IsType<ViewResult>(result);
     }
 
@@ -267,14 +269,15 @@ public sealed class LoginControllerSsoDormantTests
     }
 
     [Fact]
-    public async Task Login_Get_WithSsoConfigured_NoSsoFailed_RedirectsToStartSso()
+    public async Task Login_Get_WithSsoConfigured_RendersRepositorySelectorBeforeStartSso()
     {
-        // Positive control: with SSO configured, the redirect DOES happen.
         var (ctrl, _, _) = Build(SsoOptions());
         var result = await ctrl.Index(cancellationToken: default);
 
-        var redirect = Assert.IsType<RedirectToActionResult>(result);
-        Assert.Equal("StartSso", redirect.ActionName, StringComparer.OrdinalIgnoreCase);
+        var view = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<LoginViewModel>(view.Model);
+        Assert.Contains(model.Repositories, repository => repository.RepositoryId == "TestRepo");
+        Assert.False(model.IsRepositoryPasswordMode);
     }
 
     [Fact]
@@ -344,7 +347,8 @@ public sealed class LoginControllerSsoDormantTests
 
         var result = await ctrl.StartSso(
             returnUrl: "/Dashboard?repository=TestRepo&source=webclient",
-            cancellationToken: default);
+            cancellationToken: default,
+            repository: "TestRepo");
 
         var redirect = Assert.IsType<RedirectResult>(result);
         var uri = new Uri(redirect.Url!);
@@ -363,6 +367,17 @@ public sealed class LoginControllerSsoDormantTests
     }
 
     [Fact]
+    public async Task StartSso_WithoutRepository_ReturnsToLoginWithValidationFailure()
+    {
+        var (ctrl, auth, _) = Build(SsoOptions());
+        var result = await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default);
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Index", redirect.ActionName);
+        Assert.Equal("invalid_repository", redirect.RouteValues?["ssoFailure"]);
+        Assert.Equal(0, auth.ExchangeAuthCodeCallCount);
+    }
+
+    [Fact]
     public async Task StartSso_NewWebClientLaunch_InvalidatesOldUserBeforeStartingNewFlow()
     {
         var options = SsoOptions();
@@ -377,7 +392,8 @@ public sealed class LoginControllerSsoDormantTests
 
         var result = await ctrl.StartSso(
             "/Dashboard?repository=TestRepo&source=webclient",
-            default);
+            default,
+            "TestRepo");
 
         Assert.IsType<RedirectResult>(result);
         Assert.True(auth.InvalidateCurrentSessionCalled);
@@ -396,7 +412,7 @@ public sealed class LoginControllerSsoDormantTests
     public async Task Login_Post_DefaultConfig_NeverCallsExchangeAuthorizationCode()
     {
         var (ctrl, authSpy, _) = Build();
-        var input = new LoginInputModel { Username = "alice", Password = "secret" };
+        var input = new LoginInputModel { Repository = "TestRepo", Username = "alice", Password = "secret" };
 
         await ctrl.Index(input, default);
 
@@ -407,7 +423,7 @@ public sealed class LoginControllerSsoDormantTests
     public async Task Login_Post_DefaultConfig_CallsTryAuthenticate_NotSsoExchange()
     {
         var (ctrl, authSpy, _) = Build();
-        var input = new LoginInputModel { Username = "alice", Password = "pass" };
+        var input = new LoginInputModel { Repository = "TestRepo", Username = "alice", Password = "pass" };
 
         await ctrl.Index(input, default);
 
@@ -426,7 +442,7 @@ public sealed class LoginControllerSsoDormantTests
         authSpy.TryAuthenticateResult = true;
 
         var result = await ctrl.Index(
-            new LoginInputModel { Username = "alice", Password = "secret" }, default);
+            new LoginInputModel { Repository = "TestRepo", Username = "alice", Password = "secret" }, default);
 
         var redirect = Assert.IsType<RedirectToActionResult>(result);
         Assert.Equal("Index",     redirect.ActionName,    StringComparer.OrdinalIgnoreCase);
@@ -440,7 +456,7 @@ public sealed class LoginControllerSsoDormantTests
         authSpy.TryAuthenticateResult = false;
 
         var result = await ctrl.Index(
-            new LoginInputModel { Username = "alice", Password = "wrong" }, default);
+            new LoginInputModel { Repository = "TestRepo", Username = "alice", Password = "wrong" }, default);
 
         var view = Assert.IsType<ViewResult>(result);
         var vm   = Assert.IsType<LoginViewModel>(view.Model);
@@ -456,7 +472,7 @@ public sealed class LoginControllerSsoDormantTests
         var session = (TestSession)ctrl.HttpContext.Session;
 
         await ctrl.Index(
-            new LoginInputModel { Username = "alice", Password = "secret" }, default);
+            new LoginInputModel { Repository = "TestRepo", Username = "alice", Password = "secret" }, default);
 
         // "AuthenticatedRepositoryId" is the internal key in SessionAuthGuardMiddleware.
         var authRepo = session.GetString("AuthenticatedRepositoryId");
@@ -470,7 +486,7 @@ public sealed class LoginControllerSsoDormantTests
         authSpy.TryAuthenticateResult = true;
 
         await ctrl.Index(
-            new LoginInputModel { Username = "alice", Password = "secret" }, default);
+            new LoginInputModel { Repository = "TestRepo", Username = "alice", Password = "secret" }, default);
 
         Assert.Contains(
             ".Dashboard.Authentication=",
@@ -515,7 +531,7 @@ public sealed class LoginControllerSsoDormantTests
         options.Sso.LfdsBaseUrl = "https://lfds.example/LFDSSTS";
         var (ctrl, _, _) = Build(options);
 
-        var result = await ctrl.StartSso("/Dashboard", default);
+        var result = await ctrl.StartSso("/Dashboard", default, "TestRepo");
 
         var redirect = Assert.IsType<RedirectToActionResult>(result);
         Assert.Equal("Index", redirect.ActionName);
@@ -527,7 +543,7 @@ public sealed class LoginControllerSsoDormantTests
     {
         var (ctrl, _, store) = Build(SsoOptions(), directBrowser: false);
 
-        await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default);
+        await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default, repository: "TestRepo");
         var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
         Assert.False(string.IsNullOrWhiteSpace(state));
 
@@ -546,7 +562,7 @@ public sealed class LoginControllerSsoDormantTests
     public async Task Sso_Callback_CookieAuthenticatesPrincipalOnNextRequest()
     {
         var (ctrl, _, _) = Build(SsoOptions(), directBrowser: false);
-        await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default);
+        await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default, repository: "TestRepo");
         var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
 
         await ctrl.Callback(code: "valid-code", state: state, cancellationToken: default);
@@ -598,7 +614,7 @@ public sealed class LoginControllerSsoDormantTests
     {
         var (ctrl, _, _) = Build(SsoOptions(), directBrowser: false);
 
-        await ctrl.StartSso("/Dashboard", default);
+        await ctrl.StartSso("/Dashboard", default, "TestRepo");
 
         var cookie = ctrl.Response.Headers.SetCookie.ToString();
         Assert.Contains(".Dashboard.OAuth.Correlation=", cookie);
@@ -614,7 +630,7 @@ public sealed class LoginControllerSsoDormantTests
     public async Task Sso_Callback_ValidCookieSucceedsWhenAspNetSessionIsLost_AndDeletesCookie()
     {
         var (ctrl, auth, _) = Build(SsoOptions(), directBrowser: false);
-        await ctrl.StartSso("/Dashboard", default);
+        await ctrl.StartSso("/Dashboard", default, "TestRepo");
         var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
         var correlation = ctrl.Response.Headers.SetCookie.ToString().Split(';', 2)[0];
         ctrl.HttpContext.Request.Headers.Cookie = correlation;
@@ -637,7 +653,7 @@ public sealed class LoginControllerSsoDormantTests
     public async Task Sso_Callback_CookieStateMismatch_ReturnsSpecificReason()
     {
         var (ctrl, auth, _) = Build(SsoOptions(), directBrowser: false);
-        await ctrl.StartSso("/Dashboard", default);
+        await ctrl.StartSso("/Dashboard", default, "TestRepo");
         var correlation = ctrl.Response.Headers.SetCookie.ToString().Split(';', 2)[0];
         ctrl.HttpContext.Request.Headers.Cookie = correlation;
         ctrl.HttpContext.Session = new TestSession();
@@ -655,7 +671,7 @@ public sealed class LoginControllerSsoDormantTests
     {
         var (ctrl, auth, _) = Build(SsoOptions(), directBrowser: false);
         auth.ExchangeException = new LaserficheException("Rejected", 401);
-        await ctrl.StartSso("/Dashboard", default);
+        await ctrl.StartSso("/Dashboard", default, "TestRepo");
         var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
         ctrl.HttpContext.Request.Headers.Cookie =
             ctrl.Response.Headers.SetCookie.ToString().Split(';', 2)[0];
@@ -692,7 +708,7 @@ public sealed class LoginControllerSsoDormantTests
         var (ctrl, auth, _) = Build(SsoOptions(), directBrowser: false);
         auth.ExchangeException = new LaserficheException(
             "Rejected", 403, "9530", "Received an invalid or untrusted SAML token. [9530]");
-        await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default);
+        await ctrl.StartSso(returnUrl: "/Dashboard", cancellationToken: default, repository: "TestRepo");
         var state = ctrl.HttpContext.Session.GetString("OAuth_PendingState");
 
         var result = await ctrl.Callback("code", state, cancellationToken: default);
@@ -711,7 +727,7 @@ public sealed class LoginControllerSsoDormantTests
     public async Task Login_Get_DirectBrowser_AllowsRepositoryInput()
     {
         var (ctrl, _, _) = Build(directBrowser: true);
-        var result = await ctrl.Index(cancellationToken: default);
+        var result = await ctrl.Index(repository: "TestRepo", cancellationToken: default);
 
         var view = Assert.IsType<ViewResult>(result);
         var vm   = Assert.IsType<LoginViewModel>(view.Model);
@@ -719,14 +735,16 @@ public sealed class LoginControllerSsoDormantTests
     }
 
     [Fact]
-    public async Task Login_Get_WebClientLaunch_DisallowsRepositoryInput()
+    public async Task Login_Get_WebClientLaunch_ShowsRepositoryDropdown()
     {
         var (ctrl, _, _) = Build(directBrowser: false);
-        var result = await ctrl.Index(cancellationToken: default);
+        var result = await ctrl.Index(repository: "TestRepo", cancellationToken: default);
 
         var view = Assert.IsType<ViewResult>(result);
         var vm   = Assert.IsType<LoginViewModel>(view.Model);
-        Assert.False(vm.AllowRepositoryInput);
+        Assert.True(vm.AllowRepositoryInput);
+        Assert.Contains(vm.Repositories, repository => repository.RepositoryId == "TestRepo");
+        Assert.Equal("TestRepo", vm.SubmittedRepository);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -818,7 +836,7 @@ public sealed class LoginControllerSsoDormantTests
         authSpy.TryAuthenticateResult = true;
         var session = (TestSession)ctrl.HttpContext.Session;
 
-        await ctrl.Index(new LoginInputModel { Username = "bob", Password = "pw" }, default);
+        await ctrl.Index(new LoginInputModel { Repository = "TestRepo", Username = "bob", Password = "pw" }, default);
 
         // Both session keys must be consistent.
         // "ActiveRepositoryId" and "AuthenticatedRepositoryId" are the internal keys in
@@ -839,7 +857,7 @@ public sealed class LoginControllerSsoDormantTests
         var (ctrl2, _, _)        = Build();
 
         authSpy1.TryAuthenticateResult = true;
-        await ctrl1.Index(new LoginInputModel { Username = "u", Password = "p" }, default);
+        await ctrl1.Index(new LoginInputModel { Repository = "TestRepo", Username = "u", Password = "p" }, default);
 
         var session2 = (TestSession)ctrl2.HttpContext.Session;
         Assert.Null(session2.GetString("AuthenticatedRepositoryId"));
@@ -920,6 +938,17 @@ public sealed class LoginControllerSsoDormantTests
         public Task<IReadOnlyList<RepositoryDescriptor>> GetAllRepositoriesAsync(
             CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<RepositoryDescriptor>>(new[] { _repo });
+    }
+
+    private sealed class StubRepositoryService : ILaserficheRepositoryService
+    {
+        private static readonly IReadOnlyList<RepositoryInfo> Repositories =
+        [new() { RepositoryId = "TestRepo", RepositoryName = "Test Repository" }];
+        public Task<IReadOnlyList<RepositoryInfo>> GetRepositoriesForLoginAsync(CancellationToken ct = default) => Task.FromResult(Repositories);
+        public Task<IReadOnlyList<RepositoryInfo>> DiscoverRepositoriesAsync(string serverUrl, string repositoryId, string username, string password, CancellationToken ct = default) => Task.FromResult(Repositories);
+        public Task<RepositoryInfo> GetRepositoryInfoAsync(CancellationToken ct = default) => Task.FromResult(Repositories[0]);
+        public Task<ConnectionStatus> TestConnectionAsync(CancellationToken ct = default) => Task.FromResult(ConnectionStatus.Success(Repositories[0]));
+        public Task<ConnectionStatus> TestConnectionWithCredentialsAsync(string serverUrl, string repositoryId, string username, string password, CancellationToken ct = default) => Task.FromResult(ConnectionStatus.Success(Repositories[0]));
     }
 
     private sealed class StubSessionCredentialStore : ISessionCredentialStore
