@@ -99,15 +99,6 @@ public sealed class LaserficheApiAdapterUrlTests
     }
 
     [Fact]
-    public void RepositoriesUrlV2_AlwaysUsesV2WithoutDuplicatingBasePath()
-    {
-        var adapter = CreateAdapter("https://lf-server.corp.local/LFRepositoryAPI", apiVersion: "v1");
-        Assert.Equal(
-            "https://lf-server.corp.local/LFRepositoryAPI/v2/Repositories",
-            adapter.BuildRepositoriesUrlV2());
-    }
-
-    [Fact]
     public void RepositoriesUrl_ServerUrlWithBasePath_DoesNotDuplicate()
     {
         var adapter = CreateAdapter("https://lf-server.corp.local/LFRepositoryAPI/");

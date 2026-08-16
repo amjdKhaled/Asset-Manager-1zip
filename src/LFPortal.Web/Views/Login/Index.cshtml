@@ -115,7 +115,7 @@
             color: var(--lfp-text);
             margin-bottom: 6px;
         }
-        .field input, .field select {
+        .field input {
             width: 100%;
             padding: 9px 12px;
             border: 1px solid var(--lfp-border);
@@ -203,6 +203,19 @@
                 </div>
             }
 
+            @* ── Active repository — read-only badge for Desktop/Web Client
+                 launches; editable field for direct browser sessions ── *@
+            @if (!Model.AllowRepositoryInput)
+            {
+                <div class="repo-row" aria-label="Active repository: @Model.ActiveRepository">
+                    <div class="repo-row__icon">&#128193;</div>
+                    <div>
+                        <div class="repo-row__label">Repository</div>
+                        <div class="repo-row__name">@Model.ActiveRepository</div>
+                    </div>
+                </div>
+            }
+
             @* ── Error banner ── *@
             @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
             {
@@ -213,37 +226,24 @@
             }
 
             @* ── Credentials form ── *@
-            <form method="@(Model.IsRepositoryPasswordMode ? "post" : "get")"
-                  asp-controller="Login"
-                  asp-action="@(Model.IsRepositoryPasswordMode ? "Index" : "StartSso")"
-                  novalidate>
-                @if (Model.IsRepositoryPasswordMode) { @Html.AntiForgeryToken() }
+            <form method="post" asp-controller="Login" asp-action="Index" novalidate>
+                @Html.AntiForgeryToken()
                 <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
 
-                <div class="field">
-                    <label for="Repository">Repository</label>
-                    <select id="Repository" name="Repository" required>
-                        <option value="">Select a repository</option>
-                        @foreach (var repository in Model.Repositories)
-                        {
-                            if (string.Equals(repository.RepositoryId, Model.SubmittedRepository, StringComparison.OrdinalIgnoreCase))
-                            {
-                                <option value="@repository.RepositoryId" selected>@repository.RepositoryName (@repository.RepositoryId)</option>
-                            }
-                            else
-                            {
-                                <option value="@repository.RepositoryId">@repository.RepositoryName (@repository.RepositoryId)</option>
-                            }
-                        }
-                    </select>
-                    @if (!string.IsNullOrWhiteSpace(Model.RepositoryLoadError))
-                    {
-                        <div class="field-error">@Model.RepositoryLoadError</div>
-                    }
-                </div>
-
-                @if (Model.IsRepositoryPasswordMode)
+                @if (Model.AllowRepositoryInput)
                 {
+                    <div class="field">
+                        <label for="Repository">Repository</label>
+                        <input type="text"
+                               id="Repository"
+                               name="Repository"
+                               placeholder="e.g. Documents"
+                               value="@Html.Encode(Model.SubmittedRepository)"
+                               autocomplete="off"
+                               required />
+                    </div>
+                }
+
                 <div class="field">
                     <label for="Username">Username</label>
                     <input type="text"
@@ -274,11 +274,6 @@
                 </div>
 
                 <button type="submit" class="btn-signin">Sign In</button>
-                }
-                else
-                {
-                    <button type="submit" class="btn-signin">Sign in with Laserfiche SSO</button>
-                }
             </form>
 
         </div>

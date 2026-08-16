@@ -34,7 +34,6 @@ public sealed class SessionAwareRepositoryContextTests
         ApiBasePath  = "/LFRepositoryAPI",
         ApiVersion   = "v1",
         RepositoryId = fallbackRepoId,
-        AllowDefaultRepository = true,
     };
 
     private static SessionAwareRepositoryContext CreateContext(
@@ -99,15 +98,6 @@ public sealed class SessionAwareRepositoryContextTests
 
         // Without a session value the configured RepositoryId must be returned.
         Assert.Equal("LFNewRepoWF", repo.RepositoryId);
-    }
-
-    [Fact]
-    public async Task GetActiveRepositoryAsync_DefaultRepositoryDisabled_DoesNotSelectConfiguredRepository()
-    {
-        var options = ConfigOptions();
-        options.AllowDefaultRepository = false;
-        var repo = await CreateContext(new TestSession(), options).GetActiveRepositoryAsync();
-        Assert.Equal(string.Empty, repo.RepositoryId);
     }
 
     [Fact]

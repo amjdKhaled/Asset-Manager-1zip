@@ -54,16 +54,6 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
     public string BuildRepositoriesUrl() =>
         $"{ApiBase()}/Repositories";
 
-    public string BuildRepositoriesUrlV2()
-    {
-        var options = _optionsMonitor.CurrentValue;
-        var root = options.ServerUrl.TrimEnd('/');
-        var basePath = "/" + options.ApiBasePath.Trim('/');
-        if (root.EndsWith(basePath, StringComparison.OrdinalIgnoreCase))
-            root = root[..^basePath.Length].TrimEnd('/');
-        return $"{root}{basePath}/v2/Repositories";
-    }
-
     /// <inheritdoc />
     public string BuildRepositoriesUrlFor(string serverUrl) =>
         $"{BuildApiBase(serverUrl)}/Repositories";

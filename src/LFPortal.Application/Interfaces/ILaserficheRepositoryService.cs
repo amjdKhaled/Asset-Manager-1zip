@@ -8,9 +8,6 @@ namespace LFPortal.Application.Interfaces;
 /// </summary>
 public interface ILaserficheRepositoryService
 {
-    Task<IReadOnlyList<RepositoryInfo>> GetRepositoriesForLoginAsync(
-        CancellationToken cancellationToken = default);
-
     /// <summary>
     /// Discovers all Laserfiche repositories accessible on the specified API server
     /// using the provided credentials. Used by the Settings page to populate the

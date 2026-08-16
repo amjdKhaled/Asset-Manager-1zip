@@ -2,7 +2,6 @@
   "Laserfiche": {
     "ServerUrl": "https://YOUR-LF-SERVER",
     "AuthenticationMode": "RepositoryPassword",
-    "AllowDefaultRepository": false,
     "DashboardPublicBaseUrl": "https://YOUR-DASHBOARD-HOST",
     "ApiBasePath": "/LFRepositoryAPI",
     "ApiVersion": "v1",
