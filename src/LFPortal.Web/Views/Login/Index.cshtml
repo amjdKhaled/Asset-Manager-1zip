@@ -203,19 +203,6 @@
                 </div>
             }
 
-            @* ── Active repository — read-only badge for Desktop/Web Client
-                 launches; editable field for direct browser sessions ── *@
-            @if (!Model.AllowRepositoryInput)
-            {
-                <div class="repo-row" aria-label="Active repository: @Model.ActiveRepository">
-                    <div class="repo-row__icon">&#128193;</div>
-                    <div>
-                        <div class="repo-row__label">Repository</div>
-                        <div class="repo-row__name">@Model.ActiveRepository</div>
-                    </div>
-                </div>
-            }
-
             @* ── Error banner ── *@
             @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
             {
@@ -230,17 +217,19 @@
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
 
-                @if (Model.AllowRepositoryInput)
+                @if (!Model.AllowRepositoryInput)
+                {
+                    <div class="repo-row" aria-label="Active repository: @Model.ActiveRepository">
+                        <div class="repo-row__icon">&#128193;</div>
+                        <div><div class="repo-row__label">Repository</div><div class="repo-row__name">@Model.ActiveRepository</div></div>
+                    </div>
+                }
+                else
                 {
                     <div class="field">
                         <label for="Repository">Repository</label>
-                        <input type="text"
-                               id="Repository"
-                               name="Repository"
-                               placeholder="e.g. Documents"
-                               value="@Html.Encode(Model.SubmittedRepository)"
-                               autocomplete="off"
-                               required />
+                        <input type="text" id="Repository" name="Repository"
+                               value="@Html.Encode(Model.SubmittedRepository)" required />
                     </div>
                 }
 
