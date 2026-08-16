@@ -75,7 +75,9 @@ internal sealed class SessionAwareRepositoryContext : IRepositoryContext
         }
 
         var hasSessionRepo = !string.IsNullOrWhiteSpace(sessionRepoId);
-        var repoId = hasSessionRepo ? sessionRepoId! : opt.RepositoryId;
+        var repoId = hasSessionRepo
+            ? sessionRepoId!
+            : opt.AllowDefaultRepository ? opt.RepositoryId : string.Empty;
 
         // When the repository came from the session (Desktop/Web Client launch
         // or login-page selection), the configured display name refers to a

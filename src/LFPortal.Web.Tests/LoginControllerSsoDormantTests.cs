@@ -243,7 +243,7 @@ public sealed class LoginControllerSsoDormantTests
     public async Task Login_Get_DefaultConfig_ReturnsView()
     {
         var (ctrl, _, _) = Build();
-        var result = await ctrl.Index(cancellationToken: default);
+        var result = await ctrl.Index(repository: "TestRepo", cancellationToken: default);
         Assert.IsType<ViewResult>(result);
     }
 
@@ -268,7 +268,7 @@ public sealed class LoginControllerSsoDormantTests
     }
 
     [Fact]
-    public async Task Login_Get_WithSsoConfigured_NoSsoFailed_RedirectsToStartSso()
+    public async Task Login_Get_WithSsoConfigured_RendersRepositorySelectorBeforeStartSso()
     {
         var (ctrl, _, _) = Build(SsoOptions());
         var result = await ctrl.Index(cancellationToken: default);
@@ -713,7 +713,7 @@ public sealed class LoginControllerSsoDormantTests
     public async Task Login_Get_DirectBrowser_AllowsRepositoryInput()
     {
         var (ctrl, _, _) = Build(directBrowser: true);
-        var result = await ctrl.Index(cancellationToken: default);
+        var result = await ctrl.Index(repository: "TestRepo", cancellationToken: default);
 
         var view = Assert.IsType<ViewResult>(result);
         var vm   = Assert.IsType<LoginViewModel>(view.Model);
@@ -721,14 +721,16 @@ public sealed class LoginControllerSsoDormantTests
     }
 
     [Fact]
-    public async Task Login_Get_WebClientLaunch_DisallowsRepositoryInput()
+    public async Task Login_Get_WebClientLaunch_ShowsRepositoryDropdown()
     {
         var (ctrl, _, _) = Build(directBrowser: false);
-        var result = await ctrl.Index(cancellationToken: default);
+        var result = await ctrl.Index(repository: "TestRepo", cancellationToken: default);
 
         var view = Assert.IsType<ViewResult>(result);
         var vm   = Assert.IsType<LoginViewModel>(view.Model);
-        Assert.False(vm.AllowRepositoryInput);
+        Assert.True(vm.AllowRepositoryInput);
+        Assert.Contains(vm.Repositories, repository => repository.RepositoryId == "TestRepo");
+        Assert.Equal("TestRepo", vm.SubmittedRepository);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -922,6 +924,17 @@ public sealed class LoginControllerSsoDormantTests
         public Task<IReadOnlyList<RepositoryDescriptor>> GetAllRepositoriesAsync(
             CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<RepositoryDescriptor>>(new[] { _repo });
+    }
+
+    private sealed class StubRepositoryService : ILaserficheRepositoryService
+    {
+        private static readonly IReadOnlyList<RepositoryInfo> Repositories =
+        [new() { RepositoryId = "TestRepo", RepositoryName = "Test Repository" }];
+        public Task<IReadOnlyList<RepositoryInfo>> GetRepositoriesForLoginAsync(CancellationToken ct = default) => Task.FromResult(Repositories);
+        public Task<IReadOnlyList<RepositoryInfo>> DiscoverRepositoriesAsync(string serverUrl, string repositoryId, string username, string password, CancellationToken ct = default) => Task.FromResult(Repositories);
+        public Task<RepositoryInfo> GetRepositoryInfoAsync(CancellationToken ct = default) => Task.FromResult(Repositories[0]);
+        public Task<ConnectionStatus> TestConnectionAsync(CancellationToken ct = default) => Task.FromResult(ConnectionStatus.Success(Repositories[0]));
+        public Task<ConnectionStatus> TestConnectionWithCredentialsAsync(string serverUrl, string repositoryId, string username, string password, CancellationToken ct = default) => Task.FromResult(ConnectionStatus.Success(Repositories[0]));
     }
 
     private sealed class StubSessionCredentialStore : ISessionCredentialStore

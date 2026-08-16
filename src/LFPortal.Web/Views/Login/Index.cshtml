@@ -115,7 +115,7 @@
             color: var(--lfp-text);
             margin-bottom: 6px;
         }
-        .field input {
+        .field input, .field select {
             width: 100%;
             padding: 9px 12px;
             border: 1px solid var(--lfp-border);
@@ -233,6 +233,8 @@
                     </div>
                 }
 
+                @if (Model.IsRepositoryPasswordMode)
+                {
                 <div class="field">
                     <label for="Username">Username</label>
                     <input type="text"
@@ -263,6 +265,11 @@
                 </div>
 
                 <button type="submit" class="btn-signin">Sign In</button>
+                }
+                else
+                {
+                    <button type="submit" class="btn-signin">Sign in with Laserfiche SSO</button>
+                }
             </form>
 
         </div>
