@@ -1,0 +1,32 @@
+@model LFPortal.Web.Controllers.SsoDiagnosticViewModel
+@{
+    Layout = null;
+    var untrusted = Model.Reason == "saml_token_untrusted";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width" />
+<title>SSO diagnostic — Dashboard</title>
+<style>body{font-family:Segoe UI,sans-serif;background:#0f1e42;color:#1e293b;padding:32px}.card{max-width:850px;margin:auto;background:white;border-radius:10px;padding:28px}.error{background:#fef2f2;border:1px solid #fecaca;padding:14px;border-radius:6px}dt{font-weight:700;margin-top:14px}dd{margin:4px 0;word-break:break-all;font-family:monospace}li{margin:8px 0}</style></head>
+<body><main class="card">
+    <h1>Laserfiche SSO diagnostic</h1>
+    <div class="error">
+        @if (untrusted)
+        {
+            <strong>LFDS authentication succeeded, but Laserfiche Repository API rejected the SAML token as invalid or untrusted.</strong>
+            <div>This is a Laserfiche Directory Server / Repository Server trust configuration issue, not a Dashboard username/password issue.</div>
+        }
+        else { <strong>@(Model.Detail ?? "SSO configuration could not be completed.")</strong> }
+    </div>
+    <dl><dt>Failure reason</dt><dd>@Model.Reason</dd><dt>Repository</dt><dd>@Model.RepositoryId</dd><dt>Token endpoint</dt><dd>@Model.TokenEndpoint</dd><dt>Callback URL used</dt><dd>@Model.CallbackUrl</dd></dl>
+    @if (untrusted)
+    {
+        <h2>Administrator checks</h2><ul>
+            <li>Repository Server is registered with and trusts the same LFDS/STS site.</li>
+            <li>The LFDSSTS URL matches the Directory Server site used by Laserfiche Server.</li>
+            <li>API Server <code>LFDSSTSBaseUrl</code> matches the active LFDSSTS.</li>
+            <li>API Server and LFDSSTS were restarted after configuration changes.</li>
+            <li>The user exists in LFDS and is mapped and licensed for repository access.</li>
+        </ul>
+    }
+</main></body></html>

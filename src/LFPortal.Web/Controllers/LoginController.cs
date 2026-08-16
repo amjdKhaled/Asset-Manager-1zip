@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using LFPortal.Application.Interfaces;
@@ -6,6 +7,8 @@ using LFPortal.Domain.Exceptions;
 using LFPortal.Infrastructure.OAuth;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Middleware;
+using LFPortal.Web.Authentication;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -16,10 +19,9 @@ namespace LFPortal.Web.Controllers;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Password-grant flow (primary):</b>  When LFDS SSO is not configured,
-/// <c>GET /Login</c> renders a credential form.  A valid POST stores a DPAPI-encrypted
-/// password in the session so subsequent token-refresh requests can acquire a new
-/// Bearer token without re-prompting the user.
+/// <b>Repository password flow:</b>  In <c>RepositoryPassword</c> mode,
+/// <c>GET /Login</c> renders a credential form. A valid POST obtains and caches a
+/// per-session Repository API token; the submitted password is not retained.
 /// </para>
 /// <para>
 /// <b>LFDS OAuth2 Authorization Code flow (SSO):</b>  When <c>Laserfiche:Sso:LfdsBaseUrl</c>
@@ -38,11 +40,13 @@ public sealed class LoginController : Controller
 {
     // Session key written here, read by the guard middleware.
     internal const string SessionKeyOAuthPendingState = "OAuth_PendingState";
+    internal const string SessionKeyAuthenticatedUser = "AuthenticatedLaserficheUser";
 
     private readonly ILaserficheAuthService     _authService;
     private readonly IRepositoryContext         _repositoryContext;
     private readonly ISessionCredentialStore    _sessionCredentialStore;
     private readonly IOAuthStateStore           _oAuthStateStore;
+    private readonly IOAuthTransactionCookie    _oAuthTransactionCookie;
     private readonly IOptionsMonitor<LaserficheOptions> _options;
     private readonly ILogger<LoginController>   _logger;
 
@@ -52,6 +56,7 @@ public sealed class LoginController : Controller
         IRepositoryContext           repositoryContext,
         ISessionCredentialStore      sessionCredentialStore,
         IOAuthStateStore             oAuthStateStore,
+        IOAuthTransactionCookie      oAuthTransactionCookie,
         IOptionsMonitor<LaserficheOptions> options,
         ILogger<LoginController>     logger)
     {
@@ -59,6 +64,7 @@ public sealed class LoginController : Controller
         _repositoryContext       = repositoryContext;
         _sessionCredentialStore  = sessionCredentialStore;
         _oAuthStateStore         = oAuthStateStore;
+        _oAuthTransactionCookie  = oAuthTransactionCookie;
         _options                 = options;
         _logger                  = logger;
     }
@@ -75,28 +81,33 @@ public sealed class LoginController : Controller
     [HttpGet]
     public async Task<IActionResult> Index(
         bool   ssoFailed         = false,
+        string? ssoFailure       = null,
         string? returnUrl        = null,
         CancellationToken cancellationToken = default)
     {
         var opts = _options.CurrentValue;
 
-        // ── SSO fast-path ─────────────────────────────────────────────────────
-        // When LFDS is configured and SSO has not already failed this session,
-        // redirect transparently so the credential form is never shown.
-        if (opts.Sso.IsConfigured && !ssoFailed)
-        {
-            _logger.LogInformation("[SSO] LFDS configured — redirecting to StartSso.");
+        if (opts.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
+            opts.Sso.IsConfigured && !ssoFailed)
             return RedirectToAction("StartSso", new { returnUrl });
-        }
 
-        // ── Password-grant form ───────────────────────────────────────────────
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
         var vm   = new LoginViewModel
         {
             ActiveRepository     = repo.RepositoryId,
             AllowRepositoryInput = AllowRepositoryInput(),
             SubmittedRepository  = repo.RepositoryId,
-            SsoFailed            = ssoFailed && opts.Sso.IsConfigured,
+            SsoFailed            = ssoFailed &&
+                opts.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
+                opts.Sso.IsConfigured,
+            SsoFailureReason     = ssoFailed &&
+                opts.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
+                opts.Sso.IsConfigured
+                ? DescribeSsoFailure(ssoFailure)
+                : null,
+            IsRepositoryPasswordMode =
+                opts.AuthenticationMode == LaserficheAuthenticationMode.RepositoryPassword,
+            ReturnUrl = IsLocalUrl(returnUrl) ? returnUrl : null,
         };
         return View(vm);
     }
@@ -116,8 +127,9 @@ public sealed class LoginController : Controller
         CancellationToken cancellationToken)
     {
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
-        var allowRepoInput = AllowRepositoryInput();
-
+        var opts = _options.CurrentValue;
+        var allowRepoInput = opts.AuthenticationMode ==
+            LaserficheAuthenticationMode.RepositoryPassword || AllowRepositoryInput();
         var repoId = allowRepoInput && !string.IsNullOrWhiteSpace(input.Repository)
             ? input.Repository.Trim()
             : repo.RepositoryId;
@@ -128,7 +140,10 @@ public sealed class LoginController : Controller
             AllowRepositoryInput = allowRepoInput,
             SubmittedRepository  = allowRepoInput ? (input.Repository ?? string.Empty) : repo.RepositoryId,
             SubmittedUsername    = input.Username,
-            ErrorMessage         = error
+            ErrorMessage         = error,
+            IsRepositoryPasswordMode = opts.AuthenticationMode ==
+                LaserficheAuthenticationMode.RepositoryPassword,
+            ReturnUrl = input.ReturnUrl,
         };
 
         if (!ModelState.IsValid)
@@ -141,6 +156,12 @@ public sealed class LoginController : Controller
         }
 
         var targetRepo = repo with { RepositoryId = repoId, DisplayName = repoId };
+
+        // Establish a stable per-browser cache scope before acquiring the token.
+        // This prevents a direct-login token from ever using the process-wide cache.
+        HttpContext.Session.SetString(
+            RepositorySessionMiddleware.SessionKeyRepositoryId,
+            repoId);
 
         _logger.LogInformation(
             "Login: authenticating user {Username} for repository {RepoId}.",
@@ -185,22 +206,25 @@ public sealed class LoginController : Controller
 
         // ── Authentication succeeded ──────────────────────────────────────────
 
-        await _sessionCredentialStore.StoreAsync(
-            input.Username,
-            input.Password ?? string.Empty,
-            cancellationToken);
+        // Direct Repository API password login deliberately retains only the token
+        // cached by TryAuthenticateAsync. The submitted password dies with this request.
+        await _sessionCredentialStore.ClearAsync(cancellationToken);
 
-        HttpContext.Session.SetString(
-            RepositorySessionMiddleware.SessionKeyRepositoryId,
-            repoId);
         HttpContext.Session.SetString(
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
             repoId);
 
+        await EstablishDashboardIdentityAsync(
+            input.Username,
+            repoId,
+            DashboardAuthenticationDefaults.PasswordAuthenticationMethod);
+
         _logger.LogInformation(
             "Login: session authenticated for repository {RepoId}.", repoId);
 
-        return RedirectToAction("Index", "Dashboard");
+        return IsLocalUrl(input.ReturnUrl)
+            ? LocalRedirect(input.ReturnUrl!)
+            : RedirectToAction("Index", "Dashboard");
     }
 
     // ------------------------------------------------------------------ //
@@ -211,14 +235,24 @@ public sealed class LoginController : Controller
     /// Initiates the LFDS OAuth2 Authorization Code + PKCE flow.
     /// Generates a cryptographically random <c>state</c> and PKCE pair, stores them
     /// server-side, writes the state to the session (CSRF binding), then redirects the
-    /// browser to the LFDS authorization endpoint.
+    /// browser to the Repository API authorization endpoint. The Repository API
+    /// performs the LFDS/WebSTS interaction.
     /// </summary>
     [HttpGet("/Login/StartSso")]
     public async Task<IActionResult> StartSso(
         string? returnUrl        = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? repository       = null,
+        bool forceLogin          = false)
     {
         var opts = _options.CurrentValue;
+
+        if (opts.AuthenticationMode != LaserficheAuthenticationMode.LfdsSso)
+        {
+            _logger.LogInformation("[SSO] StartSso ignored because AuthenticationMode is {Mode}.",
+                opts.AuthenticationMode);
+            return RedirectToAction("Index", "Login", new { returnUrl });
+        }
 
         if (!opts.Sso.IsConfigured)
         {
@@ -226,9 +260,66 @@ public sealed class LoginController : Controller
             return RedirectToAction("Index", "Login");
         }
 
-        // Validate returnUrl — anti-open-redirect.
-        if (!IsLocalUrl(returnUrl))
-            returnUrl = Url.Action("Index", "Dashboard")!;
+        var invalidKeys = opts.MarkdownConfigurationKeys();
+        if (invalidKeys.Count > 0 || string.IsNullOrWhiteSpace(opts.SsoCallbackUrl))
+        {
+            var detail = invalidKeys.Count > 0
+                ? "Invalid Markdown URL configuration: " + string.Join(", ", invalidKeys)
+                : "Laserfiche:DashboardPublicBaseUrl is required for SSO.";
+            _logger.LogCritical("[SSO] Cannot start SSO. {ConfigurationError}", detail);
+            return RedirectToAction("Diagnostic", new { reason = "configuration_error", detail });
+        }
+
+        if (!string.IsNullOrWhiteSpace(opts.Sso.RedirectUri) &&
+            !string.Equals(opts.Sso.RedirectUri.TrimEnd('/'), opts.SsoCallbackUrl,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var detail = $"Redirect URI mismatch: Dashboard generated {opts.SsoCallbackUrl}, " +
+                $"but configured expected callback is {opts.Sso.RedirectUri.TrimEnd('/')}. " +
+                $"Laserfiche API must whitelist exactly {opts.SsoCallbackUrl}.";
+            _logger.LogError("[SSO] {ConfigurationError}", detail);
+            return RedirectToAction("Diagnostic", new { reason = "redirect_uri_mismatch", detail });
+        }
+
+        // A Web Client launch is an explicit "change account" boundary. The Web
+        // Client may have changed users since the last Dashboard window, while the
+        // Dashboard cookie/session is still alive. Invalidate the old token scope
+        // before clearing the session so no token can cross that boundary.
+        if (IsWebClientLaunch(returnUrl))
+        {
+            var oldUser = User?.Identity?.Name ??
+                HttpContext.Session.GetString(SessionKeyAuthenticatedUser) ?? "(unknown)";
+            var repositoryId = repository ?? HttpContext.Session.GetString(
+                RepositorySessionMiddleware.SessionKeyRepositoryId);
+
+            _logger.LogInformation(
+                "[SSO] New Web Client launch. OldUser={OldUser}; invalidating previous Dashboard identity.",
+                oldUser);
+            await _authService.InvalidateCurrentSessionTokensAsync();
+            if (User?.Identity?.IsAuthenticated == true ||
+                HttpContext.Request.Cookies.ContainsKey(".Dashboard.Authentication"))
+                await HttpContext.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
+            if (HttpContext.Request.Cookies.ContainsKey(OAuthTransactionCookie.CookieName))
+                _oAuthTransactionCookie.Delete(HttpContext);
+            await _sessionCredentialStore.ClearAsync(cancellationToken);
+            HttpContext.Session.Clear();
+
+            // Preserve only launch routing data written by RepositorySessionMiddleware.
+            if (!string.IsNullOrWhiteSpace(repositoryId))
+                HttpContext.Session.SetString(
+                    RepositorySessionMiddleware.SessionKeyRepositoryId, repositoryId);
+            HttpContext.Session.SetString(
+                RepositorySessionMiddleware.SessionKeySource,
+                RepositorySessionMiddleware.SourceWebClient);
+
+            _logger.LogInformation(
+                "[SSO] Cleared old Dashboard session for Web Client launch. Repository={RepositoryId}.",
+                repositoryId ?? "(configured default)");
+        }
+
+        if (!string.IsNullOrWhiteSpace(repository))
+            HttpContext.Session.SetString(
+                RepositorySessionMiddleware.SessionKeyRepositoryId, repository.Trim());
 
         // Resolve active repository (populated by RepositorySessionMiddleware).
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
@@ -254,20 +345,51 @@ public sealed class LoginController : Controller
         };
         _oAuthStateStore.Store(state, entry);
 
+        var launchSource = HttpContext.Session.GetString(
+            RepositorySessionMiddleware.SessionKeySource);
+        var cookieWrite = _oAuthTransactionCookie.Write(HttpContext, new OAuthTransaction(
+            state, codeVerifier, repo.RepositoryId, returnUrl ?? "/",
+            DateTimeOffset.UtcNow, launchSource, redirectUri));
+
         // Bind state to this session so the callback can validate CSRF.
         HttpContext.Session.SetString(SessionKeyOAuthPendingState, state);
 
         _logger.LogInformation(
-            "[SSO] Starting authorization flow: Repo={Repo} RedirectUri={RedirectUri} " +
-            "AuthEndpoint={AuthEndpoint}",
+            "[SSO] OAuth correlation cookie. State={State}; CookieName={CookieName}; " +
+            "CookieWritten={CookieWritten}; SameSite={SameSite}; Secure={Secure}; Path={Path}; " +
+            "ExpiresUtc={ExpiresUtc:o}; Repository={Repository}; CallbackUrl={CallbackUrl}; " +
+            "ReturnUrl={ReturnUrl}.",
+            StateForLog(state),
+            cookieWrite.CookieName,
+            cookieWrite.Written,
+            cookieWrite.SameSite,
+            cookieWrite.Secure,
+            cookieWrite.Path,
+            cookieWrite.ExpiresUtc,
             repo.RepositoryId,
             redirectUri,
-            opts.Sso.AuthorizationEndpoint);
+            returnUrl);
 
-        // ── Build authorization URL ───────────────────────────────────────────
-        var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri, repo.RepositoryId);
+        if (!cookieWrite.Written)
+        {
+            _logger.LogError("[SSO] Correlation Set-Cookie header was not emitted; aborting authorization.");
+            return RedirectToSsoDiagnostic("oauth_correlation_cookie_missing");
+        }
 
-        return Redirect(authUrl);
+        // Merge invariant: declare one authorizeUrl only. Logging and Redirect must
+        // consume this exact value so conflict resolution cannot split the names again.
+        var authorizeUrl = BuildAuthorizationUrl(
+            opts, state, codeChallenge, redirectUri, forceLogin);
+
+        _logger.LogInformation(
+            "[SSO] Redirecting to Repository API authorize URL: {AuthorizeUrl} " +
+            "(Repo={Repo}, RedirectUri={RedirectUri}, ForceLogin={ForceLogin})",
+            authorizeUrl,
+            repo.RepositoryId,
+            redirectUri,
+            forceLogin);
+
+        return Redirect(authorizeUrl);
     }
 
     // ------------------------------------------------------------------ //
@@ -288,6 +410,18 @@ public sealed class LoginController : Controller
         string? errorDescription = null,
         CancellationToken cancellationToken = default)
     {
+        var queryKeys = HttpContext.Request.Query.Keys
+            .OrderBy(static key => key, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        _logger.LogInformation(
+            "[SSO] Callback received. QueryKeys={QueryKeys}; CodePresent={CodePresent}; " +
+            "State={State}; SessionAvailable={SessionAvailable}; SessionId={SessionId}.",
+            queryKeys,
+            !string.IsNullOrWhiteSpace(code),
+            StateForLog(state),
+            HttpContext.Session.IsAvailable,
+            HttpContext.Session.Id);
+
         // ── LFDS returned an error ────────────────────────────────────────────
         if (!string.IsNullOrEmpty(error))
         {
@@ -295,51 +429,94 @@ public sealed class LoginController : Controller
                 "[SSO] LFDS returned error in callback: {Error} — {Description}",
                 error,
                 errorDescription ?? "(no description)");
-            return FallBackToLoginForm();
+            return FallBackToLoginForm("provider_error", error);
         }
 
         // ── Code and state must both be present ───────────────────────────────
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
         {
-            _logger.LogWarning("[SSO] Callback missing code or state parameter.");
-            return FallBackToLoginForm();
+            var reason = string.IsNullOrEmpty(code) ? "missing_code" : "missing_state";
+            _logger.LogWarning("[SSO] Callback rejected: {FailureReason}.", reason);
+            return FallBackToLoginForm(reason);
         }
 
-        // ── CSRF validation: state must match what we stored in the session ───
+        // The protected correlation cookie is authoritative across the LFDS round
+        // trip. ASP.NET Session remains a compatibility fallback, not a dependency.
         var sessionState = HttpContext.Session.GetString(SessionKeyOAuthPendingState);
-        if (sessionState is null || sessionState != state)
+        var cookieResult = _oAuthTransactionCookie.Read(HttpContext);
+        OAuthStateEntry? entry = null;
+
+        if (cookieResult.IsValid && cookieResult.Transaction is { } transaction)
         {
-            _logger.LogWarning(
-                "[SSO] State mismatch. Session state is {SessionState} but callback state starts with {CallbackPrefix}. " +
-                "Possible CSRF attempt.",
-                sessionState is null ? "(null)" : "(set)",
-                state.Length >= 8 ? state[..8] + "…" : state);
-            return FallBackToLoginForm();
+            if (!CryptographicOperations.FixedTimeEquals(
+                    Encoding.UTF8.GetBytes(transaction.State), Encoding.UTF8.GetBytes(state)))
+                return RedirectToSsoDiagnostic("oauth_state_mismatch", transaction);
+
+            entry = new OAuthStateEntry
+            {
+                RepositoryId = transaction.RepositoryId,
+                ReturnUrl = transaction.ReturnUrl,
+                CodeVerifier = transaction.CodeVerifier,
+                RedirectUri = transaction.RedirectUri,
+                ExpiresAt = transaction.CreatedAtUtc.AddMinutes(10),
+            };
+        }
+        else if (!string.IsNullOrWhiteSpace(sessionState) &&
+                 string.Equals(sessionState, state, StringComparison.Ordinal))
+        {
+            entry = _oAuthStateStore.TryConsume(state);
+        }
+        else
+        {
+            return RedirectToSsoDiagnostic(cookieResult.CookiePresent
+                ? "oauth_correlation_cookie_invalid"
+                : "oauth_correlation_cookie_missing");
         }
 
-        // ── Consume state entry (anti-replay, expiry check) ───────────────────
-        var entry = _oAuthStateStore.TryConsume(state);
+        _logger.LogInformation(
+            "[SSO] Correlation lookup completed. State={State}; CookiePresent={CookiePresent}; " +
+            "CookieValid={CookieValid}; Found={StateFound}; PkceVerifierPresent={PkceVerifierPresent}; " +
+            "StoredRepository={StoredRepository}.",
+            StateForLog(state),
+            cookieResult.CookiePresent,
+            cookieResult.IsValid,
+            entry is not null,
+            !string.IsNullOrWhiteSpace(entry?.CodeVerifier),
+            entry?.RepositoryId ?? "(none)");
         if (entry is null)
         {
             // OAuthStateStore already logged the reason (expired / replay / unknown).
-            return FallBackToLoginForm();
+            return RedirectToSsoDiagnostic("oauth_correlation_cookie_missing");
         }
+
+        if (string.IsNullOrWhiteSpace(entry.CodeVerifier))
+        {
+            _logger.LogError("[SSO] Callback rejected: stored PKCE verifier is missing.");
+            return RedirectToSsoDiagnostic("pkce_verifier_missing", cookieResult.Transaction);
+        }
+        if (string.IsNullOrWhiteSpace(entry.RepositoryId))
+            return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
 
         // Clear pending state from session — successfully retrieved from store.
         HttpContext.Session.Remove(SessionKeyOAuthPendingState);
 
         // ── Repository consistency check ──────────────────────────────────────
-        var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+        var activeRepo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+        var repo = activeRepo with
+        {
+            RepositoryId = entry.RepositoryId,
+            DisplayName = entry.RepositoryId,
+        };
 
-        if (!string.IsNullOrEmpty(entry.RepositoryId) &&
-            !string.Equals(repo.RepositoryId, entry.RepositoryId, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(sessionState) && !string.IsNullOrEmpty(entry.RepositoryId) &&
+            !string.Equals(activeRepo.RepositoryId, entry.RepositoryId, StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning(
                 "[SSO] Repository mismatch: state={StateRepo} active={ActiveRepo}. " +
                 "Browser repository may have changed during the SSO flow.",
                 entry.RepositoryId,
                 repo.RepositoryId);
-            return FallBackToLoginForm();
+            return RedirectToSsoDiagnostic("repository_mismatch", cookieResult.Transaction);
         }
 
         var opts = _options.CurrentValue;
@@ -348,6 +525,12 @@ public sealed class LoginController : Controller
         bool success;
         try
         {
+            _logger.LogInformation(
+                "[SSO] Exchanging authorization code. Repository={Repository}; " +
+                "TokenEndpoint={TokenEndpoint}; PkceVerifierPresent={PkceVerifierPresent}.",
+                repo.RepositoryId,
+                BuildTokenEndpointForLog(opts, repo.RepositoryId),
+                true);
             success = await _authService.ExchangeAuthorizationCodeAsync(
                 repo,
                 code,
@@ -361,7 +544,21 @@ public sealed class LoginController : Controller
             _logger.LogError(ex,
                 "[SSO] Token exchange threw an exception for repository {Repo}.",
                 repo.RepositoryId);
-            return FallBackToLoginForm();
+            if (IsUntrustedSamlToken(ex))
+            {
+                return RedirectToAction("Diagnostic", new
+                {
+                    reason = "saml_token_untrusted",
+                    repositoryId = repo.RepositoryId,
+                    tokenEndpoint = opts.GetSsoTokenEndpoint(repo.RepositoryId),
+                    callbackUrl = entry.RedirectUri,
+                });
+            }
+            return RedirectToSsoDiagnostic(
+                "token_exchange_failed",
+                cookieResult.Transaction,
+                repo.RepositoryId,
+                opts.GetSsoTokenEndpoint(repo.RepositoryId));
         }
 
         if (!success)
@@ -370,22 +567,49 @@ public sealed class LoginController : Controller
                 "[SSO] Token exchange returned failure for repository {Repo}. " +
                 "Falling back to Login form.",
                 repo.RepositoryId);
-            return FallBackToLoginForm();
+            return RedirectToSsoDiagnostic(
+                "token_exchange_failed",
+                cookieResult.Transaction,
+                repo.RepositoryId,
+                opts.GetSsoTokenEndpoint(repo.RepositoryId));
         }
 
         // ── Mark session as authenticated ─────────────────────────────────────
+        HttpContext.Session.SetString(
+            RepositorySessionMiddleware.SessionKeyRepositoryId,
+            repo.RepositoryId);
         HttpContext.Session.SetString(
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
             repo.RepositoryId);
 
         _logger.LogInformation(
-            "[SSO] Session authenticated via LFDS for repository {Repo}.",
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
+        await EstablishDashboardIdentityAsync(
+            identityName: HttpContext.Session.GetString(SessionKeyAuthenticatedUser),
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+        _oAuthTransactionCookie.Delete(HttpContext);
+
+        _logger.LogInformation(
+            "[SSO] Callback authenticated user {Username} via LFDS for repository {Repo}.",
+            HttpContext.Session.GetString(SessionKeyAuthenticatedUser) ?? "(token did not expose a username)",
             repo.RepositoryId);
 
         // ── Redirect to original destination ──────────────────────────────────
         var returnUrl = entry.ReturnUrl;
         if (!IsLocalUrl(returnUrl))
             returnUrl = Url.Action("Index", "Dashboard")!;
+
+        _logger.LogInformation(
+            "[SSO] Callback completed. Access token cached by exchange service; " +
+            "SignInAsync completed; RedirectTarget={RedirectTarget}.",
+            returnUrl);
 
         return LocalRedirect(returnUrl);
     }
@@ -430,9 +654,15 @@ public sealed class LoginController : Controller
     {
         await _authService.InvalidateCurrentSessionTokensAsync();
 
+        await HttpContext.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
+        _oAuthTransactionCookie.Delete(HttpContext);
+
         HttpContext.Session.Remove(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId);
+        HttpContext.Session.Remove(RepositorySessionMiddleware.SessionKeyRepositoryId);
+        HttpContext.Session.Remove(RepositorySessionMiddleware.SessionKeySource);
         HttpContext.Session.Remove(SessionKeyOAuthPendingState);
         await _sessionCredentialStore.ClearAsync(cancellationToken);
+        HttpContext.Session.Clear();
 
         _logger.LogInformation("Login: session authentication cleared (Change Account).");
 
@@ -442,6 +672,40 @@ public sealed class LoginController : Controller
     // ------------------------------------------------------------------ //
     // Private helpers                                                      //
     // ------------------------------------------------------------------ //
+
+    /// <summary>
+    /// Persists the Dashboard identity established by a successful Laserfiche
+    /// password or LFDS authorization-code exchange.
+    /// </summary>
+    private Task EstablishDashboardIdentityAsync(
+        string? identityName,
+        string repositoryId,
+        string authenticationMethod)
+    {
+        var claims = new List<Claim>
+        {
+            new Claim(DashboardAuthenticationDefaults.RepositoryClaimType, repositoryId),
+            new Claim(ClaimTypes.AuthenticationMethod, authenticationMethod),
+        };
+
+        // The password flow knows the submitted username. The LFDS token response
+        // currently does not expose a verified username claim, so do not invent one.
+        if (!string.IsNullOrWhiteSpace(identityName))
+            claims.Add(new Claim(ClaimTypes.Name, identityName));
+
+        var identity  = new ClaimsIdentity(claims, DashboardAuthenticationDefaults.Scheme);
+        var principal = new ClaimsPrincipal(identity);
+
+        return HttpContext.SignInAsync(
+            DashboardAuthenticationDefaults.Scheme,
+            principal,
+            new AuthenticationProperties
+            {
+                IsPersistent = false,
+                AllowRefresh = true,
+                ExpiresUtc   = DateTimeOffset.UtcNow.AddHours(8),
+            });
+    }
 
     /// <summary>
     /// Repository selection is allowed only for direct browser sessions.
@@ -454,49 +718,150 @@ public sealed class LoginController : Controller
         return string.IsNullOrEmpty(source);
     }
 
+    private bool IsWebClientLaunch(string? returnUrl)
+    {
+        if (string.Equals(
+                HttpContext.Request.Query[RepositorySessionMiddleware.QueryParamSource].FirstOrDefault(),
+                "webclient",
+                StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.Equals(
+                HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeySource),
+                RepositorySessionMiddleware.SourceWebClient,
+                StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return !string.IsNullOrWhiteSpace(returnUrl) &&
+            returnUrl.Contains("source=webclient", StringComparison.OrdinalIgnoreCase);
+    }
+
+
     /// <summary>
-    /// Builds the OAuth2 redirect URI to register on LFDS.
-    /// Uses the configured override when set; otherwise derives it from the current request.
+    /// Returns the deterministic OAuth2 redirect URI derived from DashboardPublicBaseUrl.
     /// </summary>
     private string BuildCallbackUri(LaserficheOptions opts)
     {
-        if (!string.IsNullOrWhiteSpace(opts.Sso.RedirectUri))
-            return opts.Sso.RedirectUri.TrimEnd('/');
-
-        var req = HttpContext.Request;
-        return $"{req.Scheme}://{req.Host}/Login/Callback";
+        return opts.SsoCallbackUrl;
     }
 
+    private static bool IsUntrustedSamlToken(Exception exception) =>
+        exception is LaserficheException { StatusCode: 403 } laserfiche &&
+        (laserfiche.ResponseBody?.Contains("invalid or untrusted SAML token",
+             StringComparison.OrdinalIgnoreCase) == true ||
+         string.Equals(laserfiche.LFErrorCode, "9530", StringComparison.OrdinalIgnoreCase));
+
+    private RedirectToActionResult RedirectToSsoDiagnostic(
+        string reason,
+        OAuthTransaction? transaction = null,
+        string? repositoryId = null,
+        string? tokenEndpoint = null)
+    {
+        _logger.LogWarning(
+            "[SSO] Redirecting to diagnostic page. FailureReason={FailureReason}; Repository={Repository}.",
+            reason,
+            repositoryId ?? transaction?.RepositoryId ?? "(unknown)");
+        return RedirectToAction("Diagnostic", new
+        {
+            reason,
+            repositoryId = repositoryId ?? transaction?.RepositoryId,
+            tokenEndpoint,
+            callbackUrl = transaction?.RedirectUri,
+        });
+    }
+
+    /// <summary>Displays actionable SSO/configuration failures without password fallback.</summary>
+    [HttpGet("/Login/SsoDiagnostic")]
+    public IActionResult Diagnostic(
+        string reason,
+        string? detail = null,
+        string? repositoryId = null,
+        string? tokenEndpoint = null,
+        string? callbackUrl = null)
+    {
+        var opts = _options.CurrentValue;
+        if (opts.AuthenticationMode != LaserficheAuthenticationMode.LfdsSso)
+            return RedirectToAction("Index", "Login");
+        return View("SsoDiagnostic", new SsoDiagnosticViewModel
+        {
+            Reason = reason,
+            Detail = detail ?? DescribeSsoDiagnostic(reason),
+            RepositoryId = repositoryId ?? opts.RepositoryId,
+            TokenEndpoint = tokenEndpoint ?? opts.GetSsoTokenEndpoint(repositoryId ?? opts.RepositoryId),
+            CallbackUrl = callbackUrl ?? opts.SsoCallbackUrl,
+        });
+    }
+
+    private static string DescribeSsoDiagnostic(string reason) => reason switch
+    {
+        "oauth_correlation_cookie_missing" => "Dashboard did not receive the OAuth correlation cookie after LFDS returned. Check browser cookie policy, host mismatch, or IIS/app restart.",
+        "oauth_correlation_cookie_invalid" => "Dashboard received the OAuth correlation cookie, but it was invalid or expired.",
+        "oauth_state_mismatch" => "The OAuth state returned by LFDS did not match the protected Dashboard transaction.",
+        "pkce_verifier_missing" => "The protected OAuth transaction did not contain the PKCE verifier required for token exchange.",
+        "token_exchange_failed" => "LFDS returned to Dashboard, but Repository API rejected the authorization-code exchange.",
+        "repository_mismatch" => "The repository changed during the LFDS authentication transaction.",
+        "oauth_repository_missing" => "The protected OAuth transaction did not contain a repository identifier.",
+        _ => "The LFDS OAuth transaction could not be completed.",
+    };
+
     /// <summary>Redirects to the Login form with the SSO-failed flag set.</summary>
-    private RedirectToActionResult FallBackToLoginForm() =>
-        RedirectToAction("Index", "Login", new { ssoFailed = true });
+    private RedirectToActionResult FallBackToLoginForm(
+        string reason,
+        string? detail = null)
+    {
+        _logger.LogWarning(
+            "[SSO] Falling back to Login. FailureReason={FailureReason}; Detail={Detail}.",
+            reason,
+            detail ?? "(none)");
+        return RedirectToAction("Index", "Login", new { ssoFailed = true, ssoFailure = reason });
+    }
+
+    private static string StateForLog(string? state) =>
+        string.IsNullOrWhiteSpace(state)
+            ? "(missing)"
+            : state.Length > 8 ? state[..8] + "…" : state;
+
+    private static string BuildTokenEndpointForLog(LaserficheOptions opts, string repositoryId) =>
+        opts.GetSsoTokenEndpoint(repositoryId);
+
+    private static string DescribeSsoFailure(string? reason) => reason switch
+    {
+        "provider_error"        => "Laserfiche returned an authorization error.",
+        "missing_code"          => "The callback did not contain an authorization code.",
+        "missing_state"         => "The callback did not contain OAuth state.",
+        "oauth_correlation_cookie_missing" => "Dashboard did not receive the OAuth correlation cookie after LFDS returned. Check browser cookie policy, host mismatch, or IIS/app restart.",
+        "oauth_correlation_cookie_invalid" => "The OAuth correlation cookie could not be decrypted or has expired.",
+        "oauth_state_mismatch"   => "The returned OAuth state did not match the protected Dashboard transaction.",
+        "pkce_verifier_missing"  => "The protected OAuth transaction did not contain its PKCE verifier.",
+        "oauth_repository_missing" => "The protected OAuth transaction did not identify a repository.",
+        "repository_mismatch"   => "The active repository changed during authentication.",
+        "token_exchange_failed" => "Repository API rejected the authorization-code exchange.",
+        "callback_exception"    => "An unexpected error occurred during the OAuth callback.",
+        _                       => "The OAuth callback could not be completed.",
+    };
 
     /// <summary>Returns true when the URL is local to this application (anti-open-redirect).</summary>
     private bool IsLocalUrl(string? url) =>
         !string.IsNullOrEmpty(url) && Url.IsLocalUrl(url);
 
-    /// <summary>Builds the full LFDS authorization URL with all required parameters.</summary>
+    /// <summary>Builds the Repository API authorization URL with all required PKCE parameters.</summary>
     private static string BuildAuthorizationUrl(
         LaserficheOptions opts,
         string            state,
         string            codeChallenge,
         string            redirectUri,
-        string            repositoryId)
+        bool              forceLogin)
     {
-        var endpoint = opts.Sso.AuthorizationEndpoint;
+        var endpoint = opts.SsoAuthorizationEndpoint;
 
         var query = new StringBuilder();
         query.Append("response_type=code");
-        query.Append("&client_id=");        query.Append(Uri.EscapeDataString(opts.Sso.ClientId));
         query.Append("&redirect_uri=");     query.Append(Uri.EscapeDataString(redirectUri));
         query.Append("&state=");            query.Append(Uri.EscapeDataString(state));
         query.Append("&code_challenge=");   query.Append(Uri.EscapeDataString(codeChallenge));
         query.Append("&code_challenge_method=S256");
-        if (!string.IsNullOrEmpty(repositoryId))
-        {
-            query.Append("&repository=");
-            query.Append(Uri.EscapeDataString(repositoryId));
-        }
+        if (forceLogin)
+            query.Append("&prompt=login");
 
         return $"{endpoint}?{query}";
     }
@@ -528,6 +893,15 @@ public sealed class LoginController : Controller
                .Replace('/', '_');
 }
 
+public sealed class SsoDiagnosticViewModel
+{
+    public string Reason { get; init; } = string.Empty;
+    public string? Detail { get; init; }
+    public string RepositoryId { get; init; } = string.Empty;
+    public string TokenEndpoint { get; init; } = string.Empty;
+    public string CallbackUrl { get; init; } = string.Empty;
+}
+
 // ── View models ──────────────────────────────────────────────────────────────
 
 /// <summary>View model passed to the Login view.</summary>
@@ -556,6 +930,12 @@ public sealed class LoginViewModel
     /// redirected back to the password form as a fallback.
     /// </summary>
     public bool SsoFailed { get; init; }
+
+    public bool IsRepositoryPasswordMode { get; init; }
+    public string? ReturnUrl { get; init; }
+
+    /// <summary>Sanitized reason for an unsuccessful SSO callback.</summary>
+    public string? SsoFailureReason { get; init; }
 }
 
 /// <summary>Binds the login form POST payload.</summary>
@@ -573,4 +953,5 @@ public sealed class LoginInputModel
     /// Do NOT add [Required] here.
     /// </summary>
     public string? Password { get; set; }
+    public string? ReturnUrl { get; set; }
 }

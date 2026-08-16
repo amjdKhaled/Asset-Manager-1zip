@@ -13,8 +13,8 @@ namespace LFPortal.Application.Interfaces;
 /// are not held in memory beyond the HTTP request that uses them.
 /// </para>
 /// <para>
-/// The token cache is keyed by <see cref="RepositoryDescriptor.Key"/> so each
-/// repository maintains a completely independent token lifecycle.
+/// Interactive token cache entries are scoped by repository and Dashboard session,
+/// so different users of the same repository never share a token lifecycle.
 /// </para>
 /// </remarks>
 public interface ILaserficheAuthService
