@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Claims;
 using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Common;
@@ -192,31 +193,34 @@ public sealed class LaserficheAuthServiceSsoTests
     }
 
     [Fact]
-    public async Task ExchangeCode_400_ReturnsFalse_DoesNotThrow()
+    public async Task ExchangeCode_400_ThrowsDiagnosticException()
     {
         var svc = CreateService(StatusHandler(HttpStatusCode.BadRequest));
-        var result = await svc.ExchangeAuthorizationCodeAsync(
-            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard");
-        Assert.False(result);
+        var ex = await Assert.ThrowsAsync<LaserficheException>(() => svc.ExchangeAuthorizationCodeAsync(
+            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard"));
+        Assert.Equal(400, ex.StatusCode);
     }
 
     [Fact]
-    public async Task ExchangeCode_401_ReturnsFalse_DoesNotThrow()
+    public async Task ExchangeCode_401_ThrowsDiagnosticException()
     {
         // 401 = code already used or expired
         var svc = CreateService(StatusHandler(HttpStatusCode.Unauthorized));
-        var result = await svc.ExchangeAuthorizationCodeAsync(
-            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard");
-        Assert.False(result);
+        var ex = await Assert.ThrowsAsync<LaserficheException>(() => svc.ExchangeAuthorizationCodeAsync(
+            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard"));
+        Assert.Equal(401, ex.StatusCode);
     }
 
     [Fact]
-    public async Task ExchangeCode_403_ReturnsFalse_DoesNotThrow()
+    public async Task ExchangeCode_403_UntrustedSaml_PreservesSanitizedDiagnostic()
     {
-        var svc = CreateService(StatusHandler(HttpStatusCode.Forbidden));
-        var result = await svc.ExchangeAuthorizationCodeAsync(
-            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard");
-        Assert.False(result);
+        var svc = CreateService(StatusHandler(
+            HttpStatusCode.Forbidden,
+            "Received an invalid or untrusted SAML token. [9530]"));
+        var ex = await Assert.ThrowsAsync<LaserficheException>(() => svc.ExchangeAuthorizationCodeAsync(
+            MakeRepo(), "code", "verifier", "https://host/Login/Callback", "LFDashboard"));
+        Assert.Equal(403, ex.StatusCode);
+        Assert.Contains("invalid or untrusted SAML token", ex.ResponseBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -305,6 +309,86 @@ public sealed class LaserficheAuthServiceSsoTests
 
         Assert.Equal("sso-bearer-token-xyz", token);
         Assert.Equal(0, callCount); // counting handler never hit
+    }
+
+    [Theory]
+    [InlineData("LFDS")]
+    [InlineData("RepositoryPassword")]
+    public async Task GetToken_InteractivePrincipalWithCacheMiss_NeverUsesFallbackCredentials(
+        string authenticationMethod)
+    {
+        var opts = new LaserficheOptions
+        {
+            ServerUrl = "http://lf-server.test",
+            ApiBasePath = "/LFRepositoryAPI",
+        };
+        var adapter = new LaserficheApiAdapter(new StaticOptionsMonitor<LaserficheOptions>(opts));
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.AuthenticationMethod, authenticationMethod)],
+                "Dashboard.Cookie")),
+        };
+        var accessor = new HttpContextAccessor { HttpContext = context };
+        var credentials = new ThrowingCredentialProvider();
+
+        var svc = new LaserficheAuthService(
+            new TestHttpClientFactory(SuccessHandler("must-not-be-requested")),
+            credentials,
+            adapter,
+            new MemoryCache(new MemoryCacheOptions()),
+            new OptionsWrapper<LaserficheOptions>(opts),
+            accessor,
+            NullLogger<LaserficheAuthService>.Instance);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => svc.GetTokenAsync(MakeRepo()));
+        Assert.Equal(0, credentials.CallCount);
+    }
+
+    [Fact]
+    public async Task TokenCache_IsNotSharedBetweenUsersInSameRepository()
+    {
+        var opts = new LaserficheOptions { ServerUrl = "http://lf-server.test", ApiBasePath = "/LFRepositoryAPI" };
+        var adapter = new LaserficheApiAdapter(new StaticOptionsMonitor<LaserficheOptions>(opts));
+        var accessor = new HttpContextAccessor();
+        var factory = new SequentialHttpClientFactory([
+            SuccessHandler("amjd-token"),
+            SuccessHandler("admin-token")
+        ]);
+        var service = new LaserficheAuthService(
+            factory,
+            new ThrowingCredentialProvider(),
+            adapter,
+            new MemoryCache(new MemoryCacheOptions()),
+            new OptionsWrapper<LaserficheOptions>(opts),
+            accessor,
+            NullLogger<LaserficheAuthService>.Instance);
+        var repo = MakeRepo("TestEmployee");
+
+        accessor.HttpContext = UserContext("session-amjd", "amjd");
+        Assert.True(await service.TryAuthenticateAsync(repo, "amjd", "pw"));
+        Assert.Equal("amjd-token", await service.GetTokenAsync(repo));
+
+        await service.InvalidateCurrentSessionTokensAsync();
+        accessor.HttpContext = UserContext("session-admin", "admin");
+        Assert.True(await service.TryAuthenticateAsync(repo, "admin", "pw"));
+        Assert.Equal("admin-token", await service.GetTokenAsync(repo));
+    }
+
+    private static DefaultHttpContext UserContext(string sessionId, string username)
+    {
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([
+                new Claim(ClaimTypes.Name, username),
+                new Claim(ClaimTypes.AuthenticationMethod, "RepositoryPassword")
+            ], "Dashboard.Cookie"))
+        };
+        var session = new TestSession(sessionId);
+        session.Set("AuthenticatedRepositoryId", [1]);
+        context.Session = session;
+        return context;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -460,6 +544,39 @@ public sealed class LaserficheAuthServiceSsoTests
             => Task.FromResult(new LaserficheCredential(_u, _p));
         public Task StoreCredentialsAsync(string key, string u, string p, CancellationToken ct = default)
             => Task.CompletedTask;
+    }
+
+    private sealed class ThrowingCredentialProvider : ICredentialProvider
+    {
+        public int CallCount { get; private set; }
+
+        public Task<LaserficheCredential> GetCredentialsAsync(
+            string key,
+            CancellationToken ct = default)
+        {
+            CallCount++;
+            throw new InvalidOperationException("Fallback credentials must not be read.");
+        }
+
+        public Task StoreCredentialsAsync(
+            string key,
+            string username,
+            string password,
+            CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class TestSession(string id) : ISession
+    {
+        private readonly Dictionary<string, byte[]> _values = [];
+        public bool IsAvailable => true;
+        public string Id => id;
+        public IEnumerable<string> Keys => _values.Keys;
+        public void Clear() => _values.Clear();
+        public Task CommitAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task LoadAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Remove(string key) => _values.Remove(key);
+        public void Set(string key, byte[] value) => _values[key] = value;
+        public bool TryGetValue(string key, out byte[] value) => _values.TryGetValue(key, out value!);
     }
 }
 
