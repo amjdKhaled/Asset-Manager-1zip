@@ -118,6 +118,9 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             _logger.LogInformation(
                 "Dashboard scan starting. RepositoryId={RepositoryId}; AuthenticationMode={AuthenticationMode}; RootChildrenCount={RootChildrenCount}.",
                 status.RepositoryId, authenticationMode, rootChildren.Count);
+            _logger.LogInformation(
+                "Dashboard statistics loaded for Username={Username}; RepositoryId={RepositoryId}.",
+                connectedUser ?? "(not exposed by token)", status.RepositoryId);
 
             var tokenDurationMs = Stopwatch.GetElapsedTime(tokenStart).TotalMilliseconds;
 

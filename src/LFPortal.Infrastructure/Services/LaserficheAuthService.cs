@@ -6,6 +6,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Security.Cryptography;
 using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
 using LFPortal.Infrastructure.Adapters;
@@ -100,7 +101,11 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     private string CacheKeyFor(RepositoryDescriptor repository)
     {
         var scope = CurrentScope();
-        return $"{CacheKeyPrefix}{repository.Key}:{repository.RepositoryId}:{scope}:g{GenerationFor(scope)}";
+        var key = $"{CacheKeyPrefix}{repository.Key}:{repository.RepositoryId}:{scope}:g{GenerationFor(scope)}";
+        _logger.LogInformation(
+            "[LF AUTH] Token cache key used. Repository={RepositoryId}; Scope={Scope}; Key={CacheKey}.",
+            repository.RepositoryId, scope, key);
+        return key;
     }
 
     private string RefreshKeyFor(RepositoryDescriptor repository) =>
@@ -118,7 +123,8 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             // shared disk-stored fallback credentials — sharing the "app" scope
             // is then both correct and avoids re-authenticating every request.
             if (session is not null && session.Keys.Any() && !string.IsNullOrEmpty(session.Id))
-                scope = session.Id;
+                scope = "session-" + Convert.ToHexString(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(session.Id)))[..16];
         }
         catch
         {
@@ -609,14 +615,56 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         var cacheKey      = CacheKeyFor(repository);
         var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
         _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
+        if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken))
+            _cache.Set(RefreshKeyFor(repository), tokenResponse.RefreshToken, TimeSpan.FromHours(8));
+
+        var username = TryReadTokenUsername(tokenResponse.AccessToken);
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            try
+            {
+                _httpContextAccessor.HttpContext?.Session.SetString(
+                    "AuthenticatedLaserficheUser", username);
+            }
+            catch (InvalidOperationException)
+            {
+                _logger.LogDebug("[LF AUTH][SSO] Session unavailable while storing token identity.");
+            }
+        }
 
         _logger.LogInformation(
             "[LF AUTH][SSO] SSO token exchange succeeded for repository {RepoId}. " +
-            "Cached for {CacheSeconds}s.",
+            "Cached for {CacheSeconds}s. AuthenticatedUser={AuthenticatedUser}.",
             repository.RepositoryId,
-            expirySeconds);
+            expirySeconds,
+            username ?? "(not exposed by token)");
 
         return true;
+    }
+
+    private static string? TryReadTokenUsername(string accessToken)
+    {
+        var parts = accessToken.Split('.');
+        if (parts.Length < 2)
+            return null;
+
+        try
+        {
+            var payload = parts[1].Replace('-', '+').Replace('_', '/');
+            payload = payload.PadRight(payload.Length + ((4 - payload.Length % 4) % 4), '=');
+            using var document = JsonDocument.Parse(Convert.FromBase64String(payload));
+            foreach (var claim in new[] { "preferred_username", "unique_name", "name", "sub" })
+            {
+                if (document.RootElement.TryGetProperty(claim, out var value) &&
+                    value.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(value.GetString()))
+                    return value.GetString();
+            }
+        }
+        catch (FormatException) { }
+        catch (JsonException) { }
+
+        return null;
     }
 
     // ──────────────────────────── Diagnostic helpers ─────────────────────────

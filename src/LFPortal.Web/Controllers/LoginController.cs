@@ -40,6 +40,7 @@ public sealed class LoginController : Controller
 {
     // Session key written here, read by the guard middleware.
     internal const string SessionKeyOAuthPendingState = "OAuth_PendingState";
+    internal const string SessionKeyAuthenticatedUser = "AuthenticatedLaserficheUser";
 
     private readonly ILaserficheAuthService     _authService;
     private readonly IRepositoryContext         _repositoryContext;
@@ -286,6 +287,42 @@ public sealed class LoginController : Controller
             return RedirectToAction("Diagnostic", new { reason = "redirect_uri_mismatch", detail });
         }
 
+        // A Web Client launch is an explicit "change account" boundary. The Web
+        // Client may have changed users since the last Dashboard window, while the
+        // Dashboard cookie/session is still alive. Invalidate the old token scope
+        // before clearing the session so no token can cross that boundary.
+        if (IsWebClientLaunch(returnUrl))
+        {
+            var oldUser = User?.Identity?.Name ??
+                HttpContext.Session.GetString(SessionKeyAuthenticatedUser) ?? "(unknown)";
+            var repositoryId = HttpContext.Session.GetString(
+                RepositorySessionMiddleware.SessionKeyRepositoryId);
+
+            _logger.LogInformation(
+                "[SSO] New Web Client launch. OldUser={OldUser}; invalidating previous Dashboard identity.",
+                oldUser);
+            await _authService.InvalidateCurrentSessionTokensAsync();
+            if (User?.Identity?.IsAuthenticated == true ||
+                HttpContext.Request.Cookies.ContainsKey(".Dashboard.Authentication"))
+                await HttpContext.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
+            if (HttpContext.Request.Cookies.ContainsKey(OAuthTransactionCookie.CookieName))
+                _oAuthTransactionCookie.Delete(HttpContext);
+            await _sessionCredentialStore.ClearAsync(cancellationToken);
+            HttpContext.Session.Clear();
+
+            // Preserve only launch routing data written by RepositorySessionMiddleware.
+            if (!string.IsNullOrWhiteSpace(repositoryId))
+                HttpContext.Session.SetString(
+                    RepositorySessionMiddleware.SessionKeyRepositoryId, repositoryId);
+            HttpContext.Session.SetString(
+                RepositorySessionMiddleware.SessionKeySource,
+                RepositorySessionMiddleware.SourceWebClient);
+
+            _logger.LogInformation(
+                "[SSO] Cleared old Dashboard session for Web Client launch. Repository={RepositoryId}.",
+                repositoryId ?? "(configured default)");
+        }
+
         // Validate returnUrl — anti-open-redirect.
         if (!IsLocalUrl(returnUrl))
             returnUrl = Url.Action("Index", "Dashboard")!;
@@ -458,6 +495,8 @@ public sealed class LoginController : Controller
             // OAuthStateStore already logged the reason (expired / replay / unknown).
             return RedirectToSsoDiagnostic("oauth_correlation_cookie_missing");
         }
+        if (string.IsNullOrWhiteSpace(entry.RepositoryId))
+            return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
 
         if (string.IsNullOrWhiteSpace(entry.CodeVerifier))
         {
@@ -696,7 +735,22 @@ public sealed class LoginController : Controller
         _oAuthTransactionCookie.Delete(HttpContext);
 
         _logger.LogInformation(
-            "[SSO] Session authenticated via LFDS for repository {Repo}.",
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
+        await EstablishDashboardIdentityAsync(
+            identityName: HttpContext.Session.GetString(SessionKeyAuthenticatedUser),
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+        _oAuthTransactionCookie.Delete(HttpContext);
+
+        _logger.LogInformation(
+            "[SSO] Callback authenticated user {Username} via LFDS for repository {Repo}.",
+            HttpContext.Session.GetString(SessionKeyAuthenticatedUser) ?? "(token did not expose a username)",
             repo.RepositoryId);
 
         // ── Redirect to original destination ──────────────────────────────────
@@ -760,6 +814,7 @@ public sealed class LoginController : Controller
         HttpContext.Session.Remove(RepositorySessionMiddleware.SessionKeySource);
         HttpContext.Session.Remove(SessionKeyOAuthPendingState);
         await _sessionCredentialStore.ClearAsync(cancellationToken);
+        HttpContext.Session.Clear();
 
         _logger.LogInformation("Login: session authentication cleared (Change Account).");
 
@@ -813,6 +868,24 @@ public sealed class LoginController : Controller
         var source = HttpContext.Session.GetString(
             RepositorySessionMiddleware.SessionKeySource);
         return string.IsNullOrEmpty(source);
+    }
+
+    private bool IsWebClientLaunch(string? returnUrl)
+    {
+        if (string.Equals(
+                HttpContext.Request.Query[RepositorySessionMiddleware.QueryParamSource].FirstOrDefault(),
+                "webclient",
+                StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.Equals(
+                HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeySource),
+                RepositorySessionMiddleware.SourceWebClient,
+                StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return !string.IsNullOrWhiteSpace(returnUrl) &&
+            returnUrl.Contains("source=webclient", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

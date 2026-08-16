@@ -362,6 +362,32 @@ public sealed class LoginControllerSsoDormantTests
         Assert.Equal("/Dashboard?repository=TestRepo&source=webclient", store.LastStoredEntry?.ReturnUrl);
     }
 
+    [Fact]
+    public async Task StartSso_NewWebClientLaunch_InvalidatesOldUserBeforeStartingNewFlow()
+    {
+        var options = SsoOptions();
+        options.Sso.RedirectUri = "https://dashboard.test/Login/Callback";
+        var (ctrl, auth, _) = Build(options, directBrowser: false);
+        ctrl.HttpContext.Session.SetString("ActiveRepositoryId", "TestRepo");
+        ctrl.HttpContext.Session.SetString("AuthenticatedRepositoryId", "TestRepo");
+        ctrl.HttpContext.Session.SetString("AuthenticatedLaserficheUser", "amjd");
+        ctrl.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.Name, "amjd")],
+            DashboardAuthenticationDefaults.Scheme));
+
+        var result = await ctrl.StartSso(
+            "/Dashboard?repository=TestRepo&source=webclient",
+            default);
+
+        Assert.IsType<RedirectResult>(result);
+        Assert.True(auth.InvalidateCurrentSessionCalled);
+        Assert.Null(ctrl.HttpContext.Session.GetString("AuthenticatedRepositoryId"));
+        Assert.Null(ctrl.HttpContext.Session.GetString("AuthenticatedLaserficheUser"));
+        Assert.Equal("TestRepo", ctrl.HttpContext.Session.GetString("ActiveRepositoryId"));
+        Assert.Equal("Laserfiche Web Client", ctrl.HttpContext.Session.GetString("ActiveRepositorySource"));
+        Assert.NotNull(ctrl.HttpContext.Session.GetString("OAuth_PendingState"));
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 4. No V2 SSO token request during the password-grant flow
     // ─────────────────────────────────────────────────────────────────────────

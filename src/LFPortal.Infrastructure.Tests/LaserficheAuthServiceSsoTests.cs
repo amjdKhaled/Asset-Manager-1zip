@@ -346,6 +346,51 @@ public sealed class LaserficheAuthServiceSsoTests
         Assert.Equal(0, credentials.CallCount);
     }
 
+    [Fact]
+    public async Task TokenCache_IsNotSharedBetweenUsersInSameRepository()
+    {
+        var opts = new LaserficheOptions { ServerUrl = "http://lf-server.test", ApiBasePath = "/LFRepositoryAPI" };
+        var adapter = new LaserficheApiAdapter(new StaticOptionsMonitor<LaserficheOptions>(opts));
+        var accessor = new HttpContextAccessor();
+        var factory = new SequentialHttpClientFactory([
+            SuccessHandler("amjd-token"),
+            SuccessHandler("admin-token")
+        ]);
+        var service = new LaserficheAuthService(
+            factory,
+            new ThrowingCredentialProvider(),
+            adapter,
+            new MemoryCache(new MemoryCacheOptions()),
+            new OptionsWrapper<LaserficheOptions>(opts),
+            accessor,
+            NullLogger<LaserficheAuthService>.Instance);
+        var repo = MakeRepo("TestEmployee");
+
+        accessor.HttpContext = UserContext("session-amjd", "amjd");
+        Assert.True(await service.TryAuthenticateAsync(repo, "amjd", "pw"));
+        Assert.Equal("amjd-token", await service.GetTokenAsync(repo));
+
+        await service.InvalidateCurrentSessionTokensAsync();
+        accessor.HttpContext = UserContext("session-admin", "admin");
+        Assert.True(await service.TryAuthenticateAsync(repo, "admin", "pw"));
+        Assert.Equal("admin-token", await service.GetTokenAsync(repo));
+    }
+
+    private static DefaultHttpContext UserContext(string sessionId, string username)
+    {
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([
+                new Claim(ClaimTypes.Name, username),
+                new Claim(ClaimTypes.AuthenticationMethod, "RepositoryPassword")
+            ], "Dashboard.Cookie"))
+        };
+        var session = new TestSession(sessionId);
+        session.Set("AuthenticatedRepositoryId", [1]);
+        context.Session = session;
+        return context;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Secrets must not appear in logs
     // ─────────────────────────────────────────────────────────────────────────
@@ -518,6 +563,20 @@ public sealed class LaserficheAuthServiceSsoTests
             string username,
             string password,
             CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class TestSession(string id) : ISession
+    {
+        private readonly Dictionary<string, byte[]> _values = [];
+        public bool IsAvailable => true;
+        public string Id => id;
+        public IEnumerable<string> Keys => _values.Keys;
+        public void Clear() => _values.Clear();
+        public Task CommitAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task LoadAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Remove(string key) => _values.Remove(key);
+        public void Set(string key, byte[] value) => _values[key] = value;
+        public bool TryGetValue(string key, out byte[] value) => _values.TryGetValue(key, out value!);
     }
 }
 
