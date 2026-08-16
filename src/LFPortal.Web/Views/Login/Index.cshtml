@@ -115,7 +115,7 @@
             color: var(--lfp-text);
             margin-bottom: 6px;
         }
-        .field input {
+        .field input, .field select {
             width: 100%;
             padding: 9px 12px;
             border: 1px solid var(--lfp-border);
@@ -183,28 +183,23 @@
 
         <div class="login-body">
 
+            @if (Model.IsRepositoryPasswordMode)
+            {
+                <p style="margin-bottom:18px;color:#475569;">
+                    Sign in with your Laserfiche repository username and password.
+                </p>
+            }
+
             @* ── SSO fallback notice ── *@
             @if (Model.SsoFailed)
             {
                 <div class="login-error" role="alert" style="background:#fff3cd;border-color:#ffc107;color:#856404;">
                     <span class="login-error__icon">&#9888;&#65039;</span>
                     <span>
-                        Single sign-on was unsuccessful. Sign in with your Laserfiche
-                        username and password below, or contact your administrator.
+                        Single sign-on was unsuccessful: @(Model.SsoFailureReason ?? "Unknown callback failure")
+                        Start authentication from the Dashboard or Laserfiche Web Client;
+                        do not open the Repository API authorize URL manually.
                     </span>
-                </div>
-            }
-
-            @* ── Active repository — read-only badge for Desktop/Web Client
-                 launches; editable field for direct browser sessions ── *@
-            @if (!Model.AllowRepositoryInput)
-            {
-                <div class="repo-row" aria-label="Active repository: @Model.ActiveRepository">
-                    <div class="repo-row__icon">&#128193;</div>
-                    <div>
-                        <div class="repo-row__label">Repository</div>
-                        <div class="repo-row__name">@Model.ActiveRepository</div>
-                    </div>
                 </div>
             }
 
@@ -218,23 +213,37 @@
             }
 
             @* ── Credentials form ── *@
-            <form method="post" asp-controller="Login" asp-action="Index" novalidate>
-                @Html.AntiForgeryToken()
+            <form method="@(Model.IsRepositoryPasswordMode ? "post" : "get")"
+                  asp-controller="Login"
+                  asp-action="@(Model.IsRepositoryPasswordMode ? "Index" : "StartSso")"
+                  novalidate>
+                @if (Model.IsRepositoryPasswordMode) { @Html.AntiForgeryToken() }
+                <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
 
-                @if (Model.AllowRepositoryInput)
+                <div class="field">
+                    <label for="Repository">Repository</label>
+                    <select id="Repository" name="Repository" required>
+                        <option value="">Select a repository</option>
+                        @foreach (var repository in Model.Repositories)
+                        {
+                            if (string.Equals(repository.RepositoryId, Model.SubmittedRepository, StringComparison.OrdinalIgnoreCase))
+                            {
+                                <option value="@repository.RepositoryId" selected>@repository.RepositoryName (@repository.RepositoryId)</option>
+                            }
+                            else
+                            {
+                                <option value="@repository.RepositoryId">@repository.RepositoryName (@repository.RepositoryId)</option>
+                            }
+                        }
+                    </select>
+                    @if (!string.IsNullOrWhiteSpace(Model.RepositoryLoadError))
+                    {
+                        <div class="field-error">@Model.RepositoryLoadError</div>
+                    }
+                </div>
+
+                @if (Model.IsRepositoryPasswordMode)
                 {
-                    <div class="field">
-                        <label for="Repository">Repository</label>
-                        <input type="text"
-                               id="Repository"
-                               name="Repository"
-                               placeholder="e.g. Documents"
-                               value="@Html.Encode(Model.SubmittedRepository)"
-                               autocomplete="off"
-                               required />
-                    </div>
-                }
-
                 <div class="field">
                     <label for="Username">Username</label>
                     <input type="text"
@@ -265,6 +274,11 @@
                 </div>
 
                 <button type="submit" class="btn-signin">Sign In</button>
+                }
+                else
+                {
+                    <button type="submit" class="btn-signin">Sign in with Laserfiche SSO</button>
+                }
             </form>
 
         </div>
