@@ -682,6 +682,20 @@ public sealed class LoginController : Controller
         _oAuthTransactionCookie.Delete(HttpContext);
 
         _logger.LogInformation(
+            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
+            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
+            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
+            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
+            repo.RepositoryId);
+
+        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
+        _oAuthTransactionCookie.Delete(HttpContext);
+
+        _logger.LogInformation(
             "[SSO] Session authenticated via LFDS for repository {Repo}.",
             repo.RepositoryId);
 
