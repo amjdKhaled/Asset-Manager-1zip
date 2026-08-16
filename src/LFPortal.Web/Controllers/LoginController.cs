@@ -599,60 +599,6 @@ public sealed class LoginController : Controller
 
         _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
         await EstablishDashboardIdentityAsync(
-            identityName: null,
-            repositoryId: repo.RepositoryId,
-            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
-
-        _logger.LogInformation(
-            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
-            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
-            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
-            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
-            repo.RepositoryId);
-
-        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
-        await EstablishDashboardIdentityAsync(
-            identityName: null,
-            repositoryId: repo.RepositoryId,
-            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
-
-        _logger.LogInformation(
-            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
-            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
-            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
-            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
-            repo.RepositoryId);
-
-        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
-        await EstablishDashboardIdentityAsync(
-            identityName: null,
-            repositoryId: repo.RepositoryId,
-            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
-        _oAuthTransactionCookie.Delete(HttpContext);
-
-        _logger.LogInformation(
-            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
-            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
-            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
-            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
-            repo.RepositoryId);
-
-        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
-        await EstablishDashboardIdentityAsync(
-            identityName: null,
-            repositoryId: repo.RepositoryId,
-            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
-        _oAuthTransactionCookie.Delete(HttpContext);
-
-        _logger.LogInformation(
-            "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
-            "AuthenticatedRepositorySet={AuthenticatedRepositorySet}; Repository={Repository}.",
-            HttpContext.Session.GetString(RepositorySessionMiddleware.SessionKeyRepositoryId) is not null,
-            HttpContext.Session.GetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId) is not null,
-            repo.RepositoryId);
-
-        _logger.LogInformation("[SSO] Calling SignInAsync for repository {Repository}.", repo.RepositoryId);
-        await EstablishDashboardIdentityAsync(
             identityName: HttpContext.Session.GetString(SessionKeyAuthenticatedUser),
             repositoryId: repo.RepositoryId,
             authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
@@ -912,7 +858,7 @@ public sealed class LoginController : Controller
         string            state,
         string            codeChallenge,
         string            redirectUri,
-        bool              forceLogin)
+        bool              forceLogin = false)
     {
         var endpoint = opts.SsoAuthorizationEndpoint;
 
