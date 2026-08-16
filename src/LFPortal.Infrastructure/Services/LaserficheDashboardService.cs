@@ -3,6 +3,8 @@ using System.Diagnostics;
 using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Entities;
+using Microsoft.AspNetCore.Http;
+using System.Security.Claims;
 using Microsoft.Extensions.Logging;
 
 namespace LFPortal.Infrastructure.Services;
@@ -30,6 +32,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
     private readonly ISearchAuditLog                 _auditLog;
     private readonly ICredentialProvider             _credentialProvider;
     private readonly IRepositoryContext              _repositoryContext;
+    private readonly IHttpContextAccessor            _httpContextAccessor;
     private readonly ILogger<LaserficheDashboardService> _logger;
 
     public LaserficheDashboardService(
@@ -39,6 +42,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         ISearchAuditLog                 auditLog,
         ICredentialProvider             credentialProvider,
         IRepositoryContext              repositoryContext,
+        IHttpContextAccessor            httpContextAccessor,
         ILogger<LaserficheDashboardService> logger)
     {
         _repositoryService  = repositoryService;
@@ -47,6 +51,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         _auditLog           = auditLog;
         _credentialProvider = credentialProvider;
         _repositoryContext  = repositoryContext;
+        _httpContextAccessor = httpContextAccessor;
         _logger             = logger;
     }
 
@@ -73,18 +78,31 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             }
 
             // ── 2. Connected user ────────────────────────────────────────────
-            string? connectedUser = null;
+            var principal = _httpContextAccessor.HttpContext?.User;
+            var authMethod = principal?.FindFirst(ClaimTypes.AuthenticationMethod)?.Value;
+            var isUserSession = principal?.Identity?.IsAuthenticated == true &&
+                (string.Equals(authMethod, "LFDS", StringComparison.Ordinal) ||
+                 string.Equals(authMethod, "RepositoryPassword", StringComparison.Ordinal));
+            var authenticationMode = isUserSession ? authMethod! : "FallbackCredentials";
+
+            string? connectedUser = principal?.Identity?.Name;
             string? serverUrl     = null;
             try
             {
                 var repoDesc = await _repositoryContext
                     .GetActiveRepositoryAsync(cancellationToken)
                     .ConfigureAwait(false);
-                var creds    = await _credentialProvider
-                    .GetCredentialsAsync(repoDesc.Key, cancellationToken)
-                    .ConfigureAwait(false);
-                connectedUser = creds.Username;
                 serverUrl     = repoDesc.ServerUrl;
+
+                // Interactive API calls already use the per-user bearer token. Never read
+                // or display the configured fallback account while such a session exists.
+                if (!isUserSession)
+                {
+                    var creds = await _credentialProvider
+                        .GetCredentialsAsync(repoDesc.Key, cancellationToken)
+                        .ConfigureAwait(false);
+                    connectedUser = creds.Username;
+                }
             }
             catch (Exception ex)
             {
@@ -96,6 +114,10 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 
             var (rootChildren, templateDefs) = await FetchRootAndTemplatesAsync(cancellationToken)
                 .ConfigureAwait(false);
+
+            _logger.LogInformation(
+                "Dashboard scan starting. RepositoryId={RepositoryId}; AuthenticationMode={AuthenticationMode}; RootChildrenCount={RootChildrenCount}.",
+                status.RepositoryId, authenticationMode, rootChildren.Count);
 
             var tokenDurationMs = Stopwatch.GetElapsedTime(tokenStart).TotalMilliseconds;
 
@@ -112,14 +134,19 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             if (rootChildren.Count == 0)
             {
                 _logger.LogWarning(
-                    "DASHBOARD PIPELINE — Root entry returned 0 children. " +
-                    "All dashboard counts will be zero. Check the RAW FOLDER-CHILDREN RESPONSE log above.");
+                    "DASHBOARD DIAGNOSTIC — RepositoryId={RepositoryId}; API user returned 0 root children. " +
+                    "If Laserfiche Web Client shows entries, the API identity may have fewer permissions or the bearer token may belong to a different user/repository.",
+                    status.RepositoryId);
             }
 
             // ── 4. Recursive folder scan ─────────────────────────────────────
             var scanStart = Stopwatch.GetTimestamp();
 
-            var rootFolderResults = await ScanRootFoldersAsync(rootFolderEntries, cancellationToken)
+            var rootFolderResults = await ScanRootFoldersAsync(
+                    rootFolderEntries,
+                    (id, ct) => _entryService.GetAllFolderChildrenAsync(id, ct),
+                    _logger,
+                    cancellationToken)
                 .ConfigureAwait(false);
 
             var scanDurationMs = (long)Stopwatch.GetElapsedTime(scanStart).TotalMilliseconds;
@@ -141,8 +168,11 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 
             // Template counts: merge root-level docs + all sub-folder results
             var globalTemplates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var doc in rootDocEntries.Where(d => !string.IsNullOrWhiteSpace(d.TemplateName)))
-                globalTemplates[doc.TemplateName!] = globalTemplates.GetValueOrDefault(doc.TemplateName!) + 1;
+            foreach (var doc in rootDocEntries.Where(HasTemplate))
+            {
+                var templateKey = GetTemplateKey(doc);
+                globalTemplates[templateKey] = globalTemplates.GetValueOrDefault(templateKey) + 1;
+            }
 
             foreach (var r in rootFolderResults)
             {
@@ -221,13 +251,14 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             _logger.LogInformation(
                 "DASHBOARD LOAD — total={TotalMs}ms | token+root={TokenMs}ms | scan={ScanMs}ms | " +
                 "docs={TotalDocs} | folders={TotalFolders} | templates={Templates} | " +
-                "authMode=FallbackCredentials",
+                "authMode={AuthenticationMode}",
                 totalLoadMs,
                 (long)tokenDurationMs,
                 scanDurationMs,
                 totalDocuments,
                 totalFolders,
-                templateDefs.Count);
+                templateDefs.Count,
+                authenticationMode);
 
             return new DashboardStatsDto
             {
@@ -237,10 +268,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 ServerVersion            = status.ServerVersion,
                 ServerUrl                = serverUrl,
                 ConnectedUser            = connectedUser,
-                // Currently always FallbackCredentials — DPAPI/env service-account is the
-                // only credential source available without LFDS OAuth configuration.
-                // Set to "UserSession" here when a real per-user LFDS token is obtained.
-                AuthenticationMode       = "FallbackCredentials",
+                AuthenticationMode       = authenticationMode,
                 TotalDocuments           = totalDocuments,
                 TotalFolders             = totalFolders,
                 TotalTemplates           = templateDefs.Count,
@@ -282,9 +310,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
     private async Task<(IReadOnlyList<LFEntry> rootChildren, IReadOnlyList<Domain.Entities.LFTemplateDefinition> templateDefs)>
         FetchRootAndTemplatesAsync(CancellationToken ct)
     {
-        // Discover the real root entry ID — do NOT assume it is 1.
-        // Root ID varies per server installation (e.g. 250 on some servers).
-        var rootId = await _entryService.GetRootEntryIdAsync(ct).ConfigureAwait(false);
+        const int rootId = 1;
         _logger.LogInformation("Using root entry ID={RootId}. Fetching children and template definitions in parallel.", rootId);
 
         var rootTask     = SafeGetAllFolderChildrenAsync(rootId, ct);
@@ -320,31 +346,33 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 
     // ── Private: parallel scan of each root-level folder ─────────────────
 
-    private async Task<IReadOnlyList<ScanResult>> ScanRootFoldersAsync(
+    internal static async Task<IReadOnlyList<ScanResult>> ScanRootFoldersAsync(
         IEnumerable<LFEntry> rootFolders,
+        Func<int, CancellationToken, Task<IReadOnlyList<LFEntry>>> loadChildren,
+        ILogger logger,
         CancellationToken    ct)
     {
         var folderList = rootFolders.ToList();
-        _logger.LogInformation("Starting recursive scan of {Count} root-level folders.", folderList.Count);
+        logger.LogInformation("Starting recursive scan of {Count} root-level folders.", folderList.Count);
 
         var tasks = folderList.Select(async folder =>
         {
             try
             {
-                var result = await ScanFolderAsync(folder.Id, folder.Name, new ConcurrentDictionary<int, byte>(), ct)
+                var result = await ScanFolderAsync(folder.Id, folder.Name, new ConcurrentDictionary<int, byte>(), loadChildren, logger, ct)
                     .ConfigureAwait(false);
                 return result with { Name = folder.Name };
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Root folder scan failed for folder {FolderId} '{Name}'.", folder.Id, folder.Name);
+                logger.LogError(ex, "Root folder scan failed for folder {FolderId} '{Name}'.", folder.Id, folder.Name);
                 return new ScanResult(folder.Name, 0, 0, [], []);
             }
         });
 
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Root folder scan complete: {Docs} docs, {Folders} folders across {Count} root folders.",
             results.Sum(r => r.Documents),
             results.Sum(r => r.Folders),
@@ -355,28 +383,28 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 
     // ── Private: recursive folder scanner ────────────────────────────────
 
-    private async Task<ScanResult> ScanFolderAsync(
+    private static async Task<ScanResult> ScanFolderAsync(
         int                           folderId,
         string                        folderName,
         ConcurrentDictionary<int, byte> visited,
+        Func<int, CancellationToken, Task<IReadOnlyList<LFEntry>>> loadChildren,
+        ILogger logger,
         CancellationToken             ct)
     {
         if (!visited.TryAdd(folderId, 0))
         {
-            _logger.LogDebug("Cycle detected — skipping already-visited folder {FolderId}.", folderId);
+            logger.LogDebug("Cycle detected — skipping already-visited folder {FolderId}.", folderId);
             return new ScanResult(folderName, 0, 0, [], []);
         }
 
         IReadOnlyList<LFEntry> children;
         try
         {
-            children = await _entryService
-                .GetAllFolderChildrenAsync(folderId, ct)
-                .ConfigureAwait(false);
+            children = await loadChildren(folderId, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Cannot list children of folder {FolderId} '{Name}'.", folderId, folderName);
+            logger.LogWarning(ex, "Cannot list children of folder {FolderId} '{Name}'.", folderId, folderName);
             return new ScanResult(folderName, 0, 0, [], []);
         }
 
@@ -385,12 +413,19 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 
         // Collect template counts from this folder's documents
         var localTmpl = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var doc in docEntries.Where(d => !string.IsNullOrWhiteSpace(d.TemplateName)))
-            localTmpl[doc.TemplateName!] = localTmpl.GetValueOrDefault(doc.TemplateName!) + 1;
+        foreach (var doc in docEntries.Where(HasTemplate))
+        {
+            var templateKey = GetTemplateKey(doc);
+            localTmpl[templateKey] = localTmpl.GetValueOrDefault(templateKey) + 1;
+        }
+
+        logger.LogInformation(
+            "Dashboard folder scanned. FolderId={FolderId}; FolderName={FolderName}; DirectDocuments={Documents}; DirectFolders={Folders}.",
+            folderId, folderName, docEntries.Count, subFolderEntries.Count);
 
         // Recurse into sub-folders in parallel
         var subTasks = subFolderEntries.Select(f =>
-            ScanFolderAsync(f.Id, f.Name, visited, ct));
+            ScanFolderAsync(f.Id, f.Name, visited, loadChildren, logger, ct));
 
         var subResults = await Task.WhenAll(subTasks).ConfigureAwait(false);
 
@@ -411,6 +446,15 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         return new ScanResult(folderName, documents, folders, localTmpl, allDocs);
     }
 
+    private static bool HasTemplate(LFEntry entry) =>
+        entry.EntryType == LFEntryType.Document &&
+        (entry.TemplateId.HasValue || !string.IsNullOrWhiteSpace(entry.TemplateName));
+
+    private static string GetTemplateKey(LFEntry entry) =>
+        !string.IsNullOrWhiteSpace(entry.TemplateName)
+            ? entry.TemplateName!
+            : $"Template #{entry.TemplateId}";
+
     // ── Private: audit log data ───────────────────────────────────────────
 
     private async Task<(IReadOnlyList<SearchActivityDayDto>, IReadOnlyList<TopQueryDto>, int)>
@@ -429,7 +473,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 
     // ── Private scan result record ────────────────────────────────────────
 
-    private sealed record ScanResult(
+    internal sealed record ScanResult(
         string                     Name,
         int                        Documents,
         int                        Folders,

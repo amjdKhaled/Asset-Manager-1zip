@@ -64,7 +64,7 @@ public sealed class LaserficheAuthServiceTokenTests
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task TryAuthenticate_V1_SendsToCorrectTokenUrl()
+    public async Task TryAuthenticate_V1ResourceConfig_StillUsesV2InteractiveTokenUrl()
     {
         var handler = SuccessHandler();
         var svc = CreateService(handler, new LaserficheOptions
@@ -77,7 +77,7 @@ public sealed class LaserficheAuthServiceTokenTests
         await svc.TryAuthenticateAsync(MakeRepo("Docs"), "u", "p");
 
         Assert.Equal(
-            "http://lf-server.test/LFRepositoryAPI/v1/Repositories/Docs/Token",
+            "http://lf-server.test/LFRepositoryAPI/v2/Repositories/Docs/Token",
             handler.LastRequestUri?.ToString());
     }
 
