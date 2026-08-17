@@ -660,6 +660,8 @@ public sealed class LoginController : Controller
     [HttpGet("/Login/SignOut")]
     public async Task<IActionResult> SignOut(CancellationToken cancellationToken)
     {
+        var repositoryId = HttpContext.Session.GetString(
+            RepositorySessionMiddleware.SessionKeyRepositoryId);
         await _authService.InvalidateCurrentSessionTokensAsync();
 
         await HttpContext.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
@@ -673,6 +675,19 @@ public sealed class LoginController : Controller
         HttpContext.Session.Clear();
 
         _logger.LogInformation("Login: session authentication cleared (Change Account).");
+
+        var options = _options.CurrentValue;
+        if (options.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
+            options.Sso.IsConfigured &&
+            !string.IsNullOrWhiteSpace(repositoryId))
+        {
+            return RedirectToAction("StartSso", new
+            {
+                repository = repositoryId,
+                returnUrl = $"/Dashboard?repository={Uri.EscapeDataString(repositoryId)}",
+                forceLogin = true,
+            });
+        }
 
         return RedirectToAction("Index", "Login");
     }

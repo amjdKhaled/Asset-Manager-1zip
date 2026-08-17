@@ -360,6 +360,7 @@ public sealed class LoginControllerSsoDormantTests
         Assert.Contains("state=", uri.Query);
         Assert.Contains("code_challenge=", uri.Query);
         Assert.Contains("code_challenge_method=S256", uri.Query);
+        Assert.DoesNotContain("prompt=login", uri.Query, StringComparison.Ordinal);
         Assert.Equal("/Dashboard?repository=TestRepo&source=webclient", store.LastStoredEntry?.ReturnUrl);
     }
 
@@ -761,6 +762,20 @@ public sealed class LoginControllerSsoDormantTests
         var redirect = Assert.IsType<RedirectToActionResult>(result);
         Assert.Equal("Index", redirect.ActionName,    StringComparer.OrdinalIgnoreCase);
         Assert.Equal("Login", redirect.ControllerName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SignOut_ExplicitChangeAccount_ForcesLfdsLoginForCurrentRepository()
+    {
+        var (ctrl, _, _) = Build(SsoOptions());
+        ctrl.HttpContext.Session.SetString("ActiveRepositoryId", "TestRepo");
+
+        var result = await ctrl.SignOut(default);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("StartSso", redirect.ActionName);
+        Assert.Equal("TestRepo", redirect.RouteValues?["repository"]);
+        Assert.Equal(true, redirect.RouteValues?["forceLogin"]);
     }
 
     [Fact]

@@ -50,7 +50,7 @@ public sealed class RepositorySessionMiddlewareTests
         Assert.Contains("Dashboard.Cookie", ctx.Response.Headers.SetCookie.ToString());
         Assert.StartsWith("/Login/StartSso?", ctx.Response.Headers.Location.ToString());
         Assert.Contains("repository=NewEmployeeTest", ctx.Response.Headers.Location.ToString());
-        Assert.Contains("forceLogin=true", ctx.Response.Headers.Location.ToString());
+        Assert.DoesNotContain("forceLogin", ctx.Response.Headers.Location.ToString());
     }
 
     [Fact]

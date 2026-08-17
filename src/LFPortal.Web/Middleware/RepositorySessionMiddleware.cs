@@ -93,9 +93,6 @@ public sealed class RepositorySessionMiddleware
             {
                 ["repository"] = repositoryId,
                 ["returnUrl"] = returnUrl,
-                // Dashboard state is not enough: LFDS/WebSTS has its own browser
-                // session, which may still represent the previous Web Client user.
-                ["forceLogin"] = "true",
             });
 
             _logger.LogInformation(
