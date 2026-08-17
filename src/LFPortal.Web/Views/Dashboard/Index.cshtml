@@ -337,8 +337,8 @@ footer.site-footer { background: #0a1020 !important; }
     <div class="d-card">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
             <div>
-                <div class="d-card-title"><span class="d-section-bar"></span>@L["DocumentsByFolder"]</div>
-                <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@string.Format(L["RootLevelFolders"], s.RepositoryId)</div>
+                <div class="d-card-title"><span class="d-section-bar"></span>@L[name: "DocumentsByFolder"]</div>
+                <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@string.Format(L[name: "RootLevelFolders"], s.RepositoryId)</div>
             </div>
         </div>
         @if (s.RootFolders.Count == 0)
