@@ -1,3 +1,7 @@
+using LFPortal.Application.Interfaces;
+using LFPortal.Web.Authentication;
+using Microsoft.AspNetCore.Authentication;
+
 namespace LFPortal.Web.Middleware;
 
 /// <summary>
@@ -52,9 +56,51 @@ public sealed class RepositorySessionMiddleware
     /// Processes the request, capturing any <c>?repository=</c> and <c>?source=</c>
     /// parameters and writing validated values into the ASP.NET Core session.
     /// </summary>
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(
+        HttpContext context,
+        ILaserficheAuthService authService,
+        IOAuthTransactionCookie oAuthTransactionCookie)
     {
         var repoParam = context.Request.Query[QueryParamRepository].FirstOrDefault();
+        var sourceParam = context.Request.Query[QueryParamSource].FirstOrDefault();
+
+        if (!string.IsNullOrWhiteSpace(repoParam) &&
+            IsValidRepositoryId(repoParam) &&
+            string.Equals(sourceParam, "webclient", StringComparison.OrdinalIgnoreCase))
+        {
+            var repositoryId = repoParam.Trim();
+            var oldUser = context.User.Identity?.Name ??
+                context.Session.GetString("AuthenticatedLaserficheUser") ?? "(unknown)";
+
+            _logger.LogInformation(
+                "Fresh Web Client authentication boundary. Repository={RepositoryId}; OldUser={OldUser}.",
+                repositoryId, oldUser);
+
+            await authService.InvalidateCurrentSessionTokensAsync();
+            await context.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
+            oAuthTransactionCookie.Delete(context);
+            context.Session.Clear();
+            context.User = new System.Security.Claims.ClaimsPrincipal(
+                new System.Security.Claims.ClaimsIdentity());
+
+            var returnQuery = context.Request.Query
+                .Where(pair => !string.Equals(pair.Key, QueryParamSource, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(pair => pair.Value.Select(value =>
+                    new KeyValuePair<string, string?>(pair.Key, value)));
+            var returnUrl = context.Request.PathBase + context.Request.Path +
+                QueryString.Create(returnQuery);
+            var startSsoUrl = QueryString.Create(new Dictionary<string, string?>
+            {
+                ["repository"] = repositoryId,
+                ["returnUrl"] = returnUrl,
+            });
+
+            _logger.LogInformation(
+                "Old Dashboard identity cleared; redirecting fresh Web Client launch to StartSso for {RepositoryId}.",
+                repositoryId);
+            context.Response.Redirect("/Login/StartSso" + startSsoUrl);
+            return;
+        }
 
         if (!string.IsNullOrWhiteSpace(repoParam) && IsValidRepositoryId(repoParam))
         {
@@ -64,8 +110,7 @@ public sealed class RepositorySessionMiddleware
             // "webclient" → Laserfiche Web Client; anything else (including absent) →
             // Laserfiche Desktop Client for full backward-compatibility with the existing
             // Desktop Extension which does not send a source parameter.
-            var sourceParam = context.Request.Query[QueryParamSource].FirstOrDefault() ?? string.Empty;
-            var source      = sourceParam.Equals("webclient", StringComparison.OrdinalIgnoreCase)
+            var source      = (sourceParam ?? string.Empty).Equals("webclient", StringComparison.OrdinalIgnoreCase)
                 ? SourceWebClient
                 : SourceDesktop;
 
