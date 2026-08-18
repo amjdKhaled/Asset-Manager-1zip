@@ -349,7 +349,8 @@
         .lang-sep { color: rgba(255,255,255,.3); }
 
         /* ── RTL layout overrides ──────────────────────────────────────────── */
-        [dir=rtl] .site-header { flex-direction: row-reverse; }
+        @* { flex-direction: row-reverse; } *@
+        [dir=rtl] .site-header 
         [dir=rtl] .site-header__nav { margin-left: 0; margin-inline-start: auto; }
         [dir=rtl] .site-header__logo { margin-right: 0; }
         [dir=rtl] .lang-switcher { margin-inline-start: 0; margin-inline-end: 8px; }
