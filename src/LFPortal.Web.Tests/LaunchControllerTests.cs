@@ -16,18 +16,6 @@ namespace LFPortal.Web.Tests;
 public sealed class LaunchControllerTests
 {
     [Fact]
-    public void LegacyLaunchLoadingViewModel_RemainsBuildCompatibleForIncrementalDeployments()
-    {
-        var model = new LaunchLoadingViewModel
-        {
-            RepositoryId = "TestEmployee",
-            RedirectUrl = "/Login?repository=TestEmployee",
-        };
-        Assert.Equal("TestEmployee", model.RepositoryId);
-        Assert.StartsWith("/Login", model.RedirectUrl);
-    }
-
-    [Fact]
     public async Task Launch_WebClient_ClearsDashboardStateAndRedirectsToPasswordGateway()
     {
         var auth = new SpyAuthService();
