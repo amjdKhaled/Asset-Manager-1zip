@@ -16,9 +16,10 @@ namespace LFPortal.Web.Middleware;
 /// This middleware records the source as <c>"Laserfiche Desktop Client"</c>.
 /// </para>
 /// <para>
-/// <b>Web Client:</b> The Web Client button script appends
-/// <c>?repository=&lt;repo&gt;&amp;source=webclient</c>.
-/// This middleware records the source as <c>"Laserfiche Web Client"</c>.
+/// <b>Web Client:</b> The current button opens
+/// <c>/Launch?repository=&lt;repo&gt;&amp;source=webclient</c>. Legacy root links with
+/// those query parameters are redirected to the loading route before any Dashboard
+/// identity is reused.
 /// </para>
 /// <para>
 /// A companion session key (<c>ActiveRepositorySource</c>) carries the validated
@@ -57,48 +58,27 @@ public sealed class RepositorySessionMiddleware
     /// parameters and writing validated values into the ASP.NET Core session.
     /// </summary>
     public async Task InvokeAsync(
-        HttpContext context,
-        ILaserficheAuthService authService,
-        IOAuthTransactionCookie oAuthTransactionCookie)
+        HttpContext context)
     {
         var repoParam = context.Request.Query[QueryParamRepository].FirstOrDefault();
         var sourceParam = context.Request.Query[QueryParamSource].FirstOrDefault();
 
         if (!string.IsNullOrWhiteSpace(repoParam) &&
             IsValidRepositoryId(repoParam) &&
-            string.Equals(sourceParam, "webclient", StringComparison.OrdinalIgnoreCase))
+            string.Equals(sourceParam, "webclient", StringComparison.OrdinalIgnoreCase) &&
+            !context.Request.Path.StartsWithSegments("/Launch", StringComparison.OrdinalIgnoreCase))
         {
             var repositoryId = repoParam.Trim();
-            var oldUser = context.User.Identity?.Name ??
-                context.Session.GetString("AuthenticatedLaserficheUser") ?? "(unknown)";
-
-            _logger.LogInformation(
-                "Fresh Web Client authentication boundary. Repository={RepositoryId}; OldUser={OldUser}.",
-                repositoryId, oldUser);
-
-            await authService.InvalidateCurrentSessionTokensAsync();
-            await context.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
-            oAuthTransactionCookie.Delete(context);
-            context.Session.Clear();
-            context.User = new System.Security.Claims.ClaimsPrincipal(
-                new System.Security.Claims.ClaimsIdentity());
-
-            var returnQuery = context.Request.Query
-                .Where(pair => !string.Equals(pair.Key, QueryParamSource, StringComparison.OrdinalIgnoreCase))
-                .SelectMany(pair => pair.Value.Select(value =>
-                    new KeyValuePair<string, string?>(pair.Key, value)));
-            var returnUrl = context.Request.PathBase + context.Request.Path +
-                QueryString.Create(returnQuery);
-            var startSsoUrl = QueryString.Create(new Dictionary<string, string?>
+            var launchUrl = QueryString.Create(new Dictionary<string, string?>
             {
                 ["repository"] = repositoryId,
-                ["returnUrl"] = returnUrl,
+                ["source"] = "webclient",
             });
 
             _logger.LogInformation(
-                "Old Dashboard identity cleared; redirecting fresh Web Client launch to StartSso for {RepositoryId}.",
+                "Routing legacy Web Client launch through the Dashboard loading page for {RepositoryId}.",
                 repositoryId);
-            context.Response.Redirect("/Login/StartSso" + startSsoUrl);
+            context.Response.Redirect("/Launch" + launchUrl);
             return;
         }
 

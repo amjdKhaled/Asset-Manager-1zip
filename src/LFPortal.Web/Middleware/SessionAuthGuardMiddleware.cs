@@ -26,6 +26,7 @@ namespace LFPortal.Web.Middleware;
 /// Excluded paths (never redirected):
 /// <list type="bullet">
 ///   <item><c>/Login</c> and all sub-paths</item>
+///   <item><c>/Launch</c></item>
 ///   <item><c>/Settings</c> and all sub-paths</item>
 ///   <item><c>/health</c></item>
 ///   <item><c>/Home</c> (error pages)</item>
@@ -158,6 +159,7 @@ public sealed class SessionAuthGuardMiddleware
 
     private static bool IsExcluded(PathString path) =>
         path.StartsWithSegments("/Login",    StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWithSegments("/Launch",   StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/Settings", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/health",   StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/api/diagnostics", StringComparison.OrdinalIgnoreCase) ||
