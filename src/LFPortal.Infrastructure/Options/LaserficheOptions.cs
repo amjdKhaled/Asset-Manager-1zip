@@ -56,13 +56,6 @@ public sealed class LaserficheOptions
     public LaserficheAuthenticationMode AuthenticationMode { get; set; } =
         LaserficheAuthenticationMode.RepositoryPassword;
 
-    /// <summary>
-    /// Explicit opt-in for the legacy LFDS authorization-code endpoints. Dashboard
-    /// launches never use them; the default keeps LFDS disabled even when stale SSO
-    /// URL settings remain in an upgraded installation.
-    /// </summary>
-    public bool EnableLfdsSso { get; set; }
-
     /// <summary>Public browser origin of the Dashboard, used for every OAuth callback.</summary>
     public string DashboardPublicBaseUrl { get; set; } = string.Empty;
 
@@ -75,21 +68,6 @@ public sealed class LaserficheOptions
     /// repository at login.  Case-sensitive.
     /// </summary>
     public string RepositoryId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Repository identifiers users may select on the Dashboard password gateway.
-    /// Values are configuration-owned; arbitrary repository names submitted by a
-    /// browser are rejected before credentials are sent to Repository API.
-    /// </summary>
-    public List<string> Repositories { get; set; } = [];
-
-    /// <summary>Normalized configured repository choices, including the legacy default.</summary>
-    public IReadOnlyList<string> EffectiveRepositories => Repositories
-        .Append(RepositoryId)
-        .Where(static value => !string.IsNullOrWhiteSpace(value))
-        .Select(static value => value.Trim())
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .ToArray();
 
     /// <summary>
     /// Human-readable label shown in the portal UI to identify this repository.

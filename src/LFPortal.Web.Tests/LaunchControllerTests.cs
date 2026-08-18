@@ -16,19 +16,7 @@ namespace LFPortal.Web.Tests;
 public sealed class LaunchControllerTests
 {
     [Fact]
-    public void LegacyLaunchLoadingViewModel_RemainsBuildCompatibleForIncrementalDeployments()
-    {
-        var model = new LaunchLoadingViewModel
-        {
-            RepositoryId = "TestEmployee",
-            RedirectUrl = "/Login?repository=TestEmployee",
-        };
-        Assert.Equal("TestEmployee", model.RepositoryId);
-        Assert.StartsWith("/Login", model.RedirectUrl);
-    }
-
-    [Fact]
-    public async Task Launch_WebClient_ClearsDashboardStateAndRedirectsToPasswordGateway()
+    public async Task Launch_WebClient_ClearsDashboardStateAndReturnsLoadingView()
     {
         var auth = new SpyAuthService();
         var credentials = new SpyCredentialStore();
@@ -44,12 +32,15 @@ public sealed class LaunchControllerTests
 
         var result = await controller.Index("TestEmployee", "webclient");
 
-        var redirect = Assert.IsType<RedirectToActionResult>(result);
-        Assert.Equal("Index", redirect.ActionName);
-        Assert.Equal("Login", redirect.ControllerName);
-        Assert.Equal("TestEmployee", redirect.RouteValues?["repository"]);
-        Assert.Equal("/Dashboard", redirect.RouteValues?["returnUrl"]);
-        Assert.DoesNotContain("forceLogin", redirect.RouteValues?.Keys ?? []);
+        var view = Assert.IsType<ViewResult>(result);
+        Assert.Equal("LaunchLoading", view.ViewName);
+        var model = Assert.IsType<LaunchLoadingViewModel>(view.Model);
+        Assert.Equal("TestEmployee", model.RepositoryId);
+        Assert.Contains("/Login/StartSso?", model.RedirectUrl);
+        Assert.Contains("repository=TestEmployee", model.RedirectUrl);
+        Assert.Contains("returnUrl=%2FDashboard", model.RedirectUrl);
+        Assert.DoesNotContain("forceLogin", model.RedirectUrl);
+        Assert.DoesNotContain("prompt=login", model.RedirectUrl);
 
         Assert.True(auth.Invalidated);
         Assert.True(credentials.Cleared);
@@ -72,9 +63,10 @@ public sealed class LaunchControllerTests
         var result = await controller.Index(
             "NewLfRepo", "webclient", "/Dashboard?repository=NewLfRepo");
 
-        var redirect = Assert.IsType<RedirectToActionResult>(result);
-        Assert.Equal("NewLfRepo", redirect.RouteValues?["repository"]);
-        Assert.Equal("/Dashboard?repository=NewLfRepo", redirect.RouteValues?["returnUrl"]);
+        var model = Assert.IsType<LaunchLoadingViewModel>(
+            Assert.IsType<ViewResult>(result).Model);
+        Assert.Contains("repository=NewLfRepo", model.RedirectUrl);
+        Assert.Contains("returnUrl=%2FDashboard%3Frepository%3DNewLfRepo", model.RedirectUrl);
     }
 
     [Fact]
@@ -86,6 +78,21 @@ public sealed class LaunchControllerTests
         var result = await controller.Index("TestEmployee", "unknown");
 
         Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void LaunchLoadingView_ContainsAutomaticStartSsoRedirect()
+    {
+        var path = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "../../../../LFPortal.Web/Views/Launch/LaunchLoading.cshtml"));
+        var source = File.ReadAllText(path);
+
+        Assert.Contains("Model.RedirectUrl", source);
+        Assert.Contains("window.location.replace", source);
+        Assert.Contains("300", source);
+        Assert.Contains("Signing you in with your existing Laserfiche session.", source);
+        Assert.DoesNotContain("prompt=login", source);
     }
 
     private static (LaunchController Controller, TestSession Session, HttpContext Context)
@@ -125,7 +132,13 @@ public sealed class LaunchControllerTests
             new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
 
         public string? Action(UrlActionContext actionContext)
-            => $"/{actionContext.Controller}/{actionContext.Action}";
+        {
+            var values = actionContext.Values!;
+            var repository = values.GetType().GetProperty("repository")?.GetValue(values)?.ToString();
+            var returnUrl = values.GetType().GetProperty("returnUrl")?.GetValue(values)?.ToString();
+            return "/Login/StartSso?repository=" + Uri.EscapeDataString(repository!) +
+                "&returnUrl=" + Uri.EscapeDataString(returnUrl!);
+        }
 
         public bool IsLocalUrl(string? url) =>
             !string.IsNullOrEmpty(url) && url[0] == '/' &&
