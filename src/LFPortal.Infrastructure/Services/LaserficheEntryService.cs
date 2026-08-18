@@ -407,7 +407,13 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
                     entryId, pageNumber, pageEntries.Count, allEntries.Count, next is not null ? "yes" : "no");
 
                 // Sanitise nextLink — must be an absolute URL that we understand.
-                nextUrl = IsUsableNextLink(next) ? next : null;
+                nextUrl = ResolveNextLink(nextUrl, next);
+                if (nextUrl is not null)
+                {
+                    _logger.LogInformation(
+                        "SCAN — Pagination found for folder {EntryId}; following page {NextPage}.",
+                        entryId, pageNumber + 1);
+                }
             }
             catch (Exception ex)
             {
@@ -440,11 +446,19 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
     /// that can safely be used as the next-page request.
     /// Rejects relative URLs, fragment-only strings, and obvious duplicates.
     /// </summary>
-    private static bool IsUsableNextLink(string? nextLink)
+    private static string? ResolveNextLink(string currentUrl, string? nextLink)
     {
-        if (string.IsNullOrWhiteSpace(nextLink)) return false;
-        return Uri.TryCreate(nextLink, UriKind.Absolute, out var uri) &&
-               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+        if (string.IsNullOrWhiteSpace(nextLink) ||
+            !Uri.TryCreate(currentUrl, UriKind.Absolute, out var current))
+            return null;
+
+        if (!Uri.TryCreate(current, nextLink, out var resolved) ||
+            (resolved.Scheme != Uri.UriSchemeHttp && resolved.Scheme != Uri.UriSchemeHttps) ||
+            !string.Equals(resolved.Scheme, current.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(resolved.Authority, current.Authority, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        return resolved.AbsoluteUri;
     }
 
     /// <inheritdoc />
@@ -534,7 +548,7 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
         // OData envelope {"value":[...], "@odata.nextLink":"..."}
         var odata = JsonSerializer.Deserialize<ODataPagedList<EntryApiResource>>(body, JsonOptions.Default);
         var entries = (odata?.Value ?? []).Select(MapEntry).ToList();
-        return (entries, odata?.NextLink);
+        return (entries, odata?.NextLink ?? odata?.PlainNextLink);
     }
 
     /// <summary>
@@ -831,6 +845,9 @@ internal sealed class LaserficheEntryService : ILaserficheEntryService
         /// </summary>
         [JsonPropertyName("@odata.nextLink")]
         public string? NextLink { get; init; }
+
+        [JsonPropertyName("nextLink")]
+        public string? PlainNextLink { get; init; }
     }
 
     private sealed record ODataCountList<T>
