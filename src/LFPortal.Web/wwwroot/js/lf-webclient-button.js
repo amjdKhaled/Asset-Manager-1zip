@@ -145,7 +145,7 @@
      */
     function buildDashboardUrl(repo) {
         return DASHBOARD_BASE_URL.replace(/\/+$/, '') +
-               '/?repository=' + encodeURIComponent(repo) +
+               '/Launch?repository=' + encodeURIComponent(repo) +
                '&source=webclient';
     }
 

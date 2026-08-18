@@ -12,9 +12,10 @@ namespace LFPortal.Web.Middleware;
 /// This middleware records the source as <c>"Laserfiche Desktop Client"</c>.
 /// </para>
 /// <para>
-/// <b>Web Client:</b> The Web Client button script appends
-/// <c>?repository=&lt;repo&gt;&amp;source=webclient</c>.
-/// This middleware records the source as <c>"Laserfiche Web Client"</c>.
+/// <b>Web Client:</b> The current button opens
+/// <c>/Launch?repository=&lt;repo&gt;&amp;source=webclient</c>. Legacy root links with
+/// those query parameters are redirected to the loading route before any Dashboard
+/// identity is reused.
 /// </para>
 /// <para>
 /// A companion session key (<c>ActiveRepositorySource</c>) carries the validated
@@ -52,9 +53,30 @@ public sealed class RepositorySessionMiddleware
     /// Processes the request, capturing any <c>?repository=</c> and <c>?source=</c>
     /// parameters and writing validated values into the ASP.NET Core session.
     /// </summary>
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(
+        HttpContext context)
     {
         var repoParam = context.Request.Query[QueryParamRepository].FirstOrDefault();
+        var sourceParam = context.Request.Query[QueryParamSource].FirstOrDefault();
+
+        if (!string.IsNullOrWhiteSpace(repoParam) &&
+            IsValidRepositoryId(repoParam) &&
+            string.Equals(sourceParam, "webclient", StringComparison.OrdinalIgnoreCase) &&
+            !context.Request.Path.StartsWithSegments("/Launch", StringComparison.OrdinalIgnoreCase))
+        {
+            var repositoryId = repoParam.Trim();
+            var launchUrl = QueryString.Create(new Dictionary<string, string?>
+            {
+                ["repository"] = repositoryId,
+                ["source"] = "webclient",
+            });
+
+            _logger.LogInformation(
+                "Routing legacy Web Client launch through the Dashboard loading page for {RepositoryId}.",
+                repositoryId);
+            context.Response.Redirect("/Launch" + launchUrl);
+            return;
+        }
 
         if (!string.IsNullOrWhiteSpace(repoParam) && IsValidRepositoryId(repoParam))
         {
@@ -64,8 +86,7 @@ public sealed class RepositorySessionMiddleware
             // "webclient" → Laserfiche Web Client; anything else (including absent) →
             // Laserfiche Desktop Client for full backward-compatibility with the existing
             // Desktop Extension which does not send a source parameter.
-            var sourceParam = context.Request.Query[QueryParamSource].FirstOrDefault() ?? string.Empty;
-            var source      = sourceParam.Equals("webclient", StringComparison.OrdinalIgnoreCase)
+            var source      = (sourceParam ?? string.Empty).Equals("webclient", StringComparison.OrdinalIgnoreCase)
                 ? SourceWebClient
                 : SourceDesktop;
 
