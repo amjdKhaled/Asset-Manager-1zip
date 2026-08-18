@@ -76,6 +76,20 @@ public sealed class RepositorySessionMiddlewareTests
     }
 
     [Fact]
+    public async Task Invoke_ThreeArgumentContract_RemainsSourceCompatible()
+    {
+        var (ctx, _) = MakeContext(
+            "/Launch", "repository=NewEmployeeTest&source=webclient");
+
+        // Older tests and callers supplied these two middleware services explicitly.
+        // The loading controller now owns their work, but removing the parameters is
+        // an unnecessary source-breaking change during a rolling merge/deployment.
+        await MakeMiddleware().InvokeAsync(ctx, null, null);
+
+        Assert.False(ctx.Response.Headers.ContainsKey("Location"));
+    }
+
+    [Fact]
     public async Task Invoke_LegacyWebClientLaunch_LeavesCleanupToLaunchEndpoint()
     {
         // The user previously had "LFNewRepoWF" in their session (from a prior login).

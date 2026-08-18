@@ -1,6 +1,5 @@
 using LFPortal.Application.Interfaces;
 using LFPortal.Web.Authentication;
-using Microsoft.AspNetCore.Authentication;
 
 namespace LFPortal.Web.Middleware;
 
@@ -58,8 +57,17 @@ public sealed class RepositorySessionMiddleware
     /// parameters and writing validated values into the ASP.NET Core session.
     /// </summary>
     public async Task InvokeAsync(
-        HttpContext context)
+        HttpContext context,
+        ILaserficheAuthService? authService = null,
+        IOAuthTransactionCookie? oAuthTransactionCookie = null)
     {
+        // Keep the service parameters for source and binary compatibility with the
+        // pre-/Launch middleware contract. Cleanup now belongs to LaunchController,
+        // but callers compiled against the former three-argument method must continue
+        // to build while deployments roll forward.
+        _ = authService;
+        _ = oAuthTransactionCookie;
+
         var repoParam = context.Request.Query[QueryParamRepository].FirstOrDefault();
         var sourceParam = context.Request.Query[QueryParamSource].FirstOrDefault();
 
