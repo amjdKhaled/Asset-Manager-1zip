@@ -98,3 +98,14 @@ public sealed class LaunchController : Controller
         return !value.Any(char.IsControl);
     }
 }
+
+/// <summary>
+/// Compatibility model for installations where the retired LaunchLoading Razor view
+/// remains on disk during an incremental IIS deployment. New launches redirect directly
+/// to the Repository Password Gateway and never render this model.
+/// </summary>
+public sealed class LaunchLoadingViewModel
+{
+    public required string RepositoryId { get; init; }
+    public required string RedirectUrl { get; init; }
+}
