@@ -115,7 +115,7 @@
             color: var(--lfp-text);
             margin-bottom: 6px;
         }
-        .field input {
+        .field input, .field select {
             width: 100%;
             padding: 9px 12px;
             border: 1px solid var(--lfp-border);
@@ -126,7 +126,7 @@
             transition: border-color .15s, box-shadow .15s;
             outline: none;
         }
-        .field input:focus {
+        .field input:focus, .field select:focus {
             border-color: var(--lfp-accent);
             box-shadow: 0 0 0 3px rgba(59,130,246,.15);
         }
@@ -183,29 +183,11 @@
 
         <div class="login-body">
 
-            @* ── SSO fallback notice ── *@
-            @if (Model.SsoFailed)
+            @if (Model.IsRepositoryPasswordMode)
             {
-                <div class="login-error" role="alert" style="background:#fff3cd;border-color:#ffc107;color:#856404;">
-                    <span class="login-error__icon">&#9888;&#65039;</span>
-                    <span>
-                        Single sign-on was unsuccessful. Sign in with your Laserfiche
-                        username and password below, or contact your administrator.
-                    </span>
-                </div>
-            }
-
-            @* ── Active repository — read-only badge for Desktop/Web Client
-                 launches; editable field for direct browser sessions ── *@
-            @if (!Model.AllowRepositoryInput)
-            {
-                <div class="repo-row" aria-label="Active repository: @Model.ActiveRepository">
-                    <div class="repo-row__icon">&#128193;</div>
-                    <div>
-                        <div class="repo-row__label">Repository</div>
-                        <div class="repo-row__name">@Model.ActiveRepository</div>
-                    </div>
-                </div>
+                <p style="margin-bottom:18px;color:#475569;">
+                    Sign in with your Laserfiche repository username and password.
+                </p>
             }
 
             @* ── Error banner ── *@
@@ -220,18 +202,31 @@
             @* ── Credentials form ── *@
             <form method="post" asp-controller="Login" asp-action="Index" novalidate>
                 @Html.AntiForgeryToken()
+                <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
 
-                @if (Model.AllowRepositoryInput)
+                @if (!Model.AllowRepositoryInput)
+                {
+                    <div class="repo-row" aria-label="Active repository: @Model.ActiveRepository">
+                        <div class="repo-row__icon">&#128193;</div>
+                        <div><div class="repo-row__label">Repository</div><div class="repo-row__name">@Model.ActiveRepository</div></div>
+                    </div>
+                }
+                else
                 {
                     <div class="field">
                         <label for="Repository">Repository</label>
-                        <input type="text"
-                               id="Repository"
-                               name="Repository"
-                               placeholder="e.g. Documents"
-                               value="@Html.Encode(Model.SubmittedRepository)"
-                               autocomplete="off"
-                               required />
+                        <select id="Repository" name="Repository" required>
+                            <option value="" disabled selected="@(string.IsNullOrWhiteSpace(Model.SubmittedRepository) ? "selected" : null)">
+                                Select a repository
+                            </option>
+                            @foreach (var repository in Model.Repositories)
+                            {
+                                <option value="@repository"
+                                        selected="@(string.Equals(repository, Model.SubmittedRepository, StringComparison.OrdinalIgnoreCase) ? "selected" : null)">
+                                    @repository
+                                </option>
+                            }
+                        </select>
                     </div>
                 }
 
@@ -253,12 +248,12 @@
                 </div>
 
                 <div class="field">
-                    <label for="Password">Password <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
+                    <label for="Password">Password</label>
                     <input type="password"
                            id="Password"
                            name="Password"
                            autocomplete="current-password"
-                           placeholder="Leave blank if no password" />
+                           placeholder="Enter your repository password" />
                     @*  Password is intentionally NOT marked required.
                         Some Laserfiche accounts have an empty password.
                         No client-side required validation is added here. *@
