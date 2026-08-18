@@ -1,4 +1,6 @@
 using LFPortal.Web.Middleware;
+using LFPortal.Application.DTOs;
+using LFPortal.Application.Interfaces;
 using LFPortal.Web.Authentication;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Http;
@@ -35,7 +37,8 @@ public sealed class RepositorySessionMiddlewareTests
         var middleware = MakeMiddleware();
 
         // Act
-        await middleware.InvokeAsync(ctx);
+        var auth = new SpyAuthService();
+        await middleware.InvokeAsync(ctx, auth, new SpyOAuthCookie());
 
         // The /Launch endpoint owns cleanup so the loading page can be rendered first.
         Assert.Null(session.GetString("ActiveRepositoryId"));
@@ -51,7 +54,7 @@ public sealed class RepositorySessionMiddlewareTests
     public async Task Invoke_LegacyWebClientLaunch_DoesNotWriteSessionBeforeLaunchPage()
     {
         var (ctx, session) = MakeContext("/", "repository=NewEmployeeTest&source=webclient");
-        await MakeMiddleware().InvokeAsync(ctx);
+        await MakeMiddleware().InvokeAsync(ctx, new SpyAuthService(), new SpyOAuthCookie());
 
         Assert.Null(session.GetString("ActiveRepositorySource"));
     }
@@ -80,7 +83,7 @@ public sealed class RepositorySessionMiddlewareTests
         var (ctx, session) = MakeContext("/", "repository=NewEmployeeTest&source=webclient");
         session.SetString("ActiveRepositoryId", "LFNewRepoWF");
 
-        await MakeMiddleware().InvokeAsync(ctx);
+        await MakeMiddleware().InvokeAsync(ctx, new SpyAuthService(), new SpyOAuthCookie());
 
         // Middleware redirects only; /Launch invalidates this old Dashboard state.
         Assert.Equal("LFNewRepoWF", session.GetString("ActiveRepositoryId"));
@@ -92,7 +95,7 @@ public sealed class RepositorySessionMiddlewareTests
     {
         // Desktop Client does NOT send source=webclient.
         var (ctx, session) = MakeContext("/", "repository=LFNewRepoWF");
-        await MakeMiddleware().InvokeAsync(ctx);
+        await MakeMiddleware().InvokeAsync(ctx, new SpyAuthService(), new SpyOAuthCookie());
 
         Assert.Equal("LFNewRepoWF",
             session.GetString("ActiveRepositoryId"));
@@ -109,7 +112,7 @@ public sealed class RepositorySessionMiddlewareTests
         // Pre-existing session value (from a previous request).
         session.SetString("ActiveRepositoryId", "ExistingRepo");
 
-        await MakeMiddleware().InvokeAsync(ctx);
+        await MakeMiddleware().InvokeAsync(ctx, new SpyAuthService(), new SpyOAuthCookie());
 
         // Without ?repository= the session must not be modified.
         Assert.Equal("ExistingRepo", session.GetString("ActiveRepositoryId"));
@@ -121,7 +124,7 @@ public sealed class RepositorySessionMiddlewareTests
         var (ctx, session) = MakeContext("/", "repository=");
         session.SetString("ActiveRepositoryId", "ExistingRepo");
 
-        await MakeMiddleware().InvokeAsync(ctx);
+        await MakeMiddleware().InvokeAsync(ctx, new SpyAuthService(), new SpyOAuthCookie());
 
         Assert.Equal("ExistingRepo",
             session.GetString("ActiveRepositoryId"));
@@ -134,7 +137,7 @@ public sealed class RepositorySessionMiddlewareTests
     {
         var (ctx, session) = MakeContext("/", "repository=Repo\tId");  // tab character
 
-        await MakeMiddleware().InvokeAsync(ctx);
+        await MakeMiddleware().InvokeAsync(ctx, new SpyAuthService(), new SpyOAuthCookie());
 
         // Session must not be set when the value contains control characters.
         Assert.Null(session.GetString("ActiveRepositoryId"));
@@ -146,7 +149,7 @@ public sealed class RepositorySessionMiddlewareTests
         var longId = new string('A', 201);
         var (ctx, session) = MakeContext("/", $"repository={longId}");
 
-        await MakeMiddleware().InvokeAsync(ctx);
+        await MakeMiddleware().InvokeAsync(ctx, new SpyAuthService(), new SpyOAuthCookie());
 
         Assert.Null(session.GetString("ActiveRepositoryId"));
     }
@@ -163,7 +166,7 @@ public sealed class RepositorySessionMiddlewareTests
             _ => { nextCalled = true; return Task.CompletedTask; },
             NullLogger<RepositorySessionMiddleware>.Instance);
 
-        await middleware.InvokeAsync(ctx);
+        await middleware.InvokeAsync(ctx, new SpyAuthService(), new SpyOAuthCookie());
 
         Assert.True(nextCalled, "The next request delegate must always be called.");
     }
@@ -212,4 +215,20 @@ public sealed class RepositorySessionMiddlewareTests
         public Task LoadAsync  (CancellationToken ct = default) => Task.CompletedTask;
     }
 
+    private sealed class SpyAuthService : ILaserficheAuthService
+    {
+        public bool Invalidated { get; private set; }
+        public Task InvalidateCurrentSessionTokensAsync() { Invalidated = true; return Task.CompletedTask; }
+        public Task<string> GetTokenAsync(RepositoryDescriptor repository, CancellationToken cancellationToken = default) => Task.FromResult("unused");
+        public Task InvalidateTokenAsync(RepositoryDescriptor repository) => Task.CompletedTask;
+        public Task<bool> TryAuthenticateAsync(RepositoryDescriptor repository, string username, string password, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> ExchangeAuthorizationCodeAsync(RepositoryDescriptor repository, string code, string codeVerifier, string redirectUri, string clientId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    }
+
+    private sealed class SpyOAuthCookie : IOAuthTransactionCookie
+    {
+        public OAuthTransactionCookieWriteResult Write(HttpContext context, OAuthTransaction transaction) => throw new NotSupportedException();
+        public OAuthTransactionCookieResult Read(HttpContext context) => new(null, false, false);
+        public void Delete(HttpContext context) => context.Response.Cookies.Delete(".Dashboard.OAuth.Correlation");
+    }
 }

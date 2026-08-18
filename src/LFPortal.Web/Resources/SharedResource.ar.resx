@@ -7,6 +7,7 @@
 
   <!-- Navigation -->
   <data name="Dashboard"               xml:space="preserve"><value>لوحة المعلومات</value></data>
+  <data name="Laserfiche Repository Live Statistics" xml:space="preserve"><value>إحصائيات مباشرة لمستودع Laserfiche</value></data>
   <data name="Archive"                 xml:space="preserve"><value>الأرشيف</value></data>
   <data name="Settings"                xml:space="preserve"><value>الإعدادات</value></data>
   <data name="LangEn"                  xml:space="preserve"><value>English</value></data>
@@ -21,7 +22,7 @@
   <data name="DocsWithoutTemplate"     xml:space="preserve"><value>مستندات بدون قالب</value></data>
 
   <!-- Chart / section titles -->
-  <data name="DocumentsByFolder"       xml:space="preserve"><value>المستندات حسب المجلد</value></data>
+  <data name="DocumentsByFolder"       xml:space="preserve"><value>المستندات حسب المجلد </value></data>
   <data name="TemplateDistribution"    xml:space="preserve"><value>توزيع القوالب</value></data>
   <data name="DocumentActivity"        xml:space="preserve"><value>نشاط المستندات</value></data>
   <data name="DocumentsByUserActivity" xml:space="preserve"><value>المستندات حسب نشاط المستخدم</value></data>
