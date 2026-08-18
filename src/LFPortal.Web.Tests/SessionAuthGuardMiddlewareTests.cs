@@ -1,5 +1,8 @@
 using LFPortal.Infrastructure.Options;
+using LFPortal.Infrastructure.OAuth;
+using LFPortal.Web.Authentication;
 using LFPortal.Web.Middleware;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -23,17 +26,42 @@ public sealed class SessionAuthGuardMiddlewareTests
 
     private static SessionAuthGuardMiddleware MakeMiddleware(
         string? configuredRepoId = "LFNewRepoWF",
+        bool ssoConfigured = false,
+        LaserficheAuthenticationMode authenticationMode = LaserficheAuthenticationMode.LfdsSso,
         RequestDelegate? next = null)
     {
         next ??= _ => Task.CompletedTask;
 
         var options = Microsoft.Extensions.Options.Options.Create(
-            new LaserficheOptions { RepositoryId = configuredRepoId ?? string.Empty });
+            new LaserficheOptions
+            {
+                RepositoryId = configuredRepoId ?? string.Empty,
+                AuthenticationMode = authenticationMode,
+                Sso = new LaserficheOAuthOptions
+                {
+                    LfdsBaseUrl = ssoConfigured ? "https://lf.example/LFDSSTS" : string.Empty,
+                },
+            });
 
         return new SessionAuthGuardMiddleware(
             next,
             new TestOptionsMonitor(options.Value),
             NullLogger<SessionAuthGuardMiddleware>.Instance);
+    }
+
+    [Fact]
+    public async Task Invoke_WebClient_RepositoryPasswordMode_RedirectsToLoginWithReturnUrl()
+    {
+        var mw = MakeMiddleware(
+            authenticationMode: LaserficheAuthenticationMode.RepositoryPassword);
+        var ctx = MakeContext(
+            path: "/?repository=TestEmployee&source=webclient",
+            source: "Laserfiche Web Client",
+            activeRepoId: "TestEmployee");
+
+        await mw.InvokeAsync(ctx);
+
+        Assert.StartsWith("/Login?returnUrl=", ctx.Response.Headers.Location.ToString());
     }
 
     private static DefaultHttpContext MakeContext(
@@ -51,6 +79,18 @@ public sealed class SessionAuthGuardMiddlewareTests
         if (activeRepoId     != null) session.SetString("ActiveRepositoryId",       activeRepoId);
         if (authenticatedRepoId != null) session.SetString("AuthenticatedRepositoryId", authenticatedRepoId);
         ctx.Session = session;
+
+        if (authenticatedRepoId != null)
+        {
+            var identity = new ClaimsIdentity(
+                new[]
+                {
+                    new Claim(ClaimTypes.Name, "test-user"),
+                    new Claim(DashboardAuthenticationDefaults.RepositoryClaimType, authenticatedRepoId),
+                },
+                DashboardAuthenticationDefaults.Scheme);
+            ctx.User = new ClaimsPrincipal(identity);
+        }
         return ctx;
     }
 
@@ -97,6 +137,24 @@ public sealed class SessionAuthGuardMiddlewareTests
         await mw.InvokeAsync(ctx);
 
         Assert.True(nextCalled);
+    }
+
+    [Fact]
+    public async Task Invoke_WebClientSource_SsoConfigured_NoAuth_RedirectsToLoginWithReturnUrl()
+    {
+        bool nextCalled = false;
+        var mw = MakeMiddleware(
+            ssoConfigured: true,
+            next: _ => { nextCalled = true; return Task.CompletedTask; });
+        var ctx = MakeContext(
+            path: "/Dashboard",
+            source: "Laserfiche Web Client",
+            activeRepoId: "NewEmployeeTest");
+
+        await mw.InvokeAsync(ctx);
+
+        Assert.False(nextCalled);
+        Assert.Equal("/Login?returnUrl=%2FDashboard", ctx.Response.Headers.Location);
     }
 
     [Fact]
@@ -150,6 +208,58 @@ public sealed class SessionAuthGuardMiddlewareTests
         await mw.InvokeAsync(ctx);
 
         Assert.True(nextCalled);
+    }
+
+    [Fact]
+    public async Task Invoke_DesktopClient_SessionMarkerWithoutCookie_RedirectsToLogin()
+    {
+        bool nextCalled = false;
+        var mw = MakeMiddleware(next: _ => { nextCalled = true; return Task.CompletedTask; });
+        var ctx = MakeContext(
+            source: "Laserfiche Desktop Client",
+            activeRepoId: "LFNewRepoWF");
+        ctx.Session.SetString("AuthenticatedRepositoryId", "LFNewRepoWF");
+
+        await mw.InvokeAsync(ctx);
+
+        Assert.False(nextCalled);
+        Assert.StartsWith("/Login?returnUrl=", ctx.Response.Headers.Location.ToString());
+    }
+
+    [Fact]
+    public async Task Invoke_AuthenticatedCookie_WithoutTokenSession_RedirectsToLogin()
+    {
+        bool nextCalled = false;
+        var mw = MakeMiddleware(
+            ssoConfigured: true,
+            next: _ => { nextCalled = true; return Task.CompletedTask; });
+        var ctx = MakeContext(path: "/Dashboard");
+        ctx.User = new ClaimsPrincipal(new ClaimsIdentity(
+            new[]
+            {
+                new Claim(DashboardAuthenticationDefaults.RepositoryClaimType, "TestEmployee"),
+            },
+            DashboardAuthenticationDefaults.Scheme));
+
+        await mw.InvokeAsync(ctx);
+
+        Assert.False(nextCalled);
+        Assert.StartsWith("/Login?returnUrl=", ctx.Response.Headers.Location.ToString());
+    }
+
+    [Fact]
+    public async Task Invoke_DirectBrowser_SsoConfigured_NoAuth_RedirectsToLogin()
+    {
+        bool nextCalled = false;
+        var mw = MakeMiddleware(
+            ssoConfigured: true,
+            next: _ => { nextCalled = true; return Task.CompletedTask; });
+        var ctx = MakeContext(path: "/Dashboard");
+
+        await mw.InvokeAsync(ctx);
+
+        Assert.False(nextCalled);
+        Assert.Equal("/Login?returnUrl=%2FDashboard", ctx.Response.Headers.Location);
     }
 
     // ── Direct browser (no source) ────────────────────────────────────────────

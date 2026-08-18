@@ -164,7 +164,7 @@ footer.site-footer { background: #0a1020 !important; }
 .d-kpi-icon{ width:40px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
 .d-kpi-val { font-size: 1.8rem; font-weight: 700; color: var(--d-text); }
 .d-kpi-lbl { color: var(--d-muted); font-size: 0.75rem; margin-top:2px; }
-.d-section-bar { width:4px;height:18px;border-radius:4px;background:var(--d-accent);display:inline-block;margin-right:8px;flex-shrink:0; }
+.d-section-bar { width:4px;height:18px;border-radius:4px;background:var(--d-accent);display:inline-block;margin-right:8px;margin-left:8px;flex-shrink:0; }
 .d-card-title  { color:var(--d-text);font-size:.83rem;font-weight:600; display:flex;align-items:center; }
 .d-card-sub    { color:var(--d-muted);font-size:.72rem; }
 .d-badge       { display:inline-flex;align-items:center;gap:4px;font-size:.68rem;padding:2px 8px;border-radius:999px;font-weight:500; }
@@ -254,8 +254,8 @@ footer.site-footer { background: #0a1020 !important; }
 <!-- ── Header ─────────────────────────────────────────────────────────────── -->
 <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:18px">
     <div>
-        <h1 class="d-title">Dashboard</h1>
-        <p class="d-sub">Laserfiche Repository Live Statistics</p>
+        <h1 class="d-title">@L["Dashboard"]</h1>
+        <p class="d-sub">@L["Laserfiche Repository Live Statistics"]</p>
     </div>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         @if (s.IsConnected && !string.IsNullOrWhiteSpace(s.RepositoryId))
@@ -341,8 +341,8 @@ footer.site-footer { background: #0a1020 !important; }
     <div class="d-card">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
             <div>
-                <div class="d-card-title"><span class="d-section-bar"></span>@L["DocumentsByFolder"]</div>
-                <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@string.Format(L["RootLevelFolders"], s.RepositoryId)</div>
+                <div class="d-card-title"><span class="d-section-bar"></span>@L[name: "DocumentsByFolder"]</div>
+                <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@string.Format(L[name: "RootLevelFolders"], s.RepositoryId)</div>
             </div>
         </div>
         @if (s.RootFolders.Count == 0)

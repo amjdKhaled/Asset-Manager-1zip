@@ -7,6 +7,7 @@
 
   <!-- Navigation -->
   <data name="Dashboard"               xml:space="preserve"><value>Dashboard</value></data>
+  <data name="Laserfiche Repository Live Statistics" xml:space="preserve"><value>Laserfiche Repository Live Statistics</value></data>
   <data name="Archive"                 xml:space="preserve"><value>Archive</value></data>
   <data name="Settings"                xml:space="preserve"><value>Settings</value></data>
   <data name="LangEn"                  xml:space="preserve"><value>English</value></data>
