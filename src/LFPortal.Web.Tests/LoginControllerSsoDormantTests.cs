@@ -49,6 +49,7 @@ public sealed class LoginControllerSsoDormantTests
         ServerUrl   = "http://lf-server.test",
         ApiBasePath = "/LFRepositoryAPI",
         ApiVersion  = "v1",
+        Repositories = ["TestRepo"],
         // Sso section deliberately left at default: LfdsBaseUrl = ""
     };
 
@@ -59,6 +60,8 @@ public sealed class LoginControllerSsoDormantTests
         ApiBasePath = "/LFRepositoryAPI",
         ApiVersion  = "v1",
         AuthenticationMode = LaserficheAuthenticationMode.LfdsSso,
+        EnableLfdsSso = true,
+        Repositories = ["TestRepo"],
         Sso         = new LaserficheOAuthOptions { LfdsBaseUrl = "https://lfds.example.com/LFDS" }
     };
 
@@ -268,13 +271,41 @@ public sealed class LoginControllerSsoDormantTests
     }
 
     [Fact]
-    public async Task Login_Get_WithSsoConfigured_NoSsoFailed_RedirectsToStartSso()
+    public async Task Login_Get_WithSsoConfigured_RendersPasswordGatewayInsteadOfStartingSso()
     {
         var (ctrl, _, _) = Build(SsoOptions());
         var result = await ctrl.Index(cancellationToken: default);
 
-        var redirect = Assert.IsType<RedirectToActionResult>(result);
-        Assert.Equal("StartSso", redirect.ActionName);
+        var view = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<LoginViewModel>(view.Model);
+        Assert.True(model.IsRepositoryPasswordMode);
+        Assert.Contains("TestRepo", model.Repositories);
+    }
+
+    [Fact]
+    public async Task Login_Get_PreselectsConfiguredRepositoryFromLaunch()
+    {
+        var options = DefaultOptions();
+        options.Repositories = ["TestRepo", "NewLfRepo"];
+        var (ctrl, _, _) = Build(options);
+
+        var result = await ctrl.Index(repository: "NewLfRepo", cancellationToken: default);
+
+        var model = Assert.IsType<LoginViewModel>(Assert.IsType<ViewResult>(result).Model);
+        Assert.Equal("NewLfRepo", model.SubmittedRepository);
+        Assert.Equal(new[] { "TestRepo", "NewLfRepo" }, model.Repositories);
+    }
+
+    [Fact]
+    public async Task Login_Get_RejectsUnconfiguredRepositoryFromLaunch()
+    {
+        var (ctrl, _, _) = Build(DefaultOptions());
+
+        var result = await ctrl.Index(repository: "UnknownRepo", cancellationToken: default);
+
+        var model = Assert.IsType<LoginViewModel>(Assert.IsType<ViewResult>(result).Model);
+        Assert.Contains("not configured", model.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("TestRepo", model.SubmittedRepository);
     }
 
     [Fact]
@@ -529,6 +560,79 @@ public sealed class LoginControllerSsoDormantTests
     }
 
     [Fact]
+    public async Task RepositoryPassword_Login_RejectsRepositoryOutsideConfiguration()
+    {
+        var (ctrl, authSpy, _) = Build(DefaultOptions());
+
+        var result = await ctrl.Index(new LoginInputModel
+        {
+            Repository = "UnconfiguredRepo",
+            Username = "alice",
+            Password = "secret",
+        }, default);
+
+        var model = Assert.IsType<LoginViewModel>(Assert.IsType<ViewResult>(result).Model);
+        Assert.Contains("configured", model.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, authSpy.TryAuthenticateCallCount);
+    }
+
+    [Fact]
+    public async Task RepositoryPassword_Login_ScopesTokenByMethodUserAndBrowserSession()
+    {
+        var (ctrl, authSpy, _) = Build(DefaultOptions());
+        authSpy.TryAuthenticateResult = true;
+
+        await ctrl.Index(new LoginInputModel
+        {
+            Repository = "TestRepo",
+            Username = "alice",
+            Password = "secret",
+        }, default);
+
+        Assert.Equal("RepositoryPassword",
+            ctrl.HttpContext.Session.GetString("AuthenticationScopeMethod"));
+        var subject = ctrl.HttpContext.Session.GetString("AuthenticationScopeSubject");
+        Assert.Contains("ALICE", subject);
+        Assert.Contains(ctrl.HttpContext.Session.Id, subject);
+        Assert.Equal("alice",
+            ctrl.HttpContext.Session.GetString("AuthenticatedLaserficheUser"));
+        Assert.True(authSpy.InvalidateCurrentSessionCalled);
+    }
+
+    [Fact]
+    public async Task RepositoryPassword_SwitchRepository_InvalidatesOldScopeAndRequiresNewCredentials()
+    {
+        var options = DefaultOptions();
+        options.Repositories = ["TestRepo", "NewLfRepo"];
+        var (ctrl, authSpy, _) = Build(options);
+        authSpy.TryAuthenticateResult = true;
+        ctrl.HttpContext.Session.SetString("ActiveRepositoryId", "TestRepo");
+        ctrl.HttpContext.Session.SetString("AuthenticatedRepositoryId", "TestRepo");
+        ctrl.HttpContext.Session.SetString("AuthenticationScopeMethod", "RepositoryPassword");
+        ctrl.HttpContext.Session.SetString("AuthenticationScopeSubject", "ALICE|old-session");
+        ctrl.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.Name, "alice"),
+            new Claim(ClaimTypes.AuthenticationMethod, "RepositoryPassword"),
+            new Claim(DashboardAuthenticationDefaults.RepositoryClaimType, "TestRepo"),
+        ], DashboardAuthenticationDefaults.Scheme));
+
+        await ctrl.Index(new LoginInputModel
+        {
+            Repository = "NewLfRepo",
+            Username = "bob",
+            Password = "new-secret",
+        }, default);
+
+        Assert.True(authSpy.InvalidateCurrentSessionCalled);
+        Assert.Equal(1, authSpy.TryAuthenticateCallCount);
+        Assert.Equal("NewLfRepo", ctrl.HttpContext.Session.GetString("ActiveRepositoryId"));
+        Assert.Equal("NewLfRepo", ctrl.HttpContext.Session.GetString("AuthenticatedRepositoryId"));
+        Assert.Equal("bob", ctrl.HttpContext.Session.GetString("AuthenticatedLaserficheUser"));
+        Assert.Contains("BOB", ctrl.HttpContext.Session.GetString("AuthenticationScopeSubject"));
+    }
+
+    [Fact]
     public async Task RepositoryPassword_StartSso_DoesNotRedirectToLfdsAuthorize()
     {
         var options = DefaultOptions();
@@ -540,6 +644,22 @@ public sealed class LoginControllerSsoDormantTests
         var redirect = Assert.IsType<RedirectToActionResult>(result);
         Assert.Equal("Index", redirect.ActionName);
         Assert.Equal("Login", redirect.ControllerName);
+    }
+
+    [Fact]
+    public async Task LfdsConfigurationWithoutExplicitOptIn_StartSsoReturnsToPasswordGateway()
+    {
+        var options = SsoOptions();
+        options.EnableLfdsSso = false;
+        var (ctrl, _, store) = Build(options);
+
+        var result = await ctrl.StartSso("/Dashboard", default, "TestRepo");
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Index", redirect.ActionName);
+        Assert.Equal("Login", redirect.ControllerName);
+        Assert.Equal("TestRepo", redirect.RouteValues?["repository"]);
+        Assert.Equal(0, store.StoreCallCount);
     }
 
     [Fact]
@@ -689,7 +809,7 @@ public sealed class LoginControllerSsoDormantTests
     }
 
     [Fact]
-    public async Task Login_Get_SsoFailure_DisplaysSanitizedSpecificReason()
+    public async Task Login_Get_SsoFailure_DoesNotDisplaySsoMessageInPasswordGateway()
     {
         var (ctrl, _, _) = Build(SsoOptions(), directBrowser: false);
 
@@ -700,10 +820,8 @@ public sealed class LoginControllerSsoDormantTests
 
         var view = Assert.IsType<ViewResult>(result);
         var model = Assert.IsType<LoginViewModel>(view.Model);
-        Assert.True(model.SsoFailed);
-        Assert.Equal(
-            "Repository API rejected the authorization-code exchange.",
-            model.SsoFailureReason);
+        Assert.False(model.SsoFailed);
+        Assert.Null(model.SsoFailureReason);
     }
 
     [Fact]
@@ -739,14 +857,30 @@ public sealed class LoginControllerSsoDormantTests
     }
 
     [Fact]
-    public async Task Login_Get_WebClientLaunch_DisallowsRepositoryInput()
+    public void LoginView_RendersConfiguredRepositoryDropdownAndPasswordFields()
+    {
+        var path = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "../../../../LFPortal.Web/Views/Login/Index.cshtml"));
+        var source = File.ReadAllText(path);
+
+        Assert.Contains("<select id=\"Repository\"", source);
+        Assert.Contains("autocomplete=\"username\"", source);
+        Assert.Contains("autocomplete=\"current-password\"", source);
+        Assert.Contains(">Sign In</button>", source);
+        Assert.DoesNotContain("StartSso", source);
+    }
+
+    [Fact]
+    public async Task Login_Get_WebClientLaunch_AllowsConfiguredRepositorySelection()
     {
         var (ctrl, _, _) = Build(directBrowser: false);
         var result = await ctrl.Index(cancellationToken: default);
 
         var view = Assert.IsType<ViewResult>(result);
         var vm   = Assert.IsType<LoginViewModel>(view.Model);
-        Assert.False(vm.AllowRepositoryInput);
+        Assert.True(vm.AllowRepositoryInput);
+        Assert.Contains("TestRepo", vm.Repositories);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

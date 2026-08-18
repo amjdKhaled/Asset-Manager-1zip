@@ -24,12 +24,9 @@ namespace LFPortal.Web.Controllers;
 /// per-session Repository API token; the submitted password is not retained.
 /// </para>
 /// <para>
-/// <b>LFDS OAuth2 Authorization Code flow (SSO):</b>  When <c>Laserfiche:Sso:LfdsBaseUrl</c>
-/// is configured, <c>GET /Login</c> transparently redirects to <c>/Login/StartSso</c>,
-/// which initiates a PKCE Authorization Code exchange with LFDS.  The callback
-/// <c>GET /Login/Callback</c> validates the response and caches the resulting Bearer token
-/// before redirecting to the originally requested URL.  If SSO fails the browser returns
-/// to the password form via <c>/Login?ssoFailed=true</c>.
+/// <b>LFDS OAuth2 Authorization Code flow (legacy opt-in):</b> The endpoints remain for
+/// explicitly enabled legacy integrations, but neither <c>GET /Login</c> nor Web Client
+/// Dashboard launch invokes them. Dashboard login always uses the password gateway.
 /// </para>
 /// <para>
 /// <c>GET /Login/SignOut</c> invalidates cached tokens for the current session and
@@ -74,39 +71,38 @@ public sealed class LoginController : Controller
     // ------------------------------------------------------------------ //
 
     /// <summary>
-    /// Renders the sign-in form, or transparently redirects to LFDS SSO when
-    /// <c>Laserfiche:Sso:LfdsBaseUrl</c> is configured.
-    /// Pass <c>?ssoFailed=true</c> to suppress the SSO redirect and display the form.
+    /// Renders the Dashboard-owned Repository Password Gateway. Normal Dashboard
+    /// navigation never starts LFDS OAuth.
     /// </summary>
     [HttpGet]
     public async Task<IActionResult> Index(
         bool   ssoFailed         = false,
         string? ssoFailure       = null,
         string? returnUrl        = null,
+        string? repository       = null,
         CancellationToken cancellationToken = default)
     {
         var opts = _options.CurrentValue;
-
-        if (opts.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
-            opts.Sso.IsConfigured && !ssoFailed)
-            return RedirectToAction("StartSso", new { returnUrl });
-
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+        var repositories = opts.EffectiveRepositories;
+        var requestedRepository = repositories.FirstOrDefault(candidate =>
+            string.Equals(candidate, repository, StringComparison.OrdinalIgnoreCase));
+        var selectedRepository = requestedRepository ??
+            repositories.FirstOrDefault(candidate =>
+                string.Equals(candidate, repo.RepositoryId, StringComparison.OrdinalIgnoreCase)) ??
+            repositories.FirstOrDefault() ?? string.Empty;
         var vm   = new LoginViewModel
         {
-            ActiveRepository     = repo.RepositoryId,
-            AllowRepositoryInput = AllowRepositoryInput(),
-            SubmittedRepository  = repo.RepositoryId,
-            SsoFailed            = ssoFailed &&
-                opts.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
-                opts.Sso.IsConfigured,
-            SsoFailureReason     = ssoFailed &&
-                opts.AuthenticationMode == LaserficheAuthenticationMode.LfdsSso &&
-                opts.Sso.IsConfigured
-                ? DescribeSsoFailure(ssoFailure)
-                : null,
-            IsRepositoryPasswordMode =
-                opts.AuthenticationMode == LaserficheAuthenticationMode.RepositoryPassword,
+            ActiveRepository     = selectedRepository,
+            AllowRepositoryInput = true,
+            SubmittedRepository  = selectedRepository,
+            Repositories         = repositories,
+            ErrorMessage         = repositories.Count == 0
+                ? "No Dashboard repositories are configured. Contact an administrator."
+                : !string.IsNullOrWhiteSpace(repository) && requestedRepository is null
+                    ? "The requested repository is not configured for this Dashboard."
+                    : null,
+            IsRepositoryPasswordMode = true,
             ReturnUrl = IsLocalUrl(returnUrl) ? returnUrl : null,
         };
         return View(vm);
@@ -128,11 +124,11 @@ public sealed class LoginController : Controller
     {
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
         var opts = _options.CurrentValue;
-        var allowRepoInput = opts.AuthenticationMode ==
-            LaserficheAuthenticationMode.RepositoryPassword || AllowRepositoryInput();
-        var repoId = allowRepoInput && !string.IsNullOrWhiteSpace(input.Repository)
+        const bool allowRepoInput = true;
+        var repoId = !string.IsNullOrWhiteSpace(input.Repository)
             ? input.Repository.Trim()
             : repo.RepositoryId;
+        var repositories = opts.EffectiveRepositories;
 
         LoginViewModel ViewWithError(string? error) => new()
         {
@@ -141,8 +137,8 @@ public sealed class LoginController : Controller
             SubmittedRepository  = allowRepoInput ? (input.Repository ?? string.Empty) : repo.RepositoryId,
             SubmittedUsername    = input.Username,
             ErrorMessage         = error,
-            IsRepositoryPasswordMode = opts.AuthenticationMode ==
-                LaserficheAuthenticationMode.RepositoryPassword,
+            Repositories         = repositories,
+            IsRepositoryPasswordMode = true,
             ReturnUrl = input.ReturnUrl,
         };
 
@@ -155,13 +151,44 @@ public sealed class LoginController : Controller
                 "Enter the name of the Laserfiche repository to sign in to."));
         }
 
+        var configuredRepository = repositories.FirstOrDefault(candidate =>
+            string.Equals(candidate, repoId, StringComparison.OrdinalIgnoreCase));
+        if (configuredRepository is null)
+        {
+            _logger.LogWarning(
+                "Login: rejected repository {RepositoryId} because it is not configured.",
+                repoId);
+            return View(ViewWithError(
+                "Select a repository configured for this Dashboard."));
+        }
+        repoId = configuredRepository;
+
         var targetRepo = repo with { RepositoryId = repoId, DisplayName = repoId };
 
-        // Establish a stable per-browser cache scope before acquiring the token.
-        // This prevents a direct-login token from ever using the process-wide cache.
+        // A fresh password submission is an authentication boundary. Invalidate the
+        // previous per-session generation before changing repository/user scope.
+        await _authService.InvalidateCurrentSessionTokensAsync();
+        if (User.Identity?.IsAuthenticated == true ||
+            HttpContext.Request.Cookies.ContainsKey(".Dashboard.Authentication"))
+            await HttpContext.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
+        if (HttpContext.Request.Cookies.ContainsKey(OAuthTransactionCookie.CookieName))
+            _oAuthTransactionCookie.Delete(HttpContext);
+        await _sessionCredentialStore.ClearAsync(cancellationToken);
+        HttpContext.Session.Remove(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId);
+        HttpContext.Session.Remove(SessionKeyAuthenticatedUser);
+
+        // Scope the server-side token by authentication method, username and browser
+        // session. CacheKeyFor also includes repositoryId, so repository tokens cannot
+        // cross users, sessions, methods, or repositories.
         HttpContext.Session.SetString(
             RepositorySessionMiddleware.SessionKeyRepositoryId,
             repoId);
+        HttpContext.Session.SetString(
+            "AuthenticationScopeMethod",
+            DashboardAuthenticationDefaults.PasswordAuthenticationMethod);
+        HttpContext.Session.SetString(
+            "AuthenticationScopeSubject",
+            $"{input.Username.Trim().ToUpperInvariant()}|{HttpContext.Session.Id}");
 
         _logger.LogInformation(
             "Login: authenticating user {Username} for repository {RepoId}.",
@@ -213,6 +240,12 @@ public sealed class LoginController : Controller
         HttpContext.Session.SetString(
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
             repoId);
+        HttpContext.Session.SetString(SessionKeyAuthenticatedUser, input.Username.Trim());
+
+        await EstablishDashboardIdentityAsync(
+            input.Username,
+            repoId,
+            DashboardAuthenticationDefaults.PasswordAuthenticationMethod);
 
         await EstablishDashboardIdentityAsync(
             input.Username,
@@ -247,11 +280,12 @@ public sealed class LoginController : Controller
     {
         var opts = _options.CurrentValue;
 
-        if (opts.AuthenticationMode != LaserficheAuthenticationMode.LfdsSso)
+        if (!opts.EnableLfdsSso ||
+            opts.AuthenticationMode != LaserficheAuthenticationMode.LfdsSso)
         {
-            _logger.LogInformation("[SSO] StartSso ignored because AuthenticationMode is {Mode}.",
-                opts.AuthenticationMode);
-            return RedirectToAction("Index", "Login", new { returnUrl });
+            _logger.LogInformation(
+                "[SSO] StartSso disabled; redirecting to Repository Password Gateway.");
+            return RedirectToAction("Index", "Login", new { repository, returnUrl });
         }
 
         if (!opts.Sso.IsConfigured)
@@ -491,6 +525,8 @@ public sealed class LoginController : Controller
             // OAuthStateStore already logged the reason (expired / replay / unknown).
             return RedirectToSsoDiagnostic("oauth_correlation_cookie_missing");
         }
+        if (string.IsNullOrWhiteSpace(entry.RepositoryId))
+            return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
 
         if (string.IsNullOrWhiteSpace(entry.CodeVerifier))
         {
@@ -941,6 +977,9 @@ public sealed class LoginViewModel
 
     /// <summary>Preserves the repository name the user entered after a failed attempt.</summary>
     public string SubmittedRepository { get; init; } = string.Empty;
+
+    /// <summary>Configuration-owned repository choices for the password gateway.</summary>
+    public IReadOnlyList<string> Repositories { get; init; } = [];
 
     /// <summary>Error message shown below the form after a failed sign-in attempt.</summary>
     public string? ErrorMessage { get; init; }
