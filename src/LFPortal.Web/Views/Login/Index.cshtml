@@ -115,7 +115,7 @@
             color: var(--lfp-text);
             margin-bottom: 6px;
         }
-        .field input, .field select {
+        .field input {
             width: 100%;
             padding: 9px 12px;
             border: 1px solid var(--lfp-border);
@@ -126,7 +126,7 @@
             transition: border-color .15s, box-shadow .15s;
             outline: none;
         }
-        .field input:focus, .field select:focus {
+        .field input:focus {
             border-color: var(--lfp-accent);
             box-shadow: 0 0 0 3px rgba(59,130,246,.15);
         }
@@ -190,6 +190,19 @@
                 </p>
             }
 
+            @* ── SSO fallback notice ── *@
+            @if (Model.SsoFailed)
+            {
+                <div class="login-error" role="alert" style="background:#fff3cd;border-color:#ffc107;color:#856404;">
+                    <span class="login-error__icon">&#9888;&#65039;</span>
+                    <span>
+                        Single sign-on was unsuccessful: @(Model.SsoFailureReason ?? "Unknown callback failure")
+                        Start authentication from the Dashboard or Laserfiche Web Client;
+                        do not open the Repository API authorize URL manually.
+                    </span>
+                </div>
+            }
+
             @* ── Error banner ── *@
             @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
             {
@@ -215,18 +228,8 @@
                 {
                     <div class="field">
                         <label for="Repository">Repository</label>
-                        <select id="Repository" name="Repository" required>
-                            <option value="" disabled selected="@(string.IsNullOrWhiteSpace(Model.SubmittedRepository) ? "selected" : null)">
-                                Select a repository
-                            </option>
-                            @foreach (var repository in Model.Repositories)
-                            {
-                                <option value="@repository"
-                                        selected="@(string.Equals(repository, Model.SubmittedRepository, StringComparison.OrdinalIgnoreCase) ? "selected" : null)">
-                                    @repository
-                                </option>
-                            }
-                        </select>
+                        <input type="text" id="Repository" name="Repository"
+                               value="@Html.Encode(Model.SubmittedRepository)" required />
                     </div>
                 }
 
@@ -248,12 +251,12 @@
                 </div>
 
                 <div class="field">
-                    <label for="Password">Password</label>
+                    <label for="Password">Password <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
                     <input type="password"
                            id="Password"
                            name="Password"
                            autocomplete="current-password"
-                           placeholder="Enter your repository password" />
+                           placeholder="Leave blank if no password" />
                     @*  Password is intentionally NOT marked required.
                         Some Laserfiche accounts have an empty password.
                         No client-side required validation is added here. *@
