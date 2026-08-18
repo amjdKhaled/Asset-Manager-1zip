@@ -247,6 +247,11 @@ public sealed class LoginController : Controller
             repoId,
             DashboardAuthenticationDefaults.PasswordAuthenticationMethod);
 
+        await EstablishDashboardIdentityAsync(
+            input.Username,
+            repoId,
+            DashboardAuthenticationDefaults.PasswordAuthenticationMethod);
+
         _logger.LogInformation(
             "Login: session authenticated for repository {RepoId}.", repoId);
 
@@ -519,14 +524,6 @@ public sealed class LoginController : Controller
         {
             // OAuthStateStore already logged the reason (expired / replay / unknown).
             return RedirectToSsoDiagnostic("oauth_correlation_cookie_missing");
-        }
-        if (string.IsNullOrWhiteSpace(entry.RepositoryId))
-            return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
-
-        if (string.IsNullOrWhiteSpace(entry.CodeVerifier))
-        {
-            _logger.LogError("[SSO] Callback rejected: stored PKCE verifier is missing.");
-            return RedirectToSsoDiagnostic("pkce_verifier_missing", cookieResult.Transaction);
         }
         if (string.IsNullOrWhiteSpace(entry.RepositoryId))
             return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
