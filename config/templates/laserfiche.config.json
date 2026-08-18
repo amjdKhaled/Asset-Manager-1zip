@@ -1,9 +1,19 @@
 {
   "Laserfiche": {
-    "ServerUrl": "https://YOUR-LF-SERVER/LFRepositoryAPI",
+    "ServerUrl": "https://YOUR-LF-SERVER",
+    "AuthenticationMode": "RepositoryPassword",
+    "EnableLfdsSso": false,
+    "DashboardPublicBaseUrl": "https://YOUR-DASHBOARD-HOST",
+    "RepositoryId": "YOUR-DEFAULT-REPOSITORY",
+    "Repositories": [ "YOUR-DEFAULT-REPOSITORY" ],
     "ApiBasePath": "/LFRepositoryAPI",
     "ApiVersion": "v1",
     "TimeoutSeconds": 30,
-    "CredentialProvider": "DPAPI"
+    "CredentialProvider": "DPAPI",
+    "Sso": {
+      "LfdsBaseUrl": "",
+      "ClientId": "LFDashboard",
+      "RedirectUri": ""
+    }
   }
 }
