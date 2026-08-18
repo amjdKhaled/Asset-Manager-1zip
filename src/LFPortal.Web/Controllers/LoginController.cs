@@ -383,6 +383,9 @@ public sealed class LoginController : Controller
         // Bind state to this session so the callback can validate CSRF.
         HttpContext.Session.SetString(SessionKeyOAuthPendingState, state);
 
+        // ── Build authorization URL ───────────────────────────────────────────
+        var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
+
         _logger.LogInformation(
             "[SSO] OAuth correlation cookie. State={State}; CookieName={CookieName}; " +
             "CookieWritten={CookieWritten}; SameSite={SameSite}; Secure={Secure}; Path={Path}; " +
@@ -517,6 +520,16 @@ public sealed class LoginController : Controller
             // OAuthStateStore already logged the reason (expired / replay / unknown).
             return RedirectToSsoDiagnostic("oauth_correlation_cookie_missing");
         }
+        if (string.IsNullOrWhiteSpace(entry.RepositoryId))
+            return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
+
+        if (string.IsNullOrWhiteSpace(entry.CodeVerifier))
+        {
+            _logger.LogError("[SSO] Callback rejected: stored PKCE verifier is missing.");
+            return RedirectToSsoDiagnostic("pkce_verifier_missing", cookieResult.Transaction);
+        }
+        if (string.IsNullOrWhiteSpace(entry.RepositoryId))
+            return RedirectToSsoDiagnostic("oauth_repository_missing", cookieResult.Transaction);
 
         if (string.IsNullOrWhiteSpace(entry.CodeVerifier))
         {
@@ -610,6 +623,11 @@ public sealed class LoginController : Controller
         HttpContext.Session.SetString(
             SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId,
             repo.RepositoryId);
+
+        await EstablishDashboardIdentityAsync(
+            identityName: null,
+            repositoryId: repo.RepositoryId,
+            authenticationMethod: DashboardAuthenticationDefaults.LfdsAuthenticationMethod);
 
         _logger.LogInformation(
             "[SSO] Repository session markers stored. ActiveRepositorySet={ActiveRepositorySet}; " +
