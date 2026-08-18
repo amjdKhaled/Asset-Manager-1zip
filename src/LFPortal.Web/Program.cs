@@ -3,7 +3,10 @@ using LFPortal.Web.Authentication;
 using LFPortal.Infrastructure.Configuration;
 using LFPortal.Infrastructure.Extensions;
 using LFPortal.Infrastructure.Options;
+using LFPortal.Web.Authentication;
 using LFPortal.Web.Middleware;
+using LFPortal.Web.Options;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -94,6 +97,36 @@ try
     builder.Services.AddControllersWithViews()
                     .AddViewLocalization();
 
+    // ── External Share — isolated Repository Password cookie ────────────────
+    builder.Services.AddOptions<ExternalShareOptions>()
+        .Bind(builder.Configuration.GetSection(ExternalShareOptions.SectionName));
+    builder.Services.AddAuthentication()
+        .AddCookie(ExternalShareAuthenticationDefaults.Scheme, options =>
+        {
+            options.Cookie.Name = ExternalShareAuthenticationDefaults.CookieName;
+            options.Cookie.HttpOnly = true;
+            options.Cookie.IsEssential = true;
+            options.Cookie.SameSite = SameSiteMode.Lax;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            options.ExpireTimeSpan = TimeSpan.FromHours(2);
+            options.SlidingExpiration = false;
+            options.LoginPath = "/Share/Login";
+            options.AccessDeniedPath = "/Share/Login";
+            options.Events = new CookieAuthenticationEvents
+            {
+                OnRedirectToLogin = context =>
+                {
+                    context.Response.Redirect("/Share/Login");
+                    return Task.CompletedTask;
+                },
+                OnRedirectToAccessDenied = context =>
+                {
+                    context.Response.Redirect("/Share/Login");
+                    return Task.CompletedTask;
+                }
+            };
+        });
+    builder.Services.AddAuthorization();
     // ── Dashboard browser authentication ─────────────────────────────────────
     // LFDS authenticates the user and issues the Repository API token; this
     // cookie persists the resulting Dashboard identity across the callback
@@ -218,6 +251,10 @@ try
 
     // ── Session — must be after UseRouting, before controllers ───────────────
     app.UseSession();
+
+    // External Share cookie authentication is independent of LFDS/OAuth.
+    app.UseAuthentication();
+    app.UseAuthorization();
 
     // Authentication must run after routing/session and before the custom guard
     // and MVC endpoints so HttpContext.User is restored on every request.

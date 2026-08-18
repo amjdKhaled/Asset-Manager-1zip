@@ -62,6 +62,17 @@ public sealed class SessionAuthGuardMiddleware
     /// </summary>
     public async Task InvokeAsync(HttpContext context)
     {
+        // An authenticated external-share browser is confined to the read-only
+        // Share surface. It cannot reach Settings, Archive, document writes, probes,
+        // or normal Dashboard routes by typing a URL directly.
+        if (context.Session.GetString("ExternalShare.Authenticated") == "true" &&
+            !context.Request.Path.StartsWithSegments("/Share", StringComparison.OrdinalIgnoreCase) &&
+            !context.Request.Path.StartsWithSegments("/SetCulture", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.Redirect("/Share/Dashboard");
+            return;
+        }
+
         // Only guard sessions that arrived via a known launch source — with one
         // exception: a direct browser session that has NO resolvable repository
         // (nothing in the session and no configured fallback) must go through
@@ -159,6 +170,7 @@ public sealed class SessionAuthGuardMiddleware
 
     private static bool IsExcluded(PathString path) =>
         path.StartsWithSegments("/Login",    StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWithSegments("/Share",    StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/Launch",   StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/Settings", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/health",   StringComparison.OrdinalIgnoreCase) ||

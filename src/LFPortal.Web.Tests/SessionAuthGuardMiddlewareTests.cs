@@ -297,6 +297,20 @@ public sealed class SessionAuthGuardMiddlewareTests
         Assert.False(nextCalled, "No-repo direct browser must be redirected to Login.");
     }
 
+    [Fact]
+    public async Task Invoke_ExternalShareSession_BlocksNormalWriteAndAdminSurfaces()
+    {
+        bool nextCalled = false;
+        var mw = MakeMiddleware(next: _ => { nextCalled = true; return Task.CompletedTask; });
+        var ctx = MakeContext(path: "/Settings");
+        ctx.Session.SetString("ExternalShare.Authenticated", "true");
+
+        await mw.InvokeAsync(ctx);
+
+        Assert.False(nextCalled);
+        Assert.Equal("/Share/Dashboard", ctx.Response.Headers.Location);
+    }
+
     // ── Excluded paths are never redirected ───────────────────────────────────
 
     [Theory]
