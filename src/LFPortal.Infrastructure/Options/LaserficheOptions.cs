@@ -22,6 +22,12 @@ public enum CredentialProviderType
     Environment
 }
 
+public enum LaserficheAuthenticationMode
+{
+    RepositoryPassword,
+    LfdsSso,
+}
+
 /// <summary>
 /// Configuration options for the Laserfiche Repository API connection.
 /// Bound from the <c>Laserfiche</c> section in <c>appsettings.json</c> at startup.
@@ -46,6 +52,20 @@ public sealed class LaserficheOptions
     /// </summary>
     public string ServerUrl { get; set; } = string.Empty;
 
+    /// <summary>Selects direct Repository API password login or LFDS PKCE SSO.</summary>
+    public LaserficheAuthenticationMode AuthenticationMode { get; set; } =
+        LaserficheAuthenticationMode.RepositoryPassword;
+
+    /// <summary>
+    /// Explicit opt-in for the legacy LFDS authorization-code endpoints. Dashboard
+    /// launches never use them; the default keeps LFDS disabled even when stale SSO
+    /// URL settings remain in an upgraded installation.
+    /// </summary>
+    public bool EnableLfdsSso { get; set; }
+
+    /// <summary>Public browser origin of the Dashboard, used for every OAuth callback.</summary>
+    public string DashboardPublicBaseUrl { get; set; } = string.Empty;
+
     /// <summary>
     /// Optional fallback repository identifier, e.g. <c>Documents</c>.
     /// The repository is normally supplied per session at runtime — by the
@@ -55,6 +75,21 @@ public sealed class LaserficheOptions
     /// repository at login.  Case-sensitive.
     /// </summary>
     public string RepositoryId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Repository identifiers users may select on the Dashboard password gateway.
+    /// Values are configuration-owned; arbitrary repository names submitted by a
+    /// browser are rejected before credentials are sent to Repository API.
+    /// </summary>
+    public List<string> Repositories { get; set; } = [];
+
+    /// <summary>Normalized configured repository choices, including the legacy default.</summary>
+    public IReadOnlyList<string> EffectiveRepositories => Repositories
+        .Append(RepositoryId)
+        .Where(static value => !string.IsNullOrWhiteSpace(value))
+        .Select(static value => value.Trim())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
     /// <summary>
     /// Human-readable label shown in the portal UI to identify this repository.
@@ -142,4 +177,58 @@ public sealed class LaserficheOptions
     /// Nested under <c>Laserfiche:Sso</c> in <c>appsettings.json</c>.
     /// </summary>
     public LaserficheOAuthOptions Sso { get; set; } = new();
+
+    /// <summary>
+    /// Repository API endpoint that initiates the V2 authorization-code flow.
+    /// The API Server delegates to LFDS/WebSTS; browser clients must not call
+    /// the LFDS STS application directly.
+    /// </summary>
+    public string SsoAuthorizationEndpoint
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(ServerUrl))
+                return string.Empty;
+
+            var serverUrl = ServerUrl.TrimEnd('/');
+            var apiBasePath = "/" + ApiBasePath.Trim('/');
+
+            // ServerUrl is configured as an origin, while ApiBasePath owns the
+            // Repository API virtual directory. Tolerate an older persisted
+            // ServerUrl that already contains that directory without duplicating it.
+            var apiRoot = serverUrl.EndsWith(apiBasePath, StringComparison.OrdinalIgnoreCase)
+                ? serverUrl
+                : serverUrl + apiBasePath;
+
+            return $"{apiRoot}/v2/Authorize";
+        }
+    }
+
+    /// <summary>Deterministic Dashboard callback URI used throughout an OAuth flow.</summary>
+    public string SsoCallbackUrl => string.IsNullOrWhiteSpace(DashboardPublicBaseUrl)
+        ? string.Empty
+        : $"{DashboardPublicBaseUrl.TrimEnd('/')}/login/Callback";
+
+    /// <summary>Repository-specific V2 authorization-code token endpoint.</summary>
+    public string GetSsoTokenEndpoint(string repositoryId)
+    {
+        var authorize = SsoAuthorizationEndpoint;
+        if (!authorize.EndsWith("Authorize", StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
+        return authorize[..^"Authorize".Length] + "Repositories/" +
+            Uri.EscapeDataString(repositoryId) + "/Token";
+    }
+
+    /// <summary>Detects pasted Markdown links, which are never valid URL settings.</summary>
+    public IReadOnlyList<string> MarkdownConfigurationKeys()
+    {
+        static bool Invalid(string? value) => value?.IndexOfAny(['[', ']', '(', ')']) >= 0;
+        var invalid = new List<string>();
+        if (Invalid(ServerUrl)) invalid.Add("Laserfiche:ServerUrl");
+        if (Invalid(ApiBasePath)) invalid.Add("Laserfiche:ApiBasePath");
+        if (Invalid(DashboardPublicBaseUrl)) invalid.Add("Laserfiche:DashboardPublicBaseUrl");
+        if (Invalid(Sso.LfdsBaseUrl)) invalid.Add("Laserfiche:Sso:LfdsBaseUrl");
+        if (Invalid(Sso.RedirectUri)) invalid.Add("Laserfiche:Sso:RedirectUri");
+        return invalid;
+    }
 }

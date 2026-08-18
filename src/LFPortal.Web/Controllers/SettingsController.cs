@@ -296,6 +296,8 @@ public sealed class SettingsController : Controller
         return new SettingsViewModel
         {
             ServerUrl                         = opts.ServerUrl,
+            AuthenticationMode                = opts.AuthenticationMode.ToString(),
+            DashboardPublicBaseUrl            = opts.DashboardPublicBaseUrl,
             RepositoryId                      = opts.RepositoryId,
             DisplayName                       = opts.DisplayName,
             ApiBasePath                       = opts.ApiBasePath,
@@ -314,31 +316,11 @@ public sealed class SettingsController : Controller
             ActiveRepositorySource            = activeRepoSource,
             SsoLfdsBaseUrl                    = opts.Sso.LfdsBaseUrl,
             SsoClientId                       = opts.Sso.ClientId,
-            SsoCallbackUrl                    = BuildSsoCallbackUrl(opts),
-            SsoAuthorizationEndpoint          = opts.Sso.AuthorizationEndpoint,
+            SsoCallbackUrl                    = opts.SsoCallbackUrl,
+            SsoAuthorizationEndpoint          = opts.SsoAuthorizationEndpoint,
+            SsoTokenEndpoint                  = opts.GetSsoTokenEndpoint(
+                string.IsNullOrWhiteSpace(activeRepoId) ? opts.RepositoryId : activeRepoId),
         };
-    }
-
-    /// <summary>
-    /// Builds the OAuth2 redirect URI for display in the Configuration Reference section.
-    /// Uses the configured override when set; derives from the current request otherwise.
-    /// </summary>
-    private string BuildSsoCallbackUrl(LaserficheOptions opts)
-    {
-        if (!string.IsNullOrWhiteSpace(opts.Sso.RedirectUri))
-            return opts.Sso.RedirectUri.TrimEnd('/');
-
-        try
-        {
-            var req = HttpContext.Request;
-            return req.Host.HasValue
-                ? $"{req.Scheme}://{req.Host}/Login/Callback"
-                : "(computed from request — host not available)";
-        }
-        catch
-        {
-            return "(computed from request at runtime)";
-        }
     }
 
     /// <summary>
@@ -496,6 +478,7 @@ public sealed class SettingsViewModel
     // ── SSO / LFDS Configuration Reference ───────────────────────────────────
 
     /// <summary>Configured LFDS Base URL. Empty = SSO disabled.</summary>
+    public string AuthenticationMode { get; init; } = string.Empty;
     public string SsoLfdsBaseUrl { get; init; } = string.Empty;
 
     /// <summary>Configured OAuth2 client ID.</summary>
@@ -504,11 +487,17 @@ public sealed class SettingsViewModel
     /// <summary>Computed OAuth2 callback URL for Laserfiche-side registration.</summary>
     public string SsoCallbackUrl { get; init; } = string.Empty;
 
-    /// <summary>LFDS authorization endpoint (derived from LfdsBaseUrl).</summary>
+    /// <summary>Repository API authorization endpoint derived from ServerUrl and ApiBasePath.</summary>
     public string SsoAuthorizationEndpoint { get; init; } = string.Empty;
+    public string SsoTokenEndpoint { get; init; } = string.Empty;
+    public string DashboardPublicBaseUrl { get; init; } = string.Empty;
 
     /// <summary>True when SSO is enabled (LfdsBaseUrl is set).</summary>
     public bool SsoEnabled => !string.IsNullOrWhiteSpace(SsoLfdsBaseUrl);
+    public bool SsoConfigurationValid => SsoEnabled &&
+        !string.IsNullOrWhiteSpace(DashboardPublicBaseUrl) &&
+        !string.IsNullOrWhiteSpace(SsoAuthorizationEndpoint) &&
+        !string.IsNullOrWhiteSpace(SsoCallbackUrl);
 }
 
 /// <summary>Form model for the Save action.</summary>
