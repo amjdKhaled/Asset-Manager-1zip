@@ -8,7 +8,7 @@ namespace LFPortal.Web.Controllers;
 
 /// <summary>
 /// Creates a clean Dashboard-owned authentication boundary for a Web Client launch,
-/// then presents a brief transition page before starting the supported LFDS flow.
+/// then opens the Repository Password Gateway for the selected repository.
 /// </summary>
 public sealed class LaunchController : Controller
 {
@@ -30,7 +30,7 @@ public sealed class LaunchController : Controller
     }
 
     /// <summary>
-    /// Clears only state owned by Dashboard and renders the LFDS transition page.
+    /// Clears only state owned by Dashboard and redirects to the password gateway.
     /// Neither Laserfiche Web Client cookies nor LFDS cookies are read or modified.
     /// </summary>
     [HttpGet("/Launch")]
@@ -66,24 +66,16 @@ public sealed class LaunchController : Controller
         HttpContext.User = new System.Security.Claims.ClaimsPrincipal(
             new System.Security.Claims.ClaimsIdentity());
 
-        var redirectUrl = Url.Action(
-            "StartSso",
-            "Login",
-            new { repository = repositoryId, returnUrl = safeReturnUrl });
-        if (string.IsNullOrWhiteSpace(redirectUrl) || !Url.IsLocalUrl(redirectUrl))
-            throw new InvalidOperationException("Could not generate a safe local LFDS start URL.");
-
         _logger.LogInformation(
             "Dashboard launch state cleared. Repository={RepositoryId}; OldUser={OldUser}; " +
-            "RedirectTarget={RedirectTarget}; ForceLogin=false.",
+            "AuthenticationMode=RepositoryPassword.",
             repositoryId,
-            oldUser,
-            redirectUrl);
+            oldUser);
 
-        return View("LaunchLoading", new LaunchLoadingViewModel
+        return RedirectToAction("Index", "Login", new
         {
-            RepositoryId = repositoryId,
-            RedirectUrl = redirectUrl,
+            repository = repositoryId,
+            returnUrl = safeReturnUrl,
         });
     }
 
@@ -107,6 +99,11 @@ public sealed class LaunchController : Controller
     }
 }
 
+/// <summary>
+/// Compatibility model for installations where the retired LaunchLoading Razor view
+/// remains on disk during an incremental IIS deployment. New launches redirect directly
+/// to the Repository Password Gateway and never render this model.
+/// </summary>
 public sealed class LaunchLoadingViewModel
 {
     public required string RepositoryId { get; init; }
