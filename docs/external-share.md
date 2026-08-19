@@ -34,9 +34,10 @@ deployment.
    Dashboard.
 
 The access-key query parameter is required only to start the external session.
-The resulting HttpOnly cookie expires after two hours. Repository credentials
-are protected in server-side session state and Repository API tokens never enter
-browser JavaScript, URLs, or HTML.
+The resulting HttpOnly cookie expires after two hours. The repository password
+is used only for the sign-in request and is not stored in the cookie or server
+session. Repository API tokens remain in the server-side per-session token cache
+and never enter browser JavaScript, URLs, or HTML.
 
 Use an HTTPS tunnel, restrict who receives its URL and key, and disable
 `ExternalShare:Enabled` when the review is complete.

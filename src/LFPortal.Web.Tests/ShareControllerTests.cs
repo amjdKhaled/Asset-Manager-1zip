@@ -32,6 +32,16 @@ public sealed class ShareControllerTests
     }
 
     [Fact]
+    public void LoginGet_WhenEnabledButKeyIsWrong_ReturnsForbiddenNotNotFound()
+    {
+        var fixture = Build();
+
+        var result = Assert.IsType<StatusCodeResult>(fixture.Controller.Login("wrong-key"));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, result.StatusCode);
+    }
+
+    [Fact]
     public async Task LoginPost_UsesRepositoryPasswordAndRedirectsOnlyToShareDashboard()
     {
         var fixture = Build();
@@ -50,6 +60,10 @@ public sealed class ShareControllerTests
         Assert.Equal("TestRepo", fixture.Auth.LastRepository?.RepositoryId);
         Assert.Equal("share-user", fixture.Auth.LastUsername);
         Assert.True(fixture.Authentication.SignInCalled);
+        Assert.DoesNotContain(fixture.Session.Keys, key =>
+            key.Contains("Password", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(fixture.Authentication.Principal!.Claims, claim =>
+            claim.Value == "not-persisted-in-cookie");
         Assert.DoesNotContain("StartSso", redirect.Url, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("SsoDiagnostic", redirect.Url, StringComparison.OrdinalIgnoreCase);
     }
@@ -105,7 +119,6 @@ public sealed class ShareControllerTests
             auth,
             dashboard,
             new StubRepositoryContext(),
-            credentials,
             new StaticOptionsMonitor<ExternalShareOptions>(new ExternalShareOptions
             {
                 Enabled = enabled,
@@ -179,22 +192,17 @@ public sealed class ShareControllerTests
                 [new RepositoryDescriptor("TestRepo", "https://repository.test", "TestRepo", "TestRepo")]);
     }
 
-    private sealed class SpyCredentialStore : ISessionCredentialStore
-    {
-        public Task StoreAsync(string username, string password, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<LaserficheCredential?> TryGetAsync(CancellationToken cancellationToken = default) => Task.FromResult<LaserficheCredential?>(null);
-        public Task ClearAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-    }
-
     private sealed class SpyAuthenticationService : IAuthenticationService
     {
         public bool SignInCalled { get; private set; }
+        public ClaimsPrincipal? Principal { get; private set; }
         public Task<AuthenticateResult> AuthenticateAsync(HttpContext context, string? scheme) => Task.FromResult(AuthenticateResult.NoResult());
         public Task ChallengeAsync(HttpContext context, string? scheme, AuthenticationProperties? properties) => Task.CompletedTask;
         public Task ForbidAsync(HttpContext context, string? scheme, AuthenticationProperties? properties) => Task.CompletedTask;
         public Task SignInAsync(HttpContext context, string? scheme, ClaimsPrincipal principal, AuthenticationProperties? properties)
         {
             SignInCalled = true;
+            Principal = principal;
             Assert.Equal("ExternalShare.Cookie", scheme);
             Assert.True(properties?.ExpiresUtc <= DateTimeOffset.UtcNow.AddHours(2).AddSeconds(2));
             return Task.CompletedTask;

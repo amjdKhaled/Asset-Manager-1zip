@@ -127,30 +127,6 @@ try
             };
         });
     builder.Services.AddAuthorization();
-    // ── Dashboard browser authentication ─────────────────────────────────────
-    // LFDS authenticates the user and issues the Repository API token; this
-    // cookie persists the resulting Dashboard identity across the callback
-    // redirect and subsequent page refreshes.
-    builder.Services
-        .AddAuthentication(options =>
-        {
-            options.DefaultAuthenticateScheme = DashboardAuthenticationDefaults.Scheme;
-            options.DefaultChallengeScheme    = DashboardAuthenticationDefaults.Scheme;
-            options.DefaultSignInScheme       = DashboardAuthenticationDefaults.Scheme;
-        })
-        .AddCookie(DashboardAuthenticationDefaults.Scheme, options =>
-        {
-            options.Cookie.Name       = ".Dashboard.Authentication";
-            options.Cookie.HttpOnly   = true;
-            options.Cookie.IsEssential = true;
-            options.Cookie.SameSite   = SameSiteMode.Lax;
-            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-            options.LoginPath         = "/Login";
-            options.ExpireTimeSpan    = TimeSpan.FromHours(8);
-            options.SlidingExpiration = true;
-        });
-    builder.Services.AddAuthorization();
-    builder.Services.AddSingleton<IOAuthTransactionCookie, OAuthTransactionCookie>();
 
     // ── Laserfiche Infrastructure layer ───────────────────────────────────────
     builder.Services.AddLaserficheInfrastructure(builder.Configuration);
@@ -255,53 +231,6 @@ try
     // External Share cookie authentication is independent of LFDS/OAuth.
     app.UseAuthentication();
     app.UseAuthorization();
-
-    // Authentication must run after routing/session and before the custom guard
-    // and MVC endpoints so HttpContext.User is restored on every request.
-    app.UseAuthentication();
-    app.UseAuthorization();
-
-    // An interactive Repository API token that cannot be refreshed must return
-    // the browser to Login; it must never fall through to configured credentials.
-    app.Use(async (context, next) =>
-    {
-        try
-        {
-            await next(context);
-        }
-        catch (UnauthorizedAccessException) when (
-            context.User.Identity?.IsAuthenticated == true && !context.Response.HasStarted)
-        {
-            var authService = context.RequestServices
-                .GetRequiredService<LFPortal.Application.Interfaces.ILaserficheAuthService>();
-            await authService.InvalidateCurrentSessionTokensAsync();
-            await context.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
-            context.Session.Remove("AuthenticatedRepositoryId");
-            var returnUrl = Uri.EscapeDataString(
-                context.Request.PathBase + context.Request.Path + context.Request.QueryString);
-            context.Response.Redirect($"/Login?returnUrl={returnUrl}");
-        }
-    });
-
-    // Reject malformed pasted Markdown URLs before any authentication or repository
-    // operation. The diagnostic endpoint remains reachable so the error is actionable.
-    app.Use(async (context, next) =>
-    {
-        var options = context.RequestServices
-            .GetRequiredService<IOptions<LaserficheOptions>>().Value;
-        var invalidKeys = options.MarkdownConfigurationKeys();
-        if (invalidKeys.Count > 0 &&
-            !context.Request.Path.StartsWithSegments("/Login/SsoDiagnostic",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            var detail = Uri.EscapeDataString(
-                "Invalid Markdown URL configuration: " + string.Join(", ", invalidKeys));
-            context.Response.Redirect(
-                $"/Login/SsoDiagnostic?reason=configuration_error&detail={detail}");
-            return;
-        }
-        await next(context);
-    });
 
     // ── Repository session middleware — captures ?repository= from Desktop Client ──
     app.UseMiddleware<RepositorySessionMiddleware>();

@@ -171,7 +171,6 @@ public sealed class SessionAuthGuardMiddleware
     private static bool IsExcluded(PathString path) =>
         path.StartsWithSegments("/Login",    StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/Share",    StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments("/Launch",   StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/Settings", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/health",   StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/api/diagnostics", StringComparison.OrdinalIgnoreCase) ||
