@@ -1,4 +1,5 @@
 using LFPortal.Domain.Version;
+using LFPortal.Web.Authentication;
 using LFPortal.Infrastructure.Configuration;
 using LFPortal.Infrastructure.Extensions;
 using LFPortal.Infrastructure.Options;
@@ -7,6 +8,8 @@ using LFPortal.Web.Middleware;
 using LFPortal.Web.Options;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Serilog;
 
 // ── Bootstrap logger — captures startup errors before full logging is configured ──
@@ -139,6 +142,8 @@ try
         opts.Cookie.IsEssential = true;
         opts.IdleTimeout      = TimeSpan.FromHours(8);
         opts.Cookie.Name      = ".Dashboard.Session";
+        opts.Cookie.SameSite  = SameSiteMode.Lax;
+        opts.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
     });
 
     // ── Build ─────────────────────────────────────────────────────────────────
@@ -149,6 +154,9 @@ try
     // without reading config files.  Credentials are never logged.
     {
         var opts = app.Services.GetRequiredService<IOptions<LaserficheOptions>>().Value;
+        var invalidMarkdownKeys = opts.MarkdownConfigurationKeys();
+        if (invalidMarkdownKeys.Count > 0)
+            Log.Fatal("Invalid Markdown characters in URL configuration: {ConfigurationKeys}", invalidMarkdownKeys);
         Log.Information(
             "Laserfiche config: ServerUrl={ServerUrl} ApiBasePath={ApiBasePath} " +
             "ApiVersion={ApiVersion} (effective: {EffectiveApiVersion}) Timeout={Timeout}s CredentialProvider={Provider} " +
@@ -167,13 +175,16 @@ try
         {
             Log.Information(
                 "SSO config: LfdsBaseUrl={LfdsBaseUrl} ClientId={ClientId} " +
-                "AuthEndpoint={AuthEndpoint} RedirectUri={RedirectUri}",
+                "DashboardPublicBaseUrl={DashboardPublicBaseUrl} CallbackUrl={CallbackUrl} " +
+                "AuthEndpoint={AuthEndpoint} TokenEndpoint={TokenEndpoint} LFDSSTS={LfdsSts} Repository={Repository}",
                 opts.Sso.LfdsBaseUrl,
                 opts.Sso.ClientId,
-                opts.Sso.AuthorizationEndpoint,
-                string.IsNullOrEmpty(opts.Sso.RedirectUri)
-                    ? "(computed from request at runtime)"
-                    : opts.Sso.RedirectUri);
+                opts.DashboardPublicBaseUrl,
+                opts.SsoCallbackUrl,
+                opts.SsoAuthorizationEndpoint,
+                opts.GetSsoTokenEndpoint(opts.RepositoryId),
+                opts.Sso.LfdsBaseUrl,
+                opts.RepositoryId);
         }
         else
         {
