@@ -6,6 +6,7 @@
     var _htmlLang  = _isRtl ? "ar" : "en";
     var _htmlDir   = _isRtl ? "rtl" : "ltr";
     var _returnUrl = Uri.EscapeDataString(Context.Request.Path + Context.Request.QueryString);
+    var _externalShareReadOnly = ViewData["ExternalShareReadOnly"] as bool? == true;
 }
 <!DOCTYPE html>
 <html lang="@_htmlLang" dir="@_htmlDir">
@@ -393,7 +394,8 @@
         var _isLaunched        = _isDesktop || _isWebClient;   // any non-direct source
     }
     <header class="site-header">
-        <a class="site-header__logo" asp-controller="Dashboard" asp-action="Index"  >
+        <a class="site-header__logo"
+           href="@(_externalShareReadOnly ? "/Share/Dashboard" : Url.Action("Index", "Dashboard"))">
             IS<span>B</span>
             @* <img src="~/image/isb_logo.jpg" alt="ISB" class="logo_size" > *@
         </a>
@@ -424,9 +426,16 @@
         }
 
         <nav class="site-header__nav" aria-label="Primary navigation">
-            <a asp-controller="Dashboard" asp-action="Index" class="@(_ctrl == "Dashboard" ? "active" : "")">@L["Dashboard"]</a>
-            <a asp-controller="Archive"   asp-action="Index" class="@(_ctrl == "Archive"   ? "active" : "")">@L["Archive"]</a>
-            <a asp-controller="Settings"  asp-action="Index" class="@(_ctrl == "Settings"  ? "active" : "")">@L["Settings"]</a>
+            @if (_externalShareReadOnly)
+            {
+                <a href="/Share/Dashboard" class="active">@L["Dashboard"]</a>
+            }
+            else
+            {
+                <a asp-controller="Dashboard" asp-action="Index" class="@(_ctrl == "Dashboard" ? "active" : "")">@L["Dashboard"]</a>
+                <a asp-controller="Archive"   asp-action="Index" class="@(_ctrl == "Archive"   ? "active" : "")">@L["Archive"]</a>
+                <a asp-controller="Settings"  asp-action="Index" class="@(_ctrl == "Settings"  ? "active" : "")">@L["Settings"]</a>
+            }
         </nav>
         <div class="lang-switcher" aria-label="Language">
             <a href="/SetCulture?culture=en&returnUrl=@_returnUrl" class="@(!_isRtl ? "lang-active" : "")">@L["LangEn"]</a>

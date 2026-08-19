@@ -1,0 +1,60 @@
+@model LFPortal.Web.Controllers.ExternalShareLoginViewModel
+@{
+    Layout = null;
+}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>External Share Sign In — Dashboard</title>
+    <style>
+        *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:linear-gradient(135deg,#17243a,#0f172a);font-family:"Segoe UI",system-ui,sans-serif;color:#1e293b}.card{width:100%;max-width:420px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 18px 50px #02061766}.head{padding:27px 32px;background:#17243a;color:#fff;text-align:center}.logo{font-size:24px;font-weight:750}.logo span{color:#3b82f6}.head p{margin:7px 0 0;color:#aebcd0;font-size:13px}.body{padding:28px 32px}.notice{margin-bottom:20px;padding:10px 12px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1e40af;font-size:12px}.error{margin-bottom:18px;padding:10px 12px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#b91c1c;font-size:13px}.field{margin-bottom:17px}.field label{display:block;margin-bottom:6px;font-size:13px;font-weight:650}.field input,.field select{width:100%;padding:10px 11px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#1e293b;font:inherit}.field input:focus,.field select:focus{outline:3px solid #dbeafe;border-color:#3b82f6}.validation{display:block;margin-top:4px;color:#b91c1c;font-size:12px}.submit{width:100%;padding:11px;border:0;border-radius:6px;background:#3b82f6;color:#fff;font:inherit;font-weight:700;cursor:pointer}.submit:hover{background:#2563eb}.foot{margin-top:16px;color:#64748b;text-align:center;font-size:11px}
+    </style>
+</head>
+<body>
+<main class="card">
+    <header class="head"><div class="logo"><span>LF</span>Dashboard</div><p>External read-only share</p></header>
+    <div class="body">
+        <div class="notice">Sign in with a repository account. LFDS SSO is not used for this external session.</div>
+        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+        {
+            <div class="error" role="alert">@Model.ErrorMessage</div>
+        }
+        @if (Model.Repositories.Count == 0)
+        {
+            <div class="error" role="alert">No repository is configured for external sharing.</div>
+        }
+        else
+        {
+            <form method="post" action="/Share/Login" autocomplete="off">
+                @Html.AntiForgeryToken()
+                <div class="field">
+                    <label asp-for="Input.Repository">Repository</label>
+                    <select asp-for="Input.Repository" name="Repository">
+                        <option value="">Select a repository</option>
+                        @foreach (var repository in Model.Repositories)
+                        {
+                            <option value="@repository">@repository</option>
+                        }
+                    </select>
+                    <span class="validation" asp-validation-for="Input.Repository"></span>
+                </div>
+                <div class="field">
+                    <label asp-for="Input.Username">Repository username</label>
+                    <input asp-for="Input.Username" name="Username" autocomplete="username" />
+                    <span class="validation" asp-validation-for="Input.Username"></span>
+                </div>
+                <div class="field">
+                    <label asp-for="Input.Password">Password</label>
+                    <input asp-for="Input.Password" name="Password" type="password" autocomplete="current-password" />
+                    <span class="validation" asp-validation-for="Input.Password"></span>
+                </div>
+                <button class="submit" type="submit">Sign In</button>
+            </form>
+        }
+        <div class="foot">The password is used only for this sign-in request and is not stored. Repository tokens are never sent to browser scripts.</div>
+    </div>
+</main>
+</body>
+</html>

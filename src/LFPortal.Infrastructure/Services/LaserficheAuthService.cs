@@ -200,6 +200,20 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 "Token cache miss for repository {Key}. Acquiring new token.",
                 repository.Key);
 
+            // External Share passwords are deliberately request-only and are never
+            // persisted in ASP.NET session state. If that user's cached token has
+            // expired, do not silently switch to the configured service/admin account.
+            // The external user must authenticate again instead.
+            if (IsExternalShareSession())
+            {
+                _logger.LogInformation(
+                    "[LF AUTH] External Share token expired or missing for repository {RepoId}; " +
+                    "configured fallback credentials will not be used.",
+                    repository.RepositoryId);
+                throw new UnauthorizedAccessException(
+                    "The External Share repository session has expired. Sign in again.");
+            }
+
             var credentials = await _credentialProvider
                 .GetCredentialsAsync(repository.Key, cancellationToken)
                 .ConfigureAwait(false);
@@ -229,6 +243,19 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         finally
         {
             sem.Release();
+        }
+    }
+
+    private bool IsExternalShareSession()
+    {
+        try
+        {
+            return _httpContextAccessor.HttpContext?.Session
+                .GetString("ExternalShare.Authenticated") == "true";
+        }
+        catch
+        {
+            return false;
         }
     }
 

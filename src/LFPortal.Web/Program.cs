@@ -2,7 +2,10 @@ using LFPortal.Domain.Version;
 using LFPortal.Infrastructure.Configuration;
 using LFPortal.Infrastructure.Extensions;
 using LFPortal.Infrastructure.Options;
+using LFPortal.Web.Authentication;
 using LFPortal.Web.Middleware;
+using LFPortal.Web.Options;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Options;
 using Serilog;
 
@@ -90,6 +93,37 @@ try
     // ── MVC ───────────────────────────────────────────────────────────────────
     builder.Services.AddControllersWithViews()
                     .AddViewLocalization();
+
+    // ── External Share — isolated Repository Password cookie ────────────────
+    builder.Services.AddOptions<ExternalShareOptions>()
+        .Bind(builder.Configuration.GetSection(ExternalShareOptions.SectionName));
+    builder.Services.AddAuthentication()
+        .AddCookie(ExternalShareAuthenticationDefaults.Scheme, options =>
+        {
+            options.Cookie.Name = ExternalShareAuthenticationDefaults.CookieName;
+            options.Cookie.HttpOnly = true;
+            options.Cookie.IsEssential = true;
+            options.Cookie.SameSite = SameSiteMode.Lax;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            options.ExpireTimeSpan = TimeSpan.FromHours(2);
+            options.SlidingExpiration = false;
+            options.LoginPath = "/Share/Login";
+            options.AccessDeniedPath = "/Share/Login";
+            options.Events = new CookieAuthenticationEvents
+            {
+                OnRedirectToLogin = context =>
+                {
+                    context.Response.Redirect("/Share/Login");
+                    return Task.CompletedTask;
+                },
+                OnRedirectToAccessDenied = context =>
+                {
+                    context.Response.Redirect("/Share/Login");
+                    return Task.CompletedTask;
+                }
+            };
+        });
+    builder.Services.AddAuthorization();
 
     // ── Laserfiche Infrastructure layer ───────────────────────────────────────
     builder.Services.AddLaserficheInfrastructure(builder.Configuration);
@@ -182,6 +216,10 @@ try
 
     // ── Session — must be after UseRouting, before controllers ───────────────
     app.UseSession();
+
+    // External Share cookie authentication is independent of LFDS/OAuth.
+    app.UseAuthentication();
+    app.UseAuthorization();
 
     // ── Repository session middleware — captures ?repository= from Desktop Client ──
     app.UseMiddleware<RepositorySessionMiddleware>();
