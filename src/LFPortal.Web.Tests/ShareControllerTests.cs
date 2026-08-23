@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
-using LFPortal.Domain.Common;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Authentication;
 using LFPortal.Web.Controllers;
@@ -101,7 +100,6 @@ public sealed class ShareControllerTests
     {
         var auth = new SpyAuthService();
         var dashboard = new StubDashboardService();
-        var credentials = new SpyCredentialStore();
         var authentication = new SpyAuthenticationService();
         var session = new TestSession();
         var serviceCollection = new ServiceCollection();
