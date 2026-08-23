@@ -1,15 +1,13 @@
 using LFPortal.Domain.Version;
-using LFPortal.Web.Authentication;
 using LFPortal.Infrastructure.Configuration;
 using LFPortal.Infrastructure.Extensions;
 using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Authentication;
 using LFPortal.Web.Middleware;
 using LFPortal.Web.Options;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.Extensions.Options;
 using Serilog;
 
 // ── Bootstrap logger — captures startup errors before full logging is configured ──
@@ -97,10 +95,30 @@ try
     builder.Services.AddControllersWithViews()
                     .AddViewLocalization();
 
-    // ── External Share — isolated Repository Password cookie ────────────────
+    // ── Authentication ────────────────────────────────────────────────────────
+    // Dashboard.Cookie is the normal LFDS / repository-login browser identity.
+    // ExternalShare.Cookie remains isolated and is selected explicitly on /Share routes.
     builder.Services.AddOptions<ExternalShareOptions>()
         .Bind(builder.Configuration.GetSection(ExternalShareOptions.SectionName));
-    builder.Services.AddAuthentication()
+
+    builder.Services
+        .AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = DashboardAuthenticationDefaults.Scheme;
+            options.DefaultChallengeScheme = DashboardAuthenticationDefaults.Scheme;
+            options.DefaultSignInScheme = DashboardAuthenticationDefaults.Scheme;
+        })
+        .AddCookie(DashboardAuthenticationDefaults.Scheme, options =>
+        {
+            options.Cookie.Name = ".Dashboard.Authentication";
+            options.Cookie.HttpOnly = true;
+            options.Cookie.IsEssential = true;
+            options.Cookie.SameSite = SameSiteMode.Lax;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            options.LoginPath = "/Login";
+            options.ExpireTimeSpan = TimeSpan.FromHours(8);
+            options.SlidingExpiration = true;
+        })
         .AddCookie(ExternalShareAuthenticationDefaults.Scheme, options =>
         {
             options.Cookie.Name = ExternalShareAuthenticationDefaults.CookieName;
@@ -126,7 +144,9 @@ try
                 }
             };
         });
+
     builder.Services.AddAuthorization();
+    builder.Services.AddSingleton<IOAuthTransactionCookie, OAuthTransactionCookie>();
 
     // ── Laserfiche Infrastructure layer ───────────────────────────────────────
     builder.Services.AddLaserficheInfrastructure(builder.Configuration);
@@ -228,7 +248,8 @@ try
     // ── Session — must be after UseRouting, before controllers ───────────────
     app.UseSession();
 
-    // External Share cookie authentication is independent of LFDS/OAuth.
+    // Restore the normal Dashboard identity and also support the isolated
+    // External Share scheme used explicitly by its controller.
     app.UseAuthentication();
     app.UseAuthorization();
 
