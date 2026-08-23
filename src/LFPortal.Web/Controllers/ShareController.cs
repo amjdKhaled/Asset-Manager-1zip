@@ -30,7 +30,6 @@ public sealed class ShareController : Controller
     private readonly ILaserficheAuthService _authService;
     private readonly ILaserficheDashboardService _dashboardService;
     private readonly IRepositoryContext _repositoryContext;
-    private readonly ISessionCredentialStore _credentialStore;
     private readonly IOptionsMonitor<ExternalShareOptions> _shareOptions;
     private readonly IOptionsMonitor<LaserficheOptions> _laserficheOptions;
     private readonly ILogger<ShareController> _logger;
@@ -39,7 +38,6 @@ public sealed class ShareController : Controller
         ILaserficheAuthService authService,
         ILaserficheDashboardService dashboardService,
         IRepositoryContext repositoryContext,
-        ISessionCredentialStore credentialStore,
         IOptionsMonitor<ExternalShareOptions> shareOptions,
         IOptionsMonitor<LaserficheOptions> laserficheOptions,
         ILogger<ShareController> logger)
