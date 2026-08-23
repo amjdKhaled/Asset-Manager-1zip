@@ -216,30 +216,18 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 "Token cache miss for repository {Key}. Acquiring new token.",
                 repository.Key);
 
-            if (_cache.TryGetValue(RefreshKeyFor(repository), out string? refreshToken) &&
-                !string.IsNullOrWhiteSpace(refreshToken))
+            // External Share passwords are deliberately request-only and are never
+            // persisted in ASP.NET session state. If that user's cached token has
+            // expired, do not silently switch to the configured service/admin account.
+            // The external user must authenticate again instead.
+            if (IsExternalShareSession())
             {
-                var refreshed = await RequestRefreshTokenAsync(
-                    _adapter.BuildTokenUrlV2(repository.RepositoryId),
-                    refreshToken,
-                    cancellationToken).ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(refreshed.AccessToken))
-                    throw new UnauthorizedAccessException("The Repository API refresh response had no access token.");
-                CacheTokenResponse(repository, cacheKey, refreshed);
-                return refreshed.AccessToken;
-            }
-
-            // An authenticated browser must never cross over to the configured
-            // service account. A cache miss means its user token is no longer available;
-            // fail authentication so the web flow can acquire a new authorization code.
-            if (IsInteractiveUserSession())
-            {
-                _logger.LogWarning(
-                    "[LF AUTH] Interactive user-session token is unavailable for repository {RepoId}; " +
+                _logger.LogInformation(
+                    "[LF AUTH] External Share token expired or missing for repository {RepoId}; " +
                     "configured fallback credentials will not be used.",
                     repository.RepositoryId);
                 throw new UnauthorizedAccessException(
-                    "The LFDS user session token is no longer available. Reauthentication is required.");
+                    "The External Share repository session has expired. Sign in again.");
             }
 
             var credentials = await _credentialProvider
@@ -276,13 +264,17 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         }
     }
 
-    private bool IsInteractiveUserSession()
+    private bool IsExternalShareSession()
     {
-        var principal = _httpContextAccessor.HttpContext?.User;
-        var method = principal?.FindFirst(ClaimTypes.AuthenticationMethod)?.Value;
-        return principal?.Identity?.IsAuthenticated == true &&
-            (string.Equals(method, "LFDS", StringComparison.Ordinal) ||
-             string.Equals(method, "RepositoryPassword", StringComparison.Ordinal));
+        try
+        {
+            return _httpContextAccessor.HttpContext?.Session
+                .GetString("ExternalShare.Authenticated") == "true";
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <inheritdoc />

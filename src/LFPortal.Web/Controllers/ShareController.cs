@@ -47,13 +47,12 @@ public sealed class ShareController : Controller
         _authService = authService;
         _dashboardService = dashboardService;
         _repositoryContext = repositoryContext;
-        _credentialStore = credentialStore;
         _shareOptions = shareOptions;
         _laserficheOptions = laserficheOptions;
         _logger = logger;
     }
 
-    [HttpGet("Login")]
+    [HttpGet("/Share/Login")]
     [AllowAnonymous]
     public IActionResult Login(string? key = null)
     {
@@ -63,7 +62,7 @@ public sealed class ShareController : Controller
 
         var alreadyGranted = HasUnexpiredAccessGrant();
         if (!alreadyGranted && !AccessKeysMatch(key, options.AccessKey))
-            return NotFound();
+            return StatusCode(StatusCodes.Status403Forbidden);
 
         HttpContext.Session.SetString(SessionKeyAccessGranted, "true");
         HttpContext.Session.SetString(
@@ -72,7 +71,7 @@ public sealed class ShareController : Controller
         return View(BuildLoginViewModel());
     }
 
-    [HttpPost("Login")]
+    [HttpPost("/Share/Login")]
     [AllowAnonymous]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Login(
@@ -84,7 +83,7 @@ public sealed class ShareController : Controller
             return NotFound();
 
         if (!HasUnexpiredAccessGrant())
-            return NotFound();
+            return StatusCode(StatusCodes.Status403Forbidden);
 
         var allowedRepositories = GetAllowedRepositories();
         if (!allowedRepositories.Contains(input.Repository ?? string.Empty, StringComparer.OrdinalIgnoreCase))
@@ -129,10 +128,6 @@ public sealed class ShareController : Controller
                 "The repository username or password is incorrect."));
         }
 
-        // Credentials remain only in the protected server-side ASP.NET session. The
-        // browser cookie contains an opaque session id and never contains a password/token.
-        await _credentialStore.StoreAsync(input.Username, input.Password ?? string.Empty, cancellationToken);
-
         HttpContext.Session.SetString(RepositorySessionMiddleware.SessionKeyRepositoryId, repositoryId);
         HttpContext.Session.SetString(RepositorySessionMiddleware.SessionKeySource, "External Share");
         HttpContext.Session.SetString(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId, repositoryId);
@@ -165,7 +160,7 @@ public sealed class ShareController : Controller
         return Redirect("/Share/Dashboard");
     }
 
-    [HttpGet("Dashboard")]
+    [HttpGet("/Share/Dashboard")]
     [Authorize(AuthenticationSchemes = ExternalShareAuthenticationDefaults.Scheme)]
     public async Task<IActionResult> Dashboard(CancellationToken cancellationToken)
     {
@@ -233,7 +228,6 @@ public sealed class ShareController : Controller
     {
         await HttpContext.SignOutAsync(ExternalShareAuthenticationDefaults.Scheme);
         await _authService.InvalidateCurrentSessionTokensAsync();
-        await _credentialStore.ClearAsync(cancellationToken);
         HttpContext.Session.Clear();
     }
 
