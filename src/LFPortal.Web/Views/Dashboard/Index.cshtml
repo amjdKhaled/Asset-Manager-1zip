@@ -135,18 +135,18 @@
 
 @section Styles {
 <style>
-body   { background: #0F172A !important; }
+body   { background: #F7F8FD !important; }
 main   { max-width: 1440px !important; padding: 18px 22px !important; }
 footer.site-footer { background: #0a1020 !important; }
 
 :root {
-    --d-bg:      #0F172A;
-    --d-surface: #1E293B;
+    --d-bg:      #F7F8FD;
+    --d-surface: #FFFFFF;
     --d-surf2:   #263349;
     --d-border:  #334155;
-    --d-text:    #F1F5F9;
+    --d-text:    #000000;
     --d-secondary:#94A3B8;
-    --d-muted:   #94A3B8;
+    --d-muted:   #000000;
     --d-accent:  #3B82F6;
     --d-teal:    #14B8A6;
     --d-violet:  #8B5CF6;
@@ -157,7 +157,7 @@ footer.site-footer { background: #0a1020 !important; }
 .d-title   { color: var(--d-text); font-size: 1.2rem; font-weight: 600; }
 .d-sub     { color: var(--d-muted); font-size: 0.78rem; margin-top: 2px; }
 /* Cards — reduced padding vs original */
-.d-card    { background: var(--d-surface); border: 1px solid var(--d-border); border-radius: 12px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.d-card    { background: var(--d-surface); border: none var(--d-border); border-radius: 12px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
 .d-grid-5  { display: grid; grid-template-columns: repeat(5,1fr); gap: 14px; }
 .d-grid-2  { display: grid; grid-template-columns: repeat(2,1fr); gap: 18px; }
 .d-grid-1  { display: grid; gap: 18px; }
@@ -177,10 +177,10 @@ footer.site-footer { background: #0a1020 !important; }
 .d-badge-indigo{ background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.25); }
 .d-tbl { width:100%;border-collapse:collapse;font-size:.77rem; }
 .d-tbl th { text-align:left;padding:7px 11px;font-weight:600;color:var(--d-muted);background:rgba(255,255,255,.04);border-bottom:1px solid var(--d-border); }
-.d-tbl td { padding:7px 11px;color:var(--d-text);border-bottom:1px solid rgba(51,65,85,.5); }
+.d-tbl td { padding:7px 11px;color:var(--d-text);border-bottom:1px solid #e1e1e1; }
 .d-tbl tr:hover td { background:rgba(255,255,255,.03); }
 .d-tbl tr:last-child td { border-bottom:none; }
-.d-tbl-wrap { overflow:hidden;border-radius:8px;border:1px solid var(--d-border); }
+.d-tbl-wrap { overflow:hidden;border-radius:8px;border:none var(--d-border); }
 .d-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;color:var(--d-muted);gap:8px; }
 .d-health-cell { background:rgba(255,255,255,.04);border:1px solid var(--d-border);border-radius:8px;padding:10px; }
 .d-health-lbl  { font-size:.71rem;color:var(--d-muted);margin-bottom:3px;display:flex;align-items:center;gap:6px; }
@@ -212,10 +212,10 @@ footer.site-footer { background: #0a1020 !important; }
     height: 34px;
     padding: 0 11px;
 
-    border: 1px solid #334155;
+    border: none;
     border-radius: 6px;
 
-    background: #1e293b;
+    background: #F7F8FD;
     color: #94a3b8;
 
     font-size: 13px;
@@ -339,7 +339,8 @@ footer.site-footer { background: #0a1020 !important; }
 
     <!-- Documents by Folder bar chart -->
     <div class="d-card">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;ma
+        rgin-bottom:12px">
             <div>
                 <div class="d-card-title"><span class="d-section-bar"></span>@L[name: "DocumentsByFolder"]</div>
                 <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@string.Format(L[name: "RootLevelFolders"], s.RepositoryId)</div>
@@ -466,7 +467,19 @@ footer.site-footer { background: #0a1020 !important; }
                         <td style="color:var(--d-muted)">@(i + 1)</td>
                         <td style="font-weight:500">@t.Name</td>
                         <td style="color:var(--d-accent);font-weight:600">@t.Count.ToString("N0")</td>
-                        <td style="color:var(--d-muted)">@pct.ToString("F1")%</td>
+                        @* the total % *@
+                        <td style="color:var(--d-muted)">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                        <span class="totalPercentText"></span>
+
+                        <div style="width:120px;height:30px;" class="d-tbl-wrap d-tbl">
+                        <canvas
+                        class="totalPercent"
+                        data-index="@i">
+            </canvas>
+        </div>
+    </div>
+</td>
                     </tr>
                 }
             </tbody>
@@ -518,12 +531,12 @@ footer.site-footer { background: #0a1020 !important; }
             </span>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
-            <div class="d-health-cell">
+            @* <div class="d-health-cell">
                 <div class="d-health-lbl">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> @L["Status"]
                 </div>
                 <div class="d-health-val @(s.IsConnected ? "d-connected" : "d-disc")">@(s.IsConnected ? L["Connected"].Value : L["Disconnected"].Value)</div>
-            </div>
+            </div> *@
             <div class="d-health-cell">
                 <div class="d-health-lbl">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg> @L["Repository"]
@@ -684,6 +697,8 @@ const TOOLTIP = {
     cornerRadius:8
 };
 
+
+
 // ── Folders bar chart ────الوان الشارت──────────────────────────────────────────────────
 // شارت طالع من مكتبة اسمها chart.js و يتغير الشارت على حسب ال type و الdata اللي هي البيانات اللي تنعرص في الشرات 
 const folderEl = document.getElementById("chartFolders");
@@ -717,6 +732,84 @@ if(folderEl){
         }
     });
 }
+
+const labels = @Html.Raw(JsonSerializer.Serialize(tmplLabels));
+const data   = @Html.Raw(JsonSerializer.Serialize(tmplData));
+
+const total = @s.TotalDocuments;
+
+document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
+
+    const count = Number(data[index] ?? 0);
+
+    const percent = total > 0
+        ? (count / total) * 100
+        : 0;
+
+    const textElement =
+        canvas.closest("td").querySelector(".totalPercentText");
+
+    if (textElement) {
+        textElement.textContent = `${percent.toFixed(1)}%`;
+    }
+
+    new Chart(canvas, {
+        type: "bar",
+
+        data: {
+            labels: [labels[index]],
+
+            datasets: [{
+                label: labels[index],
+                data: [percent],
+
+                backgroundColor:
+                    PALETTE[index % PALETTE.length] + "cc",
+
+                borderColor:
+                    PALETTE[index % PALETTE.length],
+
+                borderWidth: 0,
+                borderRadius: 4,
+                barPercentage: 0.7,
+                categoryPercentage: 1
+            }]
+        },
+
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: "y",
+
+            plugins: {
+                legend: {
+                    display: false
+                },
+
+                tooltip: {
+                    ...TOOLTIP,
+                    callbacks: {
+                        label: () =>
+                            `${percent.toFixed(1)}%`
+                    }
+                }
+            },
+
+            scales: {
+                x: {
+                    min: 0,
+                    max: 100,
+                    display: false
+                },
+
+                y: {
+                    display: false
+                }
+            }
+        }
+    });
+});
+
 
 // ── Template doughnut ─────────────────────────────────────────────────────
 const tmplEl = document.getElementById("chartTemplates");
