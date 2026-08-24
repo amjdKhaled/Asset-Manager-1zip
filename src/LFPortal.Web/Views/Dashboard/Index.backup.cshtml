@@ -164,7 +164,6 @@ footer.site-footer { background: #F7F8FD !important; }
 .chart-h270 { height:270px; }
 .donut-wrap { display:flex;flex-direction:column;align-items:center; }
 .donut-wrap canvas { max-width:800px !important; max-height:250px !important; }
-#chartDocActivity { direction:ltr !important; }
 @@media(max-width:900px){.d-grid-5{grid-template-columns:repeat(2,1fr)}.d-grid-2{grid-template-columns:1fr}}
 @@media(max-width:500px){.d-grid-5{grid-template-columns:1fr}}
 
@@ -338,7 +337,7 @@ footer.site-footer { background: #F7F8FD !important; }
         }
         else
         {
-            <div class="chart-container chart-h270" ><canvas id="chartDocActivity"></canvas></div>
+            <div class="chart-container chart-h270"><canvas id="chartDocActivity" ></canvas></div>
         }
     </div>
 
@@ -379,13 +378,12 @@ footer.site-footer { background: #F7F8FD !important; }
     </div>
 </div>
 
-@if (s.TemplateStats.Count > 0 || s.DocsWithoutTemplate > 0)
+@if (s.TemplateStats.Count > 0)
 {
 <div class="d-card" style="margin-bottom:18px">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
         <div class="d-card-title"><span class="d-section-bar"></span>@L["TemplateStatistics"]</div>
-        @{ var templateRowCount = s.TemplateStats.Count + (s.DocsWithoutTemplate > 0 ? 1 : 0); }
-        <span class="d-badge d-badge-violet">@templateRowCount template@(templateRowCount != 1 ? "s" : "")</span>
+        <span class="d-badge d-badge-violet">@s.TemplateStats.Count template@(s.TemplateStats.Count != 1 ? "s" : "")</span>
     </div>
     <div class="d-tbl-wrap">
         <table class="d-tbl" id="table2">
@@ -403,23 +401,6 @@ footer.site-footer { background: #F7F8FD !important; }
                                 <span class="totalPercentText"></span>
                                 <div style="width:120px;height:30px;" class="d-tbl-wrap d-tbl">
                                     <canvas class="totalPercent" data-index="@i"></canvas>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-                }
-                @if (s.DocsWithoutTemplate > 0)
-                {
-                    var noTemplateIndex = s.TemplateStats.Count;
-                    <tr>
-                        <td style="color:var(--d-muted)">@(noTemplateIndex + 1)</td>
-                        <td style="font-weight:500">@noTemplateLabel</td>
-                        <td style="color:var(--d-accent);font-weight:600">@s.DocsWithoutTemplate.ToString("N0")</td>
-                        <td style="color:var(--d-muted)">
-                            <div style="display:flex;align-items:flex-start;gap:10px;">
-                                <span class="totalPercentText"></span>
-                                <div style="width:120px;height:30px;" class="d-tbl-wrap d-tbl">
-                                    <canvas class="totalPercent" data-index="@noTemplateIndex"></canvas>
                                 </div>
                             </div>
                         </td>
@@ -672,32 +653,26 @@ if(tmplEl){
 
 const docActEl = document.getElementById("chartDocActivity");
 if(docActEl){
+    // Keep the timeline chronological left-to-right even when the rest of the page is RTL.
+    
+
     const labels   = @Html.Raw(JsonSerializer.Serialize(actLabels));
     const created  = @Html.Raw(JsonSerializer.Serialize(actCreated));
     const modified = @Html.Raw(JsonSerializer.Serialize(actModified));
-    const isRtl = document.documentElement.dir === "rtl";
-
-    // Chart.js lays category axes out according to the page direction. In Arabic the
-    // canvas is inside an RTL page, so reverse all three arrays together to keep the
-    // visual timeline chronological from oldest on the left to newest on the right.
-    const chartLabels   = isRtl ? [...labels].reverse()   : labels;
-    const chartCreated  = isRtl ? [...created].reverse()  : created;
-    const chartModified = isRtl ? [...modified].reverse() : modified;
-
     const createdLabel  = @Html.Raw(JsonSerializer.Serialize(L["Created"].Value));
     const modifiedLabel = @Html.Raw(JsonSerializer.Serialize(L["Modified"].Value));
 
     new Chart(docActEl, {
         type:"bar",
-        data:{labels:chartLabels,datasets:[
-            {label:createdLabel,data:chartCreated,backgroundColor:"#0D98FF",borderWidth:0,barPercentage:0.55,categoryPercentage:0.75},
-            {label:modifiedLabel,data:chartModified,backgroundColor:"#00226C",borderWidth:0,barPercentage:0.55,categoryPercentage:0.75}
+        data:{labels,datasets:[
+            {label:createdLabel,data:created,backgroundColor:"#0D98FF",borderWidth:0,barPercentage:0.55,categoryPercentage:0.75},
+            {label:modifiedLabel,data:modified,backgroundColor:"#00226C",borderWidth:0,barPercentage:0.55,categoryPercentage:0.75}
         ]},
         options:{
             responsive:true,
             maintainAspectRatio:false,
             plugins:{
-                legend:{display:true,position:"top",align:"end",rtl:false,textDirection:"ltr",labels:{color:TICK,boxWidth:11,padding:10,font:{size:9}}},
+                legend:{display:true,position:"top",align:"end",labels:{color:TICK,boxWidth:11,padding:10,font:{size:9}}},
                 tooltip:{...TOOLTIP}
             },
             scales:{
