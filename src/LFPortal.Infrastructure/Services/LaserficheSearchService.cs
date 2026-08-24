@@ -11,20 +11,9 @@ using Microsoft.Extensions.Logging;
 namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
-/// Implements Laserfiche search operations using the Repository API v2 search endpoints.
-/// The Laserfiche search API uses an asynchronous long-operation pattern: a search is
-/// submitted, then polled until complete, and finally results are retrieved.
+/// Implements Laserfiche search operations. Search result collections are read to completion
+/// by following server-provided continuation links before caller pagination is applied.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Polling interval is 500 ms with a maximum wait of <see cref="MaxPollDurationSeconds"/>
-/// seconds before a <see cref="TimeoutException"/> is thrown.
-/// </para>
-/// <para>
-/// All search modes build a Laserfiche search expression and delegate to
-/// <see cref="ExecuteSearchAsync"/> which handles the full long-operation lifecycle.
-/// </para>
-/// </remarks>
 internal sealed class LaserficheSearchService : ILaserficheSearchService
 {
     private const int MaxPollDurationSeconds = 30;
@@ -36,7 +25,6 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
     private readonly ISearchAuditLog _auditLog;
     private readonly ILogger<LaserficheSearchService> _logger;
 
-    /// <summary>Initialises the service with all required dependencies.</summary>
     public LaserficheSearchService(
         IHttpClientFactory httpClientFactory,
         IRepositoryContext repositoryContext,
@@ -51,7 +39,6 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         _logger = logger;
     }
 
-    /// <inheritdoc />
     public Task<PagedResult<LFSearchResult>> SimpleSearchAsync(
         string query,
         int page,
@@ -65,7 +52,6 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
             pageSize,
             cancellationToken);
 
-    /// <inheritdoc />
     public Task<PagedResult<LFSearchResult>> AdvancedSearchAsync(
         string searchExpression,
         int page,
@@ -79,7 +65,6 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
             pageSize,
             cancellationToken);
 
-    /// <inheritdoc />
     public Task<PagedResult<LFSearchResult>> SearchByTemplateAsync(
         string templateName,
         int page,
@@ -93,7 +78,6 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
             pageSize,
             cancellationToken);
 
-    /// <inheritdoc />
     public Task<PagedResult<LFSearchResult>> SearchByFieldAsync(
         string fieldName,
         string fieldValue,
@@ -108,20 +92,6 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
             pageSize,
             cancellationToken);
 
-    // ──────────────────────────── Core search orchestration ───────────────
-
-    /// <summary>
-    /// Submits a search to the Laserfiche API and returns paged results.
-    /// <para>
-    /// <b>SimpleSearches</b> (v1 synchronous): the API returns an OData collection
-    /// directly in the submit response — no polling required.
-    /// </para>
-    /// <para>
-    /// <b>Searches</b> (v1 async long-operation): the API returns an operationToken;
-    /// the service polls <c>GET /Tasks/{token}</c> until status is Completed, then
-    /// fetches results from <c>GET /SearchResults/{token}</c>.
-    /// </para>
-    /// </summary>
     private async Task<PagedResult<LFSearchResult>> ExecuteSearchAsync(
         string displayQuery,
         SearchType searchType,
@@ -130,19 +100,17 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         int pageSize,
         CancellationToken cancellationToken)
     {
+        ValidatePaging(page, pageSize);
+
         var repo = await _repositoryContext
             .GetActiveRepositoryAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        // Record the search against the CURRENT repository so dashboard
-        // statistics stay repository-isolated on multi-repository servers.
         await _auditLog
             .RecordSearchAsync(repo.RepositoryId, displayQuery, cancellationToken)
             .ConfigureAwait(false);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
-
-        // Step 1: Submit the search
         var searchUrl = _adapter.BuildSearchUrl(repo.RepositoryId, searchType);
         var requestBody = new { searchCommand = expression };
 
@@ -159,234 +127,307 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
             .ReadAsStringAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        _logger.LogInformation(
-            "Search submit response HTTP {Status} | RAW: {Body}",
-            (int)submitResponse.StatusCode,
-            submitBody);
-
         if (!submitResponse.IsSuccessStatusCode)
         {
-            _logger.LogWarning(
-                "Search submission failed for query '{Query}': HTTP {StatusCode}. Body: {Body}",
-                displayQuery,
-                (int)submitResponse.StatusCode,
-                submitBody);
-
             throw new LaserficheException(
                 $"Search failed with HTTP {(int)submitResponse.StatusCode}. " +
-                $"Query: {displayQuery}",
+                $"Query: {displayQuery}. Body: {submitBody}",
                 (int)submitResponse.StatusCode);
         }
 
-        // Step 2a: SimpleSearches (v1) — OData collection returned inline, no polling.
-        // Detect by the presence of a "value" array at the root.
         using var submitDoc = JsonDocument.Parse(submitBody);
-        if (submitDoc.RootElement.TryGetProperty("value", out _))
+        if (submitDoc.RootElement.ValueKind == JsonValueKind.Object &&
+            TryGetPropertyIgnoreCase(submitDoc.RootElement, "value", out var value) &&
+            value.ValueKind == JsonValueKind.Array)
         {
-            _logger.LogInformation(
-                "Search returned inline OData collection for query '{Query}'.",
-                displayQuery);
+            // SimpleSearches may return all results inline or a first OData page. Follow
+            // continuation links if present before applying UI pagination.
+            var allItems = await ReadAllResultPagesAsync(
+                    client,
+                    initialBody: submitBody,
+                    initialUrl: searchUrl,
+                    cancellationToken)
+                .ConfigureAwait(false);
 
-            return ParseInlineResults(submitBody, displayQuery, page, pageSize);
+            return ToPagedResult(allItems, page, pageSize);
         }
 
-        // Step 2b: Searches (v1 async) — operationToken in response body.
-        var taskResult = JsonSerializer.Deserialize<LongOperationResponse>(submitBody, JsonOptions.Default);
+        var taskResult = JsonSerializer.Deserialize<LongOperationResponse>(submitBody, JsonOptions.Default)
+            ?? throw new JsonException("Search submit response could not be deserialized.");
 
-        if (taskResult?.Status?.Equals("Completed", StringComparison.OrdinalIgnoreCase) == true)
+        if (string.IsNullOrWhiteSpace(taskResult.OperationToken))
         {
-            // Completed synchronously — fetch results immediately.
-            return await FetchSearchResultsAsync(
-                client, repo.RepositoryId, taskResult.OperationToken ?? string.Empty,
-                displayQuery, page, pageSize, cancellationToken)
+            throw new LaserficheException(
+                $"Search for '{displayQuery}' returned neither an inline result collection nor an operation token. " +
+                $"Body: {submitBody}",
+                200);
+        }
+
+        if (taskResult.Status?.Equals("Failed", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            throw new LaserficheException(
+                $"Laserfiche search operation failed for query: {displayQuery}. " +
+                $"Errors: {string.Join("; ", taskResult.Errors)}",
+                500);
+        }
+
+        var token = taskResult.OperationToken;
+        if (taskResult.Status?.Equals("Completed", StringComparison.OrdinalIgnoreCase) != true)
+        {
+            await WaitForSearchCompletionAsync(
+                    client,
+                    repo.RepositoryId,
+                    token,
+                    displayQuery,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        if (string.IsNullOrWhiteSpace(taskResult?.OperationToken))
-        {
-            _logger.LogWarning(
-                "Search for '{Query}' returned neither 'value' array nor operationToken. " +
-                "Raw body: {Body}", displayQuery, submitBody);
+        return await FetchSearchResultsAsync(
+                client,
+                repo.RepositoryId,
+                token,
+                page,
+                pageSize,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
 
-            return PagedResult<LFSearchResult>.Empty;
-        }
-
-        // Step 3: Poll for completion
-        var token = taskResult.OperationToken!;
-        var statusUrl = _adapter.BuildTaskStatusUrl(repo.RepositoryId, token);
+    private async Task WaitForSearchCompletionAsync(
+        HttpClient client,
+        string repositoryId,
+        string operationToken,
+        string displayQuery,
+        CancellationToken cancellationToken)
+    {
+        var statusUrl = _adapter.BuildTaskStatusUrl(repositoryId, operationToken);
         var deadline = DateTimeOffset.UtcNow.AddSeconds(MaxPollDurationSeconds);
 
         while (DateTimeOffset.UtcNow < deadline)
         {
             await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
 
-            using var statusResponse = await client
-                .GetAsync(statusUrl, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (!statusResponse.IsSuccessStatusCode) continue;
-
+            using var statusResponse = await client.GetAsync(statusUrl, cancellationToken).ConfigureAwait(false);
             var statusBody = await statusResponse.Content
                 .ReadAsStringAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            var status = JsonSerializer.Deserialize<LongOperationResponse>(statusBody, JsonOptions.Default);
-
-            if (status?.Status?.Equals("Completed", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                return await FetchSearchResultsAsync(
-                    client, repo.RepositoryId, token,
-                    displayQuery, page, pageSize, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            if (status?.Status?.Equals("Failed", StringComparison.OrdinalIgnoreCase) == true)
+            if (!statusResponse.IsSuccessStatusCode)
             {
                 throw new LaserficheException(
-                    $"Laserfiche search operation failed for query: {displayQuery}",
+                    $"Search status endpoint returned HTTP {(int)statusResponse.StatusCode} for {statusUrl}. " +
+                    $"Body: {statusBody}",
+                    (int)statusResponse.StatusCode);
+            }
+
+            var status = JsonSerializer.Deserialize<LongOperationResponse>(statusBody, JsonOptions.Default)
+                ?? throw new JsonException("Search status response could not be deserialized.");
+
+            if (status.Status?.Equals("Completed", StringComparison.OrdinalIgnoreCase) == true)
+                return;
+
+            if (status.Status?.Equals("Failed", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                throw new LaserficheException(
+                    $"Laserfiche search operation failed for query: {displayQuery}. " +
+                    $"Errors: {string.Join("; ", status.Errors)}",
                     500);
             }
         }
-
-        _logger.LogWarning(
-            "Search timed out after {Seconds}s for query '{Query}'.",
-            MaxPollDurationSeconds,
-            displayQuery);
 
         throw new TimeoutException(
             $"Laserfiche search timed out after {MaxPollDurationSeconds} seconds. " +
             "Try a more specific query.");
     }
 
-    /// <summary>
-    /// Parses an inline OData collection returned synchronously by
-    /// <c>POST /SimpleSearches</c> (Laserfiche v1).
-    /// </summary>
-    private PagedResult<LFSearchResult> ParseInlineResults(
-        string body,
-        string displayQuery,
-        int page,
-        int pageSize)
-    {
-        _logger.LogInformation(
-            "Parsing inline search results for query '{Query}'.", displayQuery);
-
-        try
-        {
-            var resultList = JsonSerializer.Deserialize<ODataCountList<SearchResultResource>>(
-                body, JsonOptions.Default);
-
-            var allItems = resultList?.Value.Select(r => new LFSearchResult
-            {
-                EntryId          = r.Id,
-                Name             = r.Name,
-                FullPath         = r.FullPath,
-                EntryType        = ParseEntryType(r.EntryType),
-                TemplateName     = r.TemplateName,
-                Creator          = r.Creator,
-                CreationTime     = r.CreationTime,
-                LastModifiedTime = r.LastModifiedTime
-            }).ToList() ?? [];
-
-            // Apply client-side pagination since SimpleSearches returns all results at once.
-            var skip  = (page - 1) * pageSize;
-            var items = allItems.Skip(skip).Take(pageSize).ToList();
-
-            return new PagedResult<LFSearchResult>
-            {
-                Items      = items.AsReadOnly(),
-                TotalCount = resultList?.Count > 0 ? resultList.Count : allItems.Count,
-                PageNumber = page,
-                PageSize   = pageSize
-            };
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to parse inline search results for query '{Query}'. Body: {Body}",
-                displayQuery, body);
-
-            return PagedResult<LFSearchResult>.Empty;
-        }
-    }
-
-    /// <summary>
-    /// Retrieves a paged set of results from a completed search operation.
-    /// </summary>
     private async Task<PagedResult<LFSearchResult>> FetchSearchResultsAsync(
         HttpClient client,
         string repositoryId,
         string operationToken,
-        string displayQuery,
         int page,
         int pageSize,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(operationToken))
+        var firstUrl = _adapter.BuildSearchResultsUrl(repositoryId, operationToken);
+        var allItems = await ReadAllResultPagesAsync(
+                client,
+                initialBody: null,
+                initialUrl: firstUrl,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return ToPagedResult(allItems, page, pageSize);
+    }
+
+    private async Task<IReadOnlyList<LFSearchResult>> ReadAllResultPagesAsync(
+        HttpClient client,
+        string? initialBody,
+        string initialUrl,
+        CancellationToken cancellationToken)
+    {
+        var all = new List<LFSearchResult>();
+        var visitedUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string? nextUrl = initialUrl;
+        string? body = initialBody;
+        var pageNumber = 0;
+
+        while (!string.IsNullOrWhiteSpace(nextUrl))
         {
-            return PagedResult<LFSearchResult>.Empty;
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!visitedUrls.Add(nextUrl))
+            {
+                throw new LaserficheException(
+                    $"Search-result pagination repeated a nextLink: {nextUrl}",
+                    500);
+            }
+
+            pageNumber++;
+            if (body is null)
+            {
+                using var response = await client.GetAsync(nextUrl, cancellationToken).ConfigureAwait(false);
+                body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new LaserficheException(
+                        $"Search results returned HTTP {(int)response.StatusCode} at {nextUrl}. Body: {body}",
+                        (int)response.StatusCode);
+                }
+            }
+
+            var parsed = ParseResultPage(body);
+            all.AddRange(parsed.Items.Select(MapSearchResult));
+            nextUrl = ResolveNextLink(nextUrl, parsed.NextLink);
+            body = null;
+
+            _logger.LogInformation(
+                "Search results page {Page}: {PageCount} item(s), running total={Total}, nextLink={HasNext}.",
+                pageNumber, parsed.Items.Count, all.Count, nextUrl is null ? "no" : "yes");
         }
 
+        return all
+            .GroupBy(r => r.EntryId)
+            .Select(g => g
+                .OrderByDescending(r => r.LastModifiedTime ?? r.CreationTime ?? DateTimeOffset.MinValue)
+                .First())
+            .ToList()
+            .AsReadOnly();
+    }
+
+    private static ResultPage ParseResultPage(string body)
+    {
+        body = body.Trim();
+        if (string.IsNullOrWhiteSpace(body))
+            throw new JsonException("Search result response body was empty.");
+
+        if (body.StartsWith('['))
+        {
+            var items = JsonSerializer.Deserialize<List<SearchResultResource>>(body, JsonOptions.Default) ?? [];
+            return new ResultPage(items, null);
+        }
+
+        var result = JsonSerializer.Deserialize<ODataPagedList<SearchResultResource>>(body, JsonOptions.Default)
+            ?? throw new JsonException("Search result response could not be deserialized.");
+
+        return new ResultPage(result.Value, result.NextLink ?? result.PlainNextLink);
+    }
+
+    private static PagedResult<LFSearchResult> ToPagedResult(
+        IReadOnlyList<LFSearchResult> allItems,
+        int page,
+        int pageSize)
+    {
         var skip = (page - 1) * pageSize;
-        var resultsUrl = $"{_adapter.BuildSearchResultsUrl(repositoryId, operationToken)}" +
-                         $"?$top={pageSize}&$skip={skip}&$count=true";
-
-        using var response = await client
-            .GetAsync(resultsUrl, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogWarning(
-                "Failed to retrieve search results for operation {Token}: HTTP {StatusCode}.",
-                operationToken,
-                (int)response.StatusCode);
-
-            return PagedResult<LFSearchResult>.Empty;
-        }
-
-        var body = await response.Content
-            .ReadAsStringAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        var resultList = JsonSerializer.Deserialize<ODataCountList<SearchResultResource>>(
-            body, JsonOptions.Default);
-
-        var items = resultList?.Value.Select(r => new LFSearchResult
-        {
-            EntryId          = r.Id,
-            Name             = r.Name,
-            FullPath         = r.FullPath,
-            EntryType        = ParseEntryType(r.EntryType),
-            TemplateName     = r.TemplateName,
-            Creator          = r.Creator,
-            CreationTime     = r.CreationTime,
-            LastModifiedTime = r.LastModifiedTime
-        }).ToList() ?? [];
-
         return new PagedResult<LFSearchResult>
         {
-            Items      = items.AsReadOnly(),
-            TotalCount = resultList?.Count ?? items.Count,
+            Items = allItems.Skip(skip).Take(pageSize).ToList().AsReadOnly(),
+            TotalCount = allItems.Count,
             PageNumber = page,
-            PageSize   = pageSize
+            PageSize = pageSize
         };
     }
 
-    /// <summary>Escapes special characters in a search term for use in LF expressions.</summary>
+    private static LFSearchResult MapSearchResult(SearchResultResource r) => new()
+    {
+        EntryId = r.Id,
+        Name = r.Name,
+        FullPath = r.FullPath,
+        EntryType = ParseEntryType(r.EntryType ?? r.ODataType),
+        TemplateName = r.TemplateName,
+        Creator = r.Creator,
+        CreationTime = r.CreationTime,
+        LastModifiedTime = r.LastModifiedTime
+    };
+
+    private static string? ResolveNextLink(string currentUrl, string? nextLink)
+    {
+        if (string.IsNullOrWhiteSpace(nextLink) ||
+            !Uri.TryCreate(currentUrl, UriKind.Absolute, out var current))
+            return null;
+
+        if (!Uri.TryCreate(current, nextLink, out var resolved) ||
+            (resolved.Scheme != Uri.UriSchemeHttp && resolved.Scheme != Uri.UriSchemeHttps) ||
+            !string.Equals(resolved.Scheme, current.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(resolved.Authority, current.Authority, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new JsonException($"Search results nextLink points outside the active Laserfiche API host: {nextLink}");
+        }
+
+        return resolved.AbsoluteUri;
+    }
+
+    private static void ValidatePaging(int page, int pageSize)
+    {
+        if (page < 1)
+            throw new ArgumentOutOfRangeException(nameof(page), "Page must be at least 1.");
+        if (pageSize < 1)
+            throw new ArgumentOutOfRangeException(nameof(pageSize), "Page size must be at least 1.");
+    }
+
     private static string EscapeSearchTerm(string term) =>
         term.Replace("\"", "\\\"").Replace("\\", "\\\\");
 
-    private static LFEntryType ParseEntryType(string? raw) => raw?.ToLowerInvariant() switch
+    private static LFEntryType ParseEntryType(string? raw)
     {
-        "document"     => LFEntryType.Document,
-        "folder"       => LFEntryType.Folder,
-        "shortcut"     => LFEntryType.Shortcut,
-        "recordseries" => LFEntryType.RecordSeries,
-        _              => LFEntryType.Unknown
-    };
+        if (string.IsNullOrWhiteSpace(raw))
+            return LFEntryType.Unknown;
 
-    // ──────────────────────────── Response models ──────────────────────────
+        var token = raw.TrimStart('#');
+        var dot = token.LastIndexOf('.');
+        if (dot >= 0)
+            token = token[(dot + 1)..];
+
+        return token.ToLowerInvariant() switch
+        {
+            "document" => LFEntryType.Document,
+            "folder" => LFEntryType.Folder,
+            "shortcut" => LFEntryType.Shortcut,
+            "recordseries" => LFEntryType.RecordSeries,
+            _ => LFEntryType.Unknown
+        };
+    }
+
+    private static bool TryGetPropertyIgnoreCase(
+        JsonElement element,
+        string propertyName,
+        out JsonElement value)
+    {
+        if (element.TryGetProperty(propertyName, out value))
+            return true;
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
 
     private sealed record LongOperationResponse
     {
@@ -403,13 +444,18 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         public List<string> Errors { get; init; } = [];
     }
 
-    private sealed record ODataCountList<T>
+    private sealed record ResultPage(List<SearchResultResource> Items, string? NextLink);
+
+    private sealed record ODataPagedList<T>
     {
         [JsonPropertyName("value")]
         public List<T> Value { get; init; } = [];
 
-        [JsonPropertyName("@odata.count")]
-        public int Count { get; init; }
+        [JsonPropertyName("@odata.nextLink")]
+        public string? NextLink { get; init; }
+
+        [JsonPropertyName("nextLink")]
+        public string? PlainNextLink { get; init; }
     }
 
     private sealed record SearchResultResource
@@ -425,6 +471,9 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
 
         [JsonPropertyName("entryType")]
         public string? EntryType { get; init; }
+
+        [JsonPropertyName("@odata.type")]
+        public string? ODataType { get; init; }
 
         [JsonPropertyName("templateName")]
         public string? TemplateName { get; init; }
