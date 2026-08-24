@@ -371,7 +371,7 @@ footer.site-footer { background: #F7F8FD !important; }
                         {
                             <tr>
                                 <td style="font-weight:500">@u.Name</td>
-                                <td style="color:var(--d-accent);font-weight:600">@u.Created</td>
+                                <td style="color:var(--d-text);font-weight:600">@u.Created</td>
                                 <td style="color:var(--d-muted);white-space:nowrap">@u.LastActivity</td>
                             </tr>
                         }
@@ -399,16 +399,19 @@ footer.site-footer { background: #F7F8FD !important; }
                     var t = s.TemplateStats[i];
                     var percent = s.TotalDocuments > 0 ? (double)t.Count / s.TotalDocuments * 100 : 0;
                     var percentWidth = percent.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
-                    <tr>
+                    <tr >
                         <td style="color:var(--d-muted)">@(i + 1)</td>
                         <td style="font-weight:500">@t.Name</td>
-                        <td style="color:var(--d-accent);font-weight:600">@t.Count.ToString("N0")</td>
+                        <td style="color:var(--d-text);font-weight:600">@t.Count.ToString("N0")</td>
                         <td style="color:var(--d-muted)">
                             <div class="template-percent">
-                                <span class="template-percent-text">@percent.ToString("0.0")%</span>
+                                
                                 <div class="template-progress-track" aria-label="@percent.ToString("0.0")%">
+                                    
                                     <div class="template-progress-fill" style="width:@(percentWidth)%"></div>
+                                    
                                 </div>
+                                <span class="template-percent-text">@percent.ToString("0.0")%</span>
                             </div>
                         </td>
                     </tr>
