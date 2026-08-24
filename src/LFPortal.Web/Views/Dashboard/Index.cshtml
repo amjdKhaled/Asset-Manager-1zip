@@ -206,6 +206,10 @@ footer.site-footer { background: #F7F8FD !important; }
 .folder-kpi-icon { color: white; display: flex; align-items: flex-start; justify-content: center; }
 .folder-kpi-value { font-size: 40px; font-weight: 700; line-height: 1; }
 .folder-kpi-label { font-size: 14px; font-weight: 400; color: rgba(255, 255, 255, 0.95); }
+.template-percent { display:flex; align-items:center; gap:10px; width:100%; }
+.template-percent-text { min-width:45px; flex-shrink:0; font-size:11px; color:#64748B; font-variant-numeric:tabular-nums; text-align:end; }
+.template-progress-track { position:relative; width:min(320px,100%); min-width:140px; height:8px; background:#EEF2F2; border-radius:999px; overflow:hidden; }
+.template-progress-fill { position:absolute; inset-block:0; inset-inline-start:0; background:#0B66D4; border-radius:999px; min-width:2px; }
 </style>
 }
 
@@ -393,15 +397,17 @@ footer.site-footer { background: #F7F8FD !important; }
                 @for (var i = 0; i < s.TemplateStats.Count; i++)
                 {
                     var t = s.TemplateStats[i];
+                    var percent = s.TotalDocuments > 0 ? (double)t.Count / s.TotalDocuments * 100 : 0;
+                    var percentWidth = percent.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
                     <tr>
                         <td style="color:var(--d-muted)">@(i + 1)</td>
                         <td style="font-weight:500">@t.Name</td>
                         <td style="color:var(--d-accent);font-weight:600">@t.Count.ToString("N0")</td>
                         <td style="color:var(--d-muted)">
-                            <div style="display:flex;align-items:flex-start;gap:10px;">
-                                <span class="totalPercentText"></span>
-                                <div style="width:120px;height:30px;" class="d-tbl-wrap d-tbl">
-                                    <canvas class="totalPercent" data-index="@i"></canvas>
+                            <div class="template-percent">
+                                <span class="template-percent-text">@percent.ToString("0.0")%</span>
+                                <div class="template-progress-track" aria-label="@percent.ToString("0.0")%">
+                                    <div class="template-progress-fill" style="width:@(percentWidth)%"></div>
                                 </div>
                             </div>
                         </td>
