@@ -74,13 +74,18 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<ApiVersionDetectionService>();
 
         // ── Domain services — scoped (HttpClient usage is per-request) ─────────
-        services.AddScoped<ILaserficheRepositoryService,       LaserficheRepositoryService>();
-        services.AddScoped<ILaserficheEntryService,            LaserficheEntryService>();
-        services.AddScoped<ILaserficheFieldDefinitionService,  LaserficheFieldDefinitionService>();
-        services.AddScoped<ILaserficheSearchService,           LaserficheSearchService>();
-        services.AddScoped<ILaserficheDocumentService,         LaserficheDocumentService>();
-        services.AddScoped<ILaserficheTemplateService,         LaserficheTemplateService>();
-        services.AddScoped<ILaserficheDashboardService,        LaserficheDashboardService>();
+        services.AddScoped<ILaserficheRepositoryService, LaserficheRepositoryService>();
+
+        // Keep the original service as the detail/metadata implementation and expose
+        // the pagination-complete decorator through the public application interface.
+        services.AddScoped<LaserficheEntryService>();
+        services.AddScoped<ILaserficheEntryService, CompleteLaserficheEntryService>();
+
+        services.AddScoped<ILaserficheFieldDefinitionService, LaserficheFieldDefinitionService>();
+        services.AddScoped<ILaserficheSearchService, LaserficheSearchService>();
+        services.AddScoped<ILaserficheDocumentService, LaserficheDocumentService>();
+        services.AddScoped<ILaserficheTemplateService, LaserficheTemplateService>();
+        services.AddScoped<ILaserficheDashboardService, LaserficheDashboardService>();
 
         // ── Health checks ──────────────────────────────────────────────────────
         services.AddHealthChecks()
@@ -132,11 +137,7 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers two named <see cref="System.Net.Http.HttpClient"/> instances.
-    ///
-    /// <para><b>LaserficheRaw</b> — no authentication. Used for token requests.</para>
-    /// <para><b>LaserficheAuthenticated</b> — Bearer token attached automatically via
-    /// <see cref="BearerTokenHandler"/>. Used by all repository service calls.</para>
+    /// Registers named HTTP clients used by the Repository API integration.
     /// </summary>
     private static void RegisterHttpClients(IServiceCollection services)
     {
