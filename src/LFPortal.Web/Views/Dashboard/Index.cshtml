@@ -3,10 +3,11 @@
 @using System.Text.Json.Serialization
 @using LFPortal.Domain.Entities
 @{
-    
     ViewData["Title"] = "Analytics Dashboard";
     var s = Model.Stats;
     var externalShareReadOnly = ViewData["ExternalShareReadOnly"] as bool? == true;
+    var isArabic = System.Globalization.CultureInfo.CurrentUICulture
+        .TwoLetterISOLanguageName.Equals("ar", StringComparison.OrdinalIgnoreCase);
 
     string FmtDate(DateTimeOffset? d) =>
         d is null ? "-" : d.Value.LocalDateTime.ToString("MMM d, yyyy HH:mm");
@@ -34,78 +35,45 @@
 
     string FmtMs(long ms) => ms < 1000 ? $"{ms}ms" : $"{ms / 1000.0:F1}s";
 
-    // Chart JSON payloads — Folders + Templates
+    // ── Chart payloads: every value is derived from the DTO returned by the live scan.
     var folderLabels = s.RootFolders.Select(f => f.Name).ToArray();
     var folderData   = s.RootFolders.Select(f => f.Documents).ToArray();
-    var tmplLabels   = s.TemplateStats.Select(t => t.Name).ToArray();
-    var tmplData     = s.TemplateStats.Select(t => t.Count).ToArray();
 
-    // ── Document Activity chart data ──────────────────────────────────────────
-    // Merge all available documents (deduplicated by Id)
-    var allDocsForActivity = s.AllDocs
-        .Concat(s.RecentDocs)
-        .Concat(s.ModifiedDocs)
-        .GroupBy(d => d.Id)
-        .Select(g => g.First())
-        .ToList();
+    // Template distribution must account for every document, including documents that
+    // have no template. TemplateStats itself intentionally remains assigned templates only.
+    var noTemplateLabel = isArabic ? "بدون قالب" : "No Template";
+    var tmplLabelsList = s.TemplateStats.Select(t => t.Name).ToList();
+    var tmplDataList   = s.TemplateStats.Select(t => t.Count).ToList();
+    if (s.DocsWithoutTemplate > 0)
+    {
+        tmplLabelsList.Add(noTemplateLabel);
+        tmplDataList.Add(s.DocsWithoutTemplate);
+    }
+    var tmplLabels = tmplLabelsList.ToArray();
+    var tmplData   = tmplDataList.ToArray();
 
-    var today = DateTimeOffset.UtcNow.Date;
+    // ── Document Activity: always exactly the current local day + previous 6 days.
+    // Created comes from the authoritative AllDocs set. Modified comes only from
+    // ModifiedDocs, whose source LastModifiedTime is later than CreationTime.
+    var today    = DateTime.Today;
+    var actStart = today.AddDays(-6);
+    var actEnd   = today;
+    var actRangeLabel = isArabic ? "آخر 7 أيام" : "Last 7 days";
 
-    var createdByDay  = allDocsForActivity
+    var createdByDay = s.AllDocs
         .Where(d => d.CreationTime.HasValue)
         .GroupBy(d => d.CreationTime!.Value.LocalDateTime.Date)
         .ToDictionary(g => g.Key, g => g.Count());
 
-    var modifiedByDay = allDocsForActivity
+    var modifiedByDay = s.ModifiedDocs
         .Where(d => d.LastModifiedTime.HasValue)
         .GroupBy(d => d.LastModifiedTime!.Value.LocalDateTime.Date)
         .ToDictionary(g => g.Key, g => g.Count());
 
-    var allActivityDates = createdByDay.Keys.Concat(modifiedByDay.Keys).ToHashSet();
-
-    DateTime actStart, actEnd;
-    string actRangeLabel;
-    if (allActivityDates.Count > 0)
-    {
-        var sevenDaysAgo  = today.AddDays(-6);
-        var thirtyDaysAgo = today.AddDays(-29);
-        var hasRecent7    = allActivityDates.Any(d => d >= sevenDaysAgo);
-        var hasRecent30   = allActivityDates.Any(d => d >= thirtyDaysAgo);
-
-        if (hasRecent7)
-        {
-            actStart      = sevenDaysAgo;
-            actEnd        = today;
-            actRangeLabel = "Last 7 days";
-        }
-        else if (hasRecent30)
-        {
-            actStart      = thirtyDaysAgo;
-            actEnd        = today;
-            actRangeLabel = "Last 30 days";
-        }
-        else
-        {
-            var earliest  = allActivityDates.Min();
-            var latest    = allActivityDates.Max();
-            actStart      = earliest;
-            actEnd        = latest;
-            actRangeLabel = $"{earliest:MMM d} – {latest:MMM d, yyyy}";
-        }
-    }
-    else
-    {
-        actStart      = today.AddDays(-6);
-        actEnd        = today;
-        actRangeLabel = "Last 7 days";
-    }
-
-    var actend = DateTime.Today;
-    var start = actend.AddDays(6);
     var actLabels   = new List<string>();
     var actCreated  = new List<int>();
     var actModified = new List<int>();
-    
+
     for (var day = actStart; day <= actEnd; day = day.AddDays(1))
     {
         actLabels.Add(day.ToString("MMM d"));
@@ -113,10 +81,12 @@
         actModified.Add(modifiedByDay.GetValueOrDefault(day, 0));
     }
 
-    // Recent Document Activity panel — top 8 by last-modified desc
-    var recentActivity = s.ModifiedDocs.Take(8).ToList();
+    var hasActivityLast7 = actCreated.Any(v => v > 0) || actModified.Any(v => v > 0);
 
-    // User activity
+    // The table already has pagination, so do not silently drop modified documents.
+    var recentActivity = s.ModifiedDocs.ToList();
+
+    // User activity is current-document ownership/activity derived from every scanned doc.
     var userActivity = s.AllDocs
         .Where(d => !string.IsNullOrWhiteSpace(d.Creator))
         .GroupBy(d => d.Creator!)
@@ -132,8 +102,6 @@
         .ToList();
 
     var jsonOpts = new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
-
-    
 }
 
 @section Styles {
@@ -159,17 +127,14 @@ footer.site-footer { background: #F7F8FD !important; }
 }
 .d-title   { color: var(--d-text); font-size: 1.2rem; font-weight: 600; }
 .d-sub     { color: var(--d-muted); font-size: 0.78rem; margin-top: 2px; }
-/* Cards — reduced padding vs original */
-.d-card    { background: var(--d-surface); border: none var(--d-border); border-radius: 12px; padding: 18px; 
-@* box-shadow: 0 1px 3px rgba(0,0,0,.4); *@
- }
+.d-card    { background: var(--d-surface); border: none var(--d-border); border-radius: 12px; padding: 18px; }
 .d-grid-5  { display: grid; grid-template-columns: repeat(5,1fr); gap: 14px; }
 .d-grid-2  { display: grid; grid-template-columns: repeat(2,1fr); gap: 18px; }
 .d-grid-1  { display: grid; gap: 18px; }
 .d-kpi-icon{ width:40px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
 .d-kpi-val { font-size: 1.8rem; font-weight: 700; color: var(--d-text); }
 .d-kpi-lbl { color: var(--d-muted); font-size: 0.75rem; margin-top:2px; }
-.d-section-bar { width:4px;height:18px;border-radius:4px;background:var(--d-accent);display:inline-block;margin-right:8px;margin-left:8px;flex-shrink:0; }
+.d-section-bar { width:4px;height:18px;border-radius:4px;background:var(--d-accent);display:inline-block;margin-inline:8px;flex-shrink:0; }
 .d-card-title  { color:var(--d-text);font-size:.83rem;font-weight:600; display:flex;align-items:center; }
 .d-card-sub    { color:var(--d-muted);font-size:.72rem; }
 .d-badge       { display:inline-flex;align-items:center;gap:4px;font-size:.68rem;padding:2px 8px;border-radius:999px;font-weight:500; }
@@ -181,7 +146,7 @@ footer.site-footer { background: #F7F8FD !important; }
 .d-badge-violet{ background:rgba(139,92,246,.12);color:#a78bfa;border:1px solid rgba(139,92,246,.25); }
 .d-badge-indigo{ background:rgba(99,102,241,.12);color:#818cf8;border:1px solid rgba(99,102,241,.25); }
 .d-tbl { width:100%;border-collapse:collapse;font-size:.77rem; }
-.d-tbl th { text-align:left;padding:7px 11px;font-weight:600;color:var(--d-muted);background:rgba(255,255,255,.04);border-bottom:1px solid var(--d-border); }
+.d-tbl th { text-align:start;padding:7px 11px;font-weight:600;color:var(--d-muted);background:rgba(255,255,255,.04);border-bottom:1px solid var(--d-border); }
 .d-tbl td { padding:7px 11px;color:var(--d-text);border-bottom:1px solid #e1e1e1; }
 .d-tbl tr:hover td { background:rgba(255,255,255,.03); }
 .d-tbl tr:last-child td { border-bottom:none; }
@@ -194,11 +159,9 @@ footer.site-footer { background: #F7F8FD !important; }
 .d-disc      { color: var(--d-red); }
 .d-alert { background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:12px;padding:12px 16px;display:flex;align-items:flex-start;gap:10px; }
 .d-alert p { color:#fcd34d;font-size:.83rem;margin:0; }
-/* Chart containers — fixed height, no aspect-ratio stretch */
 .chart-container { position:relative; width:100%; }
 .chart-h280 { height:280px; }
 .chart-h270 { height:270px; }
-/* Donut wrapper — cap size and center */
 .donut-wrap { display:flex;flex-direction:column;align-items:center; }
 .donut-wrap canvas { max-width:800px !important; max-height:250px !important; }
 @@media(max-width:900px){.d-grid-5{grid-template-columns:repeat(2,1fr)}.d-grid-2{grid-template-columns:1fr}}
@@ -211,83 +174,37 @@ footer.site-footer { background: #F7F8FD !important; }
     gap: 6px;
     padding: 16px 10px;
 }
-
 .pagination-button {
     min-width: 36px;
     height: 34px;
     padding: 0 11px;
-
     border: none;
     border-radius: 6px;
-
     background: #F7F8FD;
     color: #94a3b8;
-
     font-size: 13px;
     font-weight: 500;
-
     cursor: pointer;
-
-    transition:
-        background 0.15s ease,
-        border-color 0.15s ease,
-        color 0.15s ease;
+    transition: background 0.15s ease,border-color 0.15s ease,color 0.15s ease;
 }
-
-.pagination-button:hover:not(:disabled):not(.active) {
-    background: #89b6ff;
-    color: #ffffff;
-}
-
-.pagination-button.active {
-    background: #3b82f6;
-    border-color: #3b82f6;
-    color: #ffffff;
-
-    cursor: default;
-}
-
-.pagination-button:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-}
+.pagination-button:hover:not(:disabled):not(.active) { background: #89b6ff; color: #ffffff; }
+.pagination-button.active { background: #3b82f6; border-color: #3b82f6; color: #ffffff; cursor: default; }
+.pagination-button:disabled { opacity: 0.35; cursor: not-allowed; }
 .folder-kpi-card {
     background: linear-gradient(135deg, #0878e8, #0f55d8);
     border-radius: 18px;
     padding: 24px 26px;
-
     min-height: 175px;
-
     display: flex;
     flex-direction: column;
-
     align-items: flex-start;
     justify-content: space-between;
-
     color: white;
-
     box-shadow: 0 8px 20px rgba(37, 99, 235, 0.18);
 }
-
-.folder-kpi-icon {
-    color: white;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    
-}
-
-.folder-kpi-value {
-    font-size: 40px;
-    font-weight: 700;
-    line-height: 1;
-}
-
-.folder-kpi-label {
-    font-size: 14px;
-    font-weight: 400;
-    color: rgba(255, 255, 255, 0.95);
-}
+.folder-kpi-icon { color: white; display: flex; align-items: flex-start; justify-content: center; }
+.folder-kpi-value { font-size: 40px; font-weight: 700; line-height: 1; }
+.folder-kpi-label { font-size: 14px; font-weight: 400; color: rgba(255, 255, 255, 0.95); }
 </style>
 }
 
@@ -300,21 +217,10 @@ footer.site-footer { background: #F7F8FD !important; }
         <p class="d-sub">@L["Laserfiche Repository Live Statistics"]</p>
     </div>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <a href="@(externalShareReadOnly ? "/Share/Dashboard" : "/Dashboard")" style="display:inline-flex;align-items:center;gap:6px;background:var(#FFFFFF);border:1px solid var(--d-border);color:var(--d-text);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
+        <a href="@(externalShareReadOnly ? "/Share/Dashboard" : "/Dashboard")" style="display:inline-flex;align-items:center;gap:6px;background:#FFFFFF;border:1px solid var(--d-border);color:var(--d-text);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             @L["Refresh"]
         </a>
-        @* @if (s.IsConnected && !string.IsNullOrWhiteSpace(s.RepositoryId))
-        {
-            <span class="d-badge d-badge-teal">
-                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="8"/></svg>
-                @s.RepositoryId
-            </span>
-        }
-        @if (!s.IsConnected)
-        {
-            <span class="d-badge d-badge-red">⚠ Not connected</span>
-        } *@
         @if (!externalShareReadOnly)
         {
             <a href="/Dashboard/Probe" style="display:inline-flex;align-items:center;gap:6px;background:var(--d-surf2);border:1px solid var(--d-border);color:var(--d-surface);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
@@ -322,11 +228,9 @@ footer.site-footer { background: #F7F8FD !important; }
                 @L["ProbeApi"]
             </a>
         }
-        
     </div>
 </div>
 
-<!-- ── Disconnected alert ─────────────────────────────────────────────────── -->
 @if (!s.IsConnected)
 {
     <div class="d-alert" style="margin-bottom:18px">
@@ -338,30 +242,15 @@ footer.site-footer { background: #F7F8FD !important; }
 <!-- ── KPI Cards ──────────────────────────────────────────────────────────── -->
 <div class="d-grid-5" style="margin-bottom:18px">
     <div class="folder-kpi-card">
-
-    <div class="folder-kpi-icon">
-        <svg width="20" height="20"
-             viewBox="0 0 24 24"
-             fill="currentColor">
-            <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/>
-        </svg>
+        <div class="folder-kpi-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
+        </div>
+        <div class="folder-kpi-value">@s.TotalFolders.ToString("N0")</div>
+        <div class="folder-kpi-label">@L["TotalFolders"]</div>
     </div>
-
-    <div class="folder-kpi-value">
-        @s.TotalFolders.ToString("N0")
-    </div>
-
-    <div class="folder-kpi-label">
-        @L["TotalFolders"]
-    </div>
-
-</div>
     <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
         <div class="d-kpi-icon" style="background:#EEF4FF">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                </svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         </div>
         <div class="d-kpi-val">@s.TotalDocuments.ToString("N0")</div>
         <div class="d-kpi-lbl">@L["TotalDocuments"]</div>
@@ -391,17 +280,12 @@ footer.site-footer { background: #F7F8FD !important; }
 
 @if (s.IsConnected)
 {
-
-<!-- ── Row 1: Documents by Folder + Template Distribution ─────────────────── -->
 <div class="d-grid-2" style="margin-bottom:18px">
-
-    <!-- Documents by Folder bar chart -->
     <div class="d-card">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;ma
-        rgin-bottom:12px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
             <div>
                 <div class="d-card-title"><span class="d-section-bar"></span>@L[name: "DocumentsByFolder"]</div>
-                <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@string.Format(L[name: "RootLevelFolders"], s.RepositoryId)</div>
+                <div class="d-card-sub" style="margin-top:3px;margin-inline-start:12px">@string.Format(L[name: "RootLevelFolders"], s.RepositoryId)</div>
             </div>
         </div>
         @if (s.RootFolders.Count == 0)
@@ -413,19 +297,16 @@ footer.site-footer { background: #F7F8FD !important; }
         }
         else
         {
-            <div class="chart-container chart-h280">
-                <canvas id="chartFolders"></canvas>
-            </div>
+            <div class="chart-container chart-h280"><canvas id="chartFolders"></canvas></div>
         }
     </div>
 
-    <!-- Template Distribution donut -->
     <div class="d-card">
         <div style="margin-bottom:12px">
             <div class="d-card-title"><span class="d-section-bar"></span>@L["TemplateDistribution"]</div>
-            <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@L["AutoDiscovered"]</div>
+            <div class="d-card-sub" style="margin-top:3px;margin-inline-start:12px">@L["AutoDiscovered"]</div>
         </div>
-        @if (s.TemplateStats.Count == 0)
+        @if (s.TotalDocuments == 0)
         {
             <div class="d-empty">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
@@ -434,25 +315,20 @@ footer.site-footer { background: #F7F8FD !important; }
         }
         else
         {
-            <div class="chart-container chart-h280 donut-wrap">
-                <canvas id="chartTemplates"></canvas>
-            </div>
+            <div class="chart-container chart-h280 donut-wrap"><canvas id="chartTemplates"></canvas></div>
         }
     </div>
 </div>
 
-<!-- ── Row 2: Document Activity + Documents by User Activity ───────────────── -->
 <div class="d-grid-2" style="margin-bottom:18px">
-
-    <!-- Panel A: Document Activity chart -->
     <div class="d-card">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
             <div>
                 <div class="d-card-title"><span class="d-section-bar" style="background:#14b8a6"></span>@L["DocumentActivity"]</div>
-                <div class="d-card-sub" style="margin-top:3px;margin-left:12px">@actRangeLabel · @L["CreatedVsModified"]</div>
+                <div class="d-card-sub" style="margin-top:3px;margin-inline-start:12px">@actRangeLabel · @L["CreatedVsModified"]</div>
             </div>
         </div>
-        @if (allActivityDates.Count == 0)
+        @if (!hasActivityLast7)
         {
             <div class="d-empty">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -461,13 +337,10 @@ footer.site-footer { background: #F7F8FD !important; }
         }
         else
         {
-            <div class="chart-container chart-h270">
-                <canvas id="chartDocActivity"></canvas>
-            </div>
+            <div class="chart-container chart-h270"><canvas id="chartDocActivity"></canvas></div>
         }
     </div>
 
-    <!-- Panel B: Documents by User Activity -->
     <div class="d-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
             <div class="d-card-title"><span class="d-section-bar"></span>@L["DocumentsByUserActivity"]</div>
@@ -505,7 +378,6 @@ footer.site-footer { background: #F7F8FD !important; }
     </div>
 </div>
 
-<!-- ── Template Statistics table ─────────────────────────────────────────── -->
 @if (s.TemplateStats.Count > 0)
 {
 <div class="d-card" style="margin-bottom:18px">
@@ -520,24 +392,18 @@ footer.site-footer { background: #F7F8FD !important; }
                 @for (var i = 0; i < s.TemplateStats.Count; i++)
                 {
                     var t = s.TemplateStats[i];
-                    var pct = s.TotalDocuments > 0 ? (t.Count * 100.0 / s.TotalDocuments) : 0;
                     <tr>
                         <td style="color:var(--d-muted)">@(i + 1)</td>
                         <td style="font-weight:500">@t.Name</td>
                         <td style="color:var(--d-accent);font-weight:600">@t.Count.ToString("N0")</td>
-                        @* the total % *@
                         <td style="color:var(--d-muted)">
-                        <div style="display:flex;align-items:flex-start;gap:10px;">
-                        <span class="totalPercentText"></span>
-
-                        <div style="width:120px;height:30px;" class="d-tbl-wrap d-tbl">
-                        <canvas
-                        class="totalPercent"
-                        data-index="@i">
-            </canvas>
-        </div>
-    </div>
-</td>
+                            <div style="display:flex;align-items:flex-start;gap:10px;">
+                                <span class="totalPercentText"></span>
+                                <div style="width:120px;height:30px;" class="d-tbl-wrap d-tbl">
+                                    <canvas class="totalPercent" data-index="@i"></canvas>
+                                </div>
+                            </div>
+                        </td>
                     </tr>
                 }
             </tbody>
@@ -547,15 +413,13 @@ footer.site-footer { background: #F7F8FD !important; }
 </div>
 }
 
-<!-- ── Document Type Distribution + System Health ─────────────────────────── -->
 <div class="d-grid-2" style="margin-bottom:18px">
-    <!-- Document Type Distribution -->
     <div class="d-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
             <div class="d-card-title"><span class="d-section-bar"></span>@L["DocumentTypeDistribution"]</div>
             <span class="d-badge d-badge-blue">@L["ByTemplate"]</span>
         </div>
-        @if (s.TemplateStats.Count == 0)
+        @if (s.TotalDocuments == 0)
         {
             <div class="d-empty">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
@@ -576,11 +440,19 @@ footer.site-footer { background: #F7F8FD !important; }
                         <span style="font-weight:700;color:var(--d-text);font-size:.82rem">@t.Count.ToString("N0")</span>
                     </div>
                 }
+                @if (s.DocsWithoutTemplate > 0)
+                {
+                    var noTemplateColor = palette[s.TemplateStats.Count % palette.Length];
+                    <div style="display:flex;align-items:flex-start;gap:10px">
+                        <div style="width:11px;height:11px;border-radius:50%;background:@noTemplateColor;flex-shrink:0"></div>
+                        <span style="flex:1;color:var(--d-text);font-size:.82rem">@noTemplateLabel</span>
+                        <span style="font-weight:700;color:var(--d-text);font-size:.82rem">@s.DocsWithoutTemplate.ToString("N0")</span>
+                    </div>
+                }
             </div>
         }
     </div>
 
-    <!-- System Health -->
     <div class="d-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
             <div class="d-card-title"><span class="d-section-bar"></span>@L["SystemHealth"]</div>
@@ -589,40 +461,24 @@ footer.site-footer { background: #F7F8FD !important; }
             </span>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
-            @* <div class="d-health-cell">
-                <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> @L["Status"]
-                </div>
-                <div class="d-health-val @(s.IsConnected ? "d-connected" : "d-disc")">@(s.IsConnected ? L["Connected"].Value : L["Disconnected"].Value)</div>
-            </div> *@
             <div class="d-health-cell">
-                <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg> @L["Repository"]
-                </div>
+                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg> @L["Repository"]</div>
                 <div class="d-health-val">@(s.RepositoryId ?? "N/A")</div>
             </div>
             <div class="d-health-cell" style="grid-column:span 2">
-                <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> @L["ServerUrl"]
-                </div>
+                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> @L["ServerUrl"]</div>
                 <div class="d-health-val">@(s.ServerUrl ?? "N/A")</div>
             </div>
             <div class="d-health-cell">
-                <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> @L["Username"]
-                </div>
+                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> @L["Username"]</div>
                 <div class="d-health-val">@(s.ConnectedUser ?? "N/A")</div>
             </div>
             <div class="d-health-cell">
-                <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> @L["LastRefresh"]
-                </div>
+                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> @L["LastRefresh"]</div>
                 <div class="d-health-val">@FmtAgo(s.LastCheckedAt)</div>
             </div>
             <div class="d-health-cell" style="grid-column:span 2">
-                <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> @L["Authentication"]
-                </div>
+                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> @L["Authentication"]</div>
                 <div class="d-health-val">
                     @L[s.AuthenticationMode]
                     @if (s.AuthenticationMode == "FallbackCredentials")
@@ -632,30 +488,21 @@ footer.site-footer { background: #F7F8FD !important; }
                 </div>
             </div>
             <div class="d-health-cell" style="grid-column:span 2">
-                <div class="d-health-lbl">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> @L["ScanDuration"]
-                </div>
+                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> @L["ScanDuration"]</div>
                 <div class="d-health-val">@FmtMs(s.ScanDurationMs)</div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- ── Recently Created Documents ─────────────────────────────────────────── -->
-<div class="d-card" style="margin-bottom:18px" >
+<div class="d-card" style="margin-bottom:18px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="d-card-title"><span class="d-section-bar"></span>@L["RecentlyCreatedDocuments"]</div>
-        <span class="d-badge d-badge-teal">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            @s.RecentDocs.Count doc@(s.RecentDocs.Count != 1 ? "s" : "")
-        </span>
+        <span class="d-badge d-badge-teal"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> @s.RecentDocs.Count doc@(s.RecentDocs.Count != 1 ? "s" : "")</span>
     </div>
     @if (s.RecentDocs.Count == 0)
     {
-        <div class="d-empty">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            <span style="font-size:.8rem">@L["NoRecentDocs"]</span>
-        </div>
+        <div class="d-empty"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span style="font-size:.8rem">@L["NoRecentDocs"]</span></div>
     }
     else
     {
@@ -675,13 +522,12 @@ footer.site-footer { background: #F7F8FD !important; }
                     }
                 </tbody>
             </table>
-           <div class="table-pagination" data-table="table3"></div>
+            <div class="table-pagination" data-table="table3"></div>
         </div>
         <div style="font-size:.71rem;color:var(--d-muted);margin-top:7px">@s.RecentDocs.Count document@(s.RecentDocs.Count != 1 ? "s" : "") tracked</div>
     }
 </div>
 
-<!-- ── Recent Document Activity ────────────────────────────────────────────── -->
 <div class="d-card" style="margin-bottom:18px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="d-card-title"><span class="d-section-bar" style="background:#f97316"></span>@L["RecentDocumentActivity"]</div>
@@ -689,28 +535,13 @@ footer.site-footer { background: #F7F8FD !important; }
     </div>
     @if (recentActivity.Count == 0)
     {
-        <div class="d-empty">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            <span style="font-size:.8rem">@L["NoDocumentsFound"]</span>
-        </div>
+        <div class="d-empty"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span style="font-size:.8rem">@L["NoDocumentsFound"]</span></div>
     }
     else
     {
         <div class="d-tbl-wrap">
             <table class="d-tbl" id="table4">
-                <thead>
-                    <tr>
-                        <th>@L["DocumentName"]</th>
-                        <th>@L["Folder"]</th>
-                        <th>@L["Template"]</th>
-                        <th>@L["Created"]</th>
-                        <th>@L["Modified"]</th>
-                        @if (recentActivity.Any(d => !string.IsNullOrWhiteSpace(d.Creator)))
-                        {
-                            <th>@L["CreatedBy"]</th>
-                        }
-                    </tr>
-                </thead>
+                <thead><tr><th>@L["DocumentName"]</th><th>@L["Folder"]</th><th>@L["Template"]</th><th>@L["Created"]</th><th>@L["Modified"]</th>@if (recentActivity.Any(d => !string.IsNullOrWhiteSpace(d.Creator))) { <th>@L["CreatedBy"]</th> }</tr></thead>
                 <tbody>
                     @foreach (var d in recentActivity)
                     {
@@ -719,11 +550,8 @@ footer.site-footer { background: #F7F8FD !important; }
                             <td style="color:var(--d-muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@FolderFromPath(d.FullPath)">@FolderFromPath(d.FullPath)</td>
                             <td style="color:var(--d-muted)">@(d.TemplateName ?? "-")</td>
                             <td style="color:var(--d-muted);white-space:nowrap">@FmtDateShort(d.CreationTime)</td>
-                            <td style="color:var(--d-accent);white-space:nowrap">@FmtAgo(d.LastModifiedTime ?? d.CreationTime)</td>
-                            @if (recentActivity.Any(x => !string.IsNullOrWhiteSpace(x.Creator)))
-                            {
-                                <td style="color:var(--d-muted)">@(d.Creator ?? "-")</td>
-                            }
+                            <td style="color:var(--d-accent);white-space:nowrap">@FmtAgo(d.LastModifiedTime)</td>
+                            @if (recentActivity.Any(x => !string.IsNullOrWhiteSpace(x.Creator))) { <td style="color:var(--d-muted)">@(d.Creator ?? "-")</td> }
                         </tr>
                     }
                 </tbody>
@@ -734,14 +562,12 @@ footer.site-footer { background: #F7F8FD !important; }
 </div>
 
 } @* end if IsConnected *@
-
-</div>@* end outer div *@
+</div>
 
 @section Scripts {
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 (function(){
-    @* الوان البارات حقت الشارت  *@
 const PALETTE = ["#0D98FF","#00226C","#044FC2","#9BD9FE","#4682B4","#0073DD","#0C132D"];
 const GRID    = "#F2F2F2";
 const TICK    = "#000000";
@@ -755,199 +581,101 @@ const TOOLTIP = {
     cornerRadius:8
 };
 
-
-
-// ── Folders bar chart ────الوان الشارت──────────────────────────────────────────────────
-// شارت طالع من مكتبة اسمها chart.js و يتغير الشارت على حسب ال type و الdata اللي هي البيانات اللي تنعرص في الشرات 
 const folderEl = document.getElementById("chartFolders");
 if(folderEl){
     const labels = @Html.Raw(JsonSerializer.Serialize(folderLabels));
     const data   = @Html.Raw(JsonSerializer.Serialize(folderData));
+    const documentsLabel = @Html.Raw(JsonSerializer.Serialize(L["Documents"].Value));
     new Chart(folderEl, {
         type:"bar",
-        data:{
-            labels,
-            datasets:[{
-                label:"Documents",
-                data,
-                
-                backgroundColor: labels.map((_,i)=>PALETTE[i%PALETTE.length]+"cc"),
-                @* borderColor:     labels.map((_,i)=>PALETTE[i%PALETTE.length]), *@
-                @* borderWidth:1, *@
-                @* borderRadius:4, *@
-                barPercentage:0.6,
-                categoryPercentage:0.7
-                
-            }]
-        },
+        data:{labels,datasets:[{
+            label:documentsLabel,
+            data,
+            backgroundColor: labels.map((_,i)=>PALETTE[i%PALETTE.length]+"cc"),
+            barPercentage:0.6,
+            categoryPercentage:0.7
+        }]},
         options:{
             responsive:true,
             maintainAspectRatio:false,
-            plugins:{legend:{display:false},tooltip:{...TOOLTIP,callbacks:{label:c=>`${c.formattedValue} documents`}}},
+            plugins:{legend:{display:false},tooltip:{...TOOLTIP,callbacks:{label:c=>`${c.formattedValue} ${documentsLabel}`}}},
             scales:{
                 x:{ticks:{color:TICK,maxRotation:40,font:{size:15}},grid:{display:false},border:{display:false}},
-                y:{ticks:{color:TICK,font:{size:12}},grid:{color:GRID},border:{display:false},beginAtZero:true}
+                y:{ticks:{color:TICK,precision:0,font:{size:12}},grid:{color:GRID},border:{display:false},beginAtZero:true}
             }
         }
     });
 }
 
-const labels = @Html.Raw(JsonSerializer.Serialize(tmplLabels));
-const data   = @Html.Raw(JsonSerializer.Serialize(tmplData));
-
-const total = @s.TotalDocuments;
+const templateLabels = @Html.Raw(JsonSerializer.Serialize(tmplLabels));
+const templateData   = @Html.Raw(JsonSerializer.Serialize(tmplData));
+const totalDocuments = @s.TotalDocuments;
 
 document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
-
-    const count = Number(data[index] ?? 0);
-
-    const percent = total > 0
-        ? (count / total) * 100
-        : 0;
-
-    const textElement =
-        canvas.closest("td").querySelector(".totalPercentText");
-
-    if (textElement) {
-        textElement.textContent = `${percent.toFixed(1)}%`;
-    }
+    const count = Number(templateData[index] ?? 0);
+    const percent = totalDocuments > 0 ? (count / totalDocuments) * 100 : 0;
+    const textElement = canvas.closest("td")?.querySelector(".totalPercentText");
+    if (textElement) textElement.textContent = `${percent.toFixed(1)}%`;
 
     new Chart(canvas, {
-        type: "bar",
-
-        data: {
-            labels: [labels[index]],
-
-            datasets: [{
-                label: labels[index],
-                data: [percent],
-
-                backgroundColor:
-                    PALETTE[index % PALETTE.length] + "cc",
-
-                borderColor:
-                    PALETTE[index % PALETTE.length],
-
-                borderWidth: 0,
-                borderRadius: 4,
-                barPercentage: 0.7,
-                categoryPercentage: 1
-            }]
-        },
-
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            indexAxis: "y",
-
-            plugins: {
-                legend: {
-                    display: false
-                },
-
-                tooltip: {
-                    ...TOOLTIP,
-                    callbacks: {
-                        label: () =>
-                            `${percent.toFixed(1)}%`
-                    }
-                }
-            },
-
-            scales: {
-                x: {
-                    min: 0,
-                    max: 100,
-                    display: false
-                },
-
-                y: {
-                    display: false
-                }
-            }
+        type:"bar",
+        data:{labels:[templateLabels[index]],datasets:[{
+            label:templateLabels[index],data:[percent],
+            backgroundColor:PALETTE[index % PALETTE.length]+"cc",
+            borderColor:PALETTE[index % PALETTE.length],borderWidth:0,borderRadius:4,
+            barPercentage:0.7,categoryPercentage:1
+        }]},
+        options:{
+            responsive:true,maintainAspectRatio:false,indexAxis:"y",
+            plugins:{legend:{display:false},tooltip:{...TOOLTIP,callbacks:{label:()=>`${percent.toFixed(1)}%`}}},
+            scales:{x:{min:0,max:100,display:false},y:{display:false}}
         }
     });
 });
 
-
-// ── Template doughnut ─────────────────────────────────────────────────────
 const tmplEl = document.getElementById("chartTemplates");
 if(tmplEl){
-    const labels = @Html.Raw(JsonSerializer.Serialize(tmplLabels));
-    const data   = @Html.Raw(JsonSerializer.Serialize(tmplData));
     new Chart(tmplEl, {
         type:"doughnut",
-        data:{
-            labels,
-            datasets:[{
-                data,
-                backgroundColor: labels.map((_,i)=>PALETTE[i%PALETTE.length]+"cc"),
-                borderColor:"#1e293b",
-                borderWidth:0,
-                
-            }]
-        },
+        data:{labels:templateLabels,datasets:[{
+            data:templateData,
+            backgroundColor:templateLabels.map((_,i)=>PALETTE[i%PALETTE.length]+"cc"),
+            borderWidth:0
+        }]},
         options:{
             responsive:true,
             maintainAspectRatio:false,
-            plugins:{
-                legend:{position:"right",labels:{color:TICK,boxWidth:11,padding:8, font:{size:12}}},
-                tooltip:{...TOOLTIP}
-            },
-            layout:{ padding:{ top:5, bottom:0 , right:100 } }
+            plugins:{legend:{position:"right",labels:{color:TICK,boxWidth:11,padding:8,font:{size:12}}},tooltip:{...TOOLTIP}},
+            layout:{padding:{top:5,bottom:0}}
         }
     });
 }
 
-// ── Document Activity chart (created vs modified per day) ──────────────────
 const docActEl = document.getElementById("chartDocActivity");
 if(docActEl){
     const labels   = @Html.Raw(JsonSerializer.Serialize(actLabels));
     const created  = @Html.Raw(JsonSerializer.Serialize(actCreated));
     const modified = @Html.Raw(JsonSerializer.Serialize(actModified));
+    const createdLabel  = @Html.Raw(JsonSerializer.Serialize(L["Created"].Value));
+    const modifiedLabel = @Html.Raw(JsonSerializer.Serialize(L["Modified"].Value));
+
     new Chart(docActEl, {
         type:"bar",
-        data:{
-            labels,
-            datasets:[
-                {
-                    label:"Created",
-                    data:created,
-                    backgroundColor:"#0D98FF",
-                    @* borderColor:"#3B82F6", *@
-                    borderWidth:1,
-                    @* borderRadius:3, *@
-                    barPercentage:0.55,
-                    categoryPercentage:0.75
-                },
-                {
-                    label:"Modified",
-                    data:modified,
-                    backgroundColor:"#00226C",
-                    @* borderColor:"#14B8A6", *@
-                    borderWidth:1,
-                    @* borderRadius:3, *@
-                    barPercentage:0.55,
-                    categoryPercentage:0.75
-                }
-            ]
-        },
+        data:{labels,datasets:[
+            {label:createdLabel,data:created,backgroundColor:"#0D98FF",borderWidth:0,barPercentage:0.55,categoryPercentage:0.75},
+            {label:modifiedLabel,data:modified,backgroundColor:"#00226C",borderWidth:0,barPercentage:0.55,categoryPercentage:0.75}
+        ]},
         options:{
             responsive:true,
             maintainAspectRatio:false,
             plugins:{
-                legend:{
-                    display:true,
-                    position:"top",
-                    align:"end",
-                    labels:{color:TICK,boxWidth:11,padding:10,font:{size:9}}
-                },
+                legend:{display:true,position:"top",align:"end",labels:{color:TICK,boxWidth:11,padding:10,font:{size:9}}},
                 tooltip:{...TOOLTIP}
             },
             scales:{
-                x:{reverse: true,ticks:{color:TICK,font:{size:9}},grid:{display:false},border:{display:false}},
-                y:{ticks:{color:TICK,font:{size:9}},grid:{color:GRID},beginAtZero:true,
-                   ticks:{stepSize:2,color:TICK,font:{size:9}},border:{display:false}}
+                // Labels are already generated oldest → newest. Do not reverse them for RTL.
+                x:{reverse:false,ticks:{color:TICK,font:{size:9}},grid:{display:false},border:{display:false}},
+                y:{beginAtZero:true,ticks:{precision:0,color:TICK,font:{size:9}},grid:{color:GRID},border:{display:false}}
             }
         }
     });
@@ -955,26 +683,17 @@ if(docActEl){
 })();
 
 document.addEventListener("DOMContentLoaded", function () {
-
     const ROWS_PER_PAGE = 10;
 
     document.querySelectorAll(".table-pagination").forEach(function (pagination) {
-
         const tableId = pagination.dataset.table;
         const table = document.getElementById(tableId);
-
-        if (!table) {
-            return;
-        }
+        if (!table) return;
 
         const tbody = table.querySelector("tbody");
-
-        if (!tbody) {
-            return;
-        }
+        if (!tbody) return;
 
         const rows = Array.from(tbody.querySelectorAll("tr"));
-
         if (rows.length === 0) {
             pagination.style.display = "none";
             return;
@@ -983,115 +702,45 @@ document.addEventListener("DOMContentLoaded", function () {
         let currentPage = 1;
         const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
 
-
         function showPage(page) {
-
-            if (page < 1) {
-                page = 1;
-            }
-
-            if (page > totalPages) {
-                page = totalPages;
-            }
-
+            if (page < 1) page = 1;
+            if (page > totalPages) page = totalPages;
             currentPage = page;
-
             const startIndex = (currentPage - 1) * ROWS_PER_PAGE;
             const endIndex = startIndex + ROWS_PER_PAGE;
-
             rows.forEach(function (row, index) {
-
-                if (index >= startIndex && index < endIndex) {
-                    row.style.display = "";
-                } else {
-                    row.style.display = "none";
-                }
-
+                row.style.display = (index >= startIndex && index < endIndex) ? "" : "none";
             });
-
             renderPagination();
         }
 
-
         function createButton(text, page, disabled, active) {
-
             const button = document.createElement("button");
-
             button.type = "button";
             button.textContent = text;
             button.className = "pagination-button";
-
-            if (active) {
-                button.classList.add("active");
-            }
-
+            if (active) button.classList.add("active");
             button.disabled = disabled;
-
-            if (!disabled && !active) {
-                button.addEventListener("click", function () {
-                    showPage(page);
-                });
-            }
-
+            if (!disabled && !active) button.addEventListener("click", () => showPage(page));
             return button;
         }
 
-
         function renderPagination() {
-
             pagination.innerHTML = "";
-
-            // إذا الجدول فيه 10 أو أقل ما نحتاج Pagination
             if (totalPages <= 1) {
                 pagination.style.display = "none";
                 return;
             }
-
             pagination.style.display = "flex";
-
-
-            // Previous
-            pagination.appendChild(
-                createButton(
-                    "Previous",
-                    currentPage - 1,
-                    currentPage === 1,
-                    false
-                )
-            );
-
-
-            // Page numbers
+            pagination.appendChild(createButton("Previous", currentPage - 1, currentPage === 1, false));
             for (let page = 1; page <= totalPages; page++) {
-
-                pagination.appendChild(
-                    createButton(
-                        page.toString(),
-                        page,
-                        false,
-                        page === currentPage
-                    )
-                );
-
+                pagination.appendChild(createButton(page.toString(), page, false, page === currentPage));
             }
-
-
-            // Next
-            pagination.appendChild(
-                createButton(
-                    "Next",
-                    currentPage + 1,
-                    currentPage === totalPages,
-                    false
-                )
-            );
+            pagination.appendChild(createButton("Next", currentPage + 1, currentPage === totalPages, false));
         }
 
-
         showPage(1);
-
     });
-
 });
 </script>
 }
