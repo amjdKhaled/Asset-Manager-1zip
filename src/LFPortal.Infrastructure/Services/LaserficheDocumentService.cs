@@ -1,6 +1,6 @@
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Net.Http.Headers;
 using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Entities;
@@ -11,9 +11,9 @@ using Microsoft.Extensions.Logging;
 namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
-/// Implements document retrieval operations by calling the Laserfiche Repository API v1
-/// document-related endpoints. Electronic documents are streamed directly
-/// from the Laserfiche server without buffering on the portal server.
+/// Implements document retrieval operations against the active Laserfiche Repository API.
+/// Collection endpoints are read to completion; failed source requests are surfaced rather
+/// than converted to empty data.
 /// </summary>
 internal sealed class LaserficheDocumentService : ILaserficheDocumentService
 {
@@ -23,7 +23,6 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
     private readonly ILaserficheApiAdapter _adapter;
     private readonly ILogger<LaserficheDocumentService> _logger;
 
-    /// <summary>Initialises the service with all required dependencies.</summary>
     public LaserficheDocumentService(
         IHttpClientFactory httpClientFactory,
         IRepositoryContext repositoryContext,
@@ -38,7 +37,6 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         _logger = logger;
     }
 
-    /// <inheritdoc />
     public async Task<IReadOnlyList<LFDocumentPage>> GetDocumentPagesAsync(
         int entryId,
         CancellationToken cancellationToken = default)
@@ -47,39 +45,62 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
             .GetActiveRepositoryAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var url = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Pages);
-
+        var firstUrl = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, EntryResource.Pages);
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
-        using var response = await client
-            .GetAsync(url, cancellationToken)
-            .ConfigureAwait(false);
 
-        if (!response.IsSuccessStatusCode)
+        var pages = new List<PageResource>();
+        var visitedUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string? nextUrl = firstUrl;
+        var apiPage = 0;
+
+        while (!string.IsNullOrWhiteSpace(nextUrl))
         {
-            _logger.LogWarning(
-                "GetDocumentPages returned HTTP {StatusCode} for entry {EntryId}.",
-                (int)response.StatusCode,
-                entryId);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            return [];
+            if (!visitedUrls.Add(nextUrl))
+            {
+                throw new LaserficheException(
+                    $"Document pages pagination repeated a nextLink for entry {entryId}: {nextUrl}",
+                    500);
+            }
+
+            apiPage++;
+            using var response = await client.GetAsync(nextUrl, cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new LaserficheException(
+                    $"Document pages request failed for entry {entryId}: HTTP {(int)response.StatusCode}. " +
+                    $"URL: {nextUrl}. Body: {body}",
+                    (int)response.StatusCode);
+            }
+
+            var parsed = ParsePage(body);
+            pages.AddRange(parsed.Items);
+            nextUrl = ResolveNextLink(nextUrl, parsed.NextLink);
+
+            _logger.LogInformation(
+                "Document pages. EntryId={EntryId}; ApiPage={ApiPage}; Items={Items}; RunningTotal={Total}; HasNext={HasNext}.",
+                entryId, apiPage, parsed.Items.Count, pages.Count, nextUrl is not null);
         }
 
-        var body = await response.Content
-            .ReadAsStringAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        var result = JsonSerializer.Deserialize<ODataList<PageResource>>(body, JsonOptions.Default);
-
-        return result?.Value.Select(p => new LFDocumentPage
-        {
-            PageNumber = p.PageNumber,
-            Width      = p.Width,
-            Height     = p.Height,
-            MimeType   = p.MimeType
-        }).ToList().AsReadOnly() ?? (IReadOnlyList<LFDocumentPage>)[];
+        return pages
+            .Where(p => p.PageNumber > 0)
+            .GroupBy(p => p.PageNumber)
+            .Select(g => g.Last())
+            .OrderBy(p => p.PageNumber)
+            .Select(p => new LFDocumentPage
+            {
+                PageNumber = p.PageNumber,
+                Width = p.Width,
+                Height = p.Height,
+                MimeType = p.MimeType
+            })
+            .ToList()
+            .AsReadOnly();
     }
 
-    /// <inheritdoc />
     public async Task<LaserficheEdocStream> StreamEdocAsync(
         int entryId,
         CancellationToken cancellationToken = default)
@@ -88,7 +109,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
             .GetActiveRepositoryAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var url = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Edoc);
+        var url = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, EntryResource.Edoc);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -100,10 +121,11 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
 
         if (!response.IsSuccessStatusCode)
         {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var statusCode = (int)response.StatusCode;
             response.Dispose();
             throw new LaserficheException(
-                $"Electronic document request failed for entry {entryId}: HTTP {statusCode}.",
+                $"Electronic document request failed for entry {entryId}: HTTP {statusCode}. Body: {body}",
                 statusCode);
         }
 
@@ -135,19 +157,20 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         }
     }
 
-    /// <inheritdoc />
     public async Task<LaserficheEdocStream> GetPageImageAsync(
         int entryId,
         int pageNumber,
         CancellationToken cancellationToken = default)
     {
+        if (pageNumber < 1)
+            throw new ArgumentOutOfRangeException(nameof(pageNumber), "Page number must be at least 1.");
+
         var repo = await _repositoryContext
             .GetActiveRepositoryAsync(cancellationToken)
             .ConfigureAwait(false);
 
         var url = _adapter.BuildPageImageUrl(repo.RepositoryId, entryId, pageNumber);
 
-        // Do NOT use `using` — the response must stay open while the caller streams the body.
         var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
         var response = await client
             .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
@@ -155,11 +178,13 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
 
         if (!response.IsSuccessStatusCode)
         {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var statusCode = (int)response.StatusCode;
             response.Dispose();
             throw new LaserficheException(
                 $"Page image not available for entry {entryId} page {pageNumber}: " +
-                $"HTTP {(int)response.StatusCode}.",
-                (int)response.StatusCode);
+                $"HTTP {statusCode}. Body: {body}",
+                statusCode);
         }
 
         try
@@ -168,15 +193,16 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 .ReadAsStreamAsync(cancellationToken)
                 .ConfigureAwait(false);
 
+            // Do not invent an image type when the server omits Content-Type.
             var contentType = response.Content.Headers.ContentType?.MediaType
-                ?? "image/jpeg";
+                ?? "application/octet-stream";
 
             return new LaserficheEdocStream(
                 contentStream,
                 contentType,
-                contentDisposition: null,
-                fileName: null,
-                extension: null,
+                contentDisposition: response.Content.Headers.ContentDisposition?.ToString(),
+                fileName: GetFileName(response.Content.Headers.ContentDisposition),
+                extension: GetExtension(GetFileName(response.Content.Headers.ContentDisposition), contentType),
                 contentLength: response.Content.Headers.ContentLength,
                 owner: response);
         }
@@ -187,11 +213,45 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         }
     }
 
-    /// <inheritdoc />
     public Task<LFEntry> GetDocumentMetadataAsync(
         int entryId,
         CancellationToken cancellationToken = default) =>
         _entryService.GetEntryAsync(entryId, cancellationToken);
+
+    private static PageList ParsePage(string body)
+    {
+        body = body.Trim();
+        if (string.IsNullOrWhiteSpace(body))
+            throw new JsonException("Document pages response body was empty.");
+
+        if (body.StartsWith('['))
+        {
+            var items = JsonSerializer.Deserialize<List<PageResource>>(body, JsonOptions.Default) ?? [];
+            return new PageList(items, null);
+        }
+
+        var result = JsonSerializer.Deserialize<ODataList<PageResource>>(body, JsonOptions.Default)
+            ?? throw new JsonException("Document pages response could not be deserialized.");
+
+        return new PageList(result.Value, result.NextLink ?? result.PlainNextLink);
+    }
+
+    private static string? ResolveNextLink(string currentUrl, string? nextLink)
+    {
+        if (string.IsNullOrWhiteSpace(nextLink) ||
+            !Uri.TryCreate(currentUrl, UriKind.Absolute, out var current))
+            return null;
+
+        if (!Uri.TryCreate(current, nextLink, out var resolved) ||
+            (resolved.Scheme != Uri.UriSchemeHttp && resolved.Scheme != Uri.UriSchemeHttps) ||
+            !string.Equals(resolved.Scheme, current.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(resolved.Authority, current.Authority, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new JsonException($"Document pages nextLink points outside the active Laserfiche API host: {nextLink}");
+        }
+
+        return resolved.AbsoluteUri;
+    }
 
     private static string? GetFileName(ContentDispositionHeaderValue? disposition)
     {
@@ -219,12 +279,18 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         };
     }
 
-    // ──────────────────────────── Response models ──────────────────────────
+    private sealed record PageList(List<PageResource> Items, string? NextLink);
 
     private sealed record ODataList<T>
     {
         [JsonPropertyName("value")]
         public List<T> Value { get; init; } = [];
+
+        [JsonPropertyName("@odata.nextLink")]
+        public string? NextLink { get; init; }
+
+        [JsonPropertyName("nextLink")]
+        public string? PlainNextLink { get; init; }
     }
 
     private sealed record PageResource
