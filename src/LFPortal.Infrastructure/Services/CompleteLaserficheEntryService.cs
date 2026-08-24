@@ -11,19 +11,21 @@ using Microsoft.Extensions.Logging;
 namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
-/// Decorates the existing entry service and replaces hierarchy/list operations with
-/// source-complete implementations: dynamic root discovery, complete pagination,
-/// de-duplication, and cross-version field aliases.
+/// Decorates the legacy entry implementation and provides source-complete hierarchy,
+/// detail, and template mapping: dynamic root discovery, complete pagination,
+/// de-duplication, and cross-version response aliases.
 /// </summary>
 internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
 {
     private static readonly ConcurrentDictionary<string, int> RootIdCache =
         new(StringComparer.OrdinalIgnoreCase);
 
+    // The legacy implementation is retained only for its robust entry-field parser.
     private readonly LaserficheEntryService _inner;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IRepositoryContext _repositoryContext;
     private readonly ILaserficheApiAdapter _adapter;
+    private readonly ILaserficheTemplateService _templateService;
     private readonly ILogger<CompleteLaserficheEntryService> _logger;
 
     public CompleteLaserficheEntryService(
@@ -31,32 +33,115 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         IHttpClientFactory httpClientFactory,
         IRepositoryContext repositoryContext,
         ILaserficheApiAdapter adapter,
+        ILaserficheTemplateService templateService,
         ILogger<CompleteLaserficheEntryService> logger)
     {
         _inner = inner;
         _httpClientFactory = httpClientFactory;
         _repositoryContext = repositoryContext;
         _adapter = adapter;
+        _templateService = templateService;
         _logger = logger;
     }
 
-    public Task<LFEntry> GetEntryAsync(int entryId, CancellationToken cancellationToken = default) =>
-        _inner.GetEntryAsync(entryId, cancellationToken);
+    public async Task<LFEntry> GetEntryAsync(
+        int entryId,
+        CancellationToken cancellationToken = default)
+    {
+        var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var url = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, EntryResource.Details);
+
+        using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
+        using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new LaserficheException(
+                $"Laserfiche API returned HTTP {(int)response.StatusCode} for {url}. Body: {body}",
+                (int)response.StatusCode);
+        }
+
+        var resource = ParseSingleEntry(body)
+            ?? throw new LaserficheException(
+                $"Entry {entryId} response did not contain an entry object.",
+                (int)response.StatusCode);
+
+        return MapEntry(resource);
+    }
 
     public Task<IReadOnlyList<LFFieldValue>> GetEntryFieldsAsync(
         int entryId,
         CancellationToken cancellationToken = default) =>
         _inner.GetEntryFieldsAsync(entryId, cancellationToken);
 
-    public Task<LFTemplate?> GetEntryTemplateAsync(
+    public async Task<LFTemplate?> GetEntryTemplateAsync(
         int entryId,
-        CancellationToken cancellationToken = default) =>
-        _inner.GetEntryTemplateAsync(entryId, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        var entry = await GetEntryAsync(entryId, cancellationToken).ConfigureAwait(false);
+        var hasId = entry.TemplateId is > 0;
+        var hasName = !string.IsNullOrWhiteSpace(entry.TemplateName);
 
-    public Task<string> GetEntryPathAsync(
+        if (!hasId && !hasName)
+            return null;
+
+        // Resolve missing ID/name from the repository's authoritative template-definition list.
+        // Some Repository API builds expose only one of these properties on entry rows.
+        LFTemplateDefinition? definition = null;
+        if (!hasId || !hasName)
+        {
+            var definitions = await _templateService
+                .GetTemplateDefinitionsAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            definition = hasId
+                ? definitions.FirstOrDefault(t => t.Id == entry.TemplateId)
+                : definitions.FirstOrDefault(t => string.Equals(
+                    t.Name,
+                    entry.TemplateName?.Trim(),
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        var templateId = hasId ? entry.TemplateId!.Value : definition?.Id ?? 0;
+        var templateName = hasName ? entry.TemplateName!.Trim() : definition?.Name ?? string.Empty;
+
+        if (templateId <= 0 || string.IsNullOrWhiteSpace(templateName))
+        {
+            _logger.LogWarning(
+                "Entry {EntryId} appears templated but the template could not be resolved " +
+                "authoritatively. TemplateId={TemplateId}; TemplateName={TemplateName}.",
+                entryId,
+                entry.TemplateId,
+                entry.TemplateName ?? "(none)");
+            return null;
+        }
+
+        var fields = await GetEntryFieldsAsync(entryId, cancellationToken).ConfigureAwait(false);
+
+        return new LFTemplate
+        {
+            Id = templateId,
+            Name = templateName,
+            Description = definition?.Description,
+            Fields = fields.Select(f => new LFFieldDefinition
+            {
+                Name = f.FieldName,
+                FieldType = f.FieldType ?? "String",
+                IsRequired = f.IsRequired,
+                IsMultiValue = f.IsMultiValue
+            }).ToList().AsReadOnly()
+        };
+    }
+
+    public async Task<string> GetEntryPathAsync(
         int entryId,
-        CancellationToken cancellationToken = default) =>
-        _inner.GetEntryPathAsync(entryId, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        var entry = await GetEntryAsync(entryId, cancellationToken).ConfigureAwait(false);
+        return entry.FullPath;
+    }
 
     /// <summary>
     /// Discovers the authoritative root from Entries/ByPath for the active server and
@@ -260,6 +345,23 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
                     cancellationToken)
                 .ConfigureAwait(false);
         }
+    }
+
+    private static EntryResource? ParseSingleEntry(string body)
+    {
+        using var json = JsonDocument.Parse(body);
+        var root = json.RootElement;
+
+        if (root.ValueKind != JsonValueKind.Object)
+            return null;
+
+        if (TryGetPropertyIgnoreCase(root, "entry", out var wrapped) &&
+            wrapped.ValueKind == JsonValueKind.Object)
+        {
+            return wrapped.Deserialize<EntryResource>(JsonOptions.Default);
+        }
+
+        return root.Deserialize<EntryResource>(JsonOptions.Default);
     }
 
     private static int ParseRootId(string body)
