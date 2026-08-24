@@ -3,23 +3,18 @@ using LFPortal.Domain.Entities;
 namespace LFPortal.Application.Interfaces;
 
 /// <summary>
-/// Retrieves repository-wide field definitions from the Laserfiche Repository API.
-/// Field definitions describe the schema of each metadata field (name, type, required,
-/// multi-value) but do NOT contain per-document values — use
-/// <see cref="ILaserficheEntryService.GetEntryFieldsAsync"/> for actual values.
+/// Retrieves repository-wide field definitions from the active Laserfiche Repository API.
+/// Field definitions describe field schema; per-document values come from
+/// <see cref="ILaserficheEntryService.GetEntryFieldsAsync"/>.
 /// </summary>
 public interface ILaserficheFieldDefinitionService
 {
     /// <summary>
-    /// Returns all field definitions available in the currently configured repository.
-    /// Results are keyed by <see cref="LFFieldDefinition.Id"/> so callers can look up
-    /// names for a given <c>fieldDefinitionId</c> from an entry fields response.
+    /// Returns every field definition available in the active repository, following all
+    /// server-provided continuation pages. Results are keyed by authoritative field ID.
+    /// An empty dictionary means the repository successfully reported no field definitions;
+    /// source/API failures are surfaced rather than represented as empty data.
     /// </summary>
-    /// <param name="cancellationToken">Propagated cancellation token.</param>
-    /// <returns>
-    /// A read-only dictionary mapping numeric field-definition ID → definition record.
-    /// Empty if the repository has no custom fields or if the endpoint is unavailable.
-    /// </returns>
     Task<IReadOnlyDictionary<int, LFFieldDefinition>> GetFieldDefinitionsAsync(
         CancellationToken cancellationToken = default);
 }
