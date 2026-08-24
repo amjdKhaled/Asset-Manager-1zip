@@ -623,9 +623,9 @@ document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
         type:"bar",
         data:{labels:[templateLabels[index]],datasets:[{
             label:templateLabels[index],data:[percent],
-            backgroundColor:PALETTE[index % PALETTE.length]+"cc",
-            borderColor:PALETTE[index % PALETTE.length],borderWidth:0,borderRadius:4,
-            barPercentage:0.7,categoryPercentage:1
+            backgroundColor:"#044FC2"+"cc",
+            borderColor:"#044FC2",borderWidth:0,borderRadius:4,
+            barPercentage:0.3,categoryPercentage:1
         }]},
         options:{
             responsive:true,maintainAspectRatio:false,indexAxis:"y",
@@ -673,12 +673,12 @@ if(docActEl){
             responsive:true,
             maintainAspectRatio:false,
             plugins:{
-                legend:{display:true,position:"top",align:"end",rtl:false,textDirection:"ltr",labels:{color:TICK,boxWidth:11,padding:10,font:{size:9}}},
+                legend:{display:true,position:"top",align:"end",rtl:false,textDirection:"ltr",labels:{color:TICK,boxWidth:11,padding:10,font:{size:12}}},
                 tooltip:{...TOOLTIP}
             },
             scales:{
-                x:{ticks:{color:TICK,font:{size:9}},grid:{display:false},border:{display:false}},
-                y:{beginAtZero:true,ticks:{precision:0,color:TICK,font:{size:9}},grid:{color:GRID},border:{display:false}}
+                x:{ticks:{color:TICK,font:{size:12}},grid:{display:false},border:{display:false}},
+                y:{beginAtZero:true,ticks:{precision:0,color:TICK,font:{size:12}},grid:{color:GRID},border:{display:false}}
             }
         }
     });
