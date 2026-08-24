@@ -213,22 +213,27 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             // ── 6. Build sorted document lists ───────────────────────────────
             var rootDocMapped = rootDocEntries;  // already LFEntry
 
-            var allRecentDocs =
+            // The Repository API commonly sets LastModifiedTime on initial creation.
+            // For dashboard activity, treat that initial timestamp as creation only;
+            // a modification is counted only when it happened after creation.
+            var allDocs =
                 rootDocMapped.Concat(rootFolderResults.SelectMany(r => r.AllDocs))
+                .Select(NormalizeActivityEntry)
+                .ToList()
+                .AsReadOnly();
+
+            var allRecentDocs =
+                allDocs
                 .OrderByDescending(d => d.CreationTime ?? DateTimeOffset.MinValue)
                 .Take(DocCap)
                 .ToList()
                 .AsReadOnly();
 
             var allModifiedDocs =
-                rootDocMapped.Concat(rootFolderResults.SelectMany(r => r.AllDocs))
-                .OrderByDescending(d => d.LastModifiedTime ?? d.CreationTime ?? DateTimeOffset.MinValue)
+                allDocs
+                .Where(d => d.LastModifiedTime.HasValue)
+                .OrderByDescending(d => d.LastModifiedTime ?? DateTimeOffset.MinValue)
                 .Take(DocCap)
-                .ToList()
-                .AsReadOnly();
-
-            var allDocs =
-                rootDocMapped.Concat(rootFolderResults.SelectMany(r => r.AllDocs))
                 .ToList()
                 .AsReadOnly();
 
@@ -451,12 +456,33 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 
     private static bool HasTemplate(LFEntry entry) =>
         entry.EntryType == LFEntryType.Document &&
-        (entry.TemplateId.HasValue || !string.IsNullOrWhiteSpace(entry.TemplateName));
+        (entry.TemplateId is > 0 || !string.IsNullOrWhiteSpace(entry.TemplateName));
 
     private static string GetTemplateKey(LFEntry entry) =>
         !string.IsNullOrWhiteSpace(entry.TemplateName)
             ? entry.TemplateName!
             : $"Template #{entry.TemplateId}";
+
+    /// <summary>
+    /// Returns true only for an actual post-creation modification. Laserfiche may
+    /// populate LastModifiedTime during creation, which must not make a new document
+    /// appear in both Created and Modified on the activity chart.
+    /// </summary>
+    private static bool HasMeaningfulModification(LFEntry entry)
+    {
+        if (!entry.LastModifiedTime.HasValue)
+            return false;
+
+        if (!entry.CreationTime.HasValue)
+            return true;
+
+        return entry.LastModifiedTime.Value > entry.CreationTime.Value.AddSeconds(1);
+    }
+
+    private static LFEntry NormalizeActivityEntry(LFEntry entry) =>
+        HasMeaningfulModification(entry)
+            ? entry
+            : entry with { LastModifiedTime = null };
 
     // ── Private: audit log data ───────────────────────────────────────────
 
