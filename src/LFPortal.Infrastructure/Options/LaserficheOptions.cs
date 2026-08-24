@@ -39,16 +39,11 @@ public enum LaserficheAuthenticationMode
 /// </remarks>
 public sealed class LaserficheOptions
 {
-    /// <summary>Configuration section name used during DI binding.</summary>
     public const string SectionName = "Laserfiche";
 
     /// <summary>
     /// Base URL of the Laserfiche API Server, e.g. <c>https://your-lf-server.example.com</c>.
     /// Do not include the <c>/LFRepositoryAPI</c> path here.
-    /// Intentionally NOT marked <c>[Required]</c>: on a clean machine the app must be able
-    /// to start unconfigured (health check reports the missing URL; the installer wizard or
-    /// Settings page supplies it).  A <c>[Required]</c> attribute combined with
-    /// <c>ValidateOnStart</c> would crash the site before an administrator could configure it.
     /// </summary>
     public string ServerUrl { get; set; } = string.Empty;
 
@@ -60,106 +55,62 @@ public sealed class LaserficheOptions
     public string DashboardPublicBaseUrl { get; set; } = string.Empty;
 
     /// <summary>
-    /// Optional fallback repository identifier, e.g. <c>Documents</c>.
-    /// The repository is normally supplied per session at runtime — by the
-    /// Laserfiche Desktop/Web Client (<c>?repository=</c>) or by user selection
-    /// on the login page.  When set here it only serves as the default for
-    /// direct browser access; when empty, direct browser users choose a
-    /// repository at login.  Case-sensitive.
+    /// Optional fallback repository identifier. Per-session repository selection wins.
     /// </summary>
     public string RepositoryId { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Human-readable label shown in the portal UI to identify this repository.
-    /// Defaults to the <see cref="RepositoryId"/> when not explicitly set.
-    /// </summary>
+    /// <summary>Human-readable repository label.</summary>
     public string DisplayName { get; set; } = string.Empty;
 
-    /// <summary>
-    /// IIS virtual directory path where the Laserfiche API Server is installed.
-    /// Defaults to <c>/LFRepositoryAPI</c>; change only if installed at a non-standard path.
-    /// </summary>
+    /// <summary>IIS virtual directory path where the Repository API is installed.</summary>
     public string ApiBasePath { get; set; } = "/LFRepositoryAPI";
 
-    /// <summary>Sentinel value meaning "probe the server and detect the API version".</summary>
     public const string ApiVersionAuto = "Auto";
 
     /// <summary>
-    /// Configured API version: <c>Auto</c> (default — detect by probing the server),
-    /// <c>v1</c>, or <c>v2</c>. Never used directly to build URLs — always go through
-    /// <see cref="EffectiveApiVersion"/>, which resolves <c>Auto</c> to the detected
-    /// version. Existing installations that persisted <c>v1</c> keep that explicit
-    /// pin (backward compatible).
+    /// Configured API version: Auto, v1, or v2. URL builders use
+    /// <see cref="EffectiveApiVersion"/> rather than this raw value.
     /// </summary>
     public string ApiVersion { get; set; } = ApiVersionAuto;
 
-    /// <summary>
-    /// The API version detected by probing the server when <see cref="ApiVersion"/> is
-    /// <c>Auto</c>. Persisted in the runtime settings file by the detection service so
-    /// the result survives restarts and is visible on the Settings page. Empty until
-    /// detection has run.
-    /// </summary>
+    /// <summary>API version discovered by the background detection service.</summary>
     public string DetectedApiVersion { get; set; } = string.Empty;
 
-    /// <summary>
-    /// The version actually used to build every API URL:
-    /// an explicit <see cref="ApiVersion"/> (<c>v1</c>/<c>v2</c>) wins; in <c>Auto</c>
-    /// mode the persisted <see cref="DetectedApiVersion"/> is used, falling back to
-    /// <c>v1</c> (the broadly supported on-premises version) until detection completes.
-    /// </summary>
     public string EffectiveApiVersion =>
         !IsAutoApiVersion ? ApiVersion.Trim()
         : !string.IsNullOrWhiteSpace(DetectedApiVersion) ? DetectedApiVersion.Trim()
         : "v1";
 
-    /// <summary>True when the configured version is the Auto-Detect sentinel.</summary>
     public bool IsAutoApiVersion =>
         string.IsNullOrWhiteSpace(ApiVersion) ||
         string.Equals(ApiVersion.Trim(), ApiVersionAuto, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// HTTP request timeout in seconds for all Laserfiche API calls.
-    /// Defaults to 30. Increase for slow networks or large document downloads.
-    /// </summary>
     [Range(5, 300)]
     public int TimeoutSeconds { get; set; } = 30;
 
-    /// <summary>
-    /// Credential storage back-end to use. Defaults to <see cref="CredentialProviderType.DPAPI"/>
-    /// on Windows and <see cref="CredentialProviderType.Environment"/> on non-Windows platforms.
-    /// Override explicitly in <c>appsettings.json</c> when needed.
-    /// </summary>
     public CredentialProviderType CredentialProvider { get; set; } =
         OperatingSystem.IsWindows()
             ? CredentialProviderType.DPAPI
             : CredentialProviderType.Environment;
 
     /// <summary>
-    /// The entry ID of the repository root folder. Defaults to <c>1</c>.
-    /// Override in <c>appsettings.json</c> or via the Settings page if the root
-    /// entry on your server is not ID 1 (e.g. set to 250 for some installations).
-    /// When set, this value is used directly and automatic ByPath root discovery
-    /// is skipped.
+    /// Optional administrator fallback for repository root discovery.
+    /// A value of 0 (the default) means no assumed root ID: the application discovers
+    /// the authoritative root with Entries/ByPath. Set a positive value only when an
+    /// installation cannot perform dynamic root discovery and the administrator has
+    /// verified the exact root entry ID.
     /// </summary>
-    public int RootEntryId { get; set; } = 1;
+    [Range(0, int.MaxValue)]
+    public int RootEntryId { get; set; } = 0;
 
-    /// <summary>
-    /// Returns <see cref="DisplayName"/> when set; otherwise falls back to <see cref="RepositoryId"/>.
-    /// </summary>
     public string EffectiveDisplayName =>
         string.IsNullOrWhiteSpace(DisplayName) ? RepositoryId : DisplayName;
 
-    /// <summary>
-    /// LFDS OAuth2 / Authorization Code SSO settings.
-    /// Configure <see cref="LaserficheOAuthOptions.LfdsBaseUrl"/> to enable SSO.
-    /// Nested under <c>Laserfiche:Sso</c> in <c>appsettings.json</c>.
-    /// </summary>
+    /// <summary>LFDS OAuth2 / Authorization Code SSO settings.</summary>
     public LaserficheOAuthOptions Sso { get; set; } = new();
 
     /// <summary>
     /// Repository API endpoint that initiates the V2 authorization-code flow.
-    /// The API Server delegates to LFDS/WebSTS; browser clients must not call
-    /// the LFDS STS application directly.
     /// </summary>
     public string SsoAuthorizationEndpoint
     {
@@ -171,9 +122,6 @@ public sealed class LaserficheOptions
             var serverUrl = ServerUrl.TrimEnd('/');
             var apiBasePath = "/" + ApiBasePath.Trim('/');
 
-            // ServerUrl is configured as an origin, while ApiBasePath owns the
-            // Repository API virtual directory. Tolerate an older persisted
-            // ServerUrl that already contains that directory without duplicating it.
             var apiRoot = serverUrl.EndsWith(apiBasePath, StringComparison.OrdinalIgnoreCase)
                 ? serverUrl
                 : serverUrl + apiBasePath;
@@ -182,12 +130,10 @@ public sealed class LaserficheOptions
         }
     }
 
-    /// <summary>Deterministic Dashboard callback URI used throughout an OAuth flow.</summary>
     public string SsoCallbackUrl => string.IsNullOrWhiteSpace(DashboardPublicBaseUrl)
         ? string.Empty
         : $"{DashboardPublicBaseUrl.TrimEnd('/')}/login/Callback";
 
-    /// <summary>Repository-specific V2 authorization-code token endpoint.</summary>
     public string GetSsoTokenEndpoint(string repositoryId)
     {
         var authorize = SsoAuthorizationEndpoint;
