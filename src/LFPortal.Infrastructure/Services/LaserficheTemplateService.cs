@@ -2,104 +2,161 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Entities;
+using LFPortal.Domain.Exceptions;
 using LFPortal.Infrastructure.Adapters;
 using Microsoft.Extensions.Logging;
 
 namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
-/// Retrieves template definitions from the Laserfiche Repository API v1
-/// <c>GET /TemplateDefinitions</c> endpoint. Returns an empty list gracefully
-/// when the endpoint is unavailable or the repository has no templates configured.
+/// Retrieves every template definition from the active Laserfiche repository.
+/// Both bare-array and OData paged responses are supported so TotalTemplates is
+/// never silently limited to the first server page.
 /// </summary>
 internal sealed class LaserficheTemplateService : ILaserficheTemplateService
 {
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IRepositoryContext  _repositoryContext;
+    private readonly IRepositoryContext _repositoryContext;
     private readonly ILaserficheApiAdapter _adapter;
     private readonly ILogger<LaserficheTemplateService> _logger;
 
     public LaserficheTemplateService(
         IHttpClientFactory httpClientFactory,
-        IRepositoryContext  repositoryContext,
+        IRepositoryContext repositoryContext,
         ILaserficheApiAdapter adapter,
         ILogger<LaserficheTemplateService> logger)
     {
         _httpClientFactory = httpClientFactory;
-        _repositoryContext  = repositoryContext;
-        _adapter            = adapter;
-        _logger             = logger;
+        _repositoryContext = repositoryContext;
+        _adapter = adapter;
+        _logger = logger;
     }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<LFTemplateDefinition>> GetTemplateDefinitionsAsync(
         CancellationToken cancellationToken = default)
     {
-        try
+        var repo = await _repositoryContext
+            .GetActiveRepositoryAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var firstUrl = _adapter.BuildTemplateDefinitionsUrl(repo.RepositoryId);
+        using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
+
+        var resources = new List<TemplateDefinitionResource>();
+        var visitedUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string? nextUrl = firstUrl;
+        var page = 0;
+
+        while (!string.IsNullOrWhiteSpace(nextUrl))
         {
-            var repo = await _repositoryContext
-                .GetActiveRepositoryAsync(cancellationToken)
-                .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            var url = _adapter.BuildTemplateDefinitionsUrl(repo.RepositoryId);
-            _logger.LogDebug("Fetching template definitions: {Url}", url);
-
-            using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
-            using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
+            if (!visitedUrls.Add(nextUrl))
             {
-                _logger.LogWarning(
-                    "Template definitions endpoint returned {Status}. " +
-                    "Repository may not have templates configured.", response.StatusCode);
-                return [];
+                throw new LaserficheException(
+                    $"TemplateDefinitions pagination returned a repeated nextLink: {nextUrl}",
+                    500);
             }
 
+            page++;
+            _logger.LogDebug("Fetching template definitions page {Page}: {Url}", page, nextUrl);
+
+            using var response = await client.GetAsync(nextUrl, cancellationToken).ConfigureAwait(false);
             var body = await response.Content
                 .ReadAsStringAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            var result = JsonSerializer.Deserialize<ODataList<TemplateDefinitionResource>>(
-                body, JsonOptions.Default);
-
-            if (result?.Value is null || result.Value.Count == 0)
+            if (!response.IsSuccessStatusCode)
             {
-                _logger.LogInformation("No template definitions returned from {Url}.", url);
-                return [];
+                throw new LaserficheException(
+                    $"Laserfiche API returned HTTP {(int)response.StatusCode} while reading " +
+                    $"TemplateDefinitions page {page} at {nextUrl}. Body: {body}",
+                    (int)response.StatusCode);
             }
 
-            var templates = result.Value
-                .Where(t => !string.IsNullOrWhiteSpace(t.Name))
-                .Select(t => new LFTemplateDefinition
-                {
-                    Id          = t.Id,
-                    Name        = t.Name.Trim(),
-                    Description = t.Description
-                })
-                .ToList()
-                .AsReadOnly();
+            var parsed = ParsePage(body);
+            resources.AddRange(parsed.Items);
+            nextUrl = ResolveNextLink(nextUrl, parsed.NextLink);
 
             _logger.LogInformation(
-                "Loaded {Count} template definitions from {RepositoryId}.",
-                templates.Count, repo.RepositoryId);
+                "TemplateDefinitions page {Page}: {PageCount} item(s), running total={Total}, nextLink={HasNext}.",
+                page, parsed.Items.Count, resources.Count, nextUrl is null ? "no" : "yes");
+        }
 
-            return templates;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Could not retrieve template definitions from Laserfiche. " +
-                "Template stats will be empty.");
-            return [];
-        }
+        var templates = resources
+            .Where(t => t.Id > 0 && !string.IsNullOrWhiteSpace(t.Name))
+            .GroupBy(t => t.Id)
+            .Select(g => g.Last())
+            .Select(t => new LFTemplateDefinition
+            {
+                Id          = t.Id,
+                Name        = t.Name.Trim(),
+                Description = t.Description
+            })
+            .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList()
+            .AsReadOnly();
+
+        _logger.LogInformation(
+            "Loaded {Count} unique template definitions from repository {RepositoryId} across {Pages} page(s).",
+            templates.Count, repo.RepositoryId, page);
+
+        return templates;
     }
 
-    // ── Private models ─────────────────────────────────────────────────────
+    private static TemplatePage ParsePage(string body)
+    {
+        body = body.Trim();
+        if (string.IsNullOrWhiteSpace(body))
+            throw new JsonException("TemplateDefinitions response body was empty.");
+
+        if (body.StartsWith('['))
+        {
+            var items = JsonSerializer.Deserialize<List<TemplateDefinitionResource>>(
+                body, JsonOptions.Default) ?? [];
+            return new TemplatePage(items, null);
+        }
+
+        var result = JsonSerializer.Deserialize<ODataList<TemplateDefinitionResource>>(
+            body, JsonOptions.Default)
+            ?? throw new JsonException("TemplateDefinitions response could not be deserialized.");
+
+        return new TemplatePage(result.Value, result.NextLink ?? result.PlainNextLink);
+    }
+
+    private static string? ResolveNextLink(string currentUrl, string? nextLink)
+    {
+        if (string.IsNullOrWhiteSpace(nextLink) ||
+            !Uri.TryCreate(currentUrl, UriKind.Absolute, out var current))
+            return null;
+
+        if (!Uri.TryCreate(current, nextLink, out var resolved) ||
+            (resolved.Scheme != Uri.UriSchemeHttp && resolved.Scheme != Uri.UriSchemeHttps) ||
+            !string.Equals(resolved.Scheme, current.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(resolved.Authority, current.Authority, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new JsonException(
+                $"TemplateDefinitions nextLink points outside the active Laserfiche API host: {nextLink}");
+        }
+
+        return resolved.AbsoluteUri;
+    }
+
+    private sealed record TemplatePage(
+        List<TemplateDefinitionResource> Items,
+        string? NextLink);
 
     private sealed record ODataList<T>
     {
         [JsonPropertyName("value")]
         public List<T> Value { get; init; } = [];
+
+        [JsonPropertyName("@odata.nextLink")]
+        public string? NextLink { get; init; }
+
+        [JsonPropertyName("nextLink")]
+        public string? PlainNextLink { get; init; }
     }
 
     private sealed record TemplateDefinitionResource
@@ -113,8 +170,6 @@ internal sealed class LaserficheTemplateService : ILaserficheTemplateService
         [JsonPropertyName("description")]
         public string? Description { get; init; }
     }
-
-    // ── Shared JSON options ───────────────────────────────────────────────
 
     private static class JsonOptions
     {
