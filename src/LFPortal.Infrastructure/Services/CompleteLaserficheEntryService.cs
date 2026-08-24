@@ -50,7 +50,7 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
     {
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken)
             .ConfigureAwait(false);
-        var url = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, EntryResource.Details);
+        var url = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, Adapters.EntryResource.Details);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
         using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
@@ -87,8 +87,6 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         if (!hasId && !hasName)
             return null;
 
-        // Resolve missing ID/name from the repository's authoritative template-definition list.
-        // Some Repository API builds expose only one of these properties on entry rows.
         LFTemplateDefinition? definition = null;
         if (!hasId || !hasName)
         {
@@ -110,8 +108,7 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         if (templateId <= 0 || string.IsNullOrWhiteSpace(templateName))
         {
             _logger.LogWarning(
-                "Entry {EntryId} appears templated but the template could not be resolved " +
-                "authoritatively. TemplateId={TemplateId}; TemplateName={TemplateName}.",
+                "Entry {EntryId} appears templated but the template could not be resolved authoritatively. TemplateId={TemplateId}; TemplateName={TemplateName}.",
                 entryId,
                 entry.TemplateId,
                 entry.TemplateName ?? "(none)");
@@ -143,11 +140,6 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         return entry.FullPath;
     }
 
-    /// <summary>
-    /// Discovers the authoritative root from Entries/ByPath for the active server and
-    /// repository. The cache key includes server, repository and API version so two
-    /// repositories with the same name on different servers cannot share a root ID.
-    /// </summary>
     public async Task<int> GetRootEntryIdAsync(CancellationToken cancellationToken = default)
     {
         var repo = await _repositoryContext
@@ -198,8 +190,6 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
                 "Root ByPath discovery failed for repository {RepositoryId}.", repo.RepositoryId);
         }
 
-        // A configured root ID is only an explicit administrator fallback. No implicit
-        // assumption that entry 1 is the repository root is made here.
         var configuredFallback = _adapter.GetConfiguredRootEntryId();
         if (configuredFallback > 0)
         {
@@ -211,8 +201,7 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         }
 
         throw new LaserficheException(
-            $"Could not discover the root entry for repository '{repo.RepositoryId}'. " +
-            "No explicit RootEntryId fallback is configured.",
+            $"Could not discover the root entry for repository '{repo.RepositoryId}'. No explicit RootEntryId fallback is configured.",
             500);
     }
 
@@ -274,8 +263,7 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
             if (!response.IsSuccessStatusCode)
             {
                 throw new LaserficheException(
-                    $"Laserfiche API returned HTTP {(int)response.StatusCode} while listing " +
-                    $"folder {entryId}, page {pageNumber}, URL {nextUrl}. Body: {body}",
+                    $"Laserfiche API returned HTTP {(int)response.StatusCode} while listing folder {entryId}, page {pageNumber}, URL {nextUrl}. Body: {body}",
                     (int)response.StatusCode);
             }
 
@@ -284,8 +272,7 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
             nextUrl = ResolveNextLink(nextUrl, parsed.NextLink);
 
             _logger.LogInformation(
-                "Complete folder listing. EntryId={EntryId}; Page={Page}; PageEntries={PageEntries}; " +
-                "RunningTotal={RunningTotal}; HasNext={HasNext}.",
+                "Complete folder listing. EntryId={EntryId}; Page={Page}; PageEntries={PageEntries}; RunningTotal={RunningTotal}; HasNext={HasNext}.",
                 entryId, pageNumber, parsed.Entries.Count, allEntries.Count, nextUrl is not null);
         }
 
