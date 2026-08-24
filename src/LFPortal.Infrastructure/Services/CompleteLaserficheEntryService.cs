@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LFPortal.Application.Interfaces;
@@ -10,13 +11,15 @@ using Microsoft.Extensions.Logging;
 namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
-/// Decorates the existing entry service and replaces folder-list operations with a
-/// pagination-complete implementation. This keeps every ILaserficheEntryService consumer
-/// (Dashboard, Archive, folder tree) from silently seeing only the first server page or
-/// an arbitrary fixed number of pages.
+/// Decorates the existing entry service and replaces hierarchy/list operations with
+/// source-complete implementations: dynamic root discovery, complete pagination,
+/// de-duplication, and cross-version field aliases.
 /// </summary>
 internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
 {
+    private static readonly ConcurrentDictionary<string, int> RootIdCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly LaserficheEntryService _inner;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IRepositoryContext _repositoryContext;
@@ -55,8 +58,78 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         CancellationToken cancellationToken = default) =>
         _inner.GetEntryPathAsync(entryId, cancellationToken);
 
-    public Task<int> GetRootEntryIdAsync(CancellationToken cancellationToken = default) =>
-        _inner.GetRootEntryIdAsync(cancellationToken);
+    /// <summary>
+    /// Discovers the authoritative root from Entries/ByPath for the active server and
+    /// repository. The cache key includes server, repository and API version so two
+    /// repositories with the same name on different servers cannot share a root ID.
+    /// </summary>
+    public async Task<int> GetRootEntryIdAsync(CancellationToken cancellationToken = default)
+    {
+        var repo = await _repositoryContext
+            .GetActiveRepositoryAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var cacheKey = $"{repo.ServerUrl.TrimEnd('/')}|{repo.RepositoryId}|{_adapter.ApiVersion}";
+        if (RootIdCache.TryGetValue(cacheKey, out var cached))
+            return cached;
+
+        var byPathUrl = _adapter.BuildEntryByPathUrl(repo.RepositoryId, @"\");
+        using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
+
+        try
+        {
+            using var response = await client.GetAsync(byPathUrl, cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var discovered = ParseRootId(body);
+                if (discovered > 0)
+                {
+                    RootIdCache[cacheKey] = discovered;
+                    _logger.LogInformation(
+                        "Authoritative repository root discovered. Repository={RepositoryId}; RootEntryId={RootEntryId}.",
+                        repo.RepositoryId, discovered);
+                    return discovered;
+                }
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Root ByPath request failed. Repository={RepositoryId}; HTTP={Status}; URL={Url}; Body={Body}",
+                    repo.RepositoryId,
+                    (int)response.StatusCode,
+                    byPathUrl,
+                    body.Length > 500 ? body[..500] + "…" : body);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Root ByPath discovery failed for repository {RepositoryId}.", repo.RepositoryId);
+        }
+
+        // A configured root ID is only an explicit administrator fallback. No implicit
+        // assumption that entry 1 is the repository root is made here.
+        var configuredFallback = _adapter.GetConfiguredRootEntryId();
+        if (configuredFallback > 0)
+        {
+            _logger.LogWarning(
+                "Using explicitly configured RootEntryId={RootEntryId} because dynamic root discovery failed for repository {RepositoryId}.",
+                configuredFallback, repo.RepositoryId);
+            RootIdCache[cacheKey] = configuredFallback;
+            return configuredFallback;
+        }
+
+        throw new LaserficheException(
+            $"Could not discover the root entry for repository '{repo.RepositoryId}'. " +
+            "No explicit RootEntryId fallback is configured.",
+            500);
+    }
 
     public async Task<PagedResult<LFEntry>> GetEntryChildrenAsync(
         int entryId,
@@ -131,8 +204,6 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
                 entryId, pageNumber, parsed.Entries.Count, allEntries.Count, nextUrl is not null);
         }
 
-        // Entry ID is authoritative. De-duplicate defensively in case a server repeats
-        // an item at a page boundary.
         var unique = allEntries
             .GroupBy(e => e.Id)
             .Select(g => g
@@ -191,6 +262,58 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         }
     }
 
+    private static int ParseRootId(string body)
+    {
+        using var json = JsonDocument.Parse(body);
+        var root = json.RootElement;
+
+        if (root.ValueKind != JsonValueKind.Object)
+            return 0;
+
+        if (TryReadPositiveId(root, out var directId))
+            return directId;
+
+        if (TryGetPropertyIgnoreCase(root, "entry", out var entry) &&
+            entry.ValueKind == JsonValueKind.Object &&
+            TryReadPositiveId(entry, out var wrappedId))
+            return wrappedId;
+
+        return 0;
+    }
+
+    private static bool TryReadPositiveId(JsonElement element, out int id)
+    {
+        id = 0;
+        if (!TryGetPropertyIgnoreCase(element, "id", out var idElement))
+            return false;
+
+        if (idElement.ValueKind == JsonValueKind.Number && idElement.TryGetInt32(out id))
+            return id > 0;
+
+        return int.TryParse(idElement.ToString(), out id) && id > 0;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(
+        JsonElement element,
+        string propertyName,
+        out JsonElement value)
+    {
+        if (element.TryGetProperty(propertyName, out value))
+            return true;
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
     private static EntryPage ParsePage(string body)
     {
         body = body.Trim();
@@ -222,7 +345,8 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
             !string.Equals(resolved.Scheme, current.Scheme, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(resolved.Authority, current.Authority, StringComparison.OrdinalIgnoreCase))
         {
-            throw new JsonException($"Folder children nextLink points outside the active Laserfiche API host: {nextLink}");
+            throw new JsonException(
+                $"Folder children nextLink points outside the active Laserfiche API host: {nextLink}");
         }
 
         return resolved.AbsoluteUri;
@@ -241,7 +365,6 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         EntryType = ParseEntryType(r.EntryType ?? r.ODataType),
         TemplateName = r.TemplateName,
         TemplateId = r.TemplateId,
-        // Different Repository API generations use different names for the same value.
         FileSizeBytes = r.FileSizeBytes ?? r.ElectronicDocumentSize ?? r.ElecDocumentSize,
         PageCount = r.PageCount,
         RowNumber = r.RowNumber
