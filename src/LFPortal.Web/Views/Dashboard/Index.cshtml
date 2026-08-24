@@ -164,6 +164,7 @@ footer.site-footer { background: #F7F8FD !important; }
 .chart-h270 { height:270px; }
 .donut-wrap { display:flex;flex-direction:column;align-items:center; }
 .donut-wrap canvas { max-width:800px !important; max-height:250px !important; }
+#chartDocActivity { direction:ltr !important; }
 @@media(max-width:900px){.d-grid-5{grid-template-columns:repeat(2,1fr)}.d-grid-2{grid-template-columns:1fr}}
 @@media(max-width:500px){.d-grid-5{grid-template-columns:1fr}}
 
@@ -337,7 +338,7 @@ footer.site-footer { background: #F7F8FD !important; }
         }
         else
         {
-            <div class="chart-container chart-h270"><canvas id="chartDocActivity"></canvas></div>
+            <div class="chart-container chart-h270" dir="ltr"><canvas id="chartDocActivity" dir="ltr"></canvas></div>
         }
     </div>
 
@@ -653,6 +654,10 @@ if(tmplEl){
 
 const docActEl = document.getElementById("chartDocActivity");
 if(docActEl){
+    // Keep the timeline chronological left-to-right even when the rest of the page is RTL.
+    docActEl.setAttribute("dir", "ltr");
+    docActEl.style.direction = "ltr";
+
     const labels   = @Html.Raw(JsonSerializer.Serialize(actLabels));
     const created  = @Html.Raw(JsonSerializer.Serialize(actCreated));
     const modified = @Html.Raw(JsonSerializer.Serialize(actModified));
@@ -669,11 +674,10 @@ if(docActEl){
             responsive:true,
             maintainAspectRatio:false,
             plugins:{
-                legend:{display:true,position:"top",align:"end",labels:{color:TICK,boxWidth:11,padding:10,font:{size:9}}},
+                legend:{display:true,position:"top",align:"end",rtl:false,textDirection:"ltr",labels:{color:TICK,boxWidth:11,padding:10,font:{size:9}}},
                 tooltip:{...TOOLTIP}
             },
             scales:{
-                // Labels are already generated oldest → newest. Do not reverse them for RTL.
                 x:{reverse:false,ticks:{color:TICK,font:{size:9}},grid:{display:false},border:{display:false}},
                 y:{beginAtZero:true,ticks:{precision:0,color:TICK,font:{size:9}},grid:{color:GRID},border:{display:false}}
             }
