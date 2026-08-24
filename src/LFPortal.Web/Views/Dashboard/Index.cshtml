@@ -35,12 +35,9 @@
 
     string FmtMs(long ms) => ms < 1000 ? $"{ms}ms" : $"{ms / 1000.0:F1}s";
 
-    // ── Chart payloads: every value is derived from the DTO returned by the live scan.
     var folderLabels = s.RootFolders.Select(f => f.Name).ToArray();
     var folderData   = s.RootFolders.Select(f => f.Documents).ToArray();
 
-    // Template distribution must account for every document, including documents that
-    // have no template. TemplateStats itself intentionally remains assigned templates only.
     var noTemplateLabel = isArabic ? "بدون قالب" : "No Template";
     var tmplLabelsList = s.TemplateStats.Select(t => t.Name).ToList();
     var tmplDataList   = s.TemplateStats.Select(t => t.Count).ToList();
@@ -52,9 +49,6 @@
     var tmplLabels = tmplLabelsList.ToArray();
     var tmplData   = tmplDataList.ToArray();
 
-    // ── Document Activity: always exactly the current local day + previous 6 days.
-    // Created comes from the authoritative AllDocs set. Modified comes only from
-    // ModifiedDocs, whose source LastModifiedTime is later than CreationTime.
     var today    = DateTime.Today;
     var actStart = today.AddDays(-6);
     var actEnd   = today;
@@ -82,11 +76,8 @@
     }
 
     var hasActivityLast7 = actCreated.Any(v => v > 0) || actModified.Any(v => v > 0);
-
-    // The table already has pagination, so do not silently drop modified documents.
     var recentActivity = s.ModifiedDocs.ToList();
 
-    // User activity is current-document ownership/activity derived from every scanned doc.
     var userActivity = s.AllDocs
         .Where(d => !string.IsNullOrWhiteSpace(d.Creator))
         .GroupBy(d => d.Creator!)
@@ -164,6 +155,7 @@ footer.site-footer { background: #F7F8FD !important; }
 .chart-h270 { height:270px; }
 .donut-wrap { display:flex;flex-direction:column;align-items:center; }
 .donut-wrap canvas { max-width:800px !important; max-height:250px !important; }
+#chartDocActivity { direction:ltr !important; }
 @@media(max-width:900px){.d-grid-5{grid-template-columns:repeat(2,1fr)}.d-grid-2{grid-template-columns:1fr}}
 @@media(max-width:500px){.d-grid-5{grid-template-columns:1fr}}
 
@@ -210,7 +202,6 @@ footer.site-footer { background: #F7F8FD !important; }
 
 <div style="color:var(--d-text)">
 
-<!-- ── Header ─────────────────────────────────────────────────────────────── -->
 <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:18px">
     <div>
         <h1 class="d-title">@L["Dashboard"]</h1>
@@ -239,42 +230,27 @@ footer.site-footer { background: #F7F8FD !important; }
     </div>
 }
 
-<!-- ── KPI Cards ──────────────────────────────────────────────────────────── -->
 <div class="d-grid-5" style="margin-bottom:18px">
     <div class="folder-kpi-card">
-        <div class="folder-kpi-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
-        </div>
+        <div class="folder-kpi-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg></div>
         <div class="folder-kpi-value">@s.TotalFolders.ToString("N0")</div>
         <div class="folder-kpi-label">@L["TotalFolders"]</div>
     </div>
     <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
-        <div class="d-kpi-icon" style="background:#EEF4FF">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        </div>
-        <div class="d-kpi-val">@s.TotalDocuments.ToString("N0")</div>
-        <div class="d-kpi-lbl">@L["TotalDocuments"]</div>
+        <div class="d-kpi-icon" style="background:#EEF4FF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+        <div class="d-kpi-val">@s.TotalDocuments.ToString("N0")</div><div class="d-kpi-lbl">@L["TotalDocuments"]</div>
     </div>
     <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
-        <div class="d-kpi-icon" style="background:#EEF4FF">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        </div>
-        <div class="d-kpi-val">@s.TotalTemplates.ToString("N0")</div>
-        <div class="d-kpi-lbl">@L["TotalTemplates"]</div>
+        <div class="d-kpi-icon" style="background:#EEF4FF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+        <div class="d-kpi-val">@s.TotalTemplates.ToString("N0")</div><div class="d-kpi-lbl">@L["TotalTemplates"]</div>
     </div>
     <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
-        <div class="d-kpi-icon" style="background:#EEF4FF">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-        </div>
-        <div class="d-kpi-val">@s.DocsWithTemplate.ToString("N0")</div>
-        <div class="d-kpi-lbl">@L["DocsWithTemplate"]</div>
+        <div class="d-kpi-icon" style="background:#EEF4FF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="d-kpi-val">@s.DocsWithTemplate.ToString("N0")</div><div class="d-kpi-lbl">@L["DocsWithTemplate"]</div>
     </div>
     <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
-        <div class="d-kpi-icon" style="background:#EEF4FF">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        </div>
-        <div class="d-kpi-val">@s.DocsWithoutTemplate.ToString("N0")</div>
-        <div class="d-kpi-lbl">@L["DocsWithoutTemplate"]</div>
+        <div class="d-kpi-icon" style="background:#EEF4FF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+        <div class="d-kpi-val">@s.DocsWithoutTemplate.ToString("N0")</div><div class="d-kpi-lbl">@L["DocsWithoutTemplate"]</div>
     </div>
 </div>
 
@@ -282,465 +258,92 @@ footer.site-footer { background: #F7F8FD !important; }
 {
 <div class="d-grid-2" style="margin-bottom:18px">
     <div class="d-card">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
-            <div>
-                <div class="d-card-title"><span class="d-section-bar"></span>@L[name: "DocumentsByFolder"]</div>
-                <div class="d-card-sub" style="margin-top:3px;margin-inline-start:12px">@string.Format(L[name: "RootLevelFolders"], s.RepositoryId)</div>
-            </div>
-        </div>
-        @if (s.RootFolders.Count == 0)
-        {
-            <div class="d-empty">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
-                <span style="font-size:.8rem">@L["NoFolderData"]</span>
-            </div>
-        }
-        else
-        {
-            <div class="chart-container chart-h280"><canvas id="chartFolders"></canvas></div>
-        }
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px"><div><div class="d-card-title"><span class="d-section-bar"></span>@L[name: "DocumentsByFolder"]</div><div class="d-card-sub" style="margin-top:3px;margin-inline-start:12px">@string.Format(L[name: "RootLevelFolders"], s.RepositoryId)</div></div></div>
+        @if (s.RootFolders.Count == 0) { <div class="d-empty"><span>@L["NoFolderData"]</span></div> } else { <div class="chart-container chart-h280"><canvas id="chartFolders"></canvas></div> }
     </div>
-
     <div class="d-card">
-        <div style="margin-bottom:12px">
-            <div class="d-card-title"><span class="d-section-bar"></span>@L["TemplateDistribution"]</div>
-            <div class="d-card-sub" style="margin-top:3px;margin-inline-start:12px">@L["AutoDiscovered"]</div>
-        </div>
-        @if (s.TotalDocuments == 0)
-        {
-            <div class="d-empty">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
-                <span style="font-size:.8rem">@L["NoTemplatesAssigned"]</span>
-            </div>
-        }
-        else
-        {
-            <div class="chart-container chart-h280 donut-wrap"><canvas id="chartTemplates"></canvas></div>
-        }
+        <div style="margin-bottom:12px"><div class="d-card-title"><span class="d-section-bar"></span>@L["TemplateDistribution"]</div><div class="d-card-sub" style="margin-top:3px;margin-inline-start:12px">@L["AutoDiscovered"]</div></div>
+        @if (s.TotalDocuments == 0) { <div class="d-empty"><span>@L["NoTemplatesAssigned"]</span></div> } else { <div class="chart-container chart-h280 donut-wrap"><canvas id="chartTemplates"></canvas></div> }
     </div>
 </div>
 
 <div class="d-grid-2" style="margin-bottom:18px">
     <div class="d-card">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
-            <div>
-                <div class="d-card-title"><span class="d-section-bar" style="background:#14b8a6"></span>@L["DocumentActivity"]</div>
-                <div class="d-card-sub" style="margin-top:3px;margin-inline-start:12px">@actRangeLabel · @L["CreatedVsModified"]</div>
-            </div>
-        </div>
-        @if (!hasActivityLast7)
-        {
-            <div class="d-empty">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                <span style="font-size:.8rem">@L["NoActivityData"]</span>
-            </div>
-        }
-        else
-        {
-            <div class="chart-container chart-h270"><canvas id="chartDocActivity"></canvas></div>
-        }
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px"><div><div class="d-card-title"><span class="d-section-bar" style="background:#14b8a6"></span>@L["DocumentActivity"]</div><div class="d-card-sub" style="margin-top:3px;margin-inline-start:12px">@actRangeLabel · @L["CreatedVsModified"]</div></div></div>
+        @if (!hasActivityLast7) { <div class="d-empty"><span>@L["NoActivityData"]</span></div> } else { <div class="chart-container chart-h270" dir="ltr"><canvas id="chartDocActivity" dir="ltr"></canvas></div> }
     </div>
-
     <div class="d-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <div class="d-card-title"><span class="d-section-bar"></span>@L["DocumentsByUserActivity"]</div>
-            <span class="d-badge d-badge-indigo">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                @userActivity.Count user@(userActivity.Count != 1 ? "s" : "") (LF)
-            </span>
-        </div>
-        @if (userActivity.Count == 0)
-        {
-            <div class="d-empty">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                <span style="font-size:.8rem">@L["NoUserActivity"]</span>
-            </div>
-        }
-        else
-        {
-            <div class="d-tbl-wrap">
-                <table class="d-tbl" id="table1">
-                    <thead><tr><th>@L["User"]</th><th>@L["DocumentsCreated"]</th><th>@L["LastActivity"]</th></tr></thead>
-                    <tbody>
-                        @foreach (var u in userActivity)
-                        {
-                            <tr>
-                                <td style="font-weight:500">@u.Name</td>
-                                <td style="color:var(--d-accent);font-weight:600">@u.Created</td>
-                                <td style="color:var(--d-muted);white-space:nowrap">@u.LastActivity</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-                <div class="table-pagination" data-table="table1"></div>
-            </div>
-        }
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div class="d-card-title"><span class="d-section-bar"></span>@L["DocumentsByUserActivity"]</div><span class="d-badge d-badge-indigo">@userActivity.Count user@(userActivity.Count != 1 ? "s" : "") (LF)</span></div>
+        @if (userActivity.Count == 0) { <div class="d-empty"><span>@L["NoUserActivity"]</span></div> }
+        else { <div class="d-tbl-wrap"><table class="d-tbl" id="table1"><thead><tr><th>@L["User"]</th><th>@L["DocumentsCreated"]</th><th>@L["LastActivity"]</th></tr></thead><tbody>@foreach (var u in userActivity) { <tr><td style="font-weight:500">@u.Name</td><td style="color:var(--d-accent);font-weight:600">@u.Created</td><td>@u.LastActivity</td></tr> }</tbody></table><div class="table-pagination" data-table="table1"></div></div> }
     </div>
 </div>
 
 @if (s.TemplateStats.Count > 0)
 {
 <div class="d-card" style="margin-bottom:18px">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
-        <div class="d-card-title"><span class="d-section-bar"></span>@L["TemplateStatistics"]</div>
-        <span class="d-badge d-badge-violet">@s.TemplateStats.Count template@(s.TemplateStats.Count != 1 ? "s" : "")</span>
-    </div>
-    <div class="d-tbl-wrap">
-        <table class="d-tbl" id="table2">
-            <thead><tr><th>@L["Number"]</th><th>@L["TemplateName"]</th><th>@L["Documents"]</th><th>@L["PercentOfTotal"]</th></tr></thead>
-            <tbody>
-                @for (var i = 0; i < s.TemplateStats.Count; i++)
-                {
-                    var t = s.TemplateStats[i];
-                    <tr>
-                        <td style="color:var(--d-muted)">@(i + 1)</td>
-                        <td style="font-weight:500">@t.Name</td>
-                        <td style="color:var(--d-accent);font-weight:600">@t.Count.ToString("N0")</td>
-                        <td style="color:var(--d-muted)">
-                            <div style="display:flex;align-items:flex-start;gap:10px;">
-                                <span class="totalPercentText"></span>
-                                <div style="width:120px;height:30px;" class="d-tbl-wrap d-tbl">
-                                    <canvas class="totalPercent" data-index="@i"></canvas>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-        <div class="table-pagination" data-table="table2"></div>
-    </div>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px"><div class="d-card-title"><span class="d-section-bar"></span>@L["TemplateStatistics"]</div><span class="d-badge d-badge-violet">@s.TemplateStats.Count template@(s.TemplateStats.Count != 1 ? "s" : "")</span></div>
+    <div class="d-tbl-wrap"><table class="d-tbl" id="table2"><thead><tr><th>@L["Number"]</th><th>@L["TemplateName"]</th><th>@L["Documents"]</th><th>@L["PercentOfTotal"]</th></tr></thead><tbody>
+    @for (var i = 0; i < s.TemplateStats.Count; i++) { var t = s.TemplateStats[i]; <tr><td>@(i + 1)</td><td style="font-weight:500">@t.Name</td><td style="color:var(--d-accent);font-weight:600">@t.Count.ToString("N0")</td><td><div style="display:flex;align-items:flex-start;gap:10px;"><span class="totalPercentText"></span><div style="width:120px;height:30px;" class="d-tbl-wrap d-tbl"><canvas class="totalPercent" data-index="@i"></canvas></div></div></td></tr> }
+    </tbody></table><div class="table-pagination" data-table="table2"></div></div>
 </div>
 }
 
 <div class="d-grid-2" style="margin-bottom:18px">
-    <div class="d-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <div class="d-card-title"><span class="d-section-bar"></span>@L["DocumentTypeDistribution"]</div>
-            <span class="d-badge d-badge-blue">@L["ByTemplate"]</span>
-        </div>
-        @if (s.TotalDocuments == 0)
-        {
-            <div class="d-empty">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
-                <span style="font-size:.8rem">@L["NoDocTypeData"]</span>
-            </div>
-        }
-        else
-        {
-            var palette = new[]{"#F59E0B","#8B5CF6","#EF4444","#22C55E","#14B8A6","#3B82F6","#F97316","#06B6D4","#EC4899","#84CC16"};
-            <div style="display:flex;flex-direction:column;gap:10px">
-                @for (var i = 0; i < s.TemplateStats.Count; i++)
-                {
-                    var t = s.TemplateStats[i];
-                    var color = palette[i % palette.Length];
-                    <div style="display:flex;align-items:flex-start;gap:10px">
-                        <div style="width:11px;height:11px;border-radius:50%;background:@color;flex-shrink:0"></div>
-                        <span style="flex:1;color:var(--d-text);font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@t.Name</span>
-                        <span style="font-weight:700;color:var(--d-text);font-size:.82rem">@t.Count.ToString("N0")</span>
-                    </div>
-                }
-                @if (s.DocsWithoutTemplate > 0)
-                {
-                    var noTemplateColor = palette[s.TemplateStats.Count % palette.Length];
-                    <div style="display:flex;align-items:flex-start;gap:10px">
-                        <div style="width:11px;height:11px;border-radius:50%;background:@noTemplateColor;flex-shrink:0"></div>
-                        <span style="flex:1;color:var(--d-text);font-size:.82rem">@noTemplateLabel</span>
-                        <span style="font-weight:700;color:var(--d-text);font-size:.82rem">@s.DocsWithoutTemplate.ToString("N0")</span>
-                    </div>
-                }
-            </div>
-        }
+    <div class="d-card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div class="d-card-title"><span class="d-section-bar"></span>@L["DocumentTypeDistribution"]</div><span class="d-badge d-badge-blue">@L["ByTemplate"]</span></div>
+        @if (s.TotalDocuments == 0) { <div class="d-empty"><span>@L["NoDocTypeData"]</span></div> }
+        else { var palette = new[]{"#F59E0B","#8B5CF6","#EF4444","#22C55E","#14B8A6","#3B82F6","#F97316","#06B6D4","#EC4899","#84CC16"}; <div style="display:flex;flex-direction:column;gap:10px">@for (var i=0;i<s.TemplateStats.Count;i++){var t=s.TemplateStats[i];var color=palette[i%palette.Length];<div style="display:flex;align-items:flex-start;gap:10px"><div style="width:11px;height:11px;border-radius:50%;background:@color;flex-shrink:0"></div><span style="flex:1">@t.Name</span><span style="font-weight:700">@t.Count.ToString("N0")</span></div>} @if(s.DocsWithoutTemplate>0){var c=palette[s.TemplateStats.Count%palette.Length];<div style="display:flex;align-items:flex-start;gap:10px"><div style="width:11px;height:11px;border-radius:50%;background:@c;flex-shrink:0"></div><span style="flex:1">@noTemplateLabel</span><span style="font-weight:700">@s.DocsWithoutTemplate.ToString("N0")</span></div>}</div> }
     </div>
-
-    <div class="d-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <div class="d-card-title"><span class="d-section-bar"></span>@L["SystemHealth"]</div>
-            <span class="d-badge @(s.IsConnected ? "d-badge-green" : "d-badge-red")">
-                @(s.IsConnected ? $"✓ {L["Connected"]}" : $"✗ {L["Disconnected"]}")
-            </span>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
-            <div class="d-health-cell">
-                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg> @L["Repository"]</div>
-                <div class="d-health-val">@(s.RepositoryId ?? "N/A")</div>
-            </div>
-            <div class="d-health-cell" style="grid-column:span 2">
-                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> @L["ServerUrl"]</div>
-                <div class="d-health-val">@(s.ServerUrl ?? "N/A")</div>
-            </div>
-            <div class="d-health-cell">
-                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> @L["Username"]</div>
-                <div class="d-health-val">@(s.ConnectedUser ?? "N/A")</div>
-            </div>
-            <div class="d-health-cell">
-                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> @L["LastRefresh"]</div>
-                <div class="d-health-val">@FmtAgo(s.LastCheckedAt)</div>
-            </div>
-            <div class="d-health-cell" style="grid-column:span 2">
-                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> @L["Authentication"]</div>
-                <div class="d-health-val">
-                    @L[s.AuthenticationMode]
-                    @if (s.AuthenticationMode == "FallbackCredentials")
-                    {
-                        <span style="display:block;font-size:.72rem;color:var(--d-muted);opacity:.7;margin-top:2px">(per-user delegation requires LFDS OAuth)</span>
-                    }
-                </div>
-            </div>
-            <div class="d-health-cell" style="grid-column:span 2">
-                <div class="d-health-lbl"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> @L["ScanDuration"]</div>
-                <div class="d-health-val">@FmtMs(s.ScanDurationMs)</div>
-            </div>
-        </div>
-    </div>
+    <div class="d-card"><div class="d-card-title"><span class="d-section-bar"></span>@L["SystemHealth"]</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px"><div class="d-health-cell"><div class="d-health-lbl">@L["Repository"]</div><div class="d-health-val">@(s.RepositoryId ?? "N/A")</div></div><div class="d-health-cell"><div class="d-health-lbl">@L["Username"]</div><div class="d-health-val">@(s.ConnectedUser ?? "N/A")</div></div><div class="d-health-cell" style="grid-column:span 2"><div class="d-health-lbl">@L["ServerUrl"]</div><div class="d-health-val">@(s.ServerUrl ?? "N/A")</div></div><div class="d-health-cell"><div class="d-health-lbl">@L["LastRefresh"]</div><div class="d-health-val">@FmtAgo(s.LastCheckedAt)</div></div><div class="d-health-cell"><div class="d-health-lbl">@L["ScanDuration"]</div><div class="d-health-val">@FmtMs(s.ScanDurationMs)</div></div></div></div>
 </div>
 
 <div class="d-card" style="margin-bottom:18px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div class="d-card-title"><span class="d-section-bar"></span>@L["RecentlyCreatedDocuments"]</div>
-        <span class="d-badge d-badge-teal"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> @s.RecentDocs.Count doc@(s.RecentDocs.Count != 1 ? "s" : "")</span>
-    </div>
-    @if (s.RecentDocs.Count == 0)
-    {
-        <div class="d-empty"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span style="font-size:.8rem">@L["NoRecentDocs"]</span></div>
-    }
-    else
-    {
-        <div class="d-tbl-wrap">
-            <table class="d-tbl" id="table3">
-                <thead><tr><th>@L["DocumentName"]</th><th>@L["Template"]</th><th>@L["Folder"]</th><th>@L["Created"]</th><th>@L["CreatedBy"]</th></tr></thead>
-                <tbody>
-                    @foreach (var d in s.RecentDocs)
-                    {
-                        <tr>
-                            <td style="font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@d.Name">@d.Name</td>
-                            <td style="color:var(--d-muted)">@(d.TemplateName ?? "-")</td>
-                            <td style="color:var(--d-muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@FolderFromPath(d.FullPath)">@FolderFromPath(d.FullPath)</td>
-                            <td style="color:var(--d-muted);white-space:nowrap">@FmtDate(d.CreationTime)</td>
-                            <td style="color:var(--d-muted)">@(d.Creator ?? "-")</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-            <div class="table-pagination" data-table="table3"></div>
-        </div>
-        <div style="font-size:.71rem;color:var(--d-muted);margin-top:7px">@s.RecentDocs.Count document@(s.RecentDocs.Count != 1 ? "s" : "") tracked</div>
-    }
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div class="d-card-title"><span class="d-section-bar"></span>@L["RecentlyCreatedDocuments"]</div><span class="d-badge d-badge-teal">@s.RecentDocs.Count doc@(s.RecentDocs.Count != 1 ? "s" : "")</span></div>
+    @if (s.RecentDocs.Count == 0) { <div class="d-empty"><span>@L["NoRecentDocs"]</span></div> }
+    else { <div class="d-tbl-wrap"><table class="d-tbl" id="table3"><thead><tr><th>@L["DocumentName"]</th><th>@L["Template"]</th><th>@L["Folder"]</th><th>@L["Created"]</th><th>@L["CreatedBy"]</th></tr></thead><tbody>@foreach(var d in s.RecentDocs){<tr><td>@d.Name</td><td>@(d.TemplateName??"-")</td><td>@FolderFromPath(d.FullPath)</td><td>@FmtDate(d.CreationTime)</td><td>@(d.Creator??"-")</td></tr>}</tbody></table><div class="table-pagination" data-table="table3"></div></div> }
 </div>
 
 <div class="d-card" style="margin-bottom:18px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div class="d-card-title"><span class="d-section-bar" style="background:#f97316"></span>@L["RecentDocumentActivity"]</div>
-        <span class="d-badge d-badge-orange">@recentActivity.Count doc@(recentActivity.Count != 1 ? "s" : "")</span>
-    </div>
-    @if (recentActivity.Count == 0)
-    {
-        <div class="d-empty"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span style="font-size:.8rem">@L["NoDocumentsFound"]</span></div>
-    }
-    else
-    {
-        <div class="d-tbl-wrap">
-            <table class="d-tbl" id="table4">
-                <thead><tr><th>@L["DocumentName"]</th><th>@L["Folder"]</th><th>@L["Template"]</th><th>@L["Created"]</th><th>@L["Modified"]</th>@if (recentActivity.Any(d => !string.IsNullOrWhiteSpace(d.Creator))) { <th>@L["CreatedBy"]</th> }</tr></thead>
-                <tbody>
-                    @foreach (var d in recentActivity)
-                    {
-                        <tr>
-                            <td style="font-weight:500;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@d.Name">@d.Name</td>
-                            <td style="color:var(--d-muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@FolderFromPath(d.FullPath)">@FolderFromPath(d.FullPath)</td>
-                            <td style="color:var(--d-muted)">@(d.TemplateName ?? "-")</td>
-                            <td style="color:var(--d-muted);white-space:nowrap">@FmtDateShort(d.CreationTime)</td>
-                            <td style="color:var(--d-accent);white-space:nowrap">@FmtAgo(d.LastModifiedTime)</td>
-                            @if (recentActivity.Any(x => !string.IsNullOrWhiteSpace(x.Creator))) { <td style="color:var(--d-muted)">@(d.Creator ?? "-")</td> }
-                        </tr>
-                    }
-                </tbody>
-            </table>
-            <div class="table-pagination" data-table="table4"></div>
-        </div>
-    }
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div class="d-card-title"><span class="d-section-bar" style="background:#f97316"></span>@L["RecentDocumentActivity"]</div><span class="d-badge d-badge-orange">@recentActivity.Count doc@(recentActivity.Count != 1 ? "s" : "")</span></div>
+    @if(recentActivity.Count==0){<div class="d-empty"><span>@L["NoDocumentsFound"]</span></div>} else {<div class="d-tbl-wrap"><table class="d-tbl" id="table4"><thead><tr><th>@L["DocumentName"]</th><th>@L["Folder"]</th><th>@L["Template"]</th><th>@L["Created"]</th><th>@L["Modified"]</th>@if(recentActivity.Any(d=>!string.IsNullOrWhiteSpace(d.Creator))){<th>@L["CreatedBy"]</th>}</tr></thead><tbody>@foreach(var d in recentActivity){<tr><td>@d.Name</td><td>@FolderFromPath(d.FullPath)</td><td>@(d.TemplateName??"-")</td><td>@FmtDateShort(d.CreationTime)</td><td>@FmtAgo(d.LastModifiedTime)</td>@if(recentActivity.Any(x=>!string.IsNullOrWhiteSpace(x.Creator))){<td>@(d.Creator??"-")</td>}</tr>}</tbody></table><div class="table-pagination" data-table="table4"></div></div>}
 </div>
 
-} @* end if IsConnected *@
+}
 </div>
 
 @section Scripts {
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 (function(){
-const PALETTE = ["#0D98FF","#00226C","#044FC2","#9BD9FE","#4682B4","#0073DD","#0C132D"];
-const GRID    = "#F2F2F2";
-const TICK    = "#000000";
-const TOOLTIP = {
-    backgroundColor:"#1e293b",
-    borderColor:"#334155",
-    borderWidth:1,
-    titleColor:"#94a3b8",
-    bodyColor:"#f1f5f9",
-    padding:10,
-    cornerRadius:8
-};
+const PALETTE=["#0D98FF","#00226C","#044FC2","#9BD9FE","#4682B4","#0073DD","#0C132D"];
+const GRID="#F2F2F2";
+const TICK="#000000";
+const TOOLTIP={backgroundColor:"#1e293b",borderColor:"#334155",borderWidth:1,titleColor:"#94a3b8",bodyColor:"#f1f5f9",padding:10,cornerRadius:8};
 
-const folderEl = document.getElementById("chartFolders");
-if(folderEl){
-    const labels = @Html.Raw(JsonSerializer.Serialize(folderLabels));
-    const data   = @Html.Raw(JsonSerializer.Serialize(folderData));
-    const documentsLabel = @Html.Raw(JsonSerializer.Serialize(L["Documents"].Value));
-    new Chart(folderEl, {
-        type:"bar",
-        data:{labels,datasets:[{
-            label:documentsLabel,
-            data,
-            backgroundColor: labels.map((_,i)=>PALETTE[i%PALETTE.length]+"cc"),
-            barPercentage:0.6,
-            categoryPercentage:0.7
-        }]},
-        options:{
-            responsive:true,
-            maintainAspectRatio:false,
-            plugins:{legend:{display:false},tooltip:{...TOOLTIP,callbacks:{label:c=>`${c.formattedValue} ${documentsLabel}`}}},
-            scales:{
-                x:{ticks:{color:TICK,maxRotation:40,font:{size:15}},grid:{display:false},border:{display:false}},
-                y:{ticks:{color:TICK,precision:0,font:{size:12}},grid:{color:GRID},border:{display:false},beginAtZero:true}
-            }
-        }
-    });
-}
+const folderEl=document.getElementById("chartFolders");
+if(folderEl){const labels=@Html.Raw(JsonSerializer.Serialize(folderLabels));const data=@Html.Raw(JsonSerializer.Serialize(folderData));const documentsLabel=@Html.Raw(JsonSerializer.Serialize(L["Documents"].Value));new Chart(folderEl,{type:"bar",data:{labels,datasets:[{label:documentsLabel,data,backgroundColor:labels.map((_,i)=>PALETTE[i%PALETTE.length]+"cc"),barPercentage:.6,categoryPercentage:.7}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{...TOOLTIP}},scales:{x:{ticks:{color:TICK,maxRotation:40,font:{size:15}},grid:{display:false},border:{display:false}},y:{ticks:{color:TICK,precision:0,font:{size:12}},grid:{color:GRID},border:{display:false},beginAtZero:true}}}});}
 
-const templateLabels = @Html.Raw(JsonSerializer.Serialize(tmplLabels));
-const templateData   = @Html.Raw(JsonSerializer.Serialize(tmplData));
-const totalDocuments = @s.TotalDocuments;
+const templateLabels=@Html.Raw(JsonSerializer.Serialize(tmplLabels));
+const templateData=@Html.Raw(JsonSerializer.Serialize(tmplData));
+const totalDocuments=@s.TotalDocuments;
+document.querySelectorAll(".totalPercent").forEach((canvas,index)=>{const count=Number(templateData[index]??0);const percent=totalDocuments>0?(count/totalDocuments)*100:0;const textElement=canvas.closest("td")?.querySelector(".totalPercentText");if(textElement)textElement.textContent=`${percent.toFixed(1)}%`;new Chart(canvas,{type:"bar",data:{labels:[templateLabels[index]],datasets:[{label:templateLabels[index],data:[percent],backgroundColor:PALETTE[index%PALETTE.length]+"cc",borderColor:PALETTE[index%PALETTE.length],borderWidth:0,borderRadius:4,barPercentage:.7,categoryPercentage:1}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:"y",plugins:{legend:{display:false},tooltip:{...TOOLTIP}},scales:{x:{min:0,max:100,display:false},y:{display:false}}}});});
 
-document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
-    const count = Number(templateData[index] ?? 0);
-    const percent = totalDocuments > 0 ? (count / totalDocuments) * 100 : 0;
-    const textElement = canvas.closest("td")?.querySelector(".totalPercentText");
-    if (textElement) textElement.textContent = `${percent.toFixed(1)}%`;
+const tmplEl=document.getElementById("chartTemplates");
+if(tmplEl){new Chart(tmplEl,{type:"doughnut",data:{labels:templateLabels,datasets:[{data:templateData,backgroundColor:templateLabels.map((_,i)=>PALETTE[i%PALETTE.length]+"cc"),borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"right",labels:{color:TICK,boxWidth:11,padding:8,font:{size:12}}},tooltip:{...TOOLTIP}},layout:{padding:{top:5,bottom:0}}}});}
 
-    new Chart(canvas, {
-        type:"bar",
-        data:{labels:[templateLabels[index]],datasets:[{
-            label:templateLabels[index],data:[percent],
-            backgroundColor:PALETTE[index % PALETTE.length]+"cc",
-            borderColor:PALETTE[index % PALETTE.length],borderWidth:0,borderRadius:4,
-            barPercentage:0.7,categoryPercentage:1
-        }]},
-        options:{
-            responsive:true,maintainAspectRatio:false,indexAxis:"y",
-            plugins:{legend:{display:false},tooltip:{...TOOLTIP,callbacks:{label:()=>`${percent.toFixed(1)}%`}}},
-            scales:{x:{min:0,max:100,display:false},y:{display:false}}
-        }
-    });
-});
-
-const tmplEl = document.getElementById("chartTemplates");
-if(tmplEl){
-    new Chart(tmplEl, {
-        type:"doughnut",
-        data:{labels:templateLabels,datasets:[{
-            data:templateData,
-            backgroundColor:templateLabels.map((_,i)=>PALETTE[i%PALETTE.length]+"cc"),
-            borderWidth:0
-        }]},
-        options:{
-            responsive:true,
-            maintainAspectRatio:false,
-            plugins:{legend:{position:"right",labels:{color:TICK,boxWidth:11,padding:8,font:{size:12}}},tooltip:{...TOOLTIP}},
-            layout:{padding:{top:5,bottom:0}}
-        }
-    });
-}
-
-const docActEl = document.getElementById("chartDocActivity");
+const docActEl=document.getElementById("chartDocActivity");
 if(docActEl){
-    const labels   = @Html.Raw(JsonSerializer.Serialize(actLabels));
-    const created  = @Html.Raw(JsonSerializer.Serialize(actCreated));
-    const modified = @Html.Raw(JsonSerializer.Serialize(actModified));
-    const createdLabel  = @Html.Raw(JsonSerializer.Serialize(L["Created"].Value));
-    const modifiedLabel = @Html.Raw(JsonSerializer.Serialize(L["Modified"].Value));
-
-    new Chart(docActEl, {
-        type:"bar",
-        data:{labels,datasets:[
-            {label:createdLabel,data:created,backgroundColor:"#0D98FF",borderWidth:0,barPercentage:0.55,categoryPercentage:0.75},
-            {label:modifiedLabel,data:modified,backgroundColor:"#00226C",borderWidth:0,barPercentage:0.55,categoryPercentage:0.75}
-        ]},
-        options:{
-            responsive:true,
-            maintainAspectRatio:false,
-            plugins:{
-                legend:{display:true,position:"top",align:"end",labels:{color:TICK,boxWidth:11,padding:10,font:{size:9}}},
-                tooltip:{...TOOLTIP}
-            },
-            scales:{
-                // Labels are already generated oldest → newest. Do not reverse them for RTL.
-                x:{reverse:false,ticks:{color:TICK,font:{size:9}},grid:{display:false},border:{display:false}},
-                y:{beginAtZero:true,ticks:{precision:0,color:TICK,font:{size:9}},grid:{color:GRID},border:{display:false}}
-            }
-        }
-    });
+    docActEl.setAttribute("dir","ltr");
+    docActEl.style.direction="ltr";
+    const labels=@Html.Raw(JsonSerializer.Serialize(actLabels));
+    const created=@Html.Raw(JsonSerializer.Serialize(actCreated));
+    const modified=@Html.Raw(JsonSerializer.Serialize(actModified));
+    const createdLabel=@Html.Raw(JsonSerializer.Serialize(L["Created"].Value));
+    const modifiedLabel=@Html.Raw(JsonSerializer.Serialize(L["Modified"].Value));
+    new Chart(docActEl,{type:"bar",data:{labels,datasets:[{label:createdLabel,data:created,backgroundColor:"#0D98FF",borderWidth:0,barPercentage:.55,categoryPercentage:.75},{label:modifiedLabel,data:modified,backgroundColor:"#00226C",borderWidth:0,barPercentage:.55,categoryPercentage:.75}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:"top",align:"end",rtl:false,textDirection:"ltr",labels:{color:TICK,boxWidth:11,padding:10,font:{size:9}}},tooltip:{...TOOLTIP}},scales:{x:{reverse:false,ticks:{color:TICK,font:{size:9}},grid:{display:false},border:{display:false}},y:{beginAtZero:true,ticks:{precision:0,color:TICK,font:{size:9}},grid:{color:GRID},border:{display:false}}}}});
 }
 })();
 
-document.addEventListener("DOMContentLoaded", function () {
-    const ROWS_PER_PAGE = 10;
-
-    document.querySelectorAll(".table-pagination").forEach(function (pagination) {
-        const tableId = pagination.dataset.table;
-        const table = document.getElementById(tableId);
-        if (!table) return;
-
-        const tbody = table.querySelector("tbody");
-        if (!tbody) return;
-
-        const rows = Array.from(tbody.querySelectorAll("tr"));
-        if (rows.length === 0) {
-            pagination.style.display = "none";
-            return;
-        }
-
-        let currentPage = 1;
-        const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
-
-        function showPage(page) {
-            if (page < 1) page = 1;
-            if (page > totalPages) page = totalPages;
-            currentPage = page;
-            const startIndex = (currentPage - 1) * ROWS_PER_PAGE;
-            const endIndex = startIndex + ROWS_PER_PAGE;
-            rows.forEach(function (row, index) {
-                row.style.display = (index >= startIndex && index < endIndex) ? "" : "none";
-            });
-            renderPagination();
-        }
-
-        function createButton(text, page, disabled, active) {
-            const button = document.createElement("button");
-            button.type = "button";
-            button.textContent = text;
-            button.className = "pagination-button";
-            if (active) button.classList.add("active");
-            button.disabled = disabled;
-            if (!disabled && !active) button.addEventListener("click", () => showPage(page));
-            return button;
-        }
-
-        function renderPagination() {
-            pagination.innerHTML = "";
-            if (totalPages <= 1) {
-                pagination.style.display = "none";
-                return;
-            }
-            pagination.style.display = "flex";
-            pagination.appendChild(createButton("Previous", currentPage - 1, currentPage === 1, false));
-            for (let page = 1; page <= totalPages; page++) {
-                pagination.appendChild(createButton(page.toString(), page, false, page === currentPage));
-            }
-            pagination.appendChild(createButton("Next", currentPage + 1, currentPage === totalPages, false));
-        }
-
-        showPage(1);
-    });
-});
+document.addEventListener("DOMContentLoaded",function(){const ROWS_PER_PAGE=10;document.querySelectorAll(".table-pagination").forEach(function(pagination){const table=document.getElementById(pagination.dataset.table);if(!table)return;const tbody=table.querySelector("tbody");if(!tbody)return;const rows=Array.from(tbody.querySelectorAll("tr"));if(rows.length===0){pagination.style.display="none";return;}let currentPage=1;const totalPages=Math.ceil(rows.length/ROWS_PER_PAGE);function showPage(page){page=Math.max(1,Math.min(totalPages,page));currentPage=page;const start=(page-1)*ROWS_PER_PAGE;rows.forEach((row,index)=>row.style.display=(index>=start&&index<start+ROWS_PER_PAGE)?"":"none");renderPagination();}function createButton(text,page,disabled,active){const button=document.createElement("button");button.type="button";button.textContent=text;button.className="pagination-button";if(active)button.classList.add("active");button.disabled=disabled;if(!disabled&&!active)button.addEventListener("click",()=>showPage(page));return button;}function renderPagination(){pagination.innerHTML="";if(totalPages<=1){pagination.style.display="none";return;}pagination.style.display="flex";pagination.appendChild(createButton("Previous",currentPage-1,currentPage===1,false));for(let page=1;page<=totalPages;page++)pagination.appendChild(createButton(page.toString(),page,false,page===currentPage));pagination.appendChild(createButton("Next",currentPage+1,currentPage===totalPages,false));}showPage(1);});});
 </script>
 }
