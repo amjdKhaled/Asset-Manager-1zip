@@ -11,20 +11,17 @@ namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
 /// Aggregates live Laserfiche repository statistics into a <see cref="DashboardStatsDto"/>
-/// by performing a recursive folder-tree scan — the same approach used by the original
-/// GovSearch AI Node.js backend.
+/// by performing a recursive folder-tree scan.
 ///
 /// Data sources:
-///   • Laserfiche Repository API v1 — folder children, template definitions
-///   • Portal in-memory audit log   — search activity history, top queries
+///   • Laserfiche Repository API — folder children, entry timestamps/template assignment,
+///     repository identity, and template definitions.
+///   • Portal in-memory audit log — portal search activity only.
 /// </summary>
 internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 {
-    /// <summary>
-    /// Maximum number of documents collected across the entire scan.
-    /// Matches the <c>DOC_CAP = 120</c> constant in the original implementation.
-    /// </summary>
-    private const int DocCap = 120;
+    private const int SearchActivityDays = 7;
+    private const int TopSearchQueryLimit = 5;
 
     private readonly ILaserficheRepositoryService   _repositoryService;
     private readonly ILaserficheEntryService         _entryService;
@@ -45,14 +42,14 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         IHttpContextAccessor            httpContextAccessor,
         ILogger<LaserficheDashboardService> logger)
     {
-        _repositoryService  = repositoryService;
-        _entryService       = entryService;
-        _templateService    = templateService;
-        _auditLog           = auditLog;
-        _credentialProvider = credentialProvider;
-        _repositoryContext  = repositoryContext;
+        _repositoryService   = repositoryService;
+        _entryService        = entryService;
+        _templateService     = templateService;
+        _auditLog            = auditLog;
+        _credentialProvider  = credentialProvider;
+        _repositoryContext   = repositoryContext;
         _httpContextAccessor = httpContextAccessor;
-        _logger             = logger;
+        _logger              = logger;
     }
 
     /// <inheritdoc />
@@ -92,7 +89,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 var repoDesc = await _repositoryContext
                     .GetActiveRepositoryAsync(cancellationToken)
                     .ConfigureAwait(false);
-                serverUrl     = repoDesc.ServerUrl;
+                serverUrl = repoDesc.ServerUrl;
 
                 // Interactive API calls already use the per-user bearer token. Never read
                 // or display the configured fallback account while such a session exists.
@@ -109,8 +106,8 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 _logger.LogDebug(ex, "Could not read username from credential store.");
             }
 
-            // ── 3. Parallel: root children + template definitions ────────────
-            var tokenStart = Stopwatch.GetTimestamp();
+            // ── 3. Dynamic root discovery + template definitions ────────────
+            var rootFetchStart = Stopwatch.GetTimestamp();
 
             var (rootChildren, templateDefs) = await FetchRootAndTemplatesAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -122,14 +119,13 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 "Dashboard statistics loaded for Username={Username}; RepositoryId={RepositoryId}.",
                 connectedUser ?? "(not exposed by token)", status.RepositoryId);
 
-            var tokenDurationMs = Stopwatch.GetElapsedTime(tokenStart).TotalMilliseconds;
+            var rootFetchDurationMs = Stopwatch.GetElapsedTime(rootFetchStart).TotalMilliseconds;
 
-            // Separate root-level documents from root-level folders
+            // Separate root-level documents from root-level folders.
             var rootDocEntries    = rootChildren.Where(e => e.EntryType == LFEntryType.Document).ToList();
             var rootFolderEntries = rootChildren.Where(e => e.EntryType == LFEntryType.Folder).ToList();
             var rootOtherEntries  = rootChildren.Where(e => e.EntryType == LFEntryType.Unknown).ToList();
 
-            // ── Pipeline diagnostic checkpoint 1 ────────────────────────────
             _logger.LogInformation(
                 "DASHBOARD PIPELINE — Root children: total={Total} | folders={Folders} | documents={Docs} | unknown={Other}",
                 rootChildren.Count, rootFolderEntries.Count, rootDocEntries.Count, rootOtherEntries.Count);
@@ -138,7 +134,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             {
                 _logger.LogWarning(
                     "DASHBOARD DIAGNOSTIC — RepositoryId={RepositoryId}; API user returned 0 root children. " +
-                    "If Laserfiche Web Client shows entries, the API identity may have fewer permissions or the bearer token may belong to a different user/repository.",
+                    "If Laserfiche Web Client shows entries, verify that the API token belongs to the same user/repository and has Browse permission.",
                     status.RepositoryId);
             }
 
@@ -160,46 +156,42 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 rootFolderResults.Sum(r => r.Folders),
                 rootFolderResults.Sum(r => r.Documents));
 
-            // ── 5. Aggregate totals ──────────────────────────────────────────
-            var totalDocuments =
-                rootDocEntries.Count +
-                rootFolderResults.Sum(r => r.Documents);
-
-            var totalFolders =
-                rootFolderEntries.Count +
-                rootFolderResults.Sum(r => r.Folders);
-
-            // Template counts: merge root-level docs + all sub-folder results
-            var globalTemplates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var doc in rootDocEntries.Where(HasTemplate))
-            {
-                var templateKey = GetTemplateKey(doc);
-                globalTemplates[templateKey] = globalTemplates.GetValueOrDefault(templateKey) + 1;
-            }
-
-            foreach (var r in rootFolderResults)
-            {
-                foreach (var (tmpl, cnt) in r.TemplateCounts)
-                    globalTemplates[tmpl] = globalTemplates.GetValueOrDefault(tmpl) + cnt;
-            }
-
-            var templateStats = globalTemplates
-                .Select(kv => new TemplateStatDto { Name = kv.Key, Count = kv.Value })
-                .OrderByDescending(t => t.Count)
+            // ── 5. Build one authoritative document set ──────────────────────
+            // Count and derive every document KPI from the same source list. De-duplicate
+            // by Laserfiche Entry ID so an unexpected duplicate listing cannot inflate totals.
+            var allDocs = rootDocEntries
+                .Concat(rootFolderResults.SelectMany(r => r.AllDocs))
+                .GroupBy(d => d.Id)
+                .Select(g => g
+                    .OrderByDescending(d => d.LastModifiedTime ?? d.CreationTime ?? DateTimeOffset.MinValue)
+                    .First())
                 .ToList()
                 .AsReadOnly();
 
-            var docsWithTemplate    = templateStats.Sum(t => t.Count);
-            var docsWithoutTemplate = Math.Max(0, totalDocuments - docsWithTemplate);
+            var totalDocuments = allDocs.Count;
+            var totalFolders = rootFolderEntries.Count + rootFolderResults.Sum(r => r.Folders);
 
-            // ── Pipeline diagnostic checkpoint 2 ────────────────────────────
+            // Template KPIs are derived directly from the authoritative document list.
+            // TemplateId=0 is not an assigned template.
+            var docsWithTemplate = allDocs.Count(HasTemplate);
+            var docsWithoutTemplate = totalDocuments - docsWithTemplate;
+
+            var templateStats = allDocs
+                .Where(HasTemplate)
+                .GroupBy(GetTemplateKey, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new TemplateStatDto { Name = g.Key, Count = g.Count() })
+                .OrderByDescending(t => t.Count)
+                .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+                .AsReadOnly();
+
             _logger.LogInformation(
                 "DASHBOARD PIPELINE — Final counts: totalFolders={TotalFolders} | totalDocuments={TotalDocs} | " +
                 "docsWithTemplate={WithTemplate} | docsWithoutTemplate={WithoutTemplate} | templateNames={Templates}",
                 totalFolders, totalDocuments, docsWithTemplate, docsWithoutTemplate,
                 string.Join(", ", templateStats.Take(5).Select(t => $"{t.Name}({t.Count})")));
 
-            // Root-folder distribution (for bar chart)
+            // Root-folder distribution (for bar chart).
             var rootFolderStats = rootFolderResults
                 .Select(r => new RootFolderStatDto
                 {
@@ -210,45 +202,33 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 .ToList()
                 .AsReadOnly();
 
-            // ── 6. Build sorted document lists ───────────────────────────────
-            var rootDocMapped = rootDocEntries;  // already LFEntry
-
-            // The Repository API commonly sets LastModifiedTime on initial creation.
-            // For dashboard activity, treat that initial timestamp as creation only;
-            // a modification is counted only when it happened after creation.
-            var allDocs =
-                rootDocMapped.Concat(rootFolderResults.SelectMany(r => r.AllDocs))
-                .Select(NormalizeActivityEntry)
-                .ToList()
-                .AsReadOnly();
-
-            var allRecentDocs =
-                allDocs
+            // No arbitrary document cap: the scan already retrieved these entries, so
+            // silently dropping rows would make dashboard badges/tables disagree with totals.
+            var allRecentDocs = allDocs
                 .OrderByDescending(d => d.CreationTime ?? DateTimeOffset.MinValue)
-                .Take(DocCap)
                 .ToList()
                 .AsReadOnly();
 
-            var allModifiedDocs =
-                allDocs
-                .Where(d => d.LastModifiedTime.HasValue)
+            // Repository API exposes the latest-modified timestamp, not an event history.
+            // Include a document only when the source timestamp is strictly later than its
+            // creation timestamp (or creation time is unavailable). No guessed time threshold.
+            var allModifiedDocs = allDocs
+                .Where(HasPostCreationModification)
                 .OrderByDescending(d => d.LastModifiedTime ?? DateTimeOffset.MinValue)
-                .Take(DocCap)
                 .ToList()
                 .AsReadOnly();
 
-            // ── 7. Search audit log ──────────────────────────────────────────
+            // ── 6. Portal search audit log ───────────────────────────────────
             var (activityByDay, topQueries, totalSearches) = await FetchAuditDataAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            // ── 8. Build DTO ─────────────────────────────────────────────────
+            // ── 7. Build DTO ─────────────────────────────────────────────────
             var entryBreakdown = new Dictionary<string, int>
             {
                 ["Document"] = totalDocuments,
                 ["Folder"]   = totalFolders
             };
 
-            // DepartmentStatDto compatibility (map rootFolderStats)
             var deptStats = rootFolderStats
                 .Select(r => new DepartmentStatDto { Name = r.Name, DocumentCount = r.Documents })
                 .ToList()
@@ -257,11 +237,10 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             var totalLoadMs = (long)Stopwatch.GetElapsedTime(totalStart).TotalMilliseconds;
 
             _logger.LogInformation(
-                "DASHBOARD LOAD — total={TotalMs}ms | token+root={TokenMs}ms | scan={ScanMs}ms | " +
-                "docs={TotalDocs} | folders={TotalFolders} | templates={Templates} | " +
-                "authMode={AuthenticationMode}",
+                "DASHBOARD LOAD — total={TotalMs}ms | root+templates={RootMs}ms | scan={ScanMs}ms | " +
+                "docs={TotalDocs} | folders={TotalFolders} | templates={Templates} | authMode={AuthenticationMode}",
                 totalLoadMs,
-                (long)tokenDurationMs,
+                (long)rootFetchDurationMs,
                 scanDurationMs,
                 totalDocuments,
                 totalFolders,
@@ -294,11 +273,15 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 LastCheckedAt            = DateTimeOffset.UtcNow,
                 // Legacy compat fields
                 EntryTypeBreakdown       = entryBreakdown,
-                DepartmentCount          = rootFolderEntries.Count,
+                DepartmentCount          = rootFolderStats.Count,
                 DocumentsByDepartment    = deptStats,
                 RecentDocuments          = allRecentDocs,
                 RecentlyIndexedDocuments = allRecentDocs,
-                RecentEntries            = allDocs.Take(10).ToList().AsReadOnly()
+                RecentEntries            = allDocs
+                    .OrderByDescending(d => d.LastModifiedTime ?? d.CreationTime ?? DateTimeOffset.MinValue)
+                    .Take(10)
+                    .ToList()
+                    .AsReadOnly()
             };
         }
         catch (Exception ex)
@@ -313,27 +296,31 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         }
     }
 
-    // ── Private: fetch root children + templates in parallel ──────────────
+    // ── Private: dynamic root + templates ─────────────────────────────────
 
-    private async Task<(IReadOnlyList<LFEntry> rootChildren, IReadOnlyList<Domain.Entities.LFTemplateDefinition> templateDefs)>
+    private async Task<(IReadOnlyList<LFEntry> rootChildren, IReadOnlyList<LFTemplateDefinition> templateDefs)>
         FetchRootAndTemplatesAsync(CancellationToken ct)
     {
-        const int rootId = 1;
-        _logger.LogInformation("Using root entry ID={RootId}. Fetching children and template definitions in parallel.", rootId);
-
-        var rootTask     = SafeGetAllFolderChildrenAsync(rootId, ct);
+        // Template definitions can be fetched while the authoritative repository root
+        // is discovered. Never assume that the root entry ID is 1.
         var templateTask = _templateService.GetTemplateDefinitionsAsync(ct);
+        var rootId = await _entryService.GetRootEntryIdAsync(ct).ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "Discovered repository root entry ID={RootId}. Fetching root children.", rootId);
+
+        var rootTask = SafeGetAllFolderChildrenAsync(rootId, ct);
         await Task.WhenAll(rootTask, templateTask).ConfigureAwait(false);
 
-        var root  = await rootTask;
-        var tmpls = await templateTask;
+        var root  = await rootTask.ConfigureAwait(false);
+        var tmpls = await templateTask.ConfigureAwait(false);
 
         _logger.LogInformation(
             "Root children (ID={RootId}): {RootCount} entries (docs={Docs}, folders={Folders}, other={Other}). Templates defined: {TmplCount}.",
             rootId, root.Count,
-            root.Count(e => e.EntryType == Domain.Entities.LFEntryType.Document),
-            root.Count(e => e.EntryType == Domain.Entities.LFEntryType.Folder),
-            root.Count(e => e.EntryType == Domain.Entities.LFEntryType.Unknown),
+            root.Count(e => e.EntryType == LFEntryType.Document),
+            root.Count(e => e.EntryType == LFEntryType.Folder),
+            root.Count(e => e.EntryType == LFEntryType.Unknown),
             tmpls.Count);
 
         return (root, tmpls);
@@ -348,7 +335,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         catch (Exception ex)
         {
             _logger.LogError(ex, "SafeGetAllFolderChildrenAsync: unhandled exception for entry {EntryId}.", entryId);
-            return [];
+            throw;
         }
     }
 
@@ -367,14 +354,24 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         {
             try
             {
-                var result = await ScanFolderAsync(folder.Id, folder.Name, new ConcurrentDictionary<int, byte>(), loadChildren, logger, ct)
+                var result = await ScanFolderAsync(
+                        folder.Id,
+                        folder.Name,
+                        new ConcurrentDictionary<int, byte>(),
+                        loadChildren,
+                        logger,
+                        ct)
                     .ConfigureAwait(false);
                 return result with { Name = folder.Name };
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Root folder scan failed for folder {FolderId} '{Name}'.", folder.Id, folder.Name);
-                return new ScanResult(folder.Name, 0, 0, [], []);
+                // Do not silently convert a failed subtree into zero documents: that would
+                // make the dashboard look valid while reporting incomplete data.
+                logger.LogError(ex,
+                    "Root folder scan failed for folder {FolderId} '{Name}'.",
+                    folder.Id, folder.Name);
+                throw;
             }
         });
 
@@ -392,12 +389,12 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
     // ── Private: recursive folder scanner ────────────────────────────────
 
     private static async Task<ScanResult> ScanFolderAsync(
-        int                           folderId,
-        string                        folderName,
+        int                              folderId,
+        string                           folderName,
         ConcurrentDictionary<int, byte> visited,
         Func<int, CancellationToken, Task<IReadOnlyList<LFEntry>>> loadChildren,
-        ILogger logger,
-        CancellationToken             ct)
+        ILogger                           logger,
+        CancellationToken                 ct)
     {
         if (!visited.TryAdd(folderId, 0))
         {
@@ -412,14 +409,19 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Cannot list children of folder {FolderId} '{Name}'.", folderId, folderName);
-            return new ScanResult(folderName, 0, 0, [], []);
+            // Missing one folder means all repository totals would be incomplete. Surface
+            // the error instead of pretending the inaccessible folder contains zero items.
+            logger.LogError(ex,
+                "Cannot list children of folder {FolderId} '{Name}'. Dashboard scan is incomplete.",
+                folderId, folderName);
+            throw;
         }
 
-        var docEntries    = children.Where(e => e.EntryType == LFEntryType.Document).ToList();
+        var docEntries       = children.Where(e => e.EntryType == LFEntryType.Document).ToList();
         var subFolderEntries = children.Where(e => e.EntryType == LFEntryType.Folder).ToList();
 
-        // Collect template counts from this folder's documents
+        // Keep template counts in ScanResult for compatibility/tests. Dashboard-level
+        // template KPIs are calculated from the authoritative de-duplicated document list.
         var localTmpl = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var doc in docEntries.Where(HasTemplate))
         {
@@ -431,25 +433,26 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             "Dashboard folder scanned. FolderId={FolderId}; FolderName={FolderName}; DirectDocuments={Documents}; DirectFolders={Folders}.",
             folderId, folderName, docEntries.Count, subFolderEntries.Count);
 
-        // Recurse into sub-folders in parallel
         var subTasks = subFolderEntries.Select(f =>
             ScanFolderAsync(f.Id, f.Name, visited, loadChildren, logger, ct));
 
         var subResults = await Task.WhenAll(subTasks).ConfigureAwait(false);
 
-        // Merge template counts from sub-folders
         foreach (var sub in subResults)
         {
             foreach (var (tmpl, cnt) in sub.TemplateCounts)
                 localTmpl[tmpl] = localTmpl.GetValueOrDefault(tmpl) + cnt;
         }
 
-        var documents = docEntries.Count + subResults.Sum(r => r.Documents);
-        var folders   = subFolderEntries.Count + subResults.Sum(r => r.Folders);
-
-        // Collect document entries from sub-folders
         var allSubDocs = subResults.SelectMany(r => r.AllDocs).ToList();
-        var allDocs    = docEntries.Concat(allSubDocs).ToList();
+        var allDocs = docEntries
+            .Concat(allSubDocs)
+            .GroupBy(d => d.Id)
+            .Select(g => g.First())
+            .ToList();
+
+        var documents = allDocs.Count;
+        var folders   = subFolderEntries.Count + subResults.Sum(r => r.Folders);
 
         return new ScanResult(folderName, documents, folders, localTmpl, allDocs);
     }
@@ -460,15 +463,15 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 
     private static string GetTemplateKey(LFEntry entry) =>
         !string.IsNullOrWhiteSpace(entry.TemplateName)
-            ? entry.TemplateName!
+            ? entry.TemplateName.Trim()
             : $"Template #{entry.TemplateId}";
 
     /// <summary>
-    /// Returns true only for an actual post-creation modification. Laserfiche may
-    /// populate LastModifiedTime during creation, which must not make a new document
-    /// appear in both Created and Modified on the activity chart.
+    /// Repository API exposes the current last-modified timestamp, not the number of
+    /// modification events. This helper therefore identifies documents whose source
+    /// LastModifiedTime is strictly later than CreationTime without inventing a grace period.
     /// </summary>
-    private static bool HasMeaningfulModification(LFEntry entry)
+    private static bool HasPostCreationModification(LFEntry entry)
     {
         if (!entry.LastModifiedTime.HasValue)
             return false;
@@ -476,31 +479,22 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         if (!entry.CreationTime.HasValue)
             return true;
 
-        return entry.LastModifiedTime.Value > entry.CreationTime.Value.AddSeconds(1);
+        return entry.LastModifiedTime.Value > entry.CreationTime.Value;
     }
 
-    private static LFEntry NormalizeActivityEntry(LFEntry entry) =>
-        HasMeaningfulModification(entry)
-            ? entry
-            : entry with { LastModifiedTime = null };
-
-    // ── Private: audit log data ───────────────────────────────────────────
+    // ── Private: portal search audit log data ─────────────────────────────
 
     private async Task<(IReadOnlyList<SearchActivityDayDto>, IReadOnlyList<TopQueryDto>, int)>
         FetchAuditDataAsync(CancellationToken ct)
     {
-        // Repository-scoped: dashboard statistics must only reflect search
-        // activity in the CURRENT session's repository.
         var repo = await _repositoryContext.GetActiveRepositoryAsync(ct).ConfigureAwait(false);
 
-        var actTask  = _auditLog.GetSearchesByDayAsync(repo.RepositoryId, 7, ct);
-        var topTask  = _auditLog.GetTopQueriesAsync(repo.RepositoryId, 5, ct);
-        var cntTask  = _auditLog.GetTotalSearchCountAsync(repo.RepositoryId, ct);
+        var actTask = _auditLog.GetSearchesByDayAsync(repo.RepositoryId, SearchActivityDays, ct);
+        var topTask = _auditLog.GetTopQueriesAsync(repo.RepositoryId, TopSearchQueryLimit, ct);
+        var cntTask = _auditLog.GetTotalSearchCountAsync(repo.RepositoryId, ct);
         await Task.WhenAll(actTask, topTask, cntTask).ConfigureAwait(false);
         return (await actTask, await topTask, await cntTask);
     }
-
-    // ── Private scan result record ────────────────────────────────────────
 
     internal sealed record ScanResult(
         string                     Name,
