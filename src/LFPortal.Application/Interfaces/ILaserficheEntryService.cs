@@ -4,46 +4,40 @@ using LFPortal.Domain.Entities;
 namespace LFPortal.Application.Interfaces;
 
 /// <summary>
-/// Provides entry-level operations: retrieving individual entries, their metadata fields,
-/// templates, hierarchy paths, and folder contents. All data comes directly from
-/// the Laserfiche Repository API — nothing is sourced from local state.
+/// Provides entry-level operations: retrieving individual entries, metadata fields,
+/// templates, hierarchy paths, and folder contents. All repository data comes from
+/// the active Laserfiche Repository API session.
 /// </summary>
 public interface ILaserficheEntryService
 {
-    /// <summary>
-    /// Retrieves a single entry by its numeric Laserfiche Entry ID.
-    /// </summary>
-    /// <param name="entryId">The Laserfiche Entry ID.</param>
-    /// <param name="cancellationToken">Propagated cancellation token.</param>
+    /// <summary>Retrieves a single entry by its numeric Laserfiche Entry ID.</summary>
     Task<LFEntry> GetEntryAsync(int entryId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Retrieves all metadata field values applied to the specified entry.
-    /// Returns an empty list for entries with no template or no field values.
+    /// Returns an empty list for entries with no field values.
     /// </summary>
     Task<IReadOnlyList<LFFieldValue>> GetEntryFieldsAsync(
         int entryId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retrieves the template and its field definitions applied to the specified entry.
-    /// Returns <c>null</c> if no template is applied.
+    /// Retrieves the template applied to the specified entry and its current field schema.
+    /// Missing template ID/name properties are resolved against repository definitions when possible.
+    /// Returns <c>null</c> only when no template is assigned or it cannot be resolved.
     /// </summary>
-    Task<LFTemplate?> GetEntryTemplateAsync(int entryId, CancellationToken cancellationToken = default);
+    Task<LFTemplate?> GetEntryTemplateAsync(
+        int entryId,
+        CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Retrieves the full repository path string for the specified entry,
-    /// e.g. <c>\Department\Year\DocumentName</c>.
-    /// </summary>
+    /// <summary>Retrieves the full repository path for the specified entry.</summary>
     Task<string> GetEntryPathAsync(int entryId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retrieves a paged list of the direct children of the specified folder entry.
+    /// Retrieves a caller-requested page of direct folder children. The implementation first
+    /// follows every Repository API continuation page so <see cref="PagedResult{T}.TotalCount"/>
+    /// represents the complete direct-child set rather than only the first server page.
     /// </summary>
-    /// <param name="entryId">Entry ID of the parent folder.</param>
-    /// <param name="page">1-based page number.</param>
-    /// <param name="pageSize">Number of entries per page (max 100).</param>
-    /// <param name="cancellationToken">Propagated cancellation token.</param>
     Task<PagedResult<LFEntry>> GetEntryChildrenAsync(
         int entryId,
         int page,
@@ -51,36 +45,26 @@ public interface ILaserficheEntryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Discovers the repository root entry ID dynamically.
-    /// The root is NOT always entry 1 — it varies per server installation.
-    /// Discovery order:
-    ///   1. Path-based lookup — <c>GET /Entries?entryPath=%5C</c> (backslash = root in LF).
-    ///   2. Entry 1 parentId check — if <c>parentId == 0</c> then 1 is the root.
-    ///   3. Fallback to 1 with a warning.
-    /// The result is cached in-process after the first successful discovery.
+    /// Discovers the authoritative repository root via the Repository API ByPath lookup for
+    /// <c>\</c>. A positive administrator-configured RootEntryId may be used only as an
+    /// explicit fallback when discovery fails. No implicit assumption that entry 1 is root.
     /// </summary>
     Task<int> GetRootEntryIdAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retrieves ALL direct children of the specified folder in a single API call
-    /// (up to 1 000 entries). Unlike <see cref="GetEntryChildrenAsync"/>, this method
-    /// does not paginate — it is optimised for the recursive folder scan used by the
-    /// dashboard service. Uses the v1 OData-typed path confirmed in Swagger:
-    /// <c>/Entries/{id}/Laserfiche.Repository.Folder/children</c>.
+    /// Retrieves every direct child of a folder, following all server-provided
+    /// <c>@odata.nextLink</c>/<c>nextLink</c> continuations and de-duplicating by Entry ID.
+    /// The method fails when a page cannot be retrieved rather than returning silently
+    /// incomplete data.
     /// </summary>
-    /// <param name="entryId">Entry ID of the parent folder to enumerate.</param>
-    /// <param name="cancellationToken">Propagated cancellation token.</param>
     Task<IReadOnlyList<LFEntry>> GetAllFolderChildrenAsync(
         int entryId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retrieves a flat list of folder entries up to the specified depth below
-    /// <paramref name="rootEntryId"/>. Used to build the folder tree in the Archive page.
+    /// Retrieves a flat list of folder entries up to the requested depth below
+    /// <paramref name="rootEntryId"/>, using complete child listings at every level.
     /// </summary>
-    /// <param name="rootEntryId">Entry ID of the root folder to start from (typically 1).</param>
-    /// <param name="depth">Maximum folder depth to traverse. Must be between 1 and 5.</param>
-    /// <param name="cancellationToken">Propagated cancellation token.</param>
     Task<IReadOnlyList<LFEntry>> GetFolderTreeAsync(
         int rootEntryId,
         int depth,
