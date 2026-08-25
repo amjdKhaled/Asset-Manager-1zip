@@ -106,7 +106,84 @@
 
 @section Styles {
 <style>
-body   { background: #F7F8FD !important; }
+    @@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    src: url("/fonts/IBMPlexSansArabic-Regular.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+}
+
+@@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    src: url("/fonts/IBMPlexSansArabic-Medium.ttf") format("truetype");
+    font-weight: 500;
+    font-style: normal;
+}
+
+@@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    src: url("/fonts/IBMPlexSansArabic-SemiBold.ttf") format("truetype");
+    font-weight: 600;
+    font-style: normal;
+}
+
+@@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    src: url("/fonts/IBMPlexSansArabic-Bold.ttf") format("truetype");
+    font-weight: 700;
+    font-style: normal;
+}
+
+.ibm-plex-sans-arabic-thin {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 100;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-extralight {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 200;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-light {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 300;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-regular {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-medium {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 500;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-semibold {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-bold {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 700;
+  font-style: normal;
+}
+
+
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+}
+body   { background: #F7F8FD !important; font-family: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, Arial, sans-serif; }
 main   { max-width: 1440px !important; padding: 18px 22px !important; }
 footer.site-footer { background: #F7F8FD !important; }
 

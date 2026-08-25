@@ -18,6 +18,33 @@
     <title>@ViewData["Title"] — Dashboard</title>
     @await RenderSectionAsync("Styles", required: false)
     <style>
+        @@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    src: url("/fonts/IBMPlexSansArabic-Regular.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+}
+
+@@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    src: url("/fonts/IBMPlexSansArabic-Medium.ttf") format("truetype");
+    font-weight: 500;
+    font-style: normal;
+}
+
+@@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    src: url("/fonts/IBMPlexSansArabic-SemiBold.ttf") format("truetype");
+    font-weight: 600;
+    font-style: normal;
+}
+
+@@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    src: url("/fonts/IBMPlexSansArabic-Bold.ttf") format("truetype");
+    font-weight: 700;
+    font-style: normal;
+}
 
 .ibm-plex-sans-arabic-thin {
   font-family: "IBM Plex Sans Arabic", sans-serif;
@@ -62,10 +89,6 @@
 }
 
 
-body {
-    font-family: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, Arial, sans-serif;
-}
-
 button,
 input,
 select,
@@ -95,7 +118,8 @@ textarea {
         
 
         body {
-            font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+            font-family: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, Arial, sans-serif;
+            @* font-family: "Segoe UI", Tahoma, Arial, sans-serif; *@
             background: var(--lfp-bg);
             color: var(--lfp-text);
             min-height: 100vh;
