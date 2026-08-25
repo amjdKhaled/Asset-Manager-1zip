@@ -8,6 +8,7 @@
     var _returnUrl = Uri.EscapeDataString(Context.Request.Path + Context.Request.QueryString);
     var _externalShareReadOnly = ViewData["ExternalShareReadOnly"] as bool? == true;
 }
+
 <!DOCTYPE html>
 <html lang="@_htmlLang" dir="@_htmlDir">
 <head>
@@ -17,6 +18,61 @@
     <title>@ViewData["Title"] — Dashboard</title>
     @await RenderSectionAsync("Styles", required: false)
     <style>
+
+.ibm-plex-sans-arabic-thin {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 100;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-extralight {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 200;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-light {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 300;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-regular {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-medium {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 500;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-semibold {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.ibm-plex-sans-arabic-bold {
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 700;
+  font-style: normal;
+}
+
+
+body {
+    font-family: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, Arial, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+}
+
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         :root {
@@ -36,13 +92,16 @@
             --shadow:     0 1px 4px rgba(0,0,0,.40), 0 1px 2px rgba(0,0,0,.25);
         }
 
+        
+
         body {
-            font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+            font-family: "Segoe UI", Tahoma, Arial, sans-serif;
             background: var(--lfp-bg);
             color: var(--lfp-text);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            
         }
 
         /* ── Header ── */
@@ -71,16 +130,20 @@
             text-decoration: none;
             font-size: .875rem;
             padding: 6px 12px;
-            border-radius: var(--radius);
+            border-radius: 0;
             transition: background .15s, color .15s;
+            height: 60px;
+            display: flex;
+            align-items: center;
         }
         .site-header__nav a:hover {
             background: rgba(255,255,255,.12);
-            color: #fff;
+            color: #d0d0d0;
         }
         .site-header__nav a.active {
             background: var(--lfp-text);
-            color: var(--lfp-accent);
+            color: #044FC2;
+            border-bottom: 4px solid #044FC2;
         }
 
         /* ── Repository badge ── */
@@ -393,8 +456,10 @@
             align-items: center;
             flex-direction: column;
             @* gap: 6px;} *@
+            
     </style>
 </head>
+
 <body>
     @{
         var _ctrl = ViewContext.RouteData.Values["controller"]?.ToString() ?? "";
