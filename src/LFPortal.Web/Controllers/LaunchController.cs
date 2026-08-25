@@ -63,6 +63,13 @@ public sealed class LaunchController : Controller
         await _sessionCredentialStore.ClearAsync(cancellationToken);
 
         RemoveDashboardSessionState(HttpContext.Session);
+
+        // /Launch is only accepted for a validated Web Client launch. Restore the
+        // repository/source immediately after clearing old Dashboard state so the
+        // header badge keeps showing WEB CLIENT throughout the LFDS authentication flow.
+        HttpContext.Session.SetString(RepositorySessionMiddleware.SessionKeyRepositoryId, repositoryId);
+        HttpContext.Session.SetString(RepositorySessionMiddleware.SessionKeySource, RepositorySessionMiddleware.SourceWebClient);
+
         HttpContext.User = new System.Security.Claims.ClaimsPrincipal(
             new System.Security.Claims.ClaimsIdentity());
 
@@ -74,7 +81,7 @@ public sealed class LaunchController : Controller
             throw new InvalidOperationException("Could not generate a safe local LFDS start URL.");
 
         _logger.LogInformation(
-            "Dashboard launch state cleared. Repository={RepositoryId}; OldUser={OldUser}; " +
+            "Dashboard launch state cleared and Web Client source preserved. Repository={RepositoryId}; OldUser={OldUser}; " +
             "RedirectTarget={RedirectTarget}; ForceLogin=false.",
             repositoryId,
             oldUser,
