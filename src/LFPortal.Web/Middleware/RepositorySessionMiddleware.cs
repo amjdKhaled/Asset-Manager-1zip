@@ -93,12 +93,24 @@ public sealed class RepositorySessionMiddleware
         if (!string.IsNullOrWhiteSpace(repoParam) && IsValidRepositoryId(repoParam))
         {
             var trimmed = repoParam.Trim();
+            var existingSource = context.Session.GetString(SessionKeySource);
 
-            // Determine the launch source from the optional ?source= parameter.
-            // "webclient" → Laserfiche Web Client; anything else (including absent) →
-            // Laserfiche Desktop Client for full backward-compatibility with the existing
-            // Desktop Extension which does not send a source parameter.
-            var source      = (sourceParam ?? string.Empty).Equals("webclient", StringComparison.OrdinalIgnoreCase)
+            var isWebClientRequest =
+                string.Equals(sourceParam, "webclient", StringComparison.OrdinalIgnoreCase);
+
+            // After /Launch validates a Web Client request, LaunchController restores
+            // ActiveRepositorySource=Web Client before redirecting to /Login/StartSso.
+            // That auth continuation still carries ?repository= but intentionally does
+            // not carry ?source=webclient (otherwise it would be routed back to /Launch).
+            // Preserve the existing validated Web Client source on /Login requests.
+            var isWebClientLoginContinuation =
+                string.IsNullOrWhiteSpace(sourceParam) &&
+                context.Request.Path.StartsWithSegments("/Login", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(existingSource, SourceWebClient, StringComparison.Ordinal);
+
+            // A normal repository URL without source remains a Desktop Client launch.
+            // Only the validated Web Client launch flow is allowed to preserve Web Client.
+            var source = isWebClientRequest || isWebClientLoginContinuation
                 ? SourceWebClient
                 : SourceDesktop;
 
