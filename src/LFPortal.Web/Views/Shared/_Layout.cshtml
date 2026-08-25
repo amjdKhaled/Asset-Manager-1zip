@@ -20,7 +20,7 @@
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         :root {
-            --lfp-navy:   #17243A;
+            --lfp-navy:   #ffffff;
             --lfp-blue:   #1e3a8a;
             --lfp-accent: #3B82F6;
             --lfp-green:  #22C55E;
@@ -29,8 +29,9 @@
             --lfp-bg:     #0F172A;
             --lfp-card:   #1E293B;
             --lfp-border: #334155;
-            --lfp-text:   #F1F5F9;
+            --lfp-text:   #ffffff;
             --lfp-muted:  #94A3B8;
+            --lfp-nav-text:#000000;
             --radius:     6px;
             --shadow:     0 1px 4px rgba(0,0,0,.40), 0 1px 2px rgba(0,0,0,.25);
         }
@@ -64,9 +65,9 @@
             flex-shrink: 0;
         }
         .site-header__logo span { color: var(--lfp-accent); }
-        .site-header__nav { display: flex; gap: 4px; margin-left: auto; flex-shrink: 0; }
+        .site-header__nav { display: flex; gap: 4px; flex-shrink: 0;  }
         .site-header__nav a {
-            color: rgba(255,255,255,.8);
+            color: var(--lfp-nav-text);
             text-decoration: none;
             font-size: .875rem;
             padding: 6px 12px;
@@ -78,8 +79,8 @@
             color: #fff;
         }
         .site-header__nav a.active {
-            background: var(--lfp-accent);
-            color: #fff;
+            background: var(--lfp-text);
+            color: var(--lfp-accent);
         }
 
         /* ── Repository badge ── */
@@ -90,7 +91,7 @@
             padding: 4px 10px;
             border-radius: 100px;
             background: rgba(255,255,255,.1);
-            color: rgba(255,255,255,.85);
+            color: rgba(255, 255, 255, 0.85);
             font-size: .8rem;
             font-weight: 500;
             margin: 0 4px;
@@ -99,6 +100,7 @@
             max-width: 240px;
             border: 1px solid rgba(255,255,255,.1);
             overflow: hidden;
+            margin-inline-start: auto;
         }
         .repo-badge--desktop {
             background: rgba(59,130,246,.2);
@@ -330,24 +332,27 @@
             align-items: center;
             gap: 6px;
             font-size: .78rem;
-            color: rgba(255,255,255,.6);
+            color: #94A3B8;
             margin-inline-start: 8px;
             flex-shrink: 0;
         }
         .lang-switcher a {
-            color: rgba(255,255,255,.65);
+            color: #94A3B8;
             text-decoration: none;
             padding: 3px 7px;
             border-radius: 4px;
             transition: background .15s, color .15s;
+            display: flex;
+            align-items: center;
+            height: 30px;
         }
-        .lang-switcher a:hover { background: rgba(255,255,255,.1); color: #fff; }
+        .lang-switcher a:hover { background: rgba(186, 186, 186, 0.35); color: #fff; }
         .lang-switcher a.lang-active {
-            background: rgba(59,130,246,.35);
-            color: #93c5fd;
+            background: rgba(186, 186, 186, 0.35);
+            color: var(--lfp-nav-text);
             font-weight: 600;
         }
-        .lang-sep { color: rgba(255,255,255,.3); }
+        .lang-sep { color: rgba(142, 142, 142, 0.3); }
 
         /* ── RTL layout overrides ──────────────────────────────────────────── */
         @* { flex-direction: row-reverse; } *@
@@ -355,7 +360,7 @@
         [dir=rtl] .site-header__nav { margin-left: 0; margin-inline-start: auto; }
         [dir=rtl] .site-header__logo { margin-right: 0; }
         [dir=rtl] .lang-switcher { margin-inline-start: 0; margin-inline-end: 8px; }
-        [dir=rtl] .repo-badge { margin-left: 4px; margin-right: 0; }
+        [dir=rtl] .repo-badge { margin-left: 4px; margin-inline-start: auto; }
         [dir=rtl] .repo-badge__name { direction: ltr; }  /* keep repo names LTR */
         [dir=rtl] .field-label,
         [dir=rtl] .field-hint { text-align: right; }
@@ -374,8 +379,8 @@
         .breakdown-row__count { font-size: .875rem; color: var(--lfp-muted); font-variant-numeric: tabular-nums; text-align: right; }
 
         .logo_size{
-            height: 70px;
-            width: 150px;
+            height: 60px;
+            width: 90px;
             @* padding: 20px 24px 18px; *@
             display: flex;
             justify-content: left;
@@ -397,11 +402,25 @@
     <header class="site-header">
         <a class="site-header__logo"
            href="@(_externalShareReadOnly ? "/Share/Dashboard" : Url.Action("Index", "Dashboard"))">
-            IS<span>B</span>
-            @* <img src="~/image/isb_logo.jpg" alt="ISB" class="logo_size" > *@
+            @* IS<span>B</span> *@
+            <img src="~/image/isb_logo.jpg" alt="ISB" class="logo_size" >
         </a>
 
-        @* ── Active repository badge ── *@
+
+        <nav class="site-header__nav" aria-label="Primary navigation">
+            @if (_externalShareReadOnly)
+            {
+                <a href="/Share/Dashboard" class="active">@L["Dashboard"]</a>
+            }
+            else
+            {
+                <a asp-controller="Dashboard" asp-action="Index" class="@(_ctrl == "Dashboard" ? "active" : "")">@L["Dashboard"]</a>
+                <a asp-controller="Archive"   asp-action="Index" class="@(_ctrl == "Archive"   ? "active" : "")">@L["Archive"]</a>
+                <a asp-controller="Settings"  asp-action="Index" class="@(_ctrl == "Settings"  ? "active" : "")">@L["Settings"]</a>
+            }
+        </nav>
+
+         @* ── Active repository badge ── *@
         @if (!string.IsNullOrWhiteSpace(_displayRepoId))
         {
             var _badgeClass =
@@ -425,19 +444,7 @@
                 }
             </div>
         }
-
-        <nav class="site-header__nav" aria-label="Primary navigation">
-            @if (_externalShareReadOnly)
-            {
-                <a href="/Share/Dashboard" class="active">@L["Dashboard"]</a>
-            }
-            else
-            {
-                <a asp-controller="Dashboard" asp-action="Index" class="@(_ctrl == "Dashboard" ? "active" : "")">@L["Dashboard"]</a>
-                <a asp-controller="Archive"   asp-action="Index" class="@(_ctrl == "Archive"   ? "active" : "")">@L["Archive"]</a>
-                <a asp-controller="Settings"  asp-action="Index" class="@(_ctrl == "Settings"  ? "active" : "")">@L["Settings"]</a>
-            }
-        </nav>
+        <span class="lang-sep">|</span>
         <div class="lang-switcher" aria-label="Language">
             <a href="/SetCulture?culture=en&returnUrl=@_returnUrl" class="@(!_isRtl ? "lang-active" : "")">@L["LangEn"]</a>
             <span class="lang-sep">|</span>
