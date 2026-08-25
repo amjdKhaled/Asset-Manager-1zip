@@ -206,10 +206,12 @@ footer.site-footer { background: #F7F8FD !important; }
 .folder-kpi-icon { color: white; display: flex; align-items: flex-start; justify-content: center; }
 .folder-kpi-value { font-size: 40px; font-weight: 700; line-height: 1; }
 .folder-kpi-label { font-size: 14px; font-weight: 400; color: rgba(255, 255, 255, 0.95); }
-.template-percent { display:flex; align-items:center; gap:10px; width:100%; }
-.template-percent-text { min-width:45px; flex-shrink:0; font-size:11px; color:#64748B; font-variant-numeric:tabular-nums; text-align:end; }
-.template-progress-track { position:relative; width:min(320px,100%); min-width:140px; height:8px; background:#EEF2F2; border-radius:999px; overflow:hidden; }
-.template-progress-fill { position:absolute; inset-block:0; inset-inline-start:0; background:#0B66D4; border-radius:999px; min-width:2px; }
+.template-percent-cell { width:40%; min-width:320px; }
+.template-percent-chart { display:flex; align-items:center; gap:12px; width:100%; }
+.template-percent-canvas { position:relative; flex:1 1 auto; min-width:0; height:28px; }
+.template-percent-canvas canvas { width:100% !important; height:28px !important; }
+.totalPercentText { min-width:48px; flex-shrink:0; font-size:11px; color:#64748B; font-variant-numeric:tabular-nums; white-space:nowrap; text-align:end; }
+@@media(max-width:700px){.template-percent-cell{min-width:220px}.totalPercentText{min-width:42px}.template-percent-chart{gap:8px}}
 </style>
 }
 
@@ -397,23 +399,18 @@ footer.site-footer { background: #F7F8FD !important; }
                 @for (var i = 0; i < s.TemplateStats.Count; i++)
                 {
                     var t = s.TemplateStats[i];
-                    var percent = s.TotalDocuments > 0 ? (double)t.Count / s.TotalDocuments * 100 : 0;
-                    var percentWidth = percent.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
                     <tr >
                         <td style="color:var(--d-muted)">@(i + 1)</td>
                         <td style="font-weight:500">@t.Name</td>
                         <td style="color:var(--d-text);font-weight:600">@t.Count.ToString("N0")</td>
-                        <td style="color:var(--d-muted)">
-                            <div class="template-percent">
-                                
-                                <div class="template-progress-track" aria-label="@percent.ToString("0.0")%">
-                                    
-                                    <div class="template-progress-fill" style="width:@(percentWidth)%"></div>
-                                    
-                                </div>
-                                <span class="template-percent-text">@percent.ToString("0.0")%</span>
-                            </div>
-                        </td>
+                        <td class="template-percent-cell" style="color:var(--d-muted)">
+                  <div class="template-percent-chart">
+                      <div class="template-percent-canvas">
+                          <canvas class="totalPercent" data-index="@i"></canvas>
+                      </div>
+                      <span class="totalPercentText"></span>
+                  </div>
+              </td>
                     </tr>
                 }
                 
@@ -622,6 +619,8 @@ const templateLabels = @Html.Raw(JsonSerializer.Serialize(tmplLabels));
 const templateData   = @Html.Raw(JsonSerializer.Serialize(tmplData));
 const totalDocuments = @s.TotalDocuments;
 
+const isRtlPercent = document.documentElement.dir === "rtl";
+
 document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
     const count = Number(templateData[index] ?? 0);
     const percent = totalDocuments > 0 ? (count / totalDocuments) * 100 : 0;
@@ -630,16 +629,50 @@ document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
 
     new Chart(canvas, {
         type:"bar",
-        data:{labels:[templateLabels[index]],datasets:[{
-            label:templateLabels[index],data:[percent],
-            backgroundColor:"#044FC2"+"cc",
-            borderColor:"#044FC2",borderWidth:0,borderRadius:4,
-            barPercentage:0.3,categoryPercentage:1
-        }]},
+        data:{
+            labels:[""],
+            datasets:[
+                {
+                    label:"100%",
+                    data:[100],
+                    backgroundColor:"#EEF2F2",
+                    borderWidth:0,
+                    borderRadius:999,
+                    borderSkipped:false,
+                    grouped:false,
+                    barThickness:8,
+                    order:2
+                },
+                {
+                    label:templateLabels[index],
+                    data:[percent],
+                    backgroundColor:"#0B66D4",
+                    borderWidth:0,
+                    borderRadius:999,
+                    borderSkipped:false,
+                    grouped:false,
+                    barThickness:8,
+                    order:1
+                }
+            ]
+        },
         options:{
-            responsive:true,maintainAspectRatio:false,indexAxis:"y",
-            plugins:{legend:{display:false},tooltip:{...TOOLTIP,callbacks:{label:()=>`${percent.toFixed(1)}%`}}},
-            scales:{x:{min:0,max:100,display:false},y:{display:false}}
+            responsive:true,
+            maintainAspectRatio:false,
+            indexAxis:"y",
+            animation:{duration:400},
+            plugins:{
+                legend:{display:false},
+                tooltip:{
+                    ...TOOLTIP,
+                    filter:item=>item.datasetIndex===1,
+                    callbacks:{label:()=>`${percent.toFixed(1)}%`}
+                }
+            },
+            scales:{
+                x:{min:0,max:100,reverse:isRtlPercent,display:false,grid:{display:false},border:{display:false}},
+                y:{display:false,grid:{display:false},border:{display:false}}
+            }
         }
     });
 });
