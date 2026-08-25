@@ -85,58 +85,64 @@
 
         /* ── Repository badge ── */
         .repo-badge {
+            height: 27px;
             display: flex;
             align-items: center;
-            gap: 6px;
-            padding: 4px 10px;
-            border-radius: 100px;
-            background: rgba(255,255,255,.1);
-            color: rgba(255, 255, 255, 0.85);
-            font-size: .8rem;
-            font-weight: 500;
+            gap: 5px;
+            padding: 2px 7px;
+            border-radius: 999px;
+            background: #f0fff7;
+            color: #14885d;
+            font-size: .72rem;
+            font-weight: 600;
+            line-height: 1;
             margin: 0 4px;
             flex-shrink: 1;
             min-width: 0;
             max-width: 240px;
-            border: 1px solid rgba(255,255,255,.1);
+            border: 1px solid #35bf84;
             overflow: hidden;
             margin-inline-start: auto;
+            box-shadow: none;
         }
-        .repo-badge--desktop {
-            background: rgba(59,130,246,.2);
-            border-color: rgba(59,130,246,.4);
-        }
+        .repo-badge--desktop,
         .repo-badge--webclient {
-            background: rgba(16,163,74,.18);
-            border-color: rgba(16,163,74,.4);
+            background: #f0fff7;
+            border-color: #35bf84;
+            color: #14885d;
         }
         .repo-badge__dot {
-            width: 6px;
-            height: 6px;
+            width: 5px;
+            height: 5px;
             border-radius: 50%;
-            background: rgba(255,255,255,.5);
+            background: #10ad6b;
             flex-shrink: 0;
         }
-        .repo-badge__dot--desktop   { background: #60a5fa; }
-        .repo-badge__dot--webclient { background: #4ade80; }
+        .repo-badge__dot--desktop,
+        .repo-badge__dot--webclient { background: #10ad6b; }
         .repo-badge__name {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            color: #238760;
+            font-weight: 600;
         }
         .repo-badge__src {
-            font-size: .625rem;
-            font-weight: 700;
+            font-size: .56rem;
+            font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: .04em;
-            background: rgba(59,130,246,.6);
+            letter-spacing: .01em;
+            background: #0eaf69;
             color: #fff;
-            padding: 1px 5px;
-            border-radius: 3px;
+            padding: 2px 6px;
+            border-radius: 999px;
             flex-shrink: 0;
+            line-height: 1.05;
         }
+        .repo-badge--desktop .repo-badge__src,
         .repo-badge--webclient .repo-badge__src {
-            background: rgba(16,163,74,.7);
+            background: #0eaf69;
+            color: #fff;
         }
 
         /* ── Main content ── */
