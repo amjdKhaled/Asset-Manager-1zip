@@ -1,37 +1,46 @@
 using LFPortal.Application.Interfaces;
+using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Authentication;
 using LFPortal.Web.Middleware;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace LFPortal.Web.Controllers;
 
 /// <summary>
-/// Creates a clean Dashboard-owned authentication boundary for a Web Client launch,
-/// then presents a brief transition page before starting the supported LFDS flow.
+/// Handles Dashboard launches coming from the Laserfiche Web Client.
+/// Repository-password mode preserves the Dashboard authentication flow, while
+/// LFDS mode creates a clean authentication boundary before starting SSO.
 /// </summary>
 public sealed class LaunchController : Controller
 {
     private readonly ILaserficheAuthService _authService;
     private readonly ISessionCredentialStore _sessionCredentialStore;
     private readonly IOAuthTransactionCookie _oAuthTransactionCookie;
+    private readonly IOptionsMonitor<LaserficheOptions> _options;
     private readonly ILogger<LaunchController> _logger;
 
     public LaunchController(
         ILaserficheAuthService authService,
         ISessionCredentialStore sessionCredentialStore,
         IOAuthTransactionCookie oAuthTransactionCookie,
+        IOptionsMonitor<LaserficheOptions> options,
         ILogger<LaunchController> logger)
     {
         _authService = authService;
         _sessionCredentialStore = sessionCredentialStore;
         _oAuthTransactionCookie = oAuthTransactionCookie;
+        _options = options;
         _logger = logger;
     }
 
     /// <summary>
-    /// Clears only state owned by Dashboard and renders the LFDS transition page.
-    /// Neither Laserfiche Web Client cookies nor LFDS cookies are read or modified.
+    /// Accepts a validated Web Client launch. In RepositoryPassword mode the route
+    /// only records the repository/source and continues to the requested Dashboard
+    /// page; the auth guard will show /Login once if authentication is still needed.
+    /// In LFDS SSO mode it clears Dashboard-owned auth state and starts the supported
+    /// LFDS transition flow.
     /// </summary>
     [HttpGet("/Launch")]
     [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
@@ -52,11 +61,37 @@ public sealed class LaunchController : Controller
 
         var repositoryId = repository!.Trim();
         var safeReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl! : "/Dashboard";
+
+        // RepositoryPassword already owns its authentication through /Login. Do not
+        // clear the cookie/session here and do not send the browser through StartSso.
+        // If the browser is not authenticated (or is authenticated for another repo),
+        // SessionAuthGuardMiddleware will redirect to /Login exactly once on the next
+        // protected request. After a successful POST /Login, returning through /Launch
+        // therefore continues directly to the Dashboard instead of asking for login again.
+        if (_options.CurrentValue.AuthenticationMode ==
+            LaserficheAuthenticationMode.RepositoryPassword)
+        {
+            HttpContext.Session.SetString(
+                RepositorySessionMiddleware.SessionKeyRepositoryId,
+                repositoryId);
+            HttpContext.Session.SetString(
+                RepositorySessionMiddleware.SessionKeySource,
+                RepositorySessionMiddleware.SourceWebClient);
+
+            _logger.LogInformation(
+                "Web Client launch using RepositoryPassword. Repository={RepositoryId}; " +
+                "preserving Dashboard auth state and redirecting to {RedirectTarget}.",
+                repositoryId,
+                safeReturnUrl);
+
+            return LocalRedirect(safeReturnUrl);
+        }
+
         var oldUser = User.Identity?.Name ??
             HttpContext.Session.GetString(LoginController.SessionKeyAuthenticatedUser) ?? "(unknown)";
 
-        // Invalidate before removing scope keys: token invalidation needs the old
-        // Dashboard session identity to locate the correct per-user cache generation.
+        // LFDS mode: invalidate before removing scope keys because token invalidation
+        // needs the old Dashboard session identity to locate the correct cache generation.
         await _authService.InvalidateCurrentSessionTokensAsync();
         await HttpContext.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
         _oAuthTransactionCookie.Delete(HttpContext);
