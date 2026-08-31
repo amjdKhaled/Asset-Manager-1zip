@@ -1,6 +1,7 @@
 using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Common;
+using LFPortal.Infrastructure.Options;
 using LFPortal.Web.Authentication;
 using LFPortal.Web.Controllers;
 using Microsoft.AspNetCore.Authentication;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace LFPortal.Web.Tests;
@@ -21,7 +23,8 @@ public sealed class LaunchControllerTests
         var auth = new SpyAuthService();
         var credentials = new SpyCredentialStore();
         var correlation = new SpyOAuthCookie();
-        var (controller, session, context) = MakeController(auth, credentials, correlation);
+        var (controller, session, context) = MakeController(
+            auth, credentials, correlation, LaserficheAuthenticationMode.LfdsSso);
         session.SetString("ActiveRepositoryId", "OldRepo");
         session.SetString("ActiveRepositorySource", "Laserfiche Web Client");
         session.SetString("AuthenticatedRepositoryId", "OldRepo");
@@ -55,10 +58,37 @@ public sealed class LaunchControllerTests
     }
 
     [Fact]
+    public async Task Launch_WebClient_RepositoryPassword_PreservesAuthAndRedirectsToDashboard()
+    {
+        var auth = new SpyAuthService();
+        var credentials = new SpyCredentialStore();
+        var correlation = new SpyOAuthCookie();
+        var (controller, session, context) = MakeController(
+            auth, credentials, correlation, LaserficheAuthenticationMode.RepositoryPassword);
+
+        session.SetString("AuthenticatedRepositoryId", "TestEmployee");
+        session.SetString("AuthenticatedLaserficheUser", "admin");
+
+        var result = await controller.Index("TestEmployee", "webclient");
+
+        var redirect = Assert.IsType<LocalRedirectResult>(result);
+        Assert.Equal("/Dashboard", redirect.Url);
+        Assert.Equal("TestEmployee", session.GetString("ActiveRepositoryId"));
+        Assert.Equal("Laserfiche Web Client", session.GetString("ActiveRepositorySource"));
+        Assert.Equal("TestEmployee", session.GetString("AuthenticatedRepositoryId"));
+        Assert.Equal("admin", session.GetString("AuthenticatedLaserficheUser"));
+        Assert.False(auth.Invalidated);
+        Assert.False(credentials.Cleared);
+        Assert.False(correlation.Deleted);
+        Assert.DoesNotContain("Dashboard.Cookie=;", context.Response.Headers.SetCookie.ToString());
+    }
+
+    [Fact]
     public async Task Launch_PreservesSafeLocalReturnUrl()
     {
         var (controller, _, _) = MakeController(
-            new SpyAuthService(), new SpyCredentialStore(), new SpyOAuthCookie());
+            new SpyAuthService(), new SpyCredentialStore(), new SpyOAuthCookie(),
+            LaserficheAuthenticationMode.LfdsSso);
 
         var result = await controller.Index(
             "NewLfRepo", "webclient", "/Dashboard?repository=NewLfRepo");
@@ -73,7 +103,8 @@ public sealed class LaunchControllerTests
     public async Task Launch_RejectsNonWebClientSource()
     {
         var (controller, _, _) = MakeController(
-            new SpyAuthService(), new SpyCredentialStore(), new SpyOAuthCookie());
+            new SpyAuthService(), new SpyCredentialStore(), new SpyOAuthCookie(),
+            LaserficheAuthenticationMode.RepositoryPassword);
 
         var result = await controller.Index("TestEmployee", "unknown");
 
@@ -99,7 +130,8 @@ public sealed class LaunchControllerTests
         MakeController(
             SpyAuthService auth,
             SpyCredentialStore credentials,
-            SpyOAuthCookie correlation)
+            SpyOAuthCookie correlation,
+            LaserficheAuthenticationMode authenticationMode)
     {
         var context = new DefaultHttpContext();
         var session = new TestSession();
@@ -108,14 +140,20 @@ public sealed class LaunchControllerTests
         services.AddLogging();
         services.AddDataProtection();
         services.AddControllersWithViews();
+        services.Configure<LaserficheOptions>(options =>
+        {
+            options.AuthenticationMode = authenticationMode;
+        });
         services.AddAuthentication(DashboardAuthenticationDefaults.Scheme)
             .AddCookie(DashboardAuthenticationDefaults.Scheme);
-        context.RequestServices = services.BuildServiceProvider();
+        var provider = services.BuildServiceProvider();
+        context.RequestServices = provider;
 
         var controller = new LaunchController(
             auth,
             credentials,
             correlation,
+            provider.GetRequiredService<IOptionsMonitor<LaserficheOptions>>(),
             NullLogger<LaunchController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = context },
