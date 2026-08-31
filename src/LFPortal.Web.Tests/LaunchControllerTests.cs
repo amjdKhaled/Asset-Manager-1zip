@@ -49,11 +49,16 @@ public sealed class LaunchControllerTests
         Assert.True(credentials.Cleared);
         Assert.True(correlation.Deleted);
         Assert.Contains("Dashboard.Cookie", context.Response.Headers.SetCookie.ToString());
+
+        // LFDS launch cleanup removes old authenticated-user state, then deliberately
+        // restores only the validated repository/source routing markers for the
+        // continuation through StartSso.
+        Assert.Equal("TestEmployee", session.GetString("ActiveRepositoryId"));
+        Assert.Equal("Laserfiche Web Client", session.GetString("ActiveRepositorySource"));
         Assert.All(new[]
         {
-            "ActiveRepositoryId", "ActiveRepositorySource", "AuthenticatedRepositoryId",
-            "AuthenticatedLaserficheUser", "OAuth_PendingState", "AuthenticationScopeMethod",
-            "AuthenticationScopeSubject",
+            "AuthenticatedRepositoryId", "AuthenticatedLaserficheUser", "OAuth_PendingState",
+            "AuthenticationScopeMethod", "AuthenticationScopeSubject",
         }, key => Assert.Null(session.GetString(key)));
     }
 
