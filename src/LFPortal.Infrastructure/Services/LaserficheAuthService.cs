@@ -230,6 +230,24 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                     "The External Share repository session has expired. Sign in again.");
             }
 
+            // A browser identity established by either interactive login flow owns a
+            // user-specific token. If that token disappears from the cache, never fall
+            // through to the machine/service-account credential provider: doing so could
+            // silently change the Laserfiche user behind an already authenticated browser.
+            // Force the interactive session to authenticate again instead.
+            if (IsInteractiveDashboardPrincipal())
+            {
+                var method = _httpContextAccessor.HttpContext?.User
+                    .FindFirst(ClaimTypes.AuthenticationMethod)?.Value ?? "interactive";
+                _logger.LogInformation(
+                    "[LF AUTH] Interactive {AuthenticationMethod} token expired or missing for repository {RepoId}; " +
+                    "configured fallback credentials will not be used.",
+                    method,
+                    repository.RepositoryId);
+                throw new UnauthorizedAccessException(
+                    "The interactive Laserfiche session token is no longer available. Sign in again.");
+            }
+
             var credentials = await _credentialProvider
                 .GetCredentialsAsync(repository.Key, cancellationToken)
                 .ConfigureAwait(false);
@@ -270,6 +288,24 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         {
             return _httpContextAccessor.HttpContext?.Session
                 .GetString("ExternalShare.Authenticated") == "true";
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool IsInteractiveDashboardPrincipal()
+    {
+        try
+        {
+            var user = _httpContextAccessor.HttpContext?.User;
+            if (user?.Identity?.IsAuthenticated != true)
+                return false;
+
+            var method = user.FindFirst(ClaimTypes.AuthenticationMethod)?.Value;
+            return string.Equals(method, "LFDS", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(method, "RepositoryPassword", StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
