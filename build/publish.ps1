@@ -1002,7 +1002,7 @@ else {
     # PathUtil.SanitizeDir must strip the trailing \. so appsettings.json ends up
     # at exactly <WebApp>\appsettings.json (not <WebApp>.\appsettings.json).
     #
-    # Repository args are absent: the repository is runtime session context.
+    # Exercise the full first-run contract populated by the professional wizard.
     # --config-dir redirects the ProgramData writes into the temp folder so
     # the smoke test never touches the build machine's real configuration.
     $smokeWebAppArg = $smokeWebApp + "\."   # reproduces [WEBAPPFOLDER]. MSI behavior
@@ -1013,7 +1013,13 @@ else {
             "--write-config",
             "--url",        ("http://{0}:5000" -f $env:COMPUTERNAME.ToLowerInvariant()),
             "--lf-api",     "https://localhost/LFRepositoryAPI",
+            "--server-url", "https://localhost",
+            "--api-base-path", "/LFRepositoryAPI",
             "--api-version", "Auto",
+            "--repo-id", "TestEmployee",
+            "--display-name", "Test Employee Repository",
+            "--root-entry-id", "1",
+            "--timeout-seconds", "30",
             "--port",       "5000",
             "--webapp-path", $smokeWebAppArg,
             "--config-dir",  $smokeConfig
@@ -1084,7 +1090,7 @@ else {
     #    nested object:  { "Laserfiche": { "ServerUrl": ..., "ApiBasePath": ...,
     #    "ApiVersion": ..., "TimeoutSeconds": ..., "CredentialProvider": ... } }
     #    ServerUrl lives under .Laserfiche, NOT at the top level.
-    #    RepositoryId / DisplayName must never appear anywhere in the file.
+    #    RepositoryId / DisplayName are selected in the installer wizard.
     if ($smokeLfJsonOk) {
         $lfRaw = Get-Content $smokeLfConfig -Raw
         Write-Host "     Generated laserfiche.config.json:" -ForegroundColor Gray
@@ -1096,7 +1102,7 @@ else {
         } else {
             $lfSection   = $lfObj.Laserfiche
             $lfPropNames = @($lfSection.PSObject.Properties.Name)
-            $expectedLfApi = "https://localhost/LFRepositoryAPI"
+            $expectedLfApi = "https://localhost"
             if ($lfPropNames -contains "ServerUrl") {
                 if ($lfSection.ServerUrl -ne $expectedLfApi) {
                     $smokeErrors.Add("Laserfiche.ServerUrl mismatch. Expected: $expectedLfApi -- Actual: $($lfSection.ServerUrl)")
@@ -1113,14 +1119,12 @@ else {
             } else {
                 $smokeErrors.Add("laserfiche.config.json is missing Laserfiche.ApiVersion.")
             }
-        }
-        # RepositoryId / DisplayName must not appear anywhere in the file
-        # (raw text scan covers both top-level and nested placement).
-        if ($lfRaw -match '"RepositoryId"') {
-            $smokeErrors.Add("laserfiche.config.json must not contain RepositoryId (repository is runtime context, not install config).")
-        }
-        if ($lfRaw -match '"DisplayName"') {
-            $smokeErrors.Add("laserfiche.config.json must not contain DisplayName (repository is runtime context, not install config).")
+            if ($lfSection.RepositoryId -ne "TestEmployee") {
+                $smokeErrors.Add("Laserfiche.RepositoryId mismatch. Expected: TestEmployee -- Actual: $($lfSection.RepositoryId)")
+            }
+            if ($lfSection.DisplayName -ne "Test Employee Repository") {
+                $smokeErrors.Add("Laserfiche.DisplayName mismatch. Expected: Test Employee Repository -- Actual: $($lfSection.DisplayName)")
+            }
         }
     }
 
@@ -1190,6 +1194,9 @@ else {
     if (Test-Path $lfConfigPath) {
         (Get-Content $lfConfigPath -Raw) -replace '"ApiVersion":\s*"[^"]*"', '"ApiVersion": "v1"' |
             Set-Content $lfConfigPath -NoNewline
+        $runtimeConfigPath = Join-Path $smokeConfig "laserfiche.runtime.json"
+        (Get-Content $runtimeConfigPath -Raw) -replace '"ApiVersion":\s*"[^"]*"', '"ApiVersion": "v1"' |
+            Set-Content $runtimeConfigPath -NoNewline
 
         $smokeStdout2 = Join-Path $smokeDir "smoke_stdout_repair.txt"
         $repairProc = Start-Process -FilePath $setupHelperStaged `
