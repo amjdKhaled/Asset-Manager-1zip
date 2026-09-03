@@ -30,7 +30,11 @@
 
 ## Steps to upgrade
 
-1. **Run the new MSI** as Administrator:
+1. **Run the new `LFDashboard-Setup.exe`** as Administrator. The wizard detects
+   the existing installation and performs the upgrade while retaining the
+   saved machine configuration.
+
+   For managed MSI deployment:
 
    ```cmd
    msiexec /i Dashboard-1.x.x-Setup.msi /quiet /norestart
@@ -92,6 +96,15 @@ The MSI installer does not support automatic rollback to a previous version. To 
 2. Re-install the previous version: `msiexec /i Dashboard-1.x.x-Setup.msi`
 
 Configuration in `%ProgramData%\Dashboard\` is preserved across both steps.
+
+## Uninstall
+
+Run `LFDashboard-Setup.exe` again and choose **Uninstall**, or use Windows
+**Installed apps**. Normal uninstall keeps `%ProgramData%\Dashboard` so a later
+reinstall can reuse the connection configuration and DPAPI credentials.
+
+For a permanent decommission, select the explicit cleanup checkbox in the
+uninstall confirmation to remove configuration, credentials, and logs too.
 
 ### Roll back the Web Client button
 

@@ -1,5 +1,15 @@
 # Dashboard — Release Notes
 
+## Installer maintenance update
+
+- Added a clear maintenance screen when the setup EXE is run on an installed computer.
+- Added one-click Repair and confirmed Uninstall operations.
+- Added an optional, unchecked full-cleanup choice for ProgramData configuration, credentials, and logs.
+- Added TCP port conflict validation before IIS changes begin.
+- Added 64-bit Windows validation and standard Add/Remove Programs metadata.
+- Added SHA-256 checksum generation and a Windows GitHub Actions installer build.
+- Fixed the Desktop Client registration option so an unchecked option is respected.
+
 ---
 
 ## Version 1.0.0 — 2026-08-01

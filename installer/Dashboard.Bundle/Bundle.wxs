@@ -39,6 +39,8 @@
           Version="$(BundleVersion)"
           Manufacturer="Dashboard"
           UpgradeCode="{B8E4D3C2-A5F6-4782-0BCD-E23456789012}"
+          AboutUrl="https://github.com/amjdKhaled/Asset-Manager-1zip"
+          HelpUrl="https://github.com/amjdKhaled/Asset-Manager-1zip/issues"
           Copyright="Copyright (c) 2026 Dashboard">
 
     <!--
@@ -169,6 +171,8 @@
     <Variable Name="LFWebClientPath"      Type="string"  Value=""     Persisted="yes" />
     <Variable Name="InstallDesktopButton" Type="numeric" Value="1"    Persisted="yes" />
     <Variable Name="InstallWebButton"     Type="numeric" Value="0"    Persisted="yes" />
+    <!-- Never persisted: each destructive cleanup requires fresh confirmation. -->
+    <Variable Name="RemoveUserData"       Type="numeric" Value="0" />
     <!--
       TrustLFCertificate: "1" when the operator checked the wizard's
       "Trust the detected Laserfiche certificate on this machine" checkbox
@@ -305,6 +309,7 @@
         <MsiProperty Name="INSTALL_WEB_BUTTON"     Value="[InstallWebButton]" />
         <MsiProperty Name="DASHBOARD_PORT"         Value="[DashboardPort]" />
         <MsiProperty Name="TRUST_LF_CERT"          Value="[TrustLFCertificate]" />
+        <MsiProperty Name="REMOVE_USER_DATA"       Value="[RemoveUserData]" />
 
       </MsiPackage>
 

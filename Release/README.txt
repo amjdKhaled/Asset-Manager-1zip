@@ -1,22 +1,37 @@
-Laserfiche Dashboard - Installation Instructions
-================================================
+Laserfiche Dashboard - Windows Setup
+====================================
 
-1. Right-click LFDashboard-Setup.exe and choose "Run as administrator".
-2. Follow the setup wizard (environment is detected automatically).
-3. Enter your Laserfiche server connection details when prompted.
+INSTALL
+1. Keep all files in this Release folder together.
+2. Right-click LFDashboard-Setup.exe and choose "Run as administrator".
+3. Confirm the detected Laserfiche API URL and optional integrations.
 4. Click Install.
 
-After installation, open your browser to http://YOURSERVER:5000 to access Dashboard.
+The installer selects this computer's hostname automatically. Advanced Settings
+contains the IIS port and optional Desktop/Web Client integrations. The selected
+port must be free on the target computer.
 
-Prerequisites (required before running the installer):
-  - Windows Server 2016 or later with IIS installed
-  - ASP.NET Core 8 Hosting Bundle:
+REPAIR OR REMOVE
+Run LFDashboard-Setup.exe again after installation:
+  - Repair restores installed program files and components.
+  - Uninstall removes the app, IIS site/app pool, shortcuts, and integrations.
+
+Saved configuration, credentials, and logs in %ProgramData%\Dashboard are kept
+by default. During uninstall, select the cleanup checkbox only when you also
+want those saved files permanently deleted.
+
+You can also uninstall from Windows Installed apps or the Start Menu shortcut.
+
+PREREQUISITES
+  - 64-bit Windows Server 2019/2022 or Windows 10/11 with IIS
+  - ASP.NET Core Module V2 (installed by the Windows Hosting Bundle):
     https://dotnet.microsoft.com/download/dotnet/8.0
-    (Download the "Windows Hosting Bundle")
-  - Microsoft Edge WebView2 Runtime (required for Desktop Extension):
+  - Microsoft Edge WebView2 Runtime (Desktop Extension only):
     https://developer.microsoft.com/microsoft-edge/webview2/
 
-For upgrade: run LFDashboard-Setup.exe again.
-For uninstall: use Apps & Features in Windows Settings.
+VERIFY DOWNLOAD
+Compare LFDashboard-Setup.exe against SHA256SUMS.txt with:
+  certutil -hashfile LFDashboard-Setup.exe SHA256
 
-Support: contact your system administrator.
+Support and source:
+https://github.com/amjdKhaled/Asset-Manager-1zip

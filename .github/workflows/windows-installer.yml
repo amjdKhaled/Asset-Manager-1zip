@@ -1,0 +1,54 @@
+name: Windows Installer
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "build/**"
+      - "config/**"
+      - "installer/**"
+      - "src/**"
+      - "Directory.Build.props"
+      - "LFPortal.sln"
+      - ".config/dotnet-tools.json"
+      - ".github/workflows/windows-installer.yml"
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build-installer:
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            **/*.wixproj
+            .config/dotnet-tools.json
+
+      - name: Build and validate installer
+        shell: powershell
+        run: .\build\publish.ps1
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Laserfiche-Dashboard-Windows-${{ github.sha }}
+          path: |
+            Release/LFDashboard-Setup.exe
+            Release/README.txt
+            Release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

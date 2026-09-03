@@ -34,6 +34,10 @@
 //       into LocalMachine\Root. Never bypasses TLS validation. Always
 //       exits 0 (best-effort; all outcomes logged with [TLS SETUP]).
 //
+//   --remove-data
+//       Deletes %ProgramData%\Dashboard after explicit confirmation in the
+//       maintenance UI. The path is fixed and accepts no caller override.
+//
 // Exit codes: 0 = success, 1 = error.
 // All diagnostic output goes to stdout/stderr (captured in MSI log).
 //
@@ -109,6 +113,10 @@ namespace Dashboard.SetupHelper
                         rc = TlsSetupAction.Execute(opts);
                         break;
 
+                    case "--remove-data":
+                        rc = RemoveDataAction.Execute();
+                        break;
+
                     default:
                         Console.Error.WriteLine($"Unknown command: {command}");
                         SetupLog.Error($"Unknown command: {command}");
@@ -138,6 +146,7 @@ namespace Dashboard.SetupHelper
             "--remove-webclient",
             "--rollback-webclient",
             "--prepare-tls",
+            "--remove-data",
         };
 
         // Parses "--key value" pairs from args starting at startIndex.
