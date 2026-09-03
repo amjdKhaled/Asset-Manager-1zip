@@ -1,300 +1,342 @@
-// WriteConfigAction.cs
-// Writes configuration files to %ProgramData%\Dashboard\ during installation.
-//
-// Called by the MSI WriteConfig custom action as:
-//   Dashboard.SetupHelper.exe --write-config
-//       --url          <dashboard-url>
-//       --lf-api       <laserfiche-api-url>
-//       --repo-id      <repository-id>       (LEGACY, optional; ignored by new MSI)
-//       --display-name <display-name>        (LEGACY, optional; ignored by new MSI)
-//       --port         <tcp-port>          (optional; omitted on direct-MSI repair)
-//       --webapp-path  <path-to-webappfolder>  (optional; required to write Urls)
-//
-// Both ProgramData files are always written (overwriting any existing content).
-// This is intentional: the wizard-entered values are the single source of truth.
-// NeverOverwrite in Configuration.wxs places the initial template files;
-// this action then writes the admin-specified values on top of them.
-//
-// When --webapp-path is supplied the action also patches the "Urls" key in
-// <webappfolder>\appsettings.json so the ASP.NET Core app binds to the
-// correct port when started outside IIS (e.g. via dotnet run or a service
-// wrapper).  Under IIS/ANCM the Urls value is overridden by IIS and is
-// therefore harmless but useful as a human-readable record of the chosen port.
-//
-// PORT PRESERVATION ON DIRECT-MSI REPAIR:
-//   When the MSI is repaired or upgraded directly (msiexec /fa, not via the
-//   Burn bundle), the DASHBOARD_PORT property has no default value — it is
-//   intentionally left blank, exactly like LF_API_VERSION.  This means --port
-//   is absent from the WriteConfig command line.  In that case this action
-//   reads the port already written in appsettings.json and re-uses it, so a
-//   non-default port (e.g. 8080) is never silently reset to 5000.
-//   If appsettings.json has no Urls key (fresh file), the fallback is 5000.
-//
-// Credentials are NEVER handled here (entered via Dashboard Settings page,
-// encrypted with Windows DPAPI, stored in %ProgramData%\Dashboard\credentials\).
-
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Dashboard.SetupHelper
 {
+    /// <summary>
+    /// Writes the complete first-run configuration selected in the setup wizard.
+    /// Credentials arrive only as a machine-DPAPI encrypted temporary package;
+    /// plain text never enters MSI properties, command lines, JSON, or logs.
+    /// </summary>
     internal static class WriteConfigAction
     {
         public static int Execute(Dictionary<string, string> opts)
         {
-            string dashUrl     = Opt(opts, "url");
-            string lfApiUrl    = Opt(opts, "lf-api");
-            string apiVersion  = Opt(opts, "api-version");
-            string repoId      = Opt(opts, "repo-id");
+            string dashboardUrl = Opt(opts, "url");
+            string fullApiUrl = Opt(opts, "lf-api");
+            string serverUrl = Opt(opts, "server-url");
+            string apiBasePath = Opt(opts, "api-base-path");
+            string apiVersion = Opt(opts, "api-version");
+            string repositoryId = Opt(opts, "repo-id");
             string displayName = Opt(opts, "display-name");
-            // INTENTIONALLY NO DEFAULT: when the property is empty (direct-MSI
-            // repair / upgrade without the bundle UI), WriteConfig reads the
-            // current port from appsettings.json and preserves it.  A non-default
-            // port (e.g. 8080) is never silently reset to 5000.
-            // Fresh installs with no existing appsettings.json default to 5000
-            // inside the port-resolution block below.
-            // This mirrors exactly how LF_API_VERSION is handled.
-            string portStr     = Opt(opts, "port");
-            // SanitizeDir: strips stray '"' characters produced by the MSI
-            // trailing-backslash-quote (\") escaping bug and any other invalid
-            // path characters.  Without this, Path.Combine on net48 throws
-            // "Illegal characters in path." and the install rolls back (1722).
-            string webAppPath  = PathUtil.SanitizeDir(Opt(opts, "webapp-path"));
-            // Optional override of the config directory (used by the build
-            // smoke test so it never touches the real %ProgramData%).
+            string rootEntryId = Opt(opts, "root-entry-id");
+            string timeoutSeconds = Opt(opts, "timeout-seconds");
+            string credentialFile = PathUtil.SanitizeDir(Opt(opts, "credential-file"));
+            string portText = Opt(opts, "port");
+            string webAppPath = PathUtil.SanitizeDir(Opt(opts, "webapp-path"));
             string configDirOverride = PathUtil.SanitizeDir(Opt(opts, "config-dir"));
 
-            SetupLog.Info($"WriteConfig: url='{dashUrl}' lf-api='{lfApiUrl}' api-version='{apiVersion}' " +
-                          $"port='{portStr}' webapp-path='{webAppPath}' config-dir='{configDirOverride}'");
+            SetupLog.Info(
+                $"WriteConfig: dashboard='{dashboardUrl}' server='{serverUrl}' api-base='{apiBasePath}' " +
+                $"api-version='{apiVersion}' repository='{repositoryId}' root='{rootEntryId}' " +
+                $"timeout='{timeoutSeconds}' credential-package=" +
+                (string.IsNullOrEmpty(credentialFile) ? "absent" : "present") +
+                $" port='{portText}' webapp-path='{webAppPath}' config-dir='{configDirOverride}'");
 
-            // --repo-id / --display-name are LEGACY arguments kept only so old
-            // command lines (repairs of previous MSIs) do not fail.  The
-            // repository is runtime session context, never install config.
-            // When absent, any RepositoryId already present in an existing
-            // laserfiche.config.json is preserved as a fallback default.
-
-            // Resolve the port:
-            //   1. If --port was supplied and is valid, use it (new install / bundle repair).
-            //   2. If --port was omitted or empty (direct-MSI repair), read the
-            //      current port from appsettings.json so the existing setting is
-            //      preserved rather than silently reset to 5000.
-            //   3. Fall back to 5000 only when neither source has a usable value.
-            int port;
-            if (!string.IsNullOrEmpty(portStr))
-            {
-                if (!int.TryParse(portStr, out port) || port < 1 || port > 65535)
-                {
-                    Console.Error.WriteLine($"[SetupHelper] Warning: invalid --port value '{portStr}'; defaulting to 5000.");
-                    port = 5000;
-                }
-            }
-            else
-            {
-                // --port not supplied: preserve the port already in appsettings.json
-                // (direct-MSI repair path — Burn persisted variables are not passed
-                // when the MSI is invoked directly without the bundle wizard).
-                int existing = JsonHelpers.ReadPortFromAppsettings(webAppPath);
-                if (existing > 0)
-                {
-                    port = existing;
-                    SetupLog.Info($"WriteConfig: --port not supplied; preserved existing port {port} from appsettings.json.");
-                }
-                else
-                {
-                    port = 5000;
-                    SetupLog.Info("WriteConfig: --port not supplied and no existing Urls in appsettings.json; defaulting to 5000.");
-                }
-            }
-
-            // Resolve %ProgramData%\Dashboard\ without hard-coding C:\ProgramData
-            string programData  = Environment.GetFolderPath(
-                Environment.SpecialFolder.CommonApplicationData);
+            int port = ResolvePort(portText, webAppPath);
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             string dashboardDir = string.IsNullOrEmpty(configDirOverride)
                 ? Path.Combine(programData, "Dashboard")
                 : configDirOverride;
             Directory.CreateDirectory(dashboardDir);
 
-            Console.WriteLine($"[SetupHelper] Config directory: {dashboardDir}");
-            Console.WriteLine($"[SetupHelper] Port: {port}");
+            Console.WriteLine("[SetupHelper] Config directory: " + dashboardDir);
+            Console.WriteLine("[SetupHelper] Port: " + port);
 
-            int rc = 0;
-
-            // -- extension.config.json (Desktop Extension popup URL) ----------
-            if (!string.IsNullOrEmpty(dashUrl))
+            if (!string.IsNullOrEmpty(dashboardUrl))
             {
-                string extPath = Path.Combine(dashboardDir, "extension.config.json");
-                string extJson = BuildExtensionConfig(dashUrl);
-                File.WriteAllText(extPath, extJson, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-                Console.WriteLine($"[SetupHelper] Wrote: {extPath}");
+                string extensionPath = Path.Combine(dashboardDir, "extension.config.json");
+                WriteUtf8Atomic(extensionPath, BuildExtensionConfig(dashboardUrl));
+                Console.WriteLine("[SetupHelper] Wrote: " + extensionPath);
+            }
+
+            if (!string.IsNullOrEmpty(fullApiUrl) || !string.IsNullOrEmpty(serverUrl))
+            {
+                string installerPath = Path.Combine(dashboardDir, "laserfiche.config.json");
+                string runtimePath = Path.Combine(dashboardDir, "laserfiche.runtime.json");
+                string existingPath = File.Exists(runtimePath) ? runtimePath : installerPath;
+
+                string json = BuildLaserficheConfig(
+                    serverUrl,
+                    fullApiUrl,
+                    apiBasePath,
+                    apiVersion,
+                    repositoryId,
+                    displayName,
+                    rootEntryId,
+                    timeoutSeconds,
+                    dashboardUrl,
+                    existingPath);
+
+                // Runtime config is last in the application's configuration
+                // order. Writing both files ensures installer choices replace
+                // stale Settings-page overrides during upgrade. The Settings
+                // page itself remains unchanged and can edit runtime config later.
+                WriteUtf8Atomic(installerPath, json);
+                WriteUtf8Atomic(runtimePath, json);
+                Console.WriteLine("[SetupHelper] Wrote: " + installerPath);
+                Console.WriteLine("[SetupHelper] Wrote: " + runtimePath);
             }
             else
             {
-                Console.WriteLine("[SetupHelper] Warning: --url not provided; extension.config.json not updated.");
+                Console.WriteLine("[SetupHelper] Warning: connection configuration was not updated.");
             }
 
-            // -- laserfiche.config.json (Web app connection settings) ----------
-            if (!string.IsNullOrEmpty(lfApiUrl))
-            {
-                string lfPath = Path.Combine(dashboardDir, "laserfiche.config.json");
+            if (!string.IsNullOrEmpty(credentialFile))
+                ImportCredentials(credentialFile, dashboardDir);
 
-                // Merge: preserve ServerUrl/ApiBasePath/ApiVersion/Timeout from any
-                // existing file.  RepositoryId and DisplayName are intentionally NOT
-                // preserved — they are runtime session context, never install config.
-                // Any legacy values in an existing file are actively dropped on write.
-                string lfJson = BuildLaserficheConfig(
-                    serverUrl:    lfApiUrl,
-                    apiVersion:   apiVersion,
-                    existingPath: lfPath);
+            PatchApplicationUrl(webAppPath, port);
+            return 0;
+        }
 
-                File.WriteAllText(lfPath, lfJson, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-                Console.WriteLine($"[SetupHelper] Wrote: {lfPath}");
-            }
-            else
+        private static int ResolvePort(string portText, string webAppPath)
+        {
+            int port;
+            if (!string.IsNullOrEmpty(portText))
             {
-                Console.WriteLine("[SetupHelper] Warning: no Laserfiche parameters provided; laserfiche.config.json not updated.");
+                if (int.TryParse(portText, out port) && port >= 1 && port <= 65535)
+                    return port;
+                SetupLog.Warn("Invalid port '" + portText + "'; using 5000.");
+                return 5000;
             }
 
-            // -- appsettings.json Urls (port binding for the ASP.NET Core app) -
-            // Writes "Urls": "http://0.0.0.0:<port>" so the app binds the correct
-            // port when started outside IIS (e.g. via dotnet run or a service
-            // wrapper).  Under IIS/ANCM the value is overridden by IIS and is
-            // therefore harmless but serves as a human-readable record of the
-            // chosen port.
-            if (!string.IsNullOrEmpty(webAppPath))
+            int existing = JsonHelpers.ReadPortFromAppsettings(webAppPath);
+            if (existing > 0)
             {
-                string appSettingsPath = Path.Combine(webAppPath, "appsettings.json");
-                SetupLog.Info($"Resolved appsettings path: {appSettingsPath} (exists: {File.Exists(appSettingsPath)})");
-                if (File.Exists(appSettingsPath))
+                SetupLog.Info("Port omitted during direct MSI repair; preserved " + existing + ".");
+                return existing;
+            }
+            return 5000;
+        }
+
+        private static void PatchApplicationUrl(string webAppPath, int port)
+        {
+            if (string.IsNullOrEmpty(webAppPath))
+            {
+                Console.WriteLine("[SetupHelper] Web application path not supplied; Urls was not patched.");
+                return;
+            }
+
+            string appsettings = Path.Combine(webAppPath, "appsettings.json");
+            try
+            {
+                if (File.Exists(appsettings))
                 {
-                    try
-                    {
-                        string updated = JsonHelpers.SetJsonStringField(
-                            File.ReadAllText(appSettingsPath, Encoding.UTF8),
-                            "Urls",
-                            $"http://0.0.0.0:{port}");
-                        File.WriteAllText(appSettingsPath, updated, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-                        Console.WriteLine($"[SetupHelper] Patched Urls in: {appSettingsPath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine($"[SetupHelper] Warning: could not patch {appSettingsPath}: {ex.Message}");
-                        // Non-fatal: IIS binding is the authoritative port source.
-                    }
+                    string updated = JsonHelpers.SetJsonStringField(
+                        File.ReadAllText(appsettings, Encoding.UTF8),
+                        "Urls",
+                        "http://0.0.0.0:" + port);
+                    WriteUtf8Atomic(appsettings, updated);
                 }
                 else
                 {
-                    // NON-FATAL: appsettings.json missing must NEVER fail the
-                    // install.  Under IIS/ANCM the IIS binding (SetIisBindingPort
-                    // appcmd CA) is the authoritative port source.  Create a
-                    // minimal valid appsettings.json so the Urls record exists;
-                    // if even that fails, log a warning and continue.
-                    SetupLog.Warn($"{appSettingsPath} not found; creating a minimal appsettings.json.");
-                    try
-                    {
-                        string minimal =
-                            "{\r\n" +
-                            $"  \"Urls\": \"http://0.0.0.0:{port}\"\r\n" +
-                            "}\r\n";
-                        File.WriteAllText(appSettingsPath, minimal, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-                        SetupLog.Info($"Created minimal appsettings.json: {appSettingsPath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        SetupLog.Warn($"Could not create {appSettingsPath}: {ex.Message}. " +
-                                      "IIS binding remains the authoritative port source; installation continues.");
-                    }
-                    // rc stays 0 -- installation is NOT rolled back.
+                    WriteUtf8Atomic(appsettings,
+                        "{\r\n  \"Urls\": \"http://0.0.0.0:" + port + "\"\r\n}\r\n");
                 }
+                Console.WriteLine("[SetupHelper] Patched: " + appsettings);
             }
-            else
+            catch (Exception ex)
             {
-                Console.WriteLine("[SetupHelper] Note: --webapp-path not provided; appsettings.json Urls not updated.");
+                // IIS is authoritative. A standalone binding record is useful
+                // but must not roll back an otherwise valid IIS installation.
+                SetupLog.Warn("Could not patch appsettings.json Urls: " + ex.Message);
             }
-
-            return rc;
         }
 
-        // ----------------------------------------------------------------
-        // JSON builders -- no external dependencies, pure BCL.
-        // ----------------------------------------------------------------
-
-        private static string BuildExtensionConfig(string dashUrl)
+        private static string BuildExtensionConfig(string dashboardUrl)
         {
             return "{\r\n" +
-                   $"  \"portalUrl\": \"{JsonHelpers.EscJson(dashUrl.TrimEnd('/'))}\",\r\n" +
+                   "  \"portalUrl\": \"" + JsonHelpers.EscJson(dashboardUrl.TrimEnd('/')) + "\",\r\n" +
                    "  \"buttonLabel\": \"Dashboard\",\r\n" +
                    "  \"iconPath\": \"\"\r\n" +
                    "}\r\n";
         }
 
-        private static string BuildLaserficheConfig(
+        internal static string BuildLaserficheConfig(
             string serverUrl,
+            string fullApiUrl,
+            string apiBasePath,
             string apiVersion,
+            string repositoryId,
+            string displayName,
+            string rootEntryId,
+            string timeoutSeconds,
+            string dashboardUrl,
             string existingPath)
         {
-            // Load existing values so we do not lose fields not provided by the wizard.
-            // RepositoryId and DisplayName are intentionally NOT loaded or written:
-            // the repository is runtime session context (Desktop/Web Client launch URL
-            // or login-page selection) and must never be frozen at install time.
-            // Any legacy RepositoryId/DisplayName values in an existing config are
-            // silently dropped when this method rewrites the file.
-            // Fresh installs default to Auto (version auto-detection); a merge below
-            // preserves any explicit version already in the existing file — so
-            // upgrades of installs pinned to "v1" stay pinned (backward compatible).
-            string existingServerUrl  = "https://YOUR-LF-SERVER/LFRepositoryAPI";
-            string existingApiBase    = "/LFRepositoryAPI";
+            string existingServerUrl = "";
+            string existingApiBase = "/LFRepositoryAPI";
             string existingApiVersion = "Auto";
-            int    existingTimeout    = 30;
+            string existingRepository = "";
+            string existingDisplay = "";
+            string existingDashboardUrl = "";
+            string authenticationMode = "RepositoryPassword";
+            string lfdsBaseUrl = "";
+            string ssoClientId = "LFDashboard";
+            string ssoRedirectUri = "";
+            int existingRoot = 1;
+            int existingTimeout = 30;
 
             if (File.Exists(existingPath))
             {
-                try { ParseExistingLFConfig(existingPath, ref existingServerUrl, ref existingApiBase, ref existingApiVersion, ref existingTimeout); }
-                catch { /* parse failed -- use defaults */ }
+                try
+                {
+                    string existing = File.ReadAllText(existingPath, Encoding.UTF8);
+                    existingServerUrl = ReadString(existing, "ServerUrl", existingServerUrl);
+                    existingApiBase = ReadString(existing, "ApiBasePath", existingApiBase);
+                    existingApiVersion = ReadString(existing, "ApiVersion", existingApiVersion);
+                    existingRepository = ReadString(existing, "RepositoryId", existingRepository);
+                    existingDisplay = ReadString(existing, "DisplayName", existingDisplay);
+                    existingDashboardUrl = ReadString(existing, "DashboardPublicBaseUrl", existingDashboardUrl);
+                    authenticationMode = ReadString(existing, "AuthenticationMode", authenticationMode);
+                    lfdsBaseUrl = ReadString(existing, "LfdsBaseUrl", lfdsBaseUrl);
+                    ssoClientId = ReadString(existing, "ClientId", ssoClientId);
+                    ssoRedirectUri = ReadString(existing, "RedirectUri", ssoRedirectUri);
+                    existingRoot = ReadInt(existing, "RootEntryId", existingRoot, 1, int.MaxValue);
+                    existingTimeout = ReadInt(existing, "TimeoutSeconds", existingTimeout, 5, 300);
+                }
+                catch
+                {
+                    // Invalid old JSON is replaced by the validated wizard model.
+                }
             }
 
-            // Wizard-provided values always win over existing.
-            if (!string.IsNullOrEmpty(serverUrl))   existingServerUrl  = serverUrl;
-            if (!string.IsNullOrEmpty(apiVersion))  existingApiVersion = apiVersion;
+            if (string.IsNullOrWhiteSpace(serverUrl) && !string.IsNullOrWhiteSpace(fullApiUrl))
+                SplitFullApiUrl(fullApiUrl, out serverUrl, out apiBasePath);
+
+            string effectiveServer = FirstNonEmpty(serverUrl, existingServerUrl);
+            string effectiveApiBase = FirstNonEmpty(apiBasePath, existingApiBase, "/LFRepositoryAPI");
+            string effectiveVersion = FirstNonEmpty(apiVersion, existingApiVersion, "Auto");
+            string effectiveRepository = FirstNonEmpty(repositoryId, existingRepository);
+            string effectiveDisplay = FirstNonEmpty(displayName, existingDisplay, effectiveRepository);
+            string effectiveDashboardUrl = FirstNonEmpty(dashboardUrl, existingDashboardUrl);
+            int effectiveRoot = ParseIntOrDefault(rootEntryId, existingRoot, 1, int.MaxValue);
+            int effectiveTimeout = ParseIntOrDefault(timeoutSeconds, existingTimeout, 5, 300);
 
             return "{\r\n" +
                    "  \"Laserfiche\": {\r\n" +
-                   $"    \"ServerUrl\": \"{JsonHelpers.EscJson(existingServerUrl)}\",\r\n" +
-                   $"    \"ApiBasePath\": \"{JsonHelpers.EscJson(existingApiBase)}\",\r\n" +
-                   $"    \"ApiVersion\": \"{JsonHelpers.EscJson(existingApiVersion)}\",\r\n" +
-                   $"    \"TimeoutSeconds\": {existingTimeout},\r\n" +
-                   "    \"CredentialProvider\": \"DPAPI\"\r\n" +
+                   "    \"ServerUrl\": \"" + JsonHelpers.EscJson(effectiveServer.TrimEnd('/')) + "\",\r\n" +
+                   "    \"AuthenticationMode\": \"" + JsonHelpers.EscJson(authenticationMode) + "\",\r\n" +
+                   "    \"DashboardPublicBaseUrl\": \"" + JsonHelpers.EscJson(effectiveDashboardUrl.TrimEnd('/')) + "\",\r\n" +
+                   "    \"RepositoryId\": \"" + JsonHelpers.EscJson(effectiveRepository) + "\",\r\n" +
+                   "    \"DisplayName\": \"" + JsonHelpers.EscJson(effectiveDisplay) + "\",\r\n" +
+                   "    \"ApiBasePath\": \"/" + JsonHelpers.EscJson(effectiveApiBase.Trim('/')) + "\",\r\n" +
+                   "    \"ApiVersion\": \"" + JsonHelpers.EscJson(effectiveVersion) + "\",\r\n" +
+                   "    \"DetectedApiVersion\": \"\",\r\n" +
+                   "    \"RootEntryId\": " + effectiveRoot + ",\r\n" +
+                   "    \"TimeoutSeconds\": " + effectiveTimeout + ",\r\n" +
+                   "    \"CredentialProvider\": \"DPAPI\",\r\n" +
+                   "    \"Sso\": {\r\n" +
+                   "      \"LfdsBaseUrl\": \"" + JsonHelpers.EscJson(lfdsBaseUrl) + "\",\r\n" +
+                   "      \"ClientId\": \"" + JsonHelpers.EscJson(ssoClientId) + "\",\r\n" +
+                   "      \"RedirectUri\": \"" + JsonHelpers.EscJson(ssoRedirectUri) + "\"\r\n" +
+                   "    }\r\n" +
                    "  }\r\n" +
                    "}\r\n";
         }
 
-        // Minimal JSON field extractor for the Laserfiche config file.
-        // Uses simple string scanning -- avoids any JSON library dependency.
-        // NOTE: RepositoryId and DisplayName are intentionally NOT read here.
-        // They are runtime session state and must not be round-tripped through
-        // the installer even when present in a legacy config file.
-        private static void ParseExistingLFConfig(
-            string path,
-            ref string serverUrl,
-            ref string apiBase,
-            ref string apiVersion,
-            ref int timeout)
+        private static void ImportCredentials(string sourcePath, string dashboardDir)
         {
-            string text = File.ReadAllText(path, Encoding.UTF8);
-            serverUrl  = JsonHelpers.ExtractJsonString(text, "ServerUrl")    ?? serverUrl;
-            apiBase    = JsonHelpers.ExtractJsonString(text, "ApiBasePath")  ?? apiBase;
-            apiVersion = JsonHelpers.ExtractJsonString(text, "ApiVersion")   ?? apiVersion;
-            string? ts = JsonHelpers.ExtractJsonString(text, "TimeoutSeconds");
-            if (ts != null && int.TryParse(ts, out int t)) timeout = t;
+            if (!File.Exists(sourcePath))
+                throw new FileNotFoundException("The encrypted credential package was not found.", sourcePath);
+
+            byte[] encrypted = File.ReadAllBytes(sourcePath);
+            byte[] plain = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.LocalMachine);
+            try
+            {
+                string payload = Encoding.UTF8.GetString(plain);
+                int separator = payload.IndexOf('\n');
+                // Empty passwords are valid for some Laserfiche repository
+                // accounts; only the username and separator are mandatory.
+                if (separator <= 0)
+                    throw new InvalidDataException("The encrypted credential package is invalid.");
+
+                string credentialDirectory = Path.Combine(dashboardDir, "credentials");
+                Directory.CreateDirectory(credentialDirectory);
+                string destination = Path.Combine(credentialDirectory, HashFilename("default"));
+                string temporaryDestination = destination + ".new";
+                File.WriteAllBytes(temporaryDestination, encrypted);
+                if (File.Exists(destination)) File.Delete(destination);
+                File.Move(temporaryDestination, destination);
+                File.Delete(sourcePath);
+                try
+                {
+                    string sourceDirectory = Path.GetDirectoryName(sourcePath);
+                    if (!string.IsNullOrWhiteSpace(sourceDirectory)) Directory.Delete(sourceDirectory, false);
+                }
+                catch { }
+                Console.WriteLine("[SetupHelper] Imported DPAPI-protected service credentials.");
+            }
+            finally
+            {
+                Array.Clear(plain, 0, plain.Length);
+                Array.Clear(encrypted, 0, encrypted.Length);
+            }
         }
 
-        // Dictionary helper: net48-compatible alternative to GetValueOrDefault
-        // (that method was added in .NET Core 2.0 / .NET Standard 2.1 only).
-        private static string Opt(Dictionary<string, string> d, string key, string def = "")
+        private static string HashFilename(string repositoryKey)
         {
-            string v;
-            return d.TryGetValue(key, out v) ? v : def;
+            using (var sha = SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(repositoryKey));
+                var hex = new StringBuilder(hash.Length * 2);
+                foreach (byte value in hash) hex.Append(value.ToString("x2"));
+                return hex + ".dpapi";
+            }
+        }
+
+        private static void WriteUtf8Atomic(string path, string content)
+        {
+            string temporary = path + ".new";
+            File.WriteAllText(temporary, content, new UTF8Encoding(false));
+            if (File.Exists(path)) File.Delete(path);
+            File.Move(temporary, path);
+        }
+
+        private static void SplitFullApiUrl(string fullApiUrl, out string serverUrl, out string apiBasePath)
+        {
+            serverUrl = fullApiUrl.TrimEnd('/');
+            apiBasePath = "/LFRepositoryAPI";
+            Uri parsed;
+            if (!Uri.TryCreate(fullApiUrl, UriKind.Absolute, out parsed)) return;
+            string path = parsed.AbsolutePath.TrimEnd('/');
+            int marker = path.IndexOf("/LFRepositoryAPI", StringComparison.OrdinalIgnoreCase);
+            if (marker < 0) return;
+            serverUrl = parsed.GetLeftPart(UriPartial.Authority) + path.Substring(0, marker);
+            apiBasePath = path.Substring(marker);
+        }
+
+        private static string ReadString(string json, string field, string fallback)
+        {
+            string value = JsonHelpers.ExtractJsonString(json, field);
+            return string.IsNullOrWhiteSpace(value) ? fallback : value;
+        }
+
+        private static int ReadInt(string json, string field, int fallback, int min, int max)
+        {
+            return ParseIntOrDefault(JsonHelpers.ExtractJsonString(json, field), fallback, min, max);
+        }
+
+        private static int ParseIntOrDefault(string value, int fallback, int min, int max)
+        {
+            int result;
+            return int.TryParse(value, out result) && result >= min && result <= max ? result : fallback;
+        }
+
+        private static string FirstNonEmpty(params string[] values)
+        {
+            foreach (string value in values)
+                if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+            return "";
+        }
+
+        private static string Opt(Dictionary<string, string> values, string key, string fallback = "")
+        {
+            string value;
+            return values.TryGetValue(key, out value) ? value : fallback;
         }
     }
 }

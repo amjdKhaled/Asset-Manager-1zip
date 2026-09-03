@@ -171,6 +171,7 @@
         }
         .btn-signin:hover  { background: #2563eb; }
         .btn-signin:active { opacity: .9; }
+        .btn-signin:disabled { opacity: .65; cursor: wait; }
     </style>
 </head>
 <body>
@@ -213,7 +214,7 @@
             }
 
             @* ── Credentials form ── *@
-            <form method="post" asp-controller="Login" asp-action="Index" novalidate>
+            <form id="login-form" method="post" asp-controller="Login" asp-action="Index" novalidate>
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
 
@@ -262,10 +263,21 @@
                         No client-side required validation is added here. *@
                 </div>
 
-                <button type="submit" class="btn-signin">Sign In</button>
+                <button id="signin-button" type="submit" class="btn-signin">Sign In</button>
             </form>
 
         </div>
     </div>
+    <script>
+        // Block double-clicks and Enter-key repeats from creating parallel token
+        // requests. Browser validation remains server-owned because empty passwords
+        // are valid for some Laserfiche accounts.
+        document.getElementById('login-form').addEventListener('submit', function () {
+            const button = document.getElementById('signin-button');
+            if (button.disabled) return false;
+            button.disabled = true;
+            button.textContent = 'Signing in…';
+        });
+    </script>
 </body>
 </html>

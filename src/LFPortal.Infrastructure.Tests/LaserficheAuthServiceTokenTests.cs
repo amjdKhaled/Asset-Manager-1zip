@@ -233,6 +233,19 @@ public sealed class LaserficheAuthServiceTokenTests
     }
 
     [Fact]
+    public async Task TryAuthenticate_429_ThrowsAfterOneRequest_WithoutAutomaticRetries()
+    {
+        var handler = StatusHandler(HttpStatusCode.TooManyRequests);
+        var svc = CreateService(handler);
+
+        var ex = await Assert.ThrowsAsync<LaserficheException>(
+            () => svc.TryAuthenticateAsync(MakeRepo(), "u", "p"));
+
+        Assert.Equal(429, ex.StatusCode);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
     public async Task TryAuthenticate_500_Throws_LaserficheException_StatusCode500()
     {
         var svc = CreateService(StatusHandler(HttpStatusCode.InternalServerError,
@@ -431,10 +444,12 @@ public sealed class LaserficheAuthServiceTokenTests
         /// </summary>
         public string? LastRequestUri  => LastRequest?.RequestUri?.AbsoluteUri;
         public string? LastRequestBody { get; private set; }
+        public int RequestCount { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken ct)
         {
+            RequestCount++;
             LastRequest = request;
             if (request.Content is not null)
                 LastRequestBody = await request.Content.ReadAsStringAsync(ct);

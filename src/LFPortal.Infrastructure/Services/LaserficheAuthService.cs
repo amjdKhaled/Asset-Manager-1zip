@@ -346,7 +346,12 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
 
         try
         {
-            var tokenResponse = await RequestTokenAsync(tokenUrl, username, password, cancellationToken)
+            // A browser login is an explicit user action. Never turn one click into
+            // three password attempts: that extends Laserfiche's rate-limit window
+            // and is the primary reason a single login can surface as HTTP 429.
+            var tokenResponse = await RequestTokenAsync(
+                    tokenUrl, username, password, cancellationToken,
+                    retryTooManyRequests: false)
                 .ConfigureAwait(false);
 
             // Warm the token cache so subsequent GetTokenAsync calls skip re-authentication.
@@ -425,7 +430,8 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         string tokenUrl,
         string username,
         string password,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool retryTooManyRequests = true)
     {
         // Log effective configuration once before the first attempt so administrators
         // can verify the exact URL and API contract being used — never log the password.
@@ -466,7 +472,9 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             // ── HTTP 429 — rate limited ───────────────────────────────────────
             // Retry up to MaxTokenRetries times with Retry-After / exponential back-off.
             // This should rarely trigger after the single-flight fix eliminates the storm.
-            if (response.StatusCode == HttpStatusCode.TooManyRequests && attempt < MaxTokenRetries)
+            if (retryTooManyRequests &&
+                response.StatusCode == HttpStatusCode.TooManyRequests &&
+                attempt < MaxTokenRetries)
             {
                 var delay = ComputeRetryDelay(response, attempt);
                 _logger.LogWarning(

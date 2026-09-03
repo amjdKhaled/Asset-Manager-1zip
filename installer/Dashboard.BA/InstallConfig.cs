@@ -18,14 +18,27 @@ namespace Dashboard.BA
         // Example: https://lf-server.company.local/LFRepositoryAPI
         public string LaserficheApiUrl { get; set; } = "";
 
+        // Base server origin and API path are kept separately to match the
+        // Dashboard Settings model and prevent /LFRepositoryAPI duplication.
+        public string LaserficheServerUrl { get; set; } = "";
+        public string LaserficheApiBasePath { get; set; } = "/LFRepositoryAPI";
+
         // Laserfiche Repository API version: "Auto" (default — the web app
         // probes v2 then v1 at runtime and remembers the result), "v1", or "v2".
         public string LaserficheApiVersion { get; set; } = "Auto";
 
-        // NOTE: Repository ID and Display Name were intentionally REMOVED.
-        // The repository is runtime session context (passed by the Desktop /
-        // Web Client via ?repository=, or chosen at login) — never a permanent
-        // installation setting.  The installer configures infrastructure only.
+        // Complete first-run configuration. Desktop/Web Client session context
+        // may still override the default repository at runtime.
+        public string RepositoryId { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string RootEntryId { get; set; } = "1";
+        public string TimeoutSeconds { get; set; } = "30";
+
+        // Plain text exists only in wizard memory. Before Apply it is replaced
+        // with a temporary machine-DPAPI encrypted package path.
+        public string Username { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string CredentialImportPath { get; set; } = "";
 
         // Physical path to the Laserfiche Web Client (Web Files) directory.
         // Empty string means: skip web client integration.
@@ -47,6 +60,9 @@ namespace Dashboard.BA
         // elevated SetupHelper --prepare-tls custom action, which re-checks
         // every safety rule itself; this flag is consent only, not policy).
         public bool TrustSelfSignedCert { get; set; } = false;
+
+        // Standard completion option; checked by default.
+        public bool LaunchDashboard { get; set; } = true;
     }
 
     // Results of the environment detection scan (page 2 of the wizard).

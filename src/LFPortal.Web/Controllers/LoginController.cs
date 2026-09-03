@@ -643,6 +643,10 @@ public sealed class LoginController : Controller
                        "Check server logs or contact your Laserfiche administrator.";
             }
 
+            if (lex.StatusCode == 429)
+                return "Laserfiche temporarily limited sign-in attempts. Wait about one minute, " +
+                       "then click Sign In once. The Dashboard will not retry automatically.";
+
             return $"The Laserfiche server rejected the request (HTTP {lex.StatusCode}).";
         }
 
