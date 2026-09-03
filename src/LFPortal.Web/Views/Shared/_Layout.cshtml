@@ -137,7 +137,7 @@ textarea {
             align-items: center;
             height: 56px;
             gap: 12px;
-            box-shadow: 0 2px 4px rgba(0,0,0,.3);
+            box-shadow: 0 2px 4px rgba(0,0,0,.1);
         }
         .site-header__logo {
             font-size: 2rem;
@@ -168,6 +168,7 @@ textarea {
             background: var(--lfp-text);
             color: #044FC2;
             border-bottom: 4px solid #044FC2;
+            font-weight: bold;
         }
 
         /* ── Repository badge ── */
@@ -233,7 +234,7 @@ textarea {
         }
 
         /* ── Main content ── */
-        main { flex: 1; padding: 32px 24px; max-width: 1200px; margin: 0 auto; width: 100%; }
+        main { flex: 1; padding: 32px 24px; max-width: 1200px; margin: 0 auto; width: 75%; }
 
         /* ── Footer ── */
         .site-footer {
@@ -472,7 +473,7 @@ textarea {
         .breakdown-row__count { font-size: .875rem; color: var(--lfp-muted); font-variant-numeric: tabular-nums; text-align: right; }
 
         .logo_size{
-            height: 60px;
+            height: 55px;
             width: 90px;
             @* padding: 20px 24px 18px; *@
             display: flex;
@@ -498,7 +499,7 @@ textarea {
         <a class="site-header__logo"
            href="@(_externalShareReadOnly ? "/Share/Dashboard" : Url.Action("Index", "Dashboard"))">
             @* IS<span>B</span> *@
-            <img src="~/image/isb_logo.jpg" alt="ISB" class="logo_size" >
+            <img src="~/image/isb logo 2020 2.jpg" alt="ISB" class="logo_size" >
         </a>
 
 
