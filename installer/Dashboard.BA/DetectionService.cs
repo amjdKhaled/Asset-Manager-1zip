@@ -453,6 +453,40 @@ namespace Dashboard.BA
             }
         }
 
+        // Returns true when the existing IIS site owned by this product already
+        // uses the selected HTTP port. This distinguishes a legitimate upgrade
+        // from a collision with another application.
+        public static bool DashboardSiteUsesPort(int port)
+        {
+            try
+            {
+                string configPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                    "System32", "inetsrv", "config", "applicationHost.config");
+                if (!File.Exists(configPath)) return false;
+
+                var doc = new XmlDocument();
+                doc.Load(configPath);
+                var bindings = doc.SelectNodes(
+                    "/configuration/system.applicationHost/sites/site[@name='Dashboard']/bindings/binding[@protocol='http']");
+                if (bindings == null) return false;
+
+                foreach (XmlNode binding in bindings)
+                {
+                    string value = binding.Attributes?["bindingInformation"]?.Value ?? "";
+                    var match = Regex.Match(value, @":(?<port>\d+):");
+                    if (match.Success && int.TryParse(match.Groups["port"].Value, out int existingPort) &&
+                        existingPort == port)
+                        return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                StartupLogger.Log("Dashboard IIS binding check failed: " + ex.Message);
+            }
+            return false;
+        }
+
         // ------------------------------------------------- ANCM V2 (aspnetcorev2.dll)
         //
         // Dashboard is self-contained and carries its own .NET 8 runtime, so a

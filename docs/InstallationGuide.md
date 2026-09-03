@@ -8,7 +8,7 @@
 ## Contents
 
 1. [Prerequisites](#1-prerequisites)
-2. [MSI Installation](#2-msi-installation)
+2. [Installer EXE](#2-installer-exe)
 3. [IIS Configuration Verification](#3-iis-configuration-verification)
 4. [Initial Laserfiche Connection Configuration](#4-initial-laserfiche-connection-configuration)
 5. [Desktop Client Extension](#5-desktop-client-extension)
@@ -58,13 +58,18 @@ dotnet --list-runtimes | Select-String "Microsoft.AspNetCore.App 8"
 
 ---
 
-## 2. MSI Installation
+## 2. Installer EXE
 
-Run as **Administrator**:
+Copy the complete `Release` folder to the target 64-bit Windows computer, then
+run as **Administrator**:
 
 ```
-Dashboard-1.0.0-Setup.msi
+LFDashboard-Setup.exe
 ```
+
+The wizard detects the computer name, Laserfiche API and Web Client paths where
+possible. In most deployments the administrator only confirms the detected
+Laserfiche API URL; port and integration options remain under Advanced Settings.
 
 The installer performs:
 - Creates `C:\Program Files\Dashboard\WebApp\` and publishes the Dashboard web application
@@ -78,17 +83,39 @@ The installer performs:
 - Creates **Start Menu** shortcuts: Open Dashboard, Configure Dashboard, Uninstall Dashboard
 - Runs `Dashboard.DesktopExtension.exe --setup --silent` to register the toolbar button
 
-### Silent / unattended installation
+### Repair or uninstall
+
+Run `LFDashboard-Setup.exe` again after installation. The wizard automatically
+switches to maintenance mode with two choices:
+
+- **Repair** restores installer-managed files and components while preserving configuration.
+- **Uninstall** removes the application, IIS site/app pool, shortcuts, and integrations.
+
+Uninstall preserves `%ProgramData%\Dashboard` by default. Select **Also delete
+saved configuration, credentials, and logs** only when a complete cleanup is
+required. The same uninstall is available from Windows **Installed apps** and
+the Start Menu shortcut.
+
+### Silent / unattended installation (advanced)
+
+The custom setup EXE requires interactive configuration. For unattended
+enterprise deployment, use the internal MSI and supply every required property:
 
 ```cmd
-msiexec /i Dashboard-1.0.0-Setup.msi /quiet /norestart INSTALLFOLDER="C:\Dashboard\"
+msiexec /i Dashboard-1.0.0-Setup.msi /quiet /norestart ^
+  DASHBOARD_URL="http://LF-SERVER-02:5000" DASHBOARD_PORT="5000" ^
+  LF_API_URL="https://LF-SERVER-02/LFRepositoryAPI" LF_API_VERSION="Auto" ^
+  INSTALL_DESKTOP_BUTTON="1" INSTALL_WEB_BUTTON="0"
 ```
 
-### Custom port
+### Custom port (advanced MSI deployment)
 
 ```cmd
 msiexec /i Dashboard-1.0.0-Setup.msi DASHBOARD_PORT=80
 ```
+
+The interactive wizard checks that the chosen TCP port is free before starting
+installation. Pick another port if it reports a conflict.
 
 ---
 

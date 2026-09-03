@@ -36,6 +36,16 @@ namespace Dashboard.BA
         private bool   _installSuccess = false;
         private string _installMessage = "";
         private int    _pageIndex      = 0;
+        private SetupOperation _operation = SetupOperation.Install;
+        private bool _maintenanceMode = false;
+        private bool _removeUserData = false;
+
+        private enum SetupOperation
+        {
+            Install,
+            Repair,
+            Uninstall
+        }
 
         // Hostname captured at startup; used to decide whether Dashboard URL is
         // still auto-generated and can be updated when the port field changes.
@@ -58,6 +68,8 @@ namespace Dashboard.BA
         private Button _btnBack           = null!;
         private Button _btnNext           = null!;
         private Button _btnCancel         = null!;
+        private Label  _lblWelcomeHeading = null!;
+        private Label  _lblWelcomeBody    = null!;
 
         // ---------------------------------------------------------------- Config page controls
         private TextBox  _txtLFApiUrl      = null!;
@@ -156,6 +168,7 @@ namespace Dashboard.BA
             _ba = ba;
             _ba.ProgressUpdated += OnProgressUpdated;
             _ba.InstallFinished += OnInstallFinished;
+            _ba.PackageStateChanged += OnPackageStateChanged;
 
             StartupLogger.Log("WizardForm: event subscriptions done, calling BuildForm()");
             try
@@ -295,11 +308,11 @@ namespace Dashboard.BA
         {
             var p = new Panel();
 
-            var heading = PageHeading("Welcome to Laserfiche Dashboard Setup");
-            heading.Location = new Point(0, 0);
-            p.Controls.Add(heading);
+            _lblWelcomeHeading = PageHeading("Welcome to Laserfiche Dashboard Setup");
+            _lblWelcomeHeading.Location = new Point(0, 0);
+            p.Controls.Add(_lblWelcomeHeading);
 
-            p.Controls.Add(new Label
+            _lblWelcomeBody = new Label
             {
                 Text =
                     "This wizard installs the Dashboard web application on this server and " +
@@ -318,7 +331,8 @@ namespace Dashboard.BA
                 Size     = new Size(560, 270),
                 Location = new Point(0, 36),
                 Font     = new Font("Segoe UI", 9F)
-            });
+            };
+            p.Controls.Add(_lblWelcomeBody);
 
             return p;
         }
@@ -833,7 +847,17 @@ namespace Dashboard.BA
             _btnBack.Enabled   = true;
             _btnCancel.Enabled = true;
             _btnNext.Text      = "Next >";
+            _btnBack.Text      = "< Back";
             _btnCancel.Text    = "Cancel";
+
+            if (_maintenanceMode && _pageIndex == PAGE_WELCOME)
+            {
+                _btnBack.Visible = true;
+                _btnBack.Text = "Uninstall";
+                _btnNext.Text = "Repair";
+                _btnCancel.Text = "Close";
+                return;
+            }
 
             switch (_pageIndex)
             {
@@ -861,6 +885,13 @@ namespace Dashboard.BA
 
         private void GoNext()
         {
+            if (_maintenanceMode && _pageIndex == PAGE_WELCOME)
+            {
+                _operation = SetupOperation.Repair;
+                NavigateTo(PAGE_PROGRESS);
+                return;
+            }
+
             if (_pageIndex == PAGE_CONFIG)
             {
                 if (!ValidateConfigPage()) return;
@@ -875,12 +906,29 @@ namespace Dashboard.BA
 
         private void GoBack()
         {
+            if (_maintenanceMode && _pageIndex == PAGE_WELCOME)
+            {
+                if (ConfirmUninstall(out bool removeUserData))
+                {
+                    _removeUserData = removeUserData;
+                    _operation = SetupOperation.Uninstall;
+                    NavigateTo(PAGE_PROGRESS);
+                }
+                return;
+            }
+
             if (_pageIndex > PAGE_WELCOME && _pageIndex != PAGE_PROGRESS)
                 NavigateTo(_pageIndex - 1);
         }
 
         private void OnCancelClicked()
         {
+            if (_maintenanceMode && _pageIndex == PAGE_WELCOME)
+            {
+                Close();
+                return;
+            }
+
             if (_pageIndex == PAGE_COMPLETE) { Close(); return; }
             if (MessageBox.Show(this,
                     "Are you sure you want to cancel the installation?",
@@ -930,6 +978,91 @@ namespace Dashboard.BA
                     ApplyDetectionToConfig();
             };
             worker.RunWorkerAsync();
+        }
+
+        private void OnPackageStateChanged(bool installed)
+        {
+            if (!installed || _installDone || _pageIndex >= PAGE_PROGRESS) return;
+
+            _maintenanceMode = true;
+            _operation = SetupOperation.Repair;
+            _lblWelcomeHeading.Text = "Laserfiche Dashboard is already installed";
+            _lblWelcomeBody.Text =
+                "Choose Repair to restore missing or damaged application files.\r\n\r\n" +
+                "Choose Uninstall to remove the Dashboard application, IIS site, " +
+                "application pool, shortcuts, and Laserfiche integrations.\r\n\r\n" +
+                "Saved configuration, credentials, and logs are kept by default. " +
+                "During uninstall you can explicitly choose to remove those files too.";
+
+            if (_pageIndex != PAGE_WELCOME)
+                NavigateTo(PAGE_WELCOME);
+
+            _lblHeaderTitle.Text = "Laserfiche Dashboard Maintenance";
+            _lblHeaderSubtitle.Text = "Repair or remove the existing installation.";
+            UpdateButtons();
+        }
+
+        private bool ConfirmUninstall(out bool removeUserData)
+        {
+            removeUserData = false;
+            using var dialog = new Form
+            {
+                Text = "Uninstall Laserfiche Dashboard",
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                ClientSize = new Size(470, 190),
+                MaximizeBox = false,
+                MinimizeBox = false,
+                ShowInTaskbar = false,
+                Font = new Font("Segoe UI", 9F)
+            };
+
+            var message = new Label
+            {
+                AutoSize = false,
+                Location = new Point(18, 18),
+                Size = new Size(434, 66),
+                Text = "Dashboard will be removed from this computer. " +
+                       "The IIS site, application pool, shortcuts, and installed files will be deleted."
+            };
+            var removeDataCheck = new CheckBox
+            {
+                AutoSize = true,
+                Location = new Point(18, 92),
+                Text = "Also delete saved configuration, credentials, and logs"
+            };
+            var warning = new Label
+            {
+                AutoSize = true,
+                Location = new Point(37, 117),
+                ForeColor = Color.FromArgb(170, 80, 0),
+                Text = "Leave unchecked if you may reinstall later."
+            };
+            var removeButton = new Button
+            {
+                Text = "Uninstall",
+                DialogResult = DialogResult.OK,
+                Location = new Point(274, 150),
+                Size = new Size(84, 27)
+            };
+            var cancelButton = new Button
+            {
+                Text = "Cancel",
+                DialogResult = DialogResult.Cancel,
+                Location = new Point(368, 150),
+                Size = new Size(84, 27)
+            };
+
+            dialog.Controls.AddRange(new Control[]
+            {
+                message, removeDataCheck, warning, removeButton, cancelButton
+            });
+            dialog.AcceptButton = removeButton;
+            dialog.CancelButton = cancelButton;
+
+            bool confirmed = dialog.ShowDialog(this) == DialogResult.OK;
+            removeUserData = confirmed && removeDataCheck.Checked;
+            return confirmed;
         }
 
         // Pre-fill config fields from detection results.
@@ -1111,6 +1244,8 @@ namespace Dashboard.BA
 
             if (!int.TryParse(_txtPort.Text.Trim(), out int port) || port < 1 || port > 65535)
                 errors.Add("IIS Port must be a number between 1 and 65535 (in Advanced Settings).");
+            else if (IsTcpPortInUse(port) && !DetectionService.DashboardSiteUsesPort(port))
+                errors.Add($"TCP port {port} is already in use. Choose another IIS Port in Advanced Settings.");
 
             // ── HTTP/HTTPS consistency with the machine's ACTUAL bindings ──
             // The installer VALIDATES IIS infrastructure; it never creates
@@ -1189,6 +1324,25 @@ namespace Dashboard.BA
                 return false;
 
             return true;
+        }
+
+        private static bool IsTcpPortInUse(int port)
+        {
+            try
+            {
+                foreach (var endpoint in System.Net.NetworkInformation.IPGlobalProperties
+                             .GetIPGlobalProperties().GetActiveTcpListeners())
+                {
+                    if (endpoint.Port == port) return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                // A failed advisory probe must not brick setup. IIS remains the
+                // final authority if the listener table cannot be read.
+                StartupLogger.Log("Port availability check failed: " + ex.Message);
+            }
+            return false;
         }
 
         // Returns true when the URL is acceptable.  Blocks (returns false)
@@ -1386,10 +1540,18 @@ namespace Dashboard.BA
 
         private void StartInstallation()
         {
-            AppendLog("Starting installation...");
+            string operation = _operation == SetupOperation.Uninstall
+                ? "uninstallation"
+                : (_operation == SetupOperation.Repair ? "repair" : "installation");
+            AppendLog("Starting " + operation + "...");
             _progressBar.Value     = 0;
             _lblCurrentAction.Text = "Preparing...";
-            _ba.StartInstall(_config, Handle);
+            if (_operation == SetupOperation.Uninstall)
+                _ba.StartUninstall(Handle, _removeUserData);
+            else if (_operation == SetupOperation.Repair)
+                _ba.StartRepair(Handle);
+            else
+                _ba.StartInstall(_config, Handle);
         }
 
         // Called by DashboardBA on the UI thread (via BeginInvoke).
@@ -1435,14 +1597,32 @@ namespace Dashboard.BA
         {
             if (_installSuccess)
             {
-                _lblCompleteTitle.Text      = "Installation Complete";
+                string title = _operation == SetupOperation.Uninstall
+                    ? "Uninstallation Complete"
+                    : (_operation == SetupOperation.Repair ? "Repair Complete" : "Installation Complete");
+                _lblCompleteTitle.Text      = title;
                 _lblCompleteTitle.ForeColor = Color.FromArgb(0, 128, 0);
-                _lblCompleteDetail.Text     =
-                    "Dashboard has been installed successfully.\r\n\r\n" +
-                    $"Open your browser and navigate to:\r\n  {_config.DashboardUrl}\r\n\r\n" +
-                    "Log in to the Dashboard Settings page to enter your Laserfiche credentials.\r\n" +
-                    "(Credentials are stored encrypted using Windows DPAPI \u2014 never in plain text.)\r\n\r\n" +
-                    "Click Finish to close the installer.";
+                if (_operation == SetupOperation.Uninstall)
+                {
+                    _lblCompleteDetail.Text = _removeUserData
+                        ? "Dashboard was removed and full cleanup of saved configuration, credentials, and logs was requested. If a file was locked, check %ProgramData%\\Dashboard after closing related applications.\r\n\r\nClick Finish to close setup."
+                        : "Dashboard was removed successfully. Saved configuration, credentials, and logs were kept in %ProgramData%\\Dashboard for a future reinstall.\r\n\r\nClick Finish to close setup.";
+                }
+                else if (_operation == SetupOperation.Repair)
+                {
+                    _lblCompleteDetail.Text =
+                        "Dashboard application files and installer-managed components were repaired successfully.\r\n\r\n" +
+                        "Your saved configuration and credentials were preserved.\r\n\r\nClick Finish to close setup.";
+                }
+                else
+                {
+                    _lblCompleteDetail.Text =
+                        "Dashboard has been installed successfully.\r\n\r\n" +
+                        $"Open your browser and navigate to:\r\n  {_config.DashboardUrl}\r\n\r\n" +
+                        "Log in to the Dashboard Settings page to enter your Laserfiche credentials.\r\n" +
+                        "(Credentials are stored encrypted using Windows DPAPI \u2014 never in plain text.)\r\n\r\n" +
+                        "Click Finish to close the installer.";
+                }
             }
             else
             {
@@ -1457,8 +1637,10 @@ namespace Dashboard.BA
             }
 
             _lblHeaderSubtitle.Text = _installSuccess
-                ? "Dashboard has been installed on this computer."
-                : "The installation could not be completed.";
+                ? (_operation == SetupOperation.Uninstall
+                    ? "Dashboard has been removed from this computer."
+                    : "Dashboard is ready on this computer.")
+                : "The requested setup operation could not be completed.";
         }
 
         // ================================================================
@@ -1471,6 +1653,7 @@ namespace Dashboard.BA
             {
                 _ba.ProgressUpdated -= OnProgressUpdated;
                 _ba.InstallFinished -= OnInstallFinished;
+                _ba.PackageStateChanged -= OnPackageStateChanged;
             }
             base.Dispose(disposing);
         }

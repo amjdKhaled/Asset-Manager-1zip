@@ -2,18 +2,10 @@
 <!--
   Configuration.wxs: ProgramData configuration files.
 
-  Config files are created on first install and NEVER overwritten by subsequent
-  upgrades, repairs, or reinstalls.  Administrator-edited values are preserved.
-
-  This is achieved with two WiX 4 component attributes:
-    NeverOverwrite="yes" — Windows Installer never overwrites files in this
-                           component during upgrade or repair.  (WiX 4 moved
-                           this attribute from File to Component; WIX0004 is
-                           emitted if it appears on File.)
-    Permanent="yes"      — The component and its files are not removed during
-                           uninstall.  This satisfies the Phase 6 requirement
-                           that %ProgramData%\Dashboard\ configuration persists
-                           after the application is uninstalled.
+  Live config files are created by Dashboard.SetupHelper, not owned as MSI File
+  resources. This is the standard Windows Installer pattern for mutable user
+  data: repair and upgrade preserve it, normal uninstall leaves it available
+  for a reinstall, and the bundle's explicit cleanup option can remove it.
 
   The ConfigTemplate\ sub-directory is a separate component WITHOUT these
   attributes: it IS overwritten on upgrade so administrators always have the
@@ -64,41 +56,6 @@
             User="[WIX_ACCOUNT_NETWORKSERVICE]"
             GenericAll="yes" />
         </CreateFolder>
-      </Component>
-
-      <!--
-        Extension config.
-        NeverOverwrite="yes": Windows Installer never replaces this file during
-          upgrade or repair — administrator changes survive all updates.
-        Permanent="yes": file is not removed on uninstall — configuration is
-          preserved per the Phase 6 requirement.
-        (WiX 4: NeverOverwrite lives on Component, not File; WIX0004 is the
-        error if placed on File.)
-      -->
-      <Component Id="CompExtensionConfig"
-                 Directory="PROGRAMDATAFOLDER"
-                 Guid="{D5E6F7A8-B9C0-4123-DEF0-456789012345}"
-                 NeverOverwrite="yes"
-                 Permanent="yes">
-        <File Id="FileExtensionConfig"
-              Name="extension.config.json"
-              Source="$(var.ConfigTemplateDir)\extension.config.json"
-              Vital="no" />
-      </Component>
-
-      <!--
-        Laserfiche connection config.
-        NeverOverwrite="yes" + Permanent="yes": same protection as above.
-      -->
-      <Component Id="CompLaserficheConfig"
-                 Directory="PROGRAMDATAFOLDER"
-                 Guid="{E6F7A8B9-C0D1-4234-EF01-567890123456}"
-                 NeverOverwrite="yes"
-                 Permanent="yes">
-        <File Id="FileLaserficheConfig"
-              Name="laserfiche.config.json"
-              Source="$(var.ConfigTemplateDir)\laserfiche.config.json"
-              Vital="no" />
       </Component>
 
       <!--

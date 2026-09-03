@@ -47,7 +47,7 @@ Running with no arguments is equivalent to `--setup`.
 | Visual Studio 2022 or MSBuild 17 | Windows only |
 | .NET Framework 4.8 Developer Pack | Download from Microsoft |
 | Laserfiche Desktop Client installed | Required for the SDK DLL |
-| `ClientAutomation.dll` present | Copied into the repository at `vendor\LaserficheSdk\bin\10.4\net-4.0\` |
+| `ClientAutomation.dll` present | Preferred: copied into the repository at `vendor\LaserficheSdk\bin\10.4\net-4.0\` |
 
 The project intentionally uses a repository-relative SDK path. Before building,
 copy the SDK DLL from the installed Laserfiche SDK into the repository:
@@ -62,6 +62,11 @@ Copy-Item $source "$destination\ClientAutomation.dll"
 
 If the SDK is installed elsewhere, change only the `$source` value. Do not put an
 absolute path in the project file.
+
+On a clean CI/build computer without the proprietary SDK, the project uses
+`build\ClientAutomation.ReferenceStub` for compilation only. That stub is never
+copied into the installer. At runtime, toolbar registration still requires the
+real `ClientAutomation.dll` installed with the Laserfiche Desktop Client.
 
 ---
 

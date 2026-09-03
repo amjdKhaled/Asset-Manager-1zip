@@ -51,6 +51,16 @@
       DowngradeErrorMessage="A newer version of Dashboard is already installed. Downgrade is not supported. Please uninstall the current version first."
       Schedule="afterInstallInitialize" />
 
+    <!-- Standard Add/Remove Programs metadata for direct-MSI administration. -->
+    <Property Id="ARPCOMMENTS" Value="On-premises Laserfiche Dashboard" />
+    <Property Id="ARPCONTACT" Value="Dashboard Support" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/amjdKhaled/Asset-Manager-1zip/issues" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/amjdKhaled/Asset-Manager-1zip" />
+
+    <Launch
+      Condition="VersionNT64"
+      Message="Laserfiche Dashboard requires a 64-bit version of Windows." />
+
     <!--
       Prerequisite: ASP.NET Core Module V2 (ANCM) for IIS.
 
@@ -205,6 +215,8 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
       before touching LocalMachine\Root. Defaults to 0 (no trust change).
     -->
     <Property Id="TRUST_LF_CERT"          Value="0"    Secure="yes" />
+    <!-- Explicit opt-in from the maintenance uninstall confirmation. -->
+    <Property Id="REMOVE_USER_DATA"       Value="0"    Secure="yes" />
 
     <!-- Custom actions: Desktop Extension registration -->
     <!--
@@ -339,6 +351,27 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
                   Impersonate="no"
                   Return="ignore" />
 
+    <CustomAction Id="RemoveUserData"
+                  Directory="EXTENSIONFOLDER"
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --remove-data'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="StopDashboardSite"
+                  Directory="WEBAPPFOLDER"
+                  ExeCommand='"[SystemFolder]inetsrv\appcmd.exe" stop site "$(IisSiteName)"'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="StopDashboardAppPool"
+                  Directory="WEBAPPFOLDER"
+                  ExeCommand='"[SystemFolder]inetsrv\appcmd.exe" stop apppool "$(IisAppPoolName)"'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
     <!--
       SetAppPoolNoManagedCode: sets managedRuntimeVersion="" (No Managed Code)
       on the Dashboard app pool via appcmd.exe.  This is required for ASP.NET
@@ -439,7 +472,7 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="RegisterExtension"
               After="WriteConfig"
-              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+              Condition="NOT REMOVE~=&quot;ALL&quot; AND INSTALL_DESKTOP_BUTTON=&quot;1&quot;" />
       <Custom Action="RollbackWebClient"
               After="RegisterExtension"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
@@ -459,6 +492,15 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
       <Custom Action="UnregisterExtension"
               Before="RemoveFiles"
               Condition="REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="RemoveUserData"
+              After="StopDashboardAppPool"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND REMOVE_USER_DATA=&quot;1&quot;" />
+      <Custom Action="StopDashboardSite"
+              After="UnregisterExtension"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND REMOVE_USER_DATA=&quot;1&quot;" />
+      <Custom Action="StopDashboardAppPool"
+              After="StopDashboardSite"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND REMOVE_USER_DATA=&quot;1&quot;" />
     </InstallExecuteSequence>
 
   </Package>

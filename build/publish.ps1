@@ -797,7 +797,8 @@ elseif (-not (Test-Path $ExtProjPath)) {
 else {
     Write-Stage $Step $TotalStages "Building Desktop Extension (net48, x64, Release)"
 
-    # Requires Laserfiche SDK DLLs in vendor\LaserficheSdk\bin\10.4\net-4.0\
+    # Uses the vendor SDK when present; clean build agents use the compile-only
+    # ClientAutomation reference stub. Neither reference is redistributed.
     Invoke-NativeCommand -Stage "dotnet build (Desktop Extension)" -FilePath "dotnet" -Arguments @(
         "build", $ExtProjPath,
         "--configuration", "Release",
@@ -862,6 +863,14 @@ else {
         exit 1
     }
     Write-OK ("Dashboard.DesktopExtension.exe confirmed in Extension staging ({0:N0} bytes)." -f $extExeBytes)
+
+    # Licensing/runtime guard: ClientAutomation is supplied by the installed
+    # Laserfiche Desktop Client and must never be bundled by this project.
+    $clientAutomationStaged = Join-Path $StagingDir "Extension\ClientAutomation.dll"
+    if (Test-Path $clientAutomationStaged) {
+        Fail "ClientAutomation.dll was copied to release staging. Mark the SDK/stub reference non-copy-local; vendor DLLs must not be redistributed."
+    }
+    Write-OK "ClientAutomation.dll is not present in release staging."
 }
 
 # =============================================================================
@@ -959,6 +968,9 @@ else {
     }
     if ($probeOutput -notlike "*--prepare-tls*") {
         Fail ("Staged Dashboard.SetupHelper.exe does not register the --prepare-tls action. --help output: {0}" -f $probeOutput.Trim())
+    }
+    if ($probeOutput -notlike "*--remove-data*") {
+        Fail ("Staged Dashboard.SetupHelper.exe does not register the --remove-data action. --help output: {0}" -f $probeOutput.Trim())
     }
     Write-OK "Staged SetupHelper action probe: --prepare-tls registered."
 
@@ -1966,6 +1978,14 @@ $bundleExeSrc = Join-Path $ArtifactsDir "LFDashboard-Setup.exe"
 if (Test-Path $bundleExeSrc) {
     Copy-Item $bundleExeSrc -Destination $ReleaseDir -Force
     Write-OK "Release\LFDashboard-Setup.exe copied."
+
+    # Ship a machine-verifiable checksum beside the installer. ASCII keeps the
+    # file compatible with certutil, PowerShell 5.1, and common hash tools.
+    $releaseExe = Join-Path $ReleaseDir "LFDashboard-Setup.exe"
+    $releaseHash = (Get-FileHash -Path $releaseExe -Algorithm SHA256).Hash.ToLowerInvariant()
+    ("{0}  LFDashboard-Setup.exe" -f $releaseHash) |
+        Set-Content -Path (Join-Path $ReleaseDir "SHA256SUMS.txt") -Encoding ASCII
+    Write-OK "Release\SHA256SUMS.txt created."
 }
 elseif (-not $SkipMsi) {
     # Windows build, but EXE is missing -- Step 9 should have caught this.
@@ -2050,6 +2070,17 @@ if (Test-Path $readmeDest) {
 else {
     Write-Host "  [FAILED] Release\README.txt NOT FOUND." -ForegroundColor Red
     $buildFailed = $true
+}
+
+if (-not $SkipMsi) {
+    $checksumDest = Join-Path $ReleaseDir "SHA256SUMS.txt"
+    if (Test-Path $checksumDest) {
+        Write-OK "VERIFIED: Release\SHA256SUMS.txt"
+    }
+    else {
+        Write-Host "  [FAILED] Release\SHA256SUMS.txt NOT FOUND." -ForegroundColor Red
+        $buildFailed = $true
+    }
 }
 
 if ($buildFailed) {

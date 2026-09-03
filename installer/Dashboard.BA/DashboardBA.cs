@@ -44,6 +44,10 @@ namespace Dashboard.BA
         // Window handle used for Detect / Apply calls.
         private IntPtr _hwnd;
 
+        // Action currently being applied. This keeps completion text accurate
+        // for install, repair, and uninstall maintenance operations.
+        private LaunchAction _activeAction = LaunchAction.Install;
+
         // ----------------------------------------------------------------
         // Constructor -- called by BAFactory.Create().
         // ----------------------------------------------------------------
@@ -105,6 +109,10 @@ namespace Dashboard.BA
 
         // (success, detailMessage)
         public event Action<bool, string>? InstallFinished;
+
+        // Raised after Burn detects the Dashboard MSI. The wizard uses this to
+        // switch from first-time setup to the standard Repair/Uninstall view.
+        public event Action<bool>? PackageStateChanged;
 
         // ----------------------------------------------------------------
         // Run: WiX Burn entry point -- called once by the BA host.
@@ -188,6 +196,7 @@ namespace Dashboard.BA
         internal void StartInstall(InstallConfig config, IntPtr hwnd)
         {
             _hwnd = hwnd;
+            _activeAction = _command.Action;
 
             _engine.SetVariableString("DashboardUrl",     config.DashboardUrl,     false);
             _engine.SetVariableString("LaserficheApiUrl", config.LaserficheApiUrl, false);
@@ -207,12 +216,15 @@ namespace Dashboard.BA
         internal void StartRepair(IntPtr hwnd)
         {
             _hwnd = hwnd;
+            _activeAction = LaunchAction.Repair;
             _engine.Plan(LaunchAction.Repair);
         }
 
-        internal void StartUninstall(IntPtr hwnd)
+        internal void StartUninstall(IntPtr hwnd, bool removeUserData)
         {
             _hwnd = hwnd;
+            _activeAction = LaunchAction.Uninstall;
+            _engine.SetVariableNumeric("RemoveUserData", removeUserData ? 1L : 0L);
             _engine.Plan(LaunchAction.Uninstall);
         }
 
@@ -225,6 +237,17 @@ namespace Dashboard.BA
         {
             RuntimeLog.Log("Detect.Begin");
             base.OnDetectBegin(e);
+        }
+
+        protected override void OnDetectPackageComplete(DetectPackageCompleteEventArgs e)
+        {
+            if (string.Equals(e.PackageId, "DashboardMsi", StringComparison.OrdinalIgnoreCase))
+            {
+                bool installed = e.State == PackageState.Present;
+                RuntimeLog.Log("Detect.DashboardMsi", $"State={e.State} Installed={installed}");
+                SafeInvoke(() => PackageStateChanged?.Invoke(installed));
+            }
+            base.OnDetectPackageComplete(e);
         }
 
         protected override void OnDetectComplete(DetectCompleteEventArgs e)
@@ -311,9 +334,12 @@ namespace Dashboard.BA
             }
 
             bool   ok  = e.Status >= 0;
+            string operation = _activeAction == LaunchAction.Uninstall
+                ? "Uninstallation"
+                : (_activeAction == LaunchAction.Repair ? "Repair" : "Installation");
             string msg = ok
-                ? "Installation completed successfully."
-                : string.Format("Installation failed (HRESULT 0x{0:X8}).", e.Status);
+                ? operation + " completed successfully."
+                : string.Format("{0} failed (HRESULT 0x{1:X8}).", operation, e.Status);
             SafeInvoke(() => InstallFinished?.Invoke(ok, msg));
         }
 
