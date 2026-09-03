@@ -1,4 +1,5 @@
 <Project>
+  <!-- Versioned Windows release metadata. -->
   <PropertyGroup>
     <Company>Dashboard</Company>
     <Product>Dashboard — Laserfiche Enterprise Administration Dashboard</Product>
