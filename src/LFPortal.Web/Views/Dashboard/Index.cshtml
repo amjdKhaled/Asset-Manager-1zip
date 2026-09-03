@@ -203,9 +203,9 @@ footer.site-footer { background: #F7F8FD !important; }
     --d-red:     #EF4444;
 }
 
-.d-title   { color: var(--d-text); font-size: 1.2rem; font-weight: 600; }
+.d-title   { color: var(--d-text); font-size: 1.8rem; font-weight: bold;}
 .d-sub     { color: var(--d-muted); font-size: 0.78rem; margin-top: 2px; }
-.d-card    { background: var(--d-surface); border: none var(--d-border); border-radius: 12px; padding: 18px; }
+.d-card    { background: var(--d-surface); border: none var(--d-border); border-radius: 12px; padding: 18px; box-shadow: 1px 1px 10px 1px rgba(0, 0, 0, 0.1);}
 .d-grid-5  { display: grid; grid-template-columns: repeat(5,1fr); gap: 14px; }
 .d-grid-2  { display: grid; grid-template-columns: repeat(2,1fr); gap: 18px; }
 .d-grid-1  { display: grid; gap: 18px; }
@@ -270,7 +270,7 @@ footer.site-footer { background: #F7F8FD !important; }
 .pagination-button.active { background: #3b82f6; border-color: #3b82f6; color: #ffffff; cursor: default; }
 .pagination-button:disabled { opacity: 0.35; cursor: not-allowed; }
 .folder-kpi-card {
-    background: linear-gradient(135deg, #0878e8, #0f55d8);
+    background: linear-gradient(135deg, #0878e8, #0b40a2);
     border-radius: 18px;
     padding: 24px 26px;
     min-height: 175px;
@@ -308,7 +308,7 @@ footer.site-footer { background: #F7F8FD !important; }
         </a>
         @if (!externalShareReadOnly)
         {
-            <a href="/Dashboard/Probe" style="display:inline-flex;align-items:center;gap:6px;background:var(--d-surf2);border:1px solid var(--d-border);color:var(--d-surface);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
+            <a href="/Dashboard/Probe" style="display:inline-flex;align-items:center;gap:6px;background:#044FC2;border:1px solid var(--d-border);color:var(--d-surface);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
                 <svg width="12" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 @L["ProbeApi"]
             </a>
@@ -611,7 +611,7 @@ footer.site-footer { background: #F7F8FD !important; }
             </table>
             <div class="table-pagination" data-table="table3"></div>
         </div>
-        <div style="font-size:.71rem;color:var(--d-muted);margin-top:7px">@s.RecentDocs.Count document@(s.RecentDocs.Count != 1 ? "s" : "") tracked</div>
+        @* <div style="font-size:.71rem;color:var(--d-muted);margin-top:7px">@s.RecentDocs.Count document@(s.RecentDocs.Count != 1 ? "s" : "") tracked</div> *@
     }
 </div>
 
