@@ -98,12 +98,15 @@ the Start Menu shortcut.
 
 ### Silent / unattended installation (advanced)
 
-```cmd
-LFDashboard-Setup.exe /quiet
-```
+The custom setup EXE requires interactive configuration. For unattended
+enterprise deployment, use the internal MSI and supply every required property:
 
-Use the internal MSI only for managed enterprise deployment and supply every
-required property explicitly.
+```cmd
+msiexec /i Dashboard-1.0.0-Setup.msi /quiet /norestart ^
+  DASHBOARD_URL="http://LF-SERVER-02:5000" DASHBOARD_PORT="5000" ^
+  LF_API_URL="https://LF-SERVER-02/LFRepositoryAPI" LF_API_VERSION="Auto" ^
+  INSTALL_DESKTOP_BUTTON="1" INSTALL_WEB_BUTTON="0"
+```
 
 ### Custom port (advanced MSI deployment)
 

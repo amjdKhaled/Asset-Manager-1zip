@@ -5,6 +5,7 @@
 
 using System;
 using System.IO;
+using System.Threading;
 
 namespace Dashboard.SetupHelper
 {
@@ -35,18 +36,26 @@ namespace Dashboard.SetupHelper
             }
 
             SetupLog.Info("RemoveData: deleting saved configuration, credentials, and logs.");
-            try
+            Exception? lastError = null;
+            for (int attempt = 1; attempt <= 5; attempt++)
             {
-                Directory.Delete(dashboardDir, recursive: true);
-                Console.WriteLine("[SetupHelper] Removed saved Dashboard data from ProgramData.");
-                return 0;
+                try
+                {
+                    Directory.Delete(dashboardDir, recursive: true);
+                    Console.WriteLine("[SetupHelper] Removed saved Dashboard data from ProgramData.");
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
+                    SetupLog.Warn("RemoveData attempt " + attempt + " failed: " + ex.Message);
+                    if (attempt < 5) Thread.Sleep(500);
+                }
             }
-            catch (Exception ex)
-            {
-                SetupLog.Error(ex);
-                Console.Error.WriteLine("[SetupHelper] Could not remove saved Dashboard data: " + ex.Message);
-                return 1;
-            }
+
+            if (lastError != null) SetupLog.Error(lastError);
+            Console.Error.WriteLine("[SetupHelper] Could not remove saved Dashboard data after stopping IIS.");
+            return 1;
         }
     }
 }

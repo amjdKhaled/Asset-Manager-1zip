@@ -358,6 +358,20 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
                   Impersonate="no"
                   Return="ignore" />
 
+    <CustomAction Id="StopDashboardSite"
+                  Directory="WEBAPPFOLDER"
+                  ExeCommand='"[SystemFolder]inetsrv\appcmd.exe" stop site "$(IisSiteName)"'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="StopDashboardAppPool"
+                  Directory="WEBAPPFOLDER"
+                  ExeCommand='"[SystemFolder]inetsrv\appcmd.exe" stop apppool "$(IisAppPoolName)"'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
     <!--
       SetAppPoolNoManagedCode: sets managedRuntimeVersion="" (No Managed Code)
       on the Dashboard app pool via appcmd.exe.  This is required for ASP.NET
@@ -479,7 +493,13 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
               Before="RemoveFiles"
               Condition="REMOVE~=&quot;ALL&quot;" />
       <Custom Action="RemoveUserData"
+              After="StopDashboardAppPool"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND REMOVE_USER_DATA=&quot;1&quot;" />
+      <Custom Action="StopDashboardSite"
               After="UnregisterExtension"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND REMOVE_USER_DATA=&quot;1&quot;" />
+      <Custom Action="StopDashboardAppPool"
+              After="StopDashboardSite"
               Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND REMOVE_USER_DATA=&quot;1&quot;" />
     </InstallExecuteSequence>
 

@@ -1244,7 +1244,7 @@ namespace Dashboard.BA
 
             if (!int.TryParse(_txtPort.Text.Trim(), out int port) || port < 1 || port > 65535)
                 errors.Add("IIS Port must be a number between 1 and 65535 (in Advanced Settings).");
-            else if (IsTcpPortInUse(port))
+            else if (IsTcpPortInUse(port) && !DetectionService.DashboardSiteUsesPort(port))
                 errors.Add($"TCP port {port} is already in use. Choose another IIS Port in Advanced Settings.");
 
             // ── HTTP/HTTPS consistency with the machine's ACTUAL bindings ──
