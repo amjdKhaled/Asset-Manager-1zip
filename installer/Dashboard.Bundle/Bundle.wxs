@@ -161,11 +161,18 @@
 
     <!-- Laserfiche connection settings -->
     <Variable Name="LaserficheApiUrl"     Type="string"  Value=""     Persisted="yes" />
+    <Variable Name="LaserficheServerUrl"  Type="string"  Value=""     Persisted="yes" />
+    <Variable Name="LaserficheApiBasePath" Type="string" Value="/LFRepositoryAPI" Persisted="yes" />
     <!-- API version selection: Auto (default, runtime probe v2→v1), v1, or v2 -->
     <Variable Name="LaserficheApiVersion" Type="string"  Value="Auto" Persisted="yes" />
-    <!-- RepositoryId / DisplayName variables removed: repository is runtime
-         session context (Desktop/Web Client ?repository= or login page),
-         never installation configuration. -->
+    <!-- Defaults used for direct browser access. Desktop/Web Client session
+         context can still override the repository for an individual user. -->
+    <Variable Name="LaserficheRepositoryId" Type="string" Value="" Persisted="yes" />
+    <Variable Name="LaserficheDisplayName" Type="string" Value="" Persisted="yes" />
+    <Variable Name="LaserficheRootEntryId" Type="string" Value="1" Persisted="yes" />
+    <Variable Name="LaserficheTimeoutSeconds" Type="string" Value="30" Persisted="yes" />
+    <!-- Encrypted DPAPI package path only. Never persist it across runs. -->
+    <Variable Name="CredentialImportPath" Type="string" Value="" Hidden="yes" />
 
     <!-- Integration options -->
     <Variable Name="LFWebClientPath"      Type="string"  Value=""     Persisted="yes" />
@@ -303,7 +310,14 @@
         <!-- Wizard-collected values passed through to MSI custom actions -->
         <MsiProperty Name="DASHBOARD_URL"          Value="[DashboardUrl]" />
         <MsiProperty Name="LF_API_URL"             Value="[LaserficheApiUrl]" />
+        <MsiProperty Name="LF_SERVER_URL"          Value="[LaserficheServerUrl]" />
+        <MsiProperty Name="LF_API_BASE_PATH"       Value="[LaserficheApiBasePath]" />
         <MsiProperty Name="LF_API_VERSION"         Value="[LaserficheApiVersion]" />
+        <MsiProperty Name="LF_REPO_ID"             Value="[LaserficheRepositoryId]" />
+        <MsiProperty Name="LF_DISPLAY_NAME"        Value="[LaserficheDisplayName]" />
+        <MsiProperty Name="LF_ROOT_ENTRY_ID"       Value="[LaserficheRootEntryId]" />
+        <MsiProperty Name="LF_TIMEOUT_SECONDS"     Value="[LaserficheTimeoutSeconds]" />
+        <MsiProperty Name="CREDENTIAL_IMPORT_PATH" Value="[CredentialImportPath]" />
         <MsiProperty Name="LF_WEB_CLIENT_PATH"     Value="[LFWebClientPath]" />
         <MsiProperty Name="INSTALL_DESKTOP_BUTTON" Value="[InstallDesktopButton]" />
         <MsiProperty Name="INSTALL_WEB_BUTTON"     Value="[InstallWebButton]" />

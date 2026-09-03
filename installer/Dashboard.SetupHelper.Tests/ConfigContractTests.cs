@@ -6,8 +6,8 @@
 // Rules under test:
 //   1. Generated JSON is well-formed.
 //   2. Laserfiche:ServerUrl is present and non-empty.
-//   3. Laserfiche:RepositoryId is NOT written (repository is runtime session context).
-//   4. Laserfiche:DisplayName  is NOT written.
+//   3. Laserfiche:RepositoryId is written from the installer wizard.
+//   4. Laserfiche:DisplayName is written from the installer wizard.
 //   5. Laserfiche:ApiBasePath  is present and non-empty.
 //   6. Laserfiche:ApiVersion   is present and non-empty.
 //   7. The runtime-resolved API base URL does not contain "LFRepositoryAPI" twice
@@ -27,20 +27,26 @@ public static class ConfigContractTests
 {
     // ──────────────────────────────────────────────────────────────────────────
     // JSON production — mirrors the FIXED BuildLaserficheConfig output
-    // (RepositoryId and DisplayName removed).
+    // (all fields collected by the installer are persisted).
     // ──────────────────────────────────────────────────────────────────────────
 
     static string BuildLaserficheConfigJson(
         string serverUrl,
+        string repositoryId = "TestEmployee",
+        string displayName = "TestEmployee",
         string apiBasePath = "/LFRepositoryAPI",
-        string apiVersion  = "v1",
+        string apiVersion  = "Auto",
+        int    rootEntryId = 1,
         int    timeout     = 30)
     {
         return "{\r\n" +
                "  \"Laserfiche\": {\r\n" +
                $"    \"ServerUrl\": \"{EscJson(serverUrl)}\",\r\n" +
+               $"    \"RepositoryId\": \"{EscJson(repositoryId)}\",\r\n" +
+               $"    \"DisplayName\": \"{EscJson(displayName)}\",\r\n" +
                $"    \"ApiBasePath\": \"{EscJson(apiBasePath)}\",\r\n" +
                $"    \"ApiVersion\": \"{EscJson(apiVersion)}\",\r\n" +
+               $"    \"RootEntryId\": {rootEntryId},\r\n" +
                $"    \"TimeoutSeconds\": {timeout},\r\n" +
                "    \"CredentialProvider\": \"DPAPI\"\r\n" +
                "  }\r\n" +
@@ -117,15 +123,15 @@ public static class ConfigContractTests
             lf.TryGetProperty("ServerUrl", out var sv) && sv.GetString()?.Length > 0,
             $"JSON:\n{json}");
 
-        // 3. RepositoryId NOT written
-        Assert("RepositoryId is NOT present",
-            !lf.TryGetProperty("RepositoryId", out _),
-            $"RepositoryId must not appear in new installs.\nJSON:\n{json}");
+        // 3. RepositoryId written
+        Assert("RepositoryId is present",
+            lf.TryGetProperty("RepositoryId", out var repository) &&
+            repository.GetString() == "TestEmployee", $"JSON:\n{json}");
 
-        // 4. DisplayName NOT written
-        Assert("DisplayName is NOT present",
-            !lf.TryGetProperty("DisplayName", out _),
-            $"DisplayName must not appear in new installs.\nJSON:\n{json}");
+        // 4. DisplayName written
+        Assert("DisplayName is present",
+            lf.TryGetProperty("DisplayName", out var display) &&
+            display.GetString() == "TestEmployee", $"JSON:\n{json}");
 
         // 5. ApiBasePath present
         Assert("ApiBasePath is present",
@@ -192,22 +198,19 @@ public static class ConfigContractTests
             $"Expected https://localhost/LFRepositoryAPI/v1, got {resolved}");
     }
 
-    static void Test_RepositoryId_Not_Written_Even_When_Legacy_Args_Passed()
+    static void Test_InstallerRepositorySettings_AreWritten()
     {
-        Console.WriteLine("\n[Scenario C] Legacy --repo-id arg present — RepositoryId must NOT appear in output");
-        Console.WriteLine("  Simulates: repair of an old MSI that passed --repo-id on the command line.");
+        Console.WriteLine("\n[Scenario C] Installer repository settings are persisted");
 
-        // The fixed BuildLaserficheConfigJson does not accept repoId at all.
-        // Verify the generated JSON never contains RepositoryId.
-        string json = BuildLaserficheConfigJson("https://lf-server/LFRepositoryAPI");
+        string json = BuildLaserficheConfigJson(
+            "https://lf-server/LFRepositoryAPI", "Records", "Corporate Records");
+        var lf = ParseJson(json).RootElement.GetProperty("Laserfiche");
 
-        Assert("RepositoryId absent even when legacy args would have set it",
-            !json.Contains("RepositoryId", StringComparison.OrdinalIgnoreCase),
-            $"JSON contains RepositoryId:\n{json}");
+        Assert("RepositoryId matches installer input",
+            lf.GetProperty("RepositoryId").GetString() == "Records", $"JSON:\n{json}");
 
-        Assert("DisplayName absent",
-            !json.Contains("DisplayName", StringComparison.OrdinalIgnoreCase),
-            $"JSON contains DisplayName:\n{json}");
+        Assert("DisplayName matches installer input",
+            lf.GetProperty("DisplayName").GetString() == "Corporate Records", $"JSON:\n{json}");
     }
 
     static void Test_TimeoutSeconds_Is_Integer_Not_String()
@@ -234,12 +237,12 @@ public static class ConfigContractTests
     public static int Run()
     {
         Console.WriteLine("\n=== Config contract tests: SetupHelper output vs LFPortal.Web runtime ===");
-        Console.WriteLine("Verifies laserfiche.config.json structure, absence of RepositoryId/DisplayName,");
+        Console.WriteLine("Verifies laserfiche.config.json structure and installer repository settings,");
         Console.WriteLine("correct URL construction, and no LFRepositoryAPI double-append.");
 
         Test_Standard_NewInstall();
         Test_ServerUrl_Already_Contains_ApiBasePath();
-        Test_RepositoryId_Not_Written_Even_When_Legacy_Args_Passed();
+        Test_InstallerRepositorySettings_AreWritten();
         Test_TimeoutSeconds_Is_Integer_Not_String();
 
         Console.WriteLine($"\n  Config contract: {_pass} passed, {_fail} failed");

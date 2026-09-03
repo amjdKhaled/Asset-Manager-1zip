@@ -513,7 +513,7 @@ Write-OK "artifacts\staging\ created."
 
 # -----------------------------------------------------------------------------
 # Static source guards (fail fast, before anything is built):
-#   G1: exactly ONE production 'new WizardForm(' call site may exist.
+#   G1: exactly ONE production 'new ProfessionalWizardForm(' call site may exist.
 #   G2: MSI/Bundle sources must never execute LFDashboard-Setup.exe as a
 #       custom action (the MSI must not relaunch its own bootstrapper).
 #   G3: no dangerous certificate-validation bypass anywhere in the sources.
@@ -526,13 +526,13 @@ foreach ($f in $baCsFiles) {
     foreach ($line in (Get-Content $f.FullName)) {
         $t = $line.TrimStart()
         if ($t.StartsWith("//") -or $t.StartsWith("*")) { continue }
-        if ($t -match "new\s+WizardForm\s*\(") { $wizardCallSites++ }
+        if ($t -match "new\s+ProfessionalWizardForm\s*\(") { $wizardCallSites++ }
     }
 }
 if ($wizardCallSites -ne 1) {
-    Fail ("GUARD G1: expected exactly 1 production 'new WizardForm(' call site, found {0}. A second construction path can open a duplicate installer window." -f $wizardCallSites)
+    Fail ("GUARD G1: expected exactly 1 production 'new ProfessionalWizardForm(' call site, found {0}. A second construction path can open a duplicate installer window." -f $wizardCallSites)
 }
-Write-OK "Guard G1: exactly one 'new WizardForm(' call site."
+Write-OK "Guard G1: exactly one 'new ProfessionalWizardForm(' call site."
 
 $wxsFiles = Get-ChildItem (Join-Path $RepoRoot "installer") -Filter *.wxs -Recurse |
             Where-Object { $_.FullName -notmatch "\\(bin|obj)\\" }
@@ -1002,7 +1002,7 @@ else {
     # PathUtil.SanitizeDir must strip the trailing \. so appsettings.json ends up
     # at exactly <WebApp>\appsettings.json (not <WebApp>.\appsettings.json).
     #
-    # Repository args are absent: the repository is runtime session context.
+    # Exercise the full first-run contract populated by the professional wizard.
     # --config-dir redirects the ProgramData writes into the temp folder so
     # the smoke test never touches the build machine's real configuration.
     $smokeWebAppArg = $smokeWebApp + "\."   # reproduces [WEBAPPFOLDER]. MSI behavior
@@ -1013,7 +1013,13 @@ else {
             "--write-config",
             "--url",        ("http://{0}:5000" -f $env:COMPUTERNAME.ToLowerInvariant()),
             "--lf-api",     "https://localhost/LFRepositoryAPI",
+            "--server-url", "https://localhost",
+            "--api-base-path", "/LFRepositoryAPI",
             "--api-version", "Auto",
+            "--repo-id", "TestEmployee",
+            "--display-name", "TestEmployeeRepository",
+            "--root-entry-id", "1",
+            "--timeout-seconds", "30",
             "--port",       "5000",
             "--webapp-path", $smokeWebAppArg,
             "--config-dir",  $smokeConfig
@@ -1084,7 +1090,7 @@ else {
     #    nested object:  { "Laserfiche": { "ServerUrl": ..., "ApiBasePath": ...,
     #    "ApiVersion": ..., "TimeoutSeconds": ..., "CredentialProvider": ... } }
     #    ServerUrl lives under .Laserfiche, NOT at the top level.
-    #    RepositoryId / DisplayName must never appear anywhere in the file.
+    #    RepositoryId / DisplayName are selected in the installer wizard.
     if ($smokeLfJsonOk) {
         $lfRaw = Get-Content $smokeLfConfig -Raw
         Write-Host "     Generated laserfiche.config.json:" -ForegroundColor Gray
@@ -1096,7 +1102,7 @@ else {
         } else {
             $lfSection   = $lfObj.Laserfiche
             $lfPropNames = @($lfSection.PSObject.Properties.Name)
-            $expectedLfApi = "https://localhost/LFRepositoryAPI"
+            $expectedLfApi = "https://localhost"
             if ($lfPropNames -contains "ServerUrl") {
                 if ($lfSection.ServerUrl -ne $expectedLfApi) {
                     $smokeErrors.Add("Laserfiche.ServerUrl mismatch. Expected: $expectedLfApi -- Actual: $($lfSection.ServerUrl)")
@@ -1113,14 +1119,12 @@ else {
             } else {
                 $smokeErrors.Add("laserfiche.config.json is missing Laserfiche.ApiVersion.")
             }
-        }
-        # RepositoryId / DisplayName must not appear anywhere in the file
-        # (raw text scan covers both top-level and nested placement).
-        if ($lfRaw -match '"RepositoryId"') {
-            $smokeErrors.Add("laserfiche.config.json must not contain RepositoryId (repository is runtime context, not install config).")
-        }
-        if ($lfRaw -match '"DisplayName"') {
-            $smokeErrors.Add("laserfiche.config.json must not contain DisplayName (repository is runtime context, not install config).")
+            if ($lfSection.RepositoryId -ne "TestEmployee") {
+                $smokeErrors.Add("Laserfiche.RepositoryId mismatch. Expected: TestEmployee -- Actual: $($lfSection.RepositoryId)")
+            }
+            if ($lfSection.DisplayName -ne "TestEmployeeRepository") {
+                $smokeErrors.Add("Laserfiche.DisplayName mismatch. Expected: TestEmployeeRepository -- Actual: $($lfSection.DisplayName)")
+            }
         }
     }
 
@@ -1190,6 +1194,9 @@ else {
     if (Test-Path $lfConfigPath) {
         (Get-Content $lfConfigPath -Raw) -replace '"ApiVersion":\s*"[^"]*"', '"ApiVersion": "v1"' |
             Set-Content $lfConfigPath -NoNewline
+        $runtimeConfigPath = Join-Path $smokeConfig "laserfiche.runtime.json"
+        (Get-Content $runtimeConfigPath -Raw) -replace '"ApiVersion":\s*"[^"]*"', '"ApiVersion": "v1"' |
+            Set-Content $runtimeConfigPath -NoNewline
 
         $smokeStdout2 = Join-Path $smokeDir "smoke_stdout_repair.txt"
         $repairProc = Start-Process -FilePath $setupHelperStaged `
@@ -1409,33 +1416,26 @@ else {
     }
     Write-OK "Dashboard.BA.dll: source and staged SHA256 match."
 
-    # ---- Guard 4: Staged Dashboard.BA.dll must not contain old wizard strings ----
-    # 'Repository ID' and 'Display Name' are label text from the old wizard that
-    # was compiled before those fields were removed from WizardForm.cs.
-    # Their presence means a stale DLL is being bundled; fail here so a second
-    # unexpected configuration window can never ship.
+    # ---- Guard 4: Staged Dashboard.BA.dll must contain the professional wizard ----
+    # This catches a stale BA DLL left over from a build of the legacy wizard.
     # NOTE: .NET string literals live in the UTF-16 #US heap, which is not
     # guaranteed to start on an even file offset.  Decode the file TWICE
     # (offset 0 and offset 1) so an odd-aligned string cannot dodge the scan.
     $baDllBytes    = [System.IO.File]::ReadAllBytes($baDllStaged)
     $baDllUtf16    = [System.Text.Encoding]::Unicode.GetString($baDllBytes)
     $baDllUtf16Odd = [System.Text.Encoding]::Unicode.GetString($baDllBytes, 1, $baDllBytes.Length - 1)
-    $foundRepoId   = ($baDllUtf16 -like '*Repository ID*') -or ($baDllUtf16Odd -like '*Repository ID*')
-    $foundDispName = ($baDllUtf16 -like '*Display Name*')  -or ($baDllUtf16Odd -like '*Display Name*')
-    if ($foundRepoId -or $foundDispName) {
+    $foundProfessionalWizard =
+        ($baDllUtf16 -like '*Welcome to Laserfiche Dashboard*') -or
+        ($baDllUtf16Odd -like '*Welcome to Laserfiche Dashboard*')
+    if (-not $foundProfessionalWizard) {
         Write-Host ""
         Write-Host "  ============================================================" -ForegroundColor Red
-        Write-Host "  [FAILED] Staged Dashboard.BA.dll contains removed UI strings:" -ForegroundColor Red
-        if ($foundRepoId)   { Write-Host '    Found string: "Repository ID"' -ForegroundColor Red }
-        if ($foundDispName) { Write-Host '    Found string: "Display Name"'  -ForegroundColor Red }
-        Write-Host "  The DLL was compiled from stale source before those fields were" -ForegroundColor Red
-        Write-Host "  removed from WizardForm.cs.  A second configuration window would" -ForegroundColor Red
-        Write-Host "  appear at ~50% progress.  Step 1 cleaned bin\ -- if this guard" -ForegroundColor Red
-        Write-Host "  still fails, files were locked during the clean." -ForegroundColor Red
+        Write-Host "  [FAILED] Staged Dashboard.BA.dll does not contain the professional wizard." -ForegroundColor Red
+        Write-Host "  The DLL may have been compiled from stale legacy source." -ForegroundColor Red
         Write-Host "  ============================================================" -ForegroundColor Red
         exit 1
     }
-    Write-OK "Dashboard.BA.dll: no legacy 'Repository ID' / 'Display Name' UI strings found."
+    Write-OK "Dashboard.BA.dll: professional wizard marker found."
 
     # Renumber the remaining guards from here (they were previously Guard 3/4/5).
     # ---- Guard 5: WixToolset.Mba.Host.config ----

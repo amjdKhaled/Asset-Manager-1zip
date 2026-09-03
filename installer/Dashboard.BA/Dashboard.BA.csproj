@@ -41,6 +41,8 @@
   <ItemGroup>
     <!-- WiX v4 Managed Bootstrapper Application Core API -->
     <PackageReference Include="WixToolset.Mba.Core" Version="4.0.5" />
+    <!-- ProtectedData / machine-scope DPAPI credential staging. -->
+    <Reference Include="System.Security" />
   </ItemGroup>
 
   <!--

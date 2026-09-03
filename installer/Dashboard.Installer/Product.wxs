@@ -182,6 +182,8 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
     -->
     <Property Id="DASHBOARD_URL"          Secure="yes" />
     <Property Id="LF_API_URL"             Secure="yes" />
+    <Property Id="LF_SERVER_URL"          Secure="yes" />
+    <Property Id="LF_API_BASE_PATH"       Secure="yes" />
     <!-- API version: Auto (probe v2 then v1 at runtime), v1, or v2.
          INTENTIONALLY NO DEFAULT: when the property is empty (direct-MSI
          repair / upgrade without the bundle UI), WriteConfig preserves the
@@ -189,8 +191,12 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
          never silently rewritten to "Auto". Fresh installs with no existing
          file default to "Auto" inside WriteConfigAction. -->
     <Property Id="LF_API_VERSION"         Secure="yes" />
-    <!-- LF_REPO_ID / LF_DISPLAY_NAME removed: repository is runtime session
-         context, never installation configuration. -->
+    <Property Id="LF_REPO_ID"              Secure="yes" />
+    <Property Id="LF_DISPLAY_NAME"         Secure="yes" />
+    <Property Id="LF_ROOT_ENTRY_ID"        Secure="yes" />
+    <Property Id="LF_TIMEOUT_SECONDS"      Secure="yes" />
+    <!-- Contains only the path of a temporary machine-DPAPI encrypted file. -->
+    <Property Id="CREDENTIAL_IMPORT_PATH"  Secure="yes" Hidden="yes" />
     <Property Id="LF_WEB_CLIENT_PATH"     Secure="yes" />
     <Property Id="INSTALL_DESKTOP_BUTTON" Value="1" />
     <Property Id="INSTALL_WEB_BUTTON"     Value="0" />
@@ -299,7 +305,7 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
     -->
     <CustomAction Id="WriteConfig"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --api-version "[LF_API_VERSION]" --port "[DASHBOARD_PORT]" --webapp-path "[WEBAPPFOLDER]."'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --server-url "[LF_SERVER_URL]" --api-base-path "[LF_API_BASE_PATH]" --api-version "[LF_API_VERSION]" --repo-id "[LF_REPO_ID]" --display-name "[LF_DISPLAY_NAME]" --root-entry-id "[LF_ROOT_ENTRY_ID]" --timeout-seconds "[LF_TIMEOUT_SECONDS]" --credential-file "[CREDENTIAL_IMPORT_PATH]" --port "[DASHBOARD_PORT]" --webapp-path "[WEBAPPFOLDER]."'
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />

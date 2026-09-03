@@ -3,8 +3,12 @@
     "ServerUrl": "https://YOUR-LF-SERVER",
     "AuthenticationMode": "RepositoryPassword",
     "DashboardPublicBaseUrl": "https://YOUR-DASHBOARD-HOST",
+    "RepositoryId": "YOUR-REPOSITORY",
+    "DisplayName": "YOUR-REPOSITORY",
     "ApiBasePath": "/LFRepositoryAPI",
-    "ApiVersion": "v1",
+    "ApiVersion": "Auto",
+    "DetectedApiVersion": "",
+    "RootEntryId": 1,
     "TimeoutSeconds": 30,
     "CredentialProvider": "DPAPI",
     "Sso": {

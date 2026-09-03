@@ -39,7 +39,7 @@ namespace Dashboard.BA
         private readonly IBootstrapperCommand _command;
 
         // The wizard form. Created on the UI thread in Run().
-        private WizardForm? _form;
+        private ProfessionalWizardForm? _form;
 
         // Window handle used for Detect / Apply calls.
         private IntPtr _hwnd;
@@ -162,9 +162,9 @@ namespace Dashboard.BA
                 StartupLogger.Log("  Calling Application.SetCompatibleTextRenderingDefault(false)");
                 Application.SetCompatibleTextRenderingDefault(false);
 
-                StartupLogger.Log("  Creating WizardForm...");
-                _form = new WizardForm(this);
-                StartupLogger.Log("  WizardForm created successfully");
+                StartupLogger.Log("  Creating ProfessionalWizardForm...");
+                _form = new ProfessionalWizardForm(this);
+                StartupLogger.Log("  ProfessionalWizardForm created successfully");
 
                 StartupLogger.Log("  Calling Application.Run(_form)...");
                 Application.Run(_form);
@@ -200,9 +200,16 @@ namespace Dashboard.BA
 
             _engine.SetVariableString("DashboardUrl",     config.DashboardUrl,     false);
             _engine.SetVariableString("LaserficheApiUrl", config.LaserficheApiUrl, false);
+            _engine.SetVariableString("LaserficheServerUrl", config.LaserficheServerUrl, false);
+            _engine.SetVariableString("LaserficheApiBasePath", config.LaserficheApiBasePath, false);
             _engine.SetVariableString("LaserficheApiVersion", config.LaserficheApiVersion, false);
-            // RepositoryId / DisplayName intentionally not set: repository is
-            // runtime session context, not installation configuration.
+            _engine.SetVariableString("LaserficheRepositoryId", config.RepositoryId, false);
+            _engine.SetVariableString("LaserficheDisplayName", config.DisplayName, false);
+            _engine.SetVariableString("LaserficheRootEntryId", config.RootEntryId, false);
+            _engine.SetVariableString("LaserficheTimeoutSeconds", config.TimeoutSeconds, false);
+            // Only an encrypted temporary package path enters Burn/MSI. The
+            // username and password themselves never become installer variables.
+            _engine.SetVariableString("CredentialImportPath", config.CredentialImportPath, false);
             _engine.SetVariableString("LFWebClientPath",  config.LFWebClientPath,  false);
             _engine.SetVariableString("TrustLFCertificate", config.TrustSelfSignedCert ? "1" : "0", false);
             _engine.SetVariableString("DashboardPort",    config.DashboardPort,    false);
