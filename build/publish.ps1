@@ -797,7 +797,8 @@ elseif (-not (Test-Path $ExtProjPath)) {
 else {
     Write-Stage $Step $TotalStages "Building Desktop Extension (net48, x64, Release)"
 
-    # Requires Laserfiche SDK DLLs in vendor\LaserficheSdk\bin\10.4\net-4.0\
+    # Uses the vendor SDK when present; clean build agents use the compile-only
+    # ClientAutomation reference stub. Neither reference is redistributed.
     Invoke-NativeCommand -Stage "dotnet build (Desktop Extension)" -FilePath "dotnet" -Arguments @(
         "build", $ExtProjPath,
         "--configuration", "Release",
@@ -862,6 +863,14 @@ else {
         exit 1
     }
     Write-OK ("Dashboard.DesktopExtension.exe confirmed in Extension staging ({0:N0} bytes)." -f $extExeBytes)
+
+    # Licensing/runtime guard: ClientAutomation is supplied by the installed
+    # Laserfiche Desktop Client and must never be bundled by this project.
+    $clientAutomationStaged = Join-Path $StagingDir "Extension\ClientAutomation.dll"
+    if (Test-Path $clientAutomationStaged) {
+        Fail "ClientAutomation.dll was copied to release staging. Mark the SDK/stub reference non-copy-local; vendor DLLs must not be redistributed."
+    }
+    Write-OK "ClientAutomation.dll is not present in release staging."
 }
 
 # =============================================================================

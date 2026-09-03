@@ -28,6 +28,7 @@
     <!-- Copy the Laserfiche SDK into this repository-relative folder on Windows:
          vendor\LaserficheSdk\bin\10.4\net-4.0\ -->
     <LaserficheSdkRoot>$(MSBuildThisFileDirectory)..\..\vendor\LaserficheSdk</LaserficheSdkRoot>
+    <ClientAutomationHintPath>$(LaserficheSdkRoot)\bin\10.4\net-4.0\ClientAutomation.dll</ClientAutomationHintPath>
 
     <!-- Product metadata -->
     <Company>Dashboard</Company>
@@ -46,13 +47,30 @@
   <!-- Laserfiche ClientAutomation SDK — required for toolbar button registration.
        This repository-relative path keeps the project portable. See
        docs/LFDesktopExtension.md for the Windows SDK copy step. -->
-  <ItemGroup>
+  <ItemGroup Condition="Exists('$(ClientAutomationHintPath)')">
     <Reference Include="System.Windows.Forms" />
     <Reference Include="ClientAutomation">
-      <HintPath>$(LaserficheSdkRoot)\bin\10.4\net-4.0\ClientAutomation.dll</HintPath>
+      <HintPath>$(ClientAutomationHintPath)</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
+
+  <!-- Clean CI/build computers use a compile-only API surface. It is marked
+       non-copy-local and is never distributed; installed Laserfiche supplies
+       the real ClientAutomation.dll when registration runs. -->
+  <ItemGroup Condition="!Exists('$(ClientAutomationHintPath)')">
+    <Reference Include="System.Windows.Forms" />
+    <ProjectReference Include="..\..\build\ClientAutomation.ReferenceStub\ClientAutomation.ReferenceStub.csproj"
+                      Private="false" />
+  </ItemGroup>
+
+  <Target Name="ReportClientAutomationReference" BeforeTargets="Build">
+    <Message Importance="high"
+             Condition="Exists('$(ClientAutomationHintPath)')"
+             Text="Using Laserfiche ClientAutomation SDK: $(ClientAutomationHintPath)" />
+    <Warning Condition="!Exists('$(ClientAutomationHintPath)')"
+             Text="Laserfiche SDK not found; using the compile-only ClientAutomation reference stub. The stub will not be copied to release output." />
+  </Target>
 
   <!-- NuGet packages -->
   <ItemGroup>
