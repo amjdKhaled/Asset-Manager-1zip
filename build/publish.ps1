@@ -1017,7 +1017,7 @@ else {
             "--api-base-path", "/LFRepositoryAPI",
             "--api-version", "Auto",
             "--repo-id", "TestEmployee",
-            "--display-name", "Test Employee Repository",
+            "--display-name", "TestEmployeeRepository",
             "--root-entry-id", "1",
             "--timeout-seconds", "30",
             "--port",       "5000",
@@ -1122,8 +1122,8 @@ else {
             if ($lfSection.RepositoryId -ne "TestEmployee") {
                 $smokeErrors.Add("Laserfiche.RepositoryId mismatch. Expected: TestEmployee -- Actual: $($lfSection.RepositoryId)")
             }
-            if ($lfSection.DisplayName -ne "Test Employee Repository") {
-                $smokeErrors.Add("Laserfiche.DisplayName mismatch. Expected: Test Employee Repository -- Actual: $($lfSection.DisplayName)")
+            if ($lfSection.DisplayName -ne "TestEmployeeRepository") {
+                $smokeErrors.Add("Laserfiche.DisplayName mismatch. Expected: TestEmployeeRepository -- Actual: $($lfSection.DisplayName)")
             }
         }
     }
