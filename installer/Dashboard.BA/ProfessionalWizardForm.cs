@@ -428,8 +428,13 @@ namespace Dashboard.BA
             var grid = CreateGrid();
             grid.Width = 630;
 
-            _serverUrl = CreateTextBox("https://lf-server.company.local");
+            // Keep this page limited to the Laserfiche connection itself.
+            // Detection replaces the defaults when this computer already has
+            // a Laserfiche API binding.
+            _serverUrl = CreateTextBox("https://localhost");
+            _serverUrl.Text = "https://localhost";
             _apiBasePath = CreateTextBox("/LFRepositoryAPI");
+            _apiBasePath.Text = "/LFRepositoryAPI";
             _apiVersion = new ComboBox
             {
                 Dock = DockStyle.Top,
@@ -440,52 +445,11 @@ namespace Dashboard.BA
             };
             _apiVersion.Items.AddRange(new object[] { "Auto Detect (recommended)", "v1", "v2" });
             _apiVersion.SelectedIndex = 0;
-            _repositoryId = CreateTextBox("Example: TestEmployee");
-            _displayName = CreateTextBox("Optional label");
-            _rootEntryId = CreateTextBox("1");
-            _rootEntryId.Text = "1";
-            _timeoutSeconds = CreateTextBox("30");
-            _timeoutSeconds.Text = "30";
-            _username = CreateTextBox("Laserfiche username");
-            _password = CreateTextBox("Password");
-            _password.UseSystemPasswordChar = true;
-
             int row = 0;
             AddSectionHeader(grid, row++, "Laserfiche API");
-            AddField(grid, row++, 0, "Server URL *", "Scheme and host only; a full API URL is accepted.", _serverUrl, 2);
+            AddField(grid, row++, 0, "Server URL *", "Default: https://localhost. A full API URL is also accepted.", _serverUrl, 2);
             AddField(grid, row, 0, "API base path *", "Default: /LFRepositoryAPI", _apiBasePath);
             AddField(grid, row++, 1, "API version", "Auto Detect tries v2 and then v1.", _apiVersion);
-            AddSectionHeader(grid, row++, "Default repository");
-            AddField(grid, row, 0, "Repository ID *", "Used when Dashboard is opened directly.", _repositoryId);
-            AddField(grid, row++, 1, "Display name", "Defaults to the repository ID.", _displayName);
-            AddField(grid, row, 0, "Root entry ID *", "Usually 1.", _rootEntryId);
-            AddField(grid, row++, 1, "API timeout (seconds) *", "5 to 300 seconds.", _timeoutSeconds);
-            AddSectionHeader(grid, row++, "Secure service credentials");
-            AddField(grid, row, 0, "Username *", "Used for direct browser access.", _username);
-            AddField(grid, row++, 1, "Password *", "Encrypted with Windows DPAPI.", _password);
-
-            var tools = new Panel { Dock = DockStyle.Fill, Margin = new Padding(4), Height = 76 };
-            _showPassword = new CheckBox
-            {
-                Text = "Show password",
-                AutoSize = true,
-                Location = new Point(0, 8),
-                ForeColor = Muted
-            };
-            _showPassword.CheckedChanged += (s, e) =>
-                _password.UseSystemPasswordChar = !_showPassword.Checked;
-            var test = CreateButton("Test connection", false, 132);
-            test.Location = new Point(0, 36);
-            test.Click += (s, e) => TestConnection();
-            _connectionStatus = new Label
-            {
-                Text = "Optional, but recommended before installation.",
-                Location = new Point(146, 42),
-                Size = new Size(430, 24),
-                ForeColor = Muted
-            };
-            tools.Controls.AddRange(new Control[] { _showPassword, test, _connectionStatus });
-            AddFullRow(grid, row++, tools, 78);
 
             var certificate = new Panel { Dock = DockStyle.Fill, Margin = new Padding(4), Height = 64 };
             _certificateStatus = new Label
@@ -851,7 +815,6 @@ namespace Dashboard.BA
             {
                 if (!ValidateDeploymentPage()) return;
                 CollectConfiguration();
-                if (!PrepareCredentialImport()) return;
             }
 
             if (_pageIndex == PAGE_COMPLETE)
@@ -940,8 +903,7 @@ namespace Dashboard.BA
         {
             if (!_detectionDone) return;
 
-            if (!string.IsNullOrWhiteSpace(_detection.LaserficheApiUrl) &&
-                string.IsNullOrWhiteSpace(_serverUrl.Text))
+            if (!string.IsNullOrWhiteSpace(_detection.LaserficheApiUrl))
             {
                 SplitApiUrl(_detection.LaserficheApiUrl, out string server, out string path);
                 _serverUrl.Text = server;
@@ -1019,17 +981,8 @@ namespace Dashboard.BA
                 errors.Add("API base path is required.");
             else if (!_apiBasePath.Text.Trim().StartsWith("/"))
                 errors.Add("API base path must begin with /.");
-            if (ContainsCommandBreakingText(_apiBasePath.Text) || ContainsCommandBreakingText(_repositoryId.Text) ||
-                ContainsCommandBreakingText(_displayName.Text))
-                errors.Add("Repository, display name and API path cannot contain quotes or line breaks.");
-            if (string.IsNullOrWhiteSpace(_repositoryId.Text))
-                errors.Add("Default Repository ID is required so Dashboard works immediately after setup.");
-            if (!int.TryParse(_rootEntryId.Text.Trim(), out int root) || root < 1)
-                errors.Add("Root Entry ID must be 1 or greater.");
-            if (!int.TryParse(_timeoutSeconds.Text.Trim(), out int timeout) || timeout < 5 || timeout > 300)
-                errors.Add("API timeout must be between 5 and 300 seconds.");
-            if (string.IsNullOrWhiteSpace(_username.Text)) errors.Add("Laserfiche username is required.");
-            if (string.IsNullOrEmpty(_password.Text)) errors.Add("Laserfiche password is required.");
+            if (ContainsCommandBreakingText(_apiBasePath.Text))
+                errors.Add("API path cannot contain quotes or line breaks.");
 
             if (errors.Count > 0) return ShowValidation(errors);
 
@@ -1181,14 +1134,15 @@ namespace Dashboard.BA
                 2 => "v2",
                 _ => "Auto"
             };
-            _config.RepositoryId = _repositoryId.Text.Trim();
-            _config.DisplayName = string.IsNullOrWhiteSpace(_displayName.Text)
-                ? _repositoryId.Text.Trim()
-                : _displayName.Text.Trim();
-            _config.RootEntryId = _rootEntryId.Text.Trim();
-            _config.TimeoutSeconds = _timeoutSeconds.Text.Trim();
-            _config.Username = _username.Text.Trim();
-            _config.Password = _password.Text;
+            // Repository selection and credentials are part of Dashboard's
+            // normal sign-in flow, not the installation wizard.
+            _config.RepositoryId = "";
+            _config.DisplayName = "";
+            _config.RootEntryId = "1";
+            _config.TimeoutSeconds = "30";
+            _config.Username = "";
+            _config.Password = "";
+            _config.CredentialImportPath = "";
             _config.DashboardUrl = _dashboardUrl.Text.Trim().TrimEnd('/');
             _config.DashboardPort = _dashboardPort.Text.Trim();
             _config.InstallDesktopButton = _desktopButton.Checked;
@@ -1226,10 +1180,6 @@ namespace Dashboard.BA
             text.AppendLine("LASERFICHE CONNECTION");
             text.AppendLine("  API:        " + _config.LaserficheApiUrl);
             text.AppendLine("  Version:    " + (_config.LaserficheApiVersion == "Auto" ? "Auto Detect" : _config.LaserficheApiVersion));
-            text.AppendLine("  Repository: " + _config.RepositoryId + " (" + _config.DisplayName + ")");
-            text.AppendLine("  Root entry: " + _config.RootEntryId + "    Timeout: " + _config.TimeoutSeconds + " seconds");
-            text.AppendLine("  Credentials: encrypted with Windows DPAPI");
-            if (_connectionTestPassed) text.AppendLine("  Connection test: passed");
             text.AppendLine();
             text.AppendLine("INTEGRATIONS");
             text.AppendLine("  Desktop Client button: " + (_config.InstallDesktopButton ? "Install" : "Skip"));
