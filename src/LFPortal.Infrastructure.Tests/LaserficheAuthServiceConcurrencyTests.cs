@@ -283,6 +283,41 @@ public sealed class LaserficheAuthServiceConcurrencyTests
         Assert.Equal(2, handler.CallCount); // exactly 2 POSTs — no more, no less
     }
 
+    [Fact]
+    public async Task Test9_ConcurrentIdenticalInteractiveLogins_SendOneTokenPost()
+    {
+        var handler = new GatedHandler(SuccessJson);
+        var svc = CreateService(handler);
+        var repo = Repo();
+
+        var attempts = Enumerable.Range(0, 10)
+            .Select(_ => svc.TryAuthenticateAsync(repo, "admin", "secret"))
+            .ToArray();
+
+        await Task.Delay(50);
+        handler.Release();
+        var results = await Task.WhenAll(attempts);
+
+        Assert.Equal(1, handler.CallCount);
+        Assert.All(results, Assert.True);
+    }
+
+    [Fact]
+    public async Task Test10_DifferentInteractiveCredentials_AreNeverShared()
+    {
+        var handler = new GatedHandler(SuccessJson);
+        var svc = CreateService(handler);
+        var repo = Repo();
+
+        var alice = svc.TryAuthenticateAsync(repo, "alice", "alice-password");
+        var bob = svc.TryAuthenticateAsync(repo, "bob", "bob-password");
+
+        await Task.Delay(50);
+        handler.Release();
+        Assert.All(await Task.WhenAll(alice, bob), Assert.True);
+        Assert.Equal(2, handler.CallCount);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Test helpers
     // ─────────────────────────────────────────────────────────────────────────
