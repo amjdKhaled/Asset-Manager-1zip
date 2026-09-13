@@ -1,5 +1,6 @@
 using LFPortal.Application.Interfaces;
 using LFPortal.Web.Authentication;
+using Microsoft.AspNetCore.Authentication;
 
 namespace LFPortal.Web.Middleware;
 
