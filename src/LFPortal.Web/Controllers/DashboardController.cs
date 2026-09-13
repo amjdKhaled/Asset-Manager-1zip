@@ -10,6 +10,7 @@ namespace LFPortal.Web.Controllers;
 /// Displays live Laserfiche repository statistics. Repository data is supplied by
 /// <see cref="ILaserficheDashboardService"/>.
 /// </summary>
+[ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class DashboardController : Controller
 {
     private readonly ILaserficheDashboardService _dashboardService;

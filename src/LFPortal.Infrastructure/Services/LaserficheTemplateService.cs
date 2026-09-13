@@ -118,6 +118,13 @@ internal sealed class LaserficheTemplateService : ILaserficheTemplateService
             return new TemplatePage(items, null);
         }
 
+        using var json = JsonDocument.Parse(body);
+        if (json.RootElement.ValueKind != JsonValueKind.Object ||
+            !json.RootElement.EnumerateObject().Any(p =>
+                string.Equals(p.Name, "value", StringComparison.OrdinalIgnoreCase) &&
+                p.Value.ValueKind == JsonValueKind.Array))
+            throw new JsonException("TemplateDefinitions response did not contain a value array.");
+
         var result = JsonSerializer.Deserialize<ODataList<TemplateDefinitionResource>>(
             body, JsonOptions.Default)
             ?? throw new JsonException("TemplateDefinitions response could not be deserialized.");

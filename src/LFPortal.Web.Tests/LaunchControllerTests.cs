@@ -63,7 +63,7 @@ public sealed class LaunchControllerTests
     }
 
     [Fact]
-    public async Task Launch_WebClient_RepositoryPassword_PreservesAuthAndRedirectsToDashboard()
+    public async Task Launch_WebClient_RepositoryPassword_ClearsPreviousAccountAndRedirectsToDashboard()
     {
         var auth = new SpyAuthService();
         var credentials = new SpyCredentialStore();
@@ -80,12 +80,12 @@ public sealed class LaunchControllerTests
         Assert.Equal("/Dashboard", redirect.Url);
         Assert.Equal("TestEmployee", session.GetString("ActiveRepositoryId"));
         Assert.Equal("Laserfiche Web Client", session.GetString("ActiveRepositorySource"));
-        Assert.Equal("TestEmployee", session.GetString("AuthenticatedRepositoryId"));
-        Assert.Equal("admin", session.GetString("AuthenticatedLaserficheUser"));
-        Assert.False(auth.Invalidated);
-        Assert.False(credentials.Cleared);
-        Assert.False(correlation.Deleted);
-        Assert.DoesNotContain("Dashboard.Cookie=;", context.Response.Headers.SetCookie.ToString());
+        Assert.Null(session.GetString("AuthenticatedRepositoryId"));
+        Assert.Null(session.GetString("AuthenticatedLaserficheUser"));
+        Assert.True(auth.Invalidated);
+        Assert.True(credentials.Cleared);
+        Assert.True(correlation.Deleted);
+        Assert.Contains("Dashboard.Cookie=;", context.Response.Headers.SetCookie.ToString());
     }
 
     [Fact]

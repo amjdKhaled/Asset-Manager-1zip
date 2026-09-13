@@ -462,6 +462,12 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         CancellationToken cancellationToken,
         bool retryTooManyRequests = true)
     {
+        var cooldownKey = "LFLoginCooldown:" + tokenUrl + ":" +
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(username.ToUpperInvariant())));
+        if (!retryTooManyRequests && _cache.TryGetValue(cooldownKey, out DateTimeOffset retryAt))
+            throw new Domain.Exceptions.LaserficheException(
+                $"Laserfiche sign-in is rate limited until {retryAt:O}. No new sign-in request was sent.", 429);
+
         // Log effective configuration once before the first attempt so administrators
         // can verify the exact URL and API contract being used — never log the password.
         _logger.LogInformation(
@@ -497,6 +503,15 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 .PostAsync(tokenUrl, form, cancellationToken)
                 .ConfigureAwait(false);
             sw.Stop();
+
+            if (!retryTooManyRequests && response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                var now = DateTimeOffset.UtcNow;
+                var delay = response.Headers.RetryAfter?.Delta
+                    ?? (response.Headers.RetryAfter?.Date is { } date ? date - now : TimeSpan.FromMinutes(1));
+                if (delay <= TimeSpan.Zero) delay = TimeSpan.FromSeconds(1);
+                _cache.Set(cooldownKey, now + delay, delay);
+            }
 
             // ── HTTP 429 — rate limited ───────────────────────────────────────
             // Retry up to MaxTokenRetries times with Retry-After / exponential back-off.

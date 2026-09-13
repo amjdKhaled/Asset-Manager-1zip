@@ -22,6 +22,18 @@ namespace LFPortal.Web.Tests;
 /// </summary>
 public sealed class SessionAuthGuardMiddlewareTests
 {
+    [Fact]
+    public async Task PasswordLaunch_ReachesControllerBeforeLoginSoReturnUrlCannotLoop()
+    {
+        var reached = false;
+        var middleware = MakeMiddleware(authenticationMode: LaserficheAuthenticationMode.RepositoryPassword,
+            next: _ => { reached = true; return Task.CompletedTask; });
+        var context = MakeContext(path: "/Launch", source: "Laserfiche Web Client", activeRepoId: "TestEmployee");
+        await middleware.InvokeAsync(context);
+        Assert.True(reached);
+        Assert.Empty(context.Response.Headers.Location.ToString());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static SessionAuthGuardMiddleware MakeMiddleware(

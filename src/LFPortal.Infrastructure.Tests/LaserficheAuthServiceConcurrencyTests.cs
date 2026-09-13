@@ -24,6 +24,18 @@ namespace LFPortal.Infrastructure.Tests;
 /// </summary>
 public sealed class LaserficheAuthServiceConcurrencyTests
 {
+    [Fact]
+    public async Task InteractiveRateLimit_BlocksRepeatedClicksButNotOtherRepositories()
+    {
+        var handler = new CountingHandler(HttpStatusCode.TooManyRequests, "{}");
+        var service = CreateService(handler);
+        await Assert.ThrowsAsync<LaserficheException>(() => service.TryAuthenticateAsync(Repo(), "admin", "p"));
+        await Assert.ThrowsAsync<LaserficheException>(() => service.TryAuthenticateAsync(Repo(), "admin", "p"));
+        Assert.Equal(1, handler.CallCount);
+        await Assert.ThrowsAsync<LaserficheException>(() => service.TryAuthenticateAsync(Repo("Other"), "admin", "p"));
+        Assert.Equal(2, handler.CallCount);
+    }
+
     // ── Factory ────────────────────────────────────────────────────────────────
 
     private static LaserficheAuthService CreateService(

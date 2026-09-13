@@ -128,17 +128,16 @@ public sealed class LoginController : Controller
     {
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
         var opts = _options.CurrentValue;
-        var allowRepoInput = opts.AuthenticationMode ==
-            LaserficheAuthenticationMode.RepositoryPassword || AllowRepositoryInput();
+        var allowRepoInput = AllowRepositoryInput();
         var repoId = allowRepoInput && !string.IsNullOrWhiteSpace(input.Repository)
             ? input.Repository.Trim()
             : repo.RepositoryId;
 
         LoginViewModel ViewWithError(string? error) => new()
         {
-            ActiveRepository     = repo.RepositoryId,
+            ActiveRepository     = repoId,
             AllowRepositoryInput = allowRepoInput,
-            SubmittedRepository  = allowRepoInput ? (input.Repository ?? string.Empty) : repo.RepositoryId,
+            SubmittedRepository  = repoId,
             SubmittedUsername    = input.Username,
             ErrorMessage         = error,
             IsRepositoryPasswordMode = opts.AuthenticationMode ==

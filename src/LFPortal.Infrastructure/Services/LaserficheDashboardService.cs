@@ -348,6 +348,15 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         CancellationToken    ct)
     {
         var folderList = rootFolders.ToList();
+        // Limit actual HTTP work, not entire recursive branches (which deadlocks
+        // when parents hold permits while awaiting their children).
+        using var requests = new SemaphoreSlim(4, 4);
+        async Task<IReadOnlyList<LFEntry>> LoadBounded(int id, CancellationToken token)
+        {
+            await requests.WaitAsync(token).ConfigureAwait(false);
+            try { return await loadChildren(id, token).ConfigureAwait(false); }
+            finally { requests.Release(); }
+        }
         logger.LogInformation("Starting recursive scan of {Count} root-level folders.", folderList.Count);
 
         var tasks = folderList.Select(async folder =>
@@ -358,7 +367,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                         folder.Id,
                         folder.Name,
                         new ConcurrentDictionary<int, byte>(),
-                        loadChildren,
+                        LoadBounded,
                         logger,
                         ct)
                     .ConfigureAwait(false);

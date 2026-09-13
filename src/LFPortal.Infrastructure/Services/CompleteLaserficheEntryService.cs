@@ -268,6 +268,21 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
             }
 
             var parsed = ParsePage(body);
+            // A missing type must not silently erase a document from every KPI.
+            // Ask the entry endpoint for authoritative details; never guess from a
+            // file extension, page count, name, or the presence of a template.
+            for (var i = 0; i < parsed.Entries.Count; i++)
+            {
+                if (parsed.Entries[i].Id <= 0)
+                    throw new JsonException("Folder listing contained an invalid entry ID.");
+                if (parsed.Entries[i].EntryType != LFEntryType.Unknown)
+                    continue;
+                var details = await GetEntryAsync(parsed.Entries[i].Id, cancellationToken)
+                    .ConfigureAwait(false);
+                if (details.Id != parsed.Entries[i].Id || details.EntryType == LFEntryType.Unknown)
+                    throw new JsonException($"Cannot determine the type of entry {parsed.Entries[i].Id}; repository totals are incomplete.");
+                parsed.Entries[i] = details;
+            }
             allEntries.AddRange(parsed.Entries);
             nextUrl = ResolveNextLink(nextUrl, parsed.NextLink);
 
@@ -415,6 +430,12 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
             return new EntryPage(resources.Select(MapEntry).ToList(), null);
         }
 
+        using var json = JsonDocument.Parse(body);
+        if (json.RootElement.ValueKind != JsonValueKind.Object ||
+            !TryGetPropertyIgnoreCase(json.RootElement, "value", out var values) ||
+            values.ValueKind != JsonValueKind.Array)
+            throw new JsonException("Folder children response did not contain a value array; refusing to report empty totals.");
+
         var envelope = JsonSerializer.Deserialize<ODataPagedList<EntryResource>>(body, JsonOptions.Default)
             ?? throw new JsonException("Folder children response could not be deserialized.");
 
@@ -451,7 +472,8 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         Creator = r.Creator,
         CreationTime = r.CreationTime ?? r.CreatedTime,
         LastModifiedTime = r.LastModifiedTime ?? r.ModifiedTime,
-        EntryType = ParseEntryType(r.EntryType ?? r.ODataType),
+        EntryType = ParseEntryType(r.EntryType) is var type && type != LFEntryType.Unknown
+            ? type : ParseEntryType(r.ODataType),
         TemplateName = r.TemplateName,
         TemplateId = r.TemplateId,
         FileSizeBytes = r.FileSizeBytes ?? r.ElectronicDocumentSize ?? r.ElecDocumentSize,
@@ -464,7 +486,7 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         if (string.IsNullOrWhiteSpace(raw))
             return LFEntryType.Unknown;
 
-        var token = raw.TrimStart('#');
+        var token = raw.Trim().TrimStart('#');
         var dot = token.LastIndexOf('.');
         if (dot >= 0)
             token = token[(dot + 1)..];
