@@ -170,7 +170,7 @@
     <Variable Name="LaserficheRepositoryId" Type="string" Value="" Persisted="yes" />
     <Variable Name="LaserficheDisplayName" Type="string" Value="" Persisted="yes" />
     <Variable Name="LaserficheRootEntryId" Type="string" Value="1" Persisted="yes" />
-    <Variable Name="LaserficheTimeoutSeconds" Type="string" Value="30" Persisted="yes" />
+    <Variable Name="LaserficheTimeoutSeconds" Type="string" Value="120" Persisted="yes" />
     <!-- Encrypted DPAPI package path only. Never persist it across runs. -->
     <Variable Name="CredentialImportPath" Type="string" Value="" Hidden="yes" />
 

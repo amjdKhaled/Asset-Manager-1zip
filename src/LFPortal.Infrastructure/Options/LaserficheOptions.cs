@@ -40,6 +40,7 @@ public enum LaserficheAuthenticationMode
 public sealed class LaserficheOptions
 {
     public const string SectionName = "Laserfiche";
+    public const int DefaultTimeoutSeconds = 120;
 
     /// <summary>
     /// Base URL of the Laserfiche API Server, e.g. <c>https://your-lf-server.example.com</c>.
@@ -86,7 +87,14 @@ public sealed class LaserficheOptions
         string.Equals(ApiVersion.Trim(), ApiVersionAuto, StringComparison.OrdinalIgnoreCase);
 
     [Range(5, 300)]
-    public int TimeoutSeconds { get; set; } = 30;
+    public int TimeoutSeconds { get; set; } = DefaultTimeoutSeconds;
+
+    /// <summary>
+    /// Effective Repository API request timeout. Older installations can retain the
+    /// former 30-second value in laserfiche.runtime.json; keep those installations
+    /// working without requiring a manual settings-file migration.
+    /// </summary>
+    public int EffectiveTimeoutSeconds => Math.Max(TimeoutSeconds, DefaultTimeoutSeconds);
 
     public CredentialProviderType CredentialProvider { get; set; } =
         OperatingSystem.IsWindows()

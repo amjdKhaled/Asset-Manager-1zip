@@ -119,7 +119,7 @@ public sealed class SettingsController : Controller
                 apiBasePath,
                 apiVersion,
                 request.RootEntryId > 0 ? request.RootEntryId : 1,
-                request.TimeoutSeconds is >= 5 and <= 300 ? request.TimeoutSeconds : 30,
+                request.TimeoutSeconds is >= 5 and <= 300 ? request.TimeoutSeconds : LaserficheOptions.DefaultTimeoutSeconds,
                 cancellationToken);
 
             // 2. Persist credentials.
@@ -447,7 +447,7 @@ public sealed class SettingsViewModel
     /// <summary>True when the configured version is Auto Detect.</summary>
     public bool    IsAutoApiVersion { get; init; }
     public int     RootEntryId    { get; init; } = 1;
-    public int     TimeoutSeconds { get; init; } = 30;
+    public int     TimeoutSeconds { get; init; } = LaserficheOptions.DefaultTimeoutSeconds;
     public bool    HasSavedCredentials               { get; init; }
     public bool    HasEnvironmentVariableCredentials { get; init; }
     public bool    SaveSuccess    { get; init; }
@@ -509,7 +509,7 @@ public sealed class SaveSettingsRequest
     public string? ApiBasePath    { get; set; }
     public string? ApiVersion     { get; set; }
     public int     RootEntryId    { get; set; } = 1;
-    public int     TimeoutSeconds { get; set; } = 30;
+    public int     TimeoutSeconds { get; set; } = LaserficheOptions.DefaultTimeoutSeconds;
     public string? Username       { get; set; }
     public string? Password       { get; set; }
 }

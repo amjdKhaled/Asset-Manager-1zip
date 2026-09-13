@@ -32,7 +32,7 @@ namespace Dashboard.BA
         public string RepositoryId { get; set; } = "";
         public string DisplayName { get; set; } = "";
         public string RootEntryId { get; set; } = "1";
-        public string TimeoutSeconds { get; set; } = "30";
+        public string TimeoutSeconds { get; set; } = "120";
 
         // Plain text exists only in wizard memory. Before Apply it is replaced
         // with a temporary machine-DPAPI encrypted package path.

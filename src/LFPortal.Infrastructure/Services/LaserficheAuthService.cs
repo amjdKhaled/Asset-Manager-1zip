@@ -71,6 +71,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
     // the lifetime of the service.  Memory impact is negligible (≈100 B each)
     // because the number of unique keys is bounded by active sessions × repos.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks = new();
+    private readonly ConcurrentDictionary<string, Lazy<Task<bool>>> _interactiveLoginFlights = new();
 
     /// <summary>Initialises the auth service with all required dependencies.</summary>
     public LaserficheAuthService(
@@ -329,6 +330,32 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         string password,
         CancellationToken cancellationToken = default)
     {
+        var credentialFingerprint = Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes($"{username}\0{password}")));
+        var flightKey = $"{CacheKeyFor(repository)}:login:{credentialFingerprint}";
+        var flight = _interactiveLoginFlights.GetOrAdd(
+            flightKey,
+            _ => new Lazy<Task<bool>>(
+                () => TryAuthenticateCoreAsync(repository, username, password, cancellationToken),
+                LazyThreadSafetyMode.ExecutionAndPublication));
+
+        try
+        {
+            return await flight.Value.ConfigureAwait(false);
+        }
+        finally
+        {
+            _interactiveLoginFlights.TryRemove(
+                new KeyValuePair<string, Lazy<Task<bool>>>(flightKey, flight));
+        }
+    }
+
+    private async Task<bool> TryAuthenticateCoreAsync(
+        RepositoryDescriptor repository,
+        string username,
+        string password,
+        CancellationToken cancellationToken)
+    {
         // Interactive repository-password authentication always uses the V2 token
         // contract. Only grant_type, username, and password are submitted.
         var tokenUrl = _adapter.BuildTokenUrlV2(repository.RepositoryId);
@@ -344,6 +371,9 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             _options.ApiBasePath,
             _options.EffectiveApiVersion);
 
+        // Duplicate form submissions with identical credentials share this task,
+        // preventing a browser double-click from producing multiple token requests.
+        var cacheKey = CacheKeyFor(repository);
         try
         {
             // A browser login is an explicit user action. Never turn one click into
@@ -355,7 +385,6 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 .ConfigureAwait(false);
 
             // Warm the token cache so subsequent GetTokenAsync calls skip re-authentication.
-            var cacheKey      = CacheKeyFor(repository);
             var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
             _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
             if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken))
