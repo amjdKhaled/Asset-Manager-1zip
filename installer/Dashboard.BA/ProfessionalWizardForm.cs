@@ -1139,7 +1139,7 @@ namespace Dashboard.BA
             _config.RepositoryId = "";
             _config.DisplayName = "";
             _config.RootEntryId = "1";
-            _config.TimeoutSeconds = "30";
+            _config.TimeoutSeconds = "120";
             _config.Username = "";
             _config.Password = "";
             _config.CredentialImportPath = "";
