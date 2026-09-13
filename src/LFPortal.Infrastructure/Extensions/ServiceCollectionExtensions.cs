@@ -147,7 +147,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient("LaserficheRaw", (sp, client) =>
         {
             var opts = sp.GetRequiredService<IOptions<LaserficheOptions>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
+            client.Timeout = TimeSpan.FromSeconds(opts.EffectiveTimeoutSeconds);
             client.DefaultRequestHeaders.Accept.Add(
                 new MediaTypeWithQualityHeaderValue("application/json"));
         })
@@ -160,7 +160,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient("LaserficheAuthenticated", (sp, client) =>
         {
             var opts = sp.GetRequiredService<IOptions<LaserficheOptions>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
+            client.Timeout = TimeSpan.FromSeconds(opts.EffectiveTimeoutSeconds);
             client.DefaultRequestHeaders.Accept.Add(
                 new MediaTypeWithQualityHeaderValue("application/json"));
         })
