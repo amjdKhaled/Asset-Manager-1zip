@@ -857,7 +857,9 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             pagination.style.display = "flex";
             pagination.appendChild(createButton("Previous", currentPage - 1, currentPage === 1, false));
-            for (let page = 1; page <= totalPages; page++) {
+            const firstPage = Math.floor((currentPage - 1) / 10) * 10 + 1;
+            const lastPage = Math.min(firstPage + 9, totalPages);
+            for (let page = firstPage; page <= lastPage; page++) {
                 pagination.appendChild(createButton(page.toString(), page, false, page === currentPage));
             }
             pagination.appendChild(createButton("Next", currentPage + 1, currentPage === totalPages, false));

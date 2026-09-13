@@ -83,7 +83,10 @@ internal sealed class SessionAwareRepositoryContext : IRepositoryContext
         var displayName = hasSessionRepo ? repoId : opt.EffectiveDisplayName;
 
         var descriptor = new RepositoryDescriptor(
-            Key:          "default",
+            // The credential/token key must be repository-specific. Keeping this as
+        // "default" meant a selected repository could read the credentials saved
+        // for a different repository when the session changed.
+        Key:          repoId,
             ServerUrl:    opt.ServerUrl.TrimEnd('/'),
             RepositoryId: repoId,
             DisplayName:  displayName);

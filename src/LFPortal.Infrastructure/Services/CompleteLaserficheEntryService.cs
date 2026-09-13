@@ -449,8 +449,8 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         FullPath = r.FullPath,
         FolderPath = r.FolderPath,
         Creator = r.Creator,
-        CreationTime = r.CreationTime,
-        LastModifiedTime = r.LastModifiedTime,
+        CreationTime = r.CreationTime ?? r.CreatedTime,
+        LastModifiedTime = r.LastModifiedTime ?? r.ModifiedTime,
         EntryType = ParseEntryType(r.EntryType ?? r.ODataType),
         TemplateName = r.TemplateName,
         TemplateId = r.TemplateId,
@@ -516,8 +516,14 @@ internal sealed class CompleteLaserficheEntryService : ILaserficheEntryService
         [JsonPropertyName("creationTime")]
         public DateTimeOffset? CreationTime { get; init; }
 
+        [JsonPropertyName("createdTime")]
+        public DateTimeOffset? CreatedTime { get; init; }
+
         [JsonPropertyName("lastModifiedTime")]
         public DateTimeOffset? LastModifiedTime { get; init; }
+
+        [JsonPropertyName("modifiedTime")]
+        public DateTimeOffset? ModifiedTime { get; init; }
 
         [JsonPropertyName("entryType")]
         public string? EntryType { get; init; }

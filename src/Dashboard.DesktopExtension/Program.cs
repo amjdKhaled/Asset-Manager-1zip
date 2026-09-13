@@ -177,8 +177,11 @@ namespace LFPortal.DesktopExtension
             if (!string.IsNullOrWhiteSpace(databaseName))
             {
                 string existingQuery = portalBuilder.Query.TrimStart('?');
+                // A new value on every toolbar click tells the Dashboard this is a
+                // fresh Desktop Client launch. It must not reuse a prior account's
+                // authenticated browser session, even when the repository is the same.
                 string repositoryQuery =
-                    $"repository={Uri.EscapeDataString(databaseName)}";
+                    $"repository={Uri.EscapeDataString(databaseName)}&launch={Guid.NewGuid():N}";
 
                 portalBuilder.Query = string.IsNullOrEmpty(existingQuery)
                     ? repositoryQuery

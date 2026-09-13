@@ -34,8 +34,10 @@ public sealed class RepositorySessionMiddleware
 {
     internal const string QueryParamRepository  = "repository";
     internal const string QueryParamSource      = "source";
+    internal const string QueryParamLaunch      = "launch";
     internal const string SessionKeyRepositoryId = "ActiveRepositoryId";
     internal const string SessionKeySource       = "ActiveRepositorySource";
+    internal const string SessionKeyLaunchId     = "DashboardLaunchId";
 
     internal const string SourceDesktop   = "Laserfiche Desktop Client";
     internal const string SourceWebClient = "Laserfiche Web Client";
@@ -70,6 +72,7 @@ public sealed class RepositorySessionMiddleware
 
         var repoParam = context.Request.Query[QueryParamRepository].FirstOrDefault();
         var sourceParam = context.Request.Query[QueryParamSource].FirstOrDefault();
+        var launchParam = context.Request.Query[QueryParamLaunch].FirstOrDefault();
 
         if (!string.IsNullOrWhiteSpace(repoParam) &&
             IsValidRepositoryId(repoParam) &&
@@ -93,6 +96,7 @@ public sealed class RepositorySessionMiddleware
         if (!string.IsNullOrWhiteSpace(repoParam) && IsValidRepositoryId(repoParam))
         {
             var trimmed = repoParam.Trim();
+            var existingRepository = context.Session.GetString(SessionKeyRepositoryId);
             var existingSource = context.Session.GetString(SessionKeySource);
 
             var isWebClientRequest =
@@ -114,11 +118,37 @@ public sealed class RepositorySessionMiddleware
                 ? SourceWebClient
                 : SourceDesktop;
 
+            var hasNewDesktopLaunch =
+                string.Equals(source, SourceDesktop, StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(launchParam) &&
+                !string.Equals(launchParam, context.Session.GetString(SessionKeyLaunchId), StringComparison.Ordinal);
+            var repositoryChanged = !string.IsNullOrWhiteSpace(existingRepository) &&
+                !string.Equals(existingRepository, trimmed, StringComparison.OrdinalIgnoreCase);
+
+            if (hasNewDesktopLaunch || repositoryChanged)
+            {
+                if (authService is not null)
+                    await authService.InvalidateCurrentSessionTokensAsync();
+
+                await context.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
+                if (oAuthTransactionCookie is not null)
+                    oAuthTransactionCookie.Delete(context);
+
+                context.Session.Remove(SessionAuthGuardMiddleware.SessionKeyAuthenticatedRepoId);
+                context.Session.Remove("AuthenticatedLaserficheUser");
+                context.Session.Remove("SessionCredUsername");
+                context.Session.Remove("SessionCredPasswordProtected");
+                context.Session.Remove("AuthenticationScopeMethod");
+                context.Session.Remove("AuthenticationScopeSubject");
+            }
+
             // The incoming ?repository= always overrides a previously stored value so
             // that repository-switching (e.g. the user opens a new popup for a different
             // repository) takes effect immediately.
             context.Session.SetString(SessionKeyRepositoryId, trimmed);
             context.Session.SetString(SessionKeySource,       source);
+            if (!string.IsNullOrWhiteSpace(launchParam))
+                context.Session.SetString(SessionKeyLaunchId, launchParam);
 
             _logger.LogInformation(
                 "Active repository set from {Source}: {RepositoryId}", source, trimmed);
