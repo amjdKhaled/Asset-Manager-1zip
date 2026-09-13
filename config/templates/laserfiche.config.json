@@ -9,7 +9,7 @@
     "ApiVersion": "Auto",
     "DetectedApiVersion": "",
     "RootEntryId": 1,
-    "TimeoutSeconds": 30,
+    "TimeoutSeconds": 120,
     "CredentialProvider": "DPAPI",
     "Sso": {
       "LfdsBaseUrl": "",
