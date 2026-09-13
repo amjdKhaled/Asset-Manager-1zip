@@ -253,7 +253,7 @@ if ($lfChange) {
             'ServerUrl'          = 'https://YOUR-LF-SERVER/LFRepositoryAPI'
             'ApiBasePath'        = '/LFRepositoryAPI'
             'ApiVersion'         = 'Auto'
-            'TimeoutSeconds'     = 30
+            'TimeoutSeconds'     = 120
             'CredentialProvider' = 'DPAPI'
         }
     }
