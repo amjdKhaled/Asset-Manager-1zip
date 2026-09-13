@@ -155,8 +155,7 @@ public static class ServiceCollectionExtensions
         {
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
         })
-        .AddHttpMessageHandler<LaserficheRequestLoggingHandler>()
-        .AddStandardResilienceHandler();
+        .AddHttpMessageHandler<LaserficheRequestLoggingHandler>();
 
         services.AddHttpClient("LaserficheAuthenticated", (sp, client) =>
         {
@@ -170,8 +169,7 @@ public static class ServiceCollectionExtensions
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
         })
         .AddHttpMessageHandler<BearerTokenHandler>()
-        .AddHttpMessageHandler<LaserficheRequestLoggingHandler>()
-        .AddStandardResilienceHandler();
+        .AddHttpMessageHandler<LaserficheRequestLoggingHandler>();
 
         // Unauthenticated, short-timeout client used ONLY by API-version
         // auto-detection probes. No resilience pipeline: a failed probe should
