@@ -248,6 +248,7 @@ footer.site-footer { background: #F7F8FD !important; }
 
 .table-pagination {
     display: flex;
+    flex-wrap: wrap;
     justify-content: center;
     align-items: center;
     gap: 6px;
@@ -837,8 +838,9 @@ document.addEventListener("DOMContentLoaded", function () {
             currentPage = page;
             const startIndex = (currentPage - 1) * ROWS_PER_PAGE;
             const endIndex = startIndex + ROWS_PER_PAGE;
+            const visibleDisplay = list ? "flex" : "";
             rows.forEach(function (row, index) {
-                row.style.display = (index >= startIndex && index < endIndex) ? "" : "none";
+                row.style.display = (index >= startIndex && index < endIndex) ? visibleDisplay : "none";
             });
             renderPagination();
         }
@@ -896,8 +898,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (event.key === "Enter") goToEnteredPage();
             });
 
-            const goButton = createButton("Go", currentPage, false, false);
-            goButton.classList.add("pagination-jump-go");
+            const goButton = document.createElement("button");
+            goButton.type = "button";
+            goButton.textContent = "Go";
+            goButton.className = "pagination-button pagination-jump-go";
             goButton.addEventListener("click", goToEnteredPage);
             jump.append(input, goButton);
             pagination.appendChild(jump);
