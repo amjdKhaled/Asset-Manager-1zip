@@ -213,3 +213,85 @@ public sealed record ArchiveTemplateResult
     public string? Description { get; init; }
     public int DocumentCount { get; init; }
 }
+
+/// <summary>Builds the same Laserfiche search used by an Archive drill-down and Web Client URL.</summary>
+public sealed record LaserficheArchiveQuery
+{
+    public string Scope { get; init; } = string.Empty;
+    public string Title { get; init; } = "Dashboard results";
+    public string Description { get; init; } = string.Empty;
+    public string Expression { get; init; } = "{LF:Name=\"*\",Type=\"D\"}";
+    public bool IsTemplateCatalog { get; init; }
+    public int OpenEntryId { get; init; }
+
+    public static LaserficheArchiveQuery Build(
+        string scope,
+        string? template,
+        string? folder,
+        string? creator,
+        string? date,
+        string? activity,
+        int entryId,
+        int rootEntryId)
+    {
+        const string documents = "{LF:Name=\"*\",Type=\"D\"}";
+        var normalized = (scope ?? string.Empty).Trim().ToLowerInvariant();
+        var day = DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+            DateTimeStyles.None, out var parsed) ? parsed : (DateOnly?)null;
+
+        return normalized switch
+        {
+            "documents" => Create(normalized, "All documents", "Documents counted by the dashboard", documents),
+            "folders" => Create(normalized, "All folders", "Folders counted by the dashboard",
+                rootEntryId > 0
+                    ? $"{{LF:Name=\"*\",Type=\"F\"}} - {{LF:ID={rootEntryId}}}"
+                    : "{LF:Name=\"*\",Type=\"F\"}"),
+            "templates" => new LaserficheArchiveQuery
+            {
+                Scope = normalized, Title = "Template definitions",
+                Description = "Templates returned by the active repository", IsTemplateCatalog = true
+            },
+            "with-template" => Create(normalized, "Documents with a template",
+                "Documents counted in the template-assigned KPI",
+                $"{documents} - {{LF:Name=\"*\",Type=\"B\"}}"),
+            "without-template" => Create(normalized, "Documents without a template",
+                "Documents counted in the no-template KPI", "{LF:Name=\"*\",Type=\"B\"}"),
+            "template" => Create(normalized, $"Template: {(template ?? string.Empty).Trim()}",
+                "Documents counted for this template",
+                $"{{LF:Template=\"{Escape(template)}\"}}"),
+            "root-folder" when entryId > 0 => Create(normalized,
+                $"Folder: {(folder ?? string.Empty).Trim()}", "Documents counted below this top-level folder",
+                $"{{LF:LookIn=\"{entryId}\",Subfolders=y}} & {documents}"),
+            "creator" => Create(normalized, $"Created by: {(creator ?? string.Empty).Trim()}",
+                "Documents counted for this creator",
+                $"{documents} & {{LF:Creator=\"{Escape(creator)}\"}}"),
+            "activity" when day.HasValue => BuildActivity(normalized, day.Value, activity, documents),
+            "document" when entryId > 0 => new LaserficheArchiveQuery
+            {
+                Scope = normalized, Title = "Document", Description = "Selected dashboard document",
+                Expression = $"{{LF:ID={entryId}}}", OpenEntryId = entryId
+            },
+            _ => Create(normalized, "Dashboard results", "The requested dashboard filter is not supported.",
+                "{LF:ID=0}")
+        };
+    }
+
+    private static LaserficheArchiveQuery BuildActivity(
+        string scope, DateOnly day, string? activity, string documents)
+    {
+        var modified = string.Equals(activity, "modified", StringComparison.OrdinalIgnoreCase);
+        var field = modified ? "Modified" : "Created";
+        var start = day.ToString("MM/dd/yyyy", CultureInfo.InvariantCulture);
+        var end = day.AddDays(1).ToString("MM/dd/yyyy", CultureInfo.InvariantCulture);
+        return Create(scope, $"{field} documents — {day:yyyy-MM-dd}",
+            "Documents represented by the selected activity bar",
+            $"{documents} & {{LF:{field}>=\"{start}\"}} & {{LF:{field}<\"{end}\"}}");
+    }
+
+    private static LaserficheArchiveQuery Create(string scope, string title, string description, string expression) =>
+        new() { Scope = scope, Title = title, Description = description, Expression = expression };
+
+    private static string Escape(string? value) =>
+        (value ?? string.Empty).Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
+}
