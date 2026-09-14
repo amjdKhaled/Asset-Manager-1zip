@@ -831,6 +831,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
         let currentPage = 1;
         const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
+        const collection = table || list;
+        const firstPageRows = rows.slice(0, ROWS_PER_PAGE);
+        const listGap = list ? (Number.parseFloat(getComputedStyle(list).rowGap) || 0) : 0;
+        const fullPageHeight = table
+            ? (table.tHead?.getBoundingClientRect().height || 0)
+                + firstPageRows.reduce((height, row) => height + row.getBoundingClientRect().height, 0)
+            : firstPageRows.reduce((height, row) => height + row.getBoundingClientRect().height, 0)
+                + Math.max(0, firstPageRows.length - 1) * listGap;
 
         function showPage(page) {
             if (page < 1) page = 1;
@@ -842,6 +850,9 @@ document.addEventListener("DOMContentLoaded", function () {
             rows.forEach(function (row, index) {
                 row.style.display = (index >= startIndex && index < endIndex) ? visibleDisplay : "none";
             });
+
+            const currentContentHeight = collection.getBoundingClientRect().height;
+            pagination.style.marginTop = `${Math.max(0, Math.ceil(fullPageHeight - currentContentHeight))}px`;
             renderPagination();
         }
 
