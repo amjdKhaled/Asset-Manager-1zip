@@ -157,6 +157,44 @@ public sealed class LaserficheApiAdapterUrlTests
     }
 
     [Fact]
+    public void DocumentPageUrls_V2_UseDocumentPagesRoute()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v2");
+
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v2/Repositories/Documents/Entries/42/Document/Pages",
+            adapter.BuildEntryUrl("Documents", 42, EntryResource.Pages));
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v2/Repositories/Documents/Entries/42/Document/Edoc",
+            adapter.BuildEntryUrl("Documents", 42, EntryResource.Edoc));
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v2/Repositories/Documents/Entries/42/Document/Pages/3/Image",
+            adapter.BuildPageImageUrl("Documents", 42, 3));
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v2/Repositories/Documents/Entries/42/Export?pageRange=3",
+            adapter.BuildDocumentExportUrl("Documents", 42, "3"));
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v2/Repositories/Documents/Entries/42/Export",
+            adapter.BuildDocumentExportUrl("Documents", 42));
+    }
+
+    [Fact]
+    public void DocumentPageUrls_V1_PreserveLegacyRoute()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v1");
+
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v1/Repositories/Documents/Entries/42/pages",
+            adapter.BuildEntryUrl("Documents", 42, EntryResource.Pages));
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v1/Repositories/Documents/Entries/42/Laserfiche.Repository.Document/edoc",
+            adapter.BuildEntryUrl("Documents", 42, EntryResource.Edoc));
+        Assert.Equal(
+            "https://lf-server.corp.local/LFRepositoryAPI/v1/Repositories/Documents/Entries/42/pages/3/image",
+            adapter.BuildPageImageUrl("Documents", 42, 3));
+    }
+
+    [Fact]
     public void AllUrlBuilders_V1_ContainV1NotV2()
     {
         var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v1");

@@ -38,13 +38,27 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
             EntryResource.Tags     => $"{RepoBase(repositoryId)}/Entries/{entryId}/tags",
             EntryResource.Children => $"{RepoBase(repositoryId)}/Entries/{entryId}/children",
             EntryResource.FolderChildren => BuildFolderChildrenUrl(repositoryId, entryId),
-            EntryResource.Edoc     => $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Document/edoc",
-            EntryResource.Pages    => $"{RepoBase(repositoryId)}/Entries/{entryId}/pages",
+            EntryResource.Edoc     => ApiVersion.Equals("v2", StringComparison.OrdinalIgnoreCase)
+                ? $"{RepoBase(repositoryId)}/Entries/{entryId}/Document/Edoc"
+                : $"{RepoBase(repositoryId)}/Entries/{entryId}/Laserfiche.Repository.Document/edoc",
+            EntryResource.Pages    => ApiVersion.Equals("v2", StringComparison.OrdinalIgnoreCase)
+                ? $"{RepoBase(repositoryId)}/Entries/{entryId}/Document/Pages"
+                : $"{RepoBase(repositoryId)}/Entries/{entryId}/pages",
             _ => throw new ArgumentOutOfRangeException(nameof(resource), resource, "Unknown entry resource.")
         };
 
     public string BuildPageImageUrl(string repositoryId, int entryId, int pageNumber) =>
-        $"{RepoBase(repositoryId)}/Entries/{entryId}/pages/{pageNumber}/image";
+        ApiVersion.Equals("v2", StringComparison.OrdinalIgnoreCase)
+            ? $"{RepoBase(repositoryId)}/Entries/{entryId}/Document/Pages/{pageNumber}/Image"
+            : $"{RepoBase(repositoryId)}/Entries/{entryId}/pages/{pageNumber}/image";
+
+    public string BuildDocumentExportUrl(string repositoryId, int entryId, string? pageRange = null)
+    {
+        var url = $"{RepoBase(repositoryId)}/Entries/{entryId}/Export";
+        return string.IsNullOrWhiteSpace(pageRange)
+            ? url
+            : $"{url}?pageRange={Uri.EscapeDataString(pageRange)}";
+    }
 
     public string BuildSearchUrl(string repositoryId, SearchType searchType) =>
         searchType switch

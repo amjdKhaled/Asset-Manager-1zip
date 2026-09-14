@@ -32,7 +32,9 @@ public sealed record DocumentViewModel
         ElectronicDocumentContentType is "application/pdf"
             or "image/png"
             or "image/jpeg"
-            or "image/webp";
+            or "image/webp"
+            or "image/gif"
+            or "image/bmp";
 
     public static DocumentViewModel Error(string message) => new()
     {

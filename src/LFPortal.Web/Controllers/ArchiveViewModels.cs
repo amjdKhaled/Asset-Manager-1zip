@@ -23,6 +23,17 @@ public sealed record BreadcrumbItem
 /// <summary>View model for Archive/Index.</summary>
 public sealed class ArchiveViewModel
 {
+    /// <summary>True when opened from a dashboard statistic rather than a folder.</summary>
+    public bool IsDrillDown { get; init; }
+
+    public string DrillDownTitle { get; init; } = string.Empty;
+    public string DrillDownDescription { get; init; } = string.Empty;
+    public string DrillDownScope { get; init; } = string.Empty;
+    public int OpenEntryId { get; init; }
+
+    /// <summary>Template catalog rows used by the Total Templates drill-down.</summary>
+    public IReadOnlyList<ArchiveTemplateResult> Templates { get; init; } = [];
+
     /// <summary>Entry ID of the folder currently being browsed.</summary>
     public int CurrentEntryId { get; init; }
 
@@ -64,6 +75,20 @@ public sealed class ArchiveDetailViewModel
 
     /// <summary>Non-null when the entry itself could not be loaded.</summary>
     public string? EntryError { get; init; }
+
+    public bool HasElectronicDocument { get; init; }
+    public string? ElectronicDocumentContentType { get; init; }
+    public string? ElectronicDocumentExtension { get; init; }
+    public IReadOnlyList<LFDocumentPage> Pages { get; init; } = [];
+    public string? PreviewError { get; init; }
+
+    public bool IsInlineElectronicDocument =>
+        ElectronicDocumentContentType is "application/pdf"
+            or "image/png"
+            or "image/jpeg"
+            or "image/webp"
+            or "image/gif"
+            or "image/bmp";
 
     public static ArchiveDetailViewModel Error(int entryId, string message) => new()
     {

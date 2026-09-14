@@ -107,9 +107,9 @@ public sealed class DocumentController : Controller
             });
         }
 
-        // When no electronic file is present, attempt to load Laserfiche image pages
-        // so the viewer can render them via the server-side PageImage proxy.
-        if (!model.HasElectronicDocument && model.HasLaserfichePages)
+        // When no electronic file is present, always ask Laserfiche for image pages.
+        // Some API responses omit PageCount even though page metadata/images exist.
+        if (!model.HasElectronicDocument)
         {
             try
             {
@@ -117,12 +117,18 @@ public sealed class DocumentController : Controller
                     .GetDocumentPagesAsync(entryId, cancellationToken)
                     .ConfigureAwait(false);
 
+                if (pages.Count == 0 && entry.PageCount is > 0)
+                    pages = BuildPageFallback(entry.PageCount.Value);
+
                 model = model with { Pages = pages };
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
                     "Document/View: page list unavailable for entry {EntryId}.", entryId);
+
+                if (entry.PageCount is > 0)
+                    model = model with { Pages = BuildPageFallback(entry.PageCount.Value) };
             }
         }
 
@@ -320,7 +326,13 @@ public sealed class DocumentController : Controller
     private static bool IsInlineType(string contentType) =>
         contentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) ||
         contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
-        contentType is not "image/svg+xml";
+        contentType is not "image/svg+xml" and not "image/tiff";
+
+    private static IReadOnlyList<LFDocumentPage> BuildPageFallback(int pageCount) =>
+        Enumerable.Range(1, pageCount)
+            .Select(number => new LFDocumentPage { PageNumber = number })
+            .ToList()
+            .AsReadOnly();
 
     private IActionResult ProxyError(Exception exception, string operation)
     {

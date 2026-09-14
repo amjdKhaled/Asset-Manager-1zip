@@ -38,6 +38,9 @@
     // ── Chart payloads: every value is derived from the DTO returned by the live scan.
     var folderLabels = s.RootFolders.Select(f => f.Name).ToArray();
     var folderData   = s.RootFolders.Select(f => f.Documents).ToArray();
+    var folderUrls   = s.RootFolders
+        .Select(f => Url.Action("Index", "Archive", new { scope = "root-folder", entryId = f.EntryId, folder = f.Name }))
+        .ToArray();
 
     // Template distribution must account for every document, including documents that
     // have no template. TemplateStats itself intentionally remains assigned templates only.
@@ -51,6 +54,11 @@
     }
     var tmplLabels = tmplLabelsList.ToArray();
     var tmplData   = tmplDataList.ToArray();
+    var tmplUrls = s.TemplateStats
+        .Select(t => Url.Action("Index", "Archive", new { scope = "template", template = t.Name }))
+        .ToList();
+    if (s.DocsWithoutTemplate > 0)
+        tmplUrls.Add(Url.Action("Index", "Archive", new { scope = "without-template" }));
 
     // ── Document Activity: always exactly the current local day + previous 6 days.
     // Created comes from the authoritative AllDocs set. Modified comes only from
@@ -73,10 +81,12 @@
     var actLabels   = new List<string>();
     var actCreated  = new List<int>();
     var actModified = new List<int>();
+    var actDates    = new List<string>();
 
     for (var day = actStart; day <= actEnd; day = day.AddDays(1))
     {
         actLabels.Add(day.ToString("MMM d"));
+        actDates.Add(day.ToString("yyyy-MM-dd"));
         actCreated.Add(createdByDay.GetValueOrDefault(day, 0));
         actModified.Add(modifiedByDay.GetValueOrDefault(day, 0));
     }
@@ -293,6 +303,9 @@ footer.site-footer { background: #F7F8FD !important; }
 .template-percent-canvas { position:relative; flex:1 1 auto; min-width:0; height:28px; }
 .template-percent-canvas canvas { width:100% !important; height:28px !important; }
 .totalPercentText { min-width:48px; flex-shrink:0; font-size:11px; color:#64748B; font-variant-numeric:tabular-nums; white-space:nowrap; text-align:end; }
+.dashboard-drilldown { color:inherit; text-decoration:none; cursor:pointer; }
+.dashboard-drilldown-row { cursor:pointer; }
+.dashboard-drilldown-row:focus-visible { outline:2px solid var(--d-accent); outline-offset:-2px; }
 @@media(max-width:700px){.template-percent-cell{min-width:220px}.totalPercentText{min-width:42px}.template-percent-chart{gap:8px}}
 </style>
 }
@@ -330,41 +343,41 @@ footer.site-footer { background: #F7F8FD !important; }
 
 <!-- ── KPI Cards ──────────────────────────────────────────────────────────── -->
 <div class="d-grid-5" style="margin-bottom:18px">
-    <div class="folder-kpi-card">
+    <a class="folder-kpi-card dashboard-drilldown" href="@Url.Action("Index", "Archive", new { scope = "folders" })">
         <div class="folder-kpi-icon">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
         </div>
         <div class="folder-kpi-value">@s.TotalFolders.ToString("N0")</div>
         <div class="folder-kpi-label">@L["TotalFolders"]</div>
-    </div>
-    <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
+    </a>
+    <a class="d-card dashboard-drilldown" href="@Url.Action("Index", "Archive", new { scope = "documents" })" style="display:flex;flex-direction:column;gap:10px">
         <div class="d-kpi-icon" style="background:#EEF4FF">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         </div>
         <div class="d-kpi-val">@s.TotalDocuments.ToString("N0")</div>
         <div class="d-kpi-lbl">@L["TotalDocuments"]</div>
-    </div>
-    <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
+    </a>
+    <a class="d-card dashboard-drilldown" href="@Url.Action("Index", "Archive", new { scope = "templates" })" style="display:flex;flex-direction:column;gap:10px">
         <div class="d-kpi-icon" style="background:#EEF4FF">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         </div>
         <div class="d-kpi-val">@s.TotalTemplates.ToString("N0")</div>
         <div class="d-kpi-lbl">@L["TotalTemplates"]</div>
-    </div>
-    <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
+    </a>
+    <a class="d-card dashboard-drilldown" href="@Url.Action("Index", "Archive", new { scope = "with-template" })" style="display:flex;flex-direction:column;gap:10px">
         <div class="d-kpi-icon" style="background:#EEF4FF">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
         <div class="d-kpi-val">@s.DocsWithTemplate.ToString("N0")</div>
         <div class="d-kpi-lbl">@L["DocsWithTemplate"]</div>
-    </div>
-    <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
+    </a>
+    <a class="d-card dashboard-drilldown" href="@Url.Action("Index", "Archive", new { scope = "without-template" })" style="display:flex;flex-direction:column;gap:10px">
         <div class="d-kpi-icon" style="background:#EEF4FF">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </div>
         <div class="d-kpi-val">@s.DocsWithoutTemplate.ToString("N0")</div>
         <div class="d-kpi-lbl">@L["DocsWithoutTemplate"]</div>
-    </div>
+    </a>
 </div>
 
 @if (s.IsConnected)
@@ -453,7 +466,8 @@ footer.site-footer { background: #F7F8FD !important; }
                     <tbody>
                         @foreach (var u in userActivity)
                         {
-                            <tr>
+                            <tr class="dashboard-drilldown-row" tabindex="0" role="link"
+                                data-archive-url="@Url.Action("Index", "Archive", new { scope = "creator", creator = u.Name })">
                                 <td style="font-weight:500">@u.Name</td>
                                 <td style="color:var(--d-text);font-weight:600">@u.Created</td>
                                 <td style="color:var(--d-muted);white-space:nowrap">@u.LastActivity</td>
@@ -481,7 +495,8 @@ footer.site-footer { background: #F7F8FD !important; }
                 @for (var i = 0; i < s.TemplateStats.Count; i++)
                 {
                     var t = s.TemplateStats[i];
-                    <tr >
+                    <tr class="dashboard-drilldown-row" tabindex="0" role="link"
+                        data-archive-url="@Url.Action("Index", "Archive", new { scope = "template", template = t.Name })">
                         <td style="color:var(--d-muted)">@(i + 1)</td>
                         <td style="font-weight:500">@t.Name</td>
                         <td style="color:var(--d-text);font-weight:600">@t.Count.ToString("N0")</td>
@@ -524,7 +539,9 @@ footer.site-footer { background: #F7F8FD !important; }
                 {
                     var t = s.TemplateStats[i];
                     var color = palette[i % palette.Length];
-                    <div class="document-type-row" style="display:flex;align-items:flex-start;gap:10px">
+                    <div class="document-type-row dashboard-drilldown-row" tabindex="0" role="link"
+                         data-archive-url="@Url.Action("Index", "Archive", new { scope = "template", template = t.Name })"
+                         style="display:flex;align-items:flex-start;gap:10px">
                         <div style="width:11px;height:11px;border-radius:50%;background:@color;flex-shrink:0"></div>
                         <span style="flex:1;color:var(--d-text);font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@t.Name</span>
                         <span style="font-weight:700;color:var(--d-text);font-size:.82rem">@t.Count.ToString("N0")</span>
@@ -533,7 +550,9 @@ footer.site-footer { background: #F7F8FD !important; }
                 @if (s.DocsWithoutTemplate > 0)
                 {
                     var noTemplateColor = palette[s.TemplateStats.Count % palette.Length];
-                    <div class="document-type-row" style="display:flex;align-items:flex-start;gap:10px">
+                    <div class="document-type-row dashboard-drilldown-row" tabindex="0" role="link"
+                         data-archive-url="@Url.Action("Index", "Archive", new { scope = "without-template" })"
+                         style="display:flex;align-items:flex-start;gap:10px">
                         <div style="width:11px;height:11px;border-radius:50%;background:@noTemplateColor;flex-shrink:0"></div>
                         <span style="flex:1;color:var(--d-text);font-size:.82rem">@noTemplateLabel</span>
                         <span style="font-weight:700;color:var(--d-text);font-size:.82rem">@s.DocsWithoutTemplate.ToString("N0")</span>
@@ -604,7 +623,8 @@ footer.site-footer { background: #F7F8FD !important; }
                 <tbody>
                     @foreach (var d in s.RecentDocs)
                     {
-                        <tr>
+                        <tr class="dashboard-drilldown-row" tabindex="0" role="link"
+                            data-archive-url="@Url.Action("Index", "Archive", new { scope = "document", entryId = d.Id })">
                             <td style="font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@d.Name">@d.Name</td>
                             <td style="color:var(--d-muted)">@(d.TemplateName ?? "-")</td>
                             <td style="color:var(--d-muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@FolderFromPath(d.FullPath)">@FolderFromPath(d.FullPath)</td>
@@ -637,7 +657,8 @@ footer.site-footer { background: #F7F8FD !important; }
                 <tbody>
                     @foreach (var d in recentActivity)
                     {
-                        <tr>
+                        <tr class="dashboard-drilldown-row" tabindex="0" role="link"
+                            data-archive-url="@Url.Action("Index", "Archive", new { scope = "document", entryId = d.Id })">
                             <td style="font-weight:500;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@d.Name">@d.Name</td>
                             <td style="color:var(--d-muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@FolderFromPath(d.FullPath)">@FolderFromPath(d.FullPath)</td>
                             <td style="color:var(--d-muted)">@(d.TemplateName ?? "-")</td>
@@ -663,6 +684,7 @@ footer.site-footer { background: #F7F8FD !important; }
 const PALETTE = ["#0D98FF","#00226C","#044FC2","#9BD9FE","#4682B4","#0073DD","#0C132D"];
 const GRID    = "#F2F2F2";
 const TICK    = "#000000";
+const goToArchive = url => { if (url) window.location.assign(url); };
 const TOOLTIP = {
     backgroundColor:"#1e293b",
     borderColor:"#334155",
@@ -677,6 +699,7 @@ const folderEl = document.getElementById("chartFolders");
 if(folderEl){
     const labels = @Html.Raw(JsonSerializer.Serialize(folderLabels));
     const data   = @Html.Raw(JsonSerializer.Serialize(folderData));
+    const urls   = @Html.Raw(JsonSerializer.Serialize(folderUrls));
     const documentsLabel = @Html.Raw(JsonSerializer.Serialize(L["Documents"].Value));
     new Chart(folderEl, {
         type:"bar",
@@ -694,6 +717,12 @@ if(folderEl){
             scales:{
                 x:{ticks:{color:TICK,maxRotation:40,font:{size:15}},grid:{display:false},border:{display:false}},
                 y:{ticks:{color:TICK,precision:0,font:{size:12}},grid:{color:GRID},border:{display:false},beginAtZero:true}
+            },
+            onClick:(_, elements)=>{
+                if (elements.length) goToArchive(urls[elements[0].index]);
+            },
+            onHover:(event, elements)=>{
+                if (event.native?.target) event.native.target.style.cursor = elements.length ? "pointer" : "default";
             }
         }
     });
@@ -701,6 +730,7 @@ if(folderEl){
 
 const templateLabels = @Html.Raw(JsonSerializer.Serialize(tmplLabels));
 const templateData   = @Html.Raw(JsonSerializer.Serialize(tmplData));
+const templateUrls   = @Html.Raw(JsonSerializer.Serialize(tmplUrls));
 const totalDocuments = @s.TotalDocuments;
 
 const isRtlPercent = document.documentElement.dir === "rtl";
@@ -773,8 +803,21 @@ if(tmplEl){
         options:{
             responsive:true,
             maintainAspectRatio:false,
-            plugins:{legend:{position:"right",labels:{color:TICK,boxWidth:11,padding:8,font:{size:12}}},tooltip:{...TOOLTIP}},
-            layout:{padding:{top:5,bottom:0}}
+            plugins:{
+                legend:{
+                    position:"right",
+                    labels:{color:TICK,boxWidth:11,padding:8,font:{size:12}},
+                    onClick:(_, item)=>goToArchive(templateUrls[item.index])
+                },
+                tooltip:{...TOOLTIP}
+            },
+            layout:{padding:{top:5,bottom:0}},
+            onClick:(_, elements)=>{
+                if (elements.length) goToArchive(templateUrls[elements[0].index]);
+            },
+            onHover:(event, elements)=>{
+                if (event.native?.target) event.native.target.style.cursor = elements.length ? "pointer" : "default";
+            }
         }
     });
 }
@@ -784,6 +827,7 @@ if(docActEl){
     const labels   = @Html.Raw(JsonSerializer.Serialize(actLabels));
     const created  = @Html.Raw(JsonSerializer.Serialize(actCreated));
     const modified = @Html.Raw(JsonSerializer.Serialize(actModified));
+    const dates    = @Html.Raw(JsonSerializer.Serialize(actDates));
   
 
     const createdLabel  = @Html.Raw(JsonSerializer.Serialize(L["Created"].Value));
@@ -805,6 +849,16 @@ if(docActEl){
             scales:{
                 x:{ticks:{color:TICK,font:{size:12}},grid:{display:false},border:{display:false}},
                 y:{beginAtZero:true,ticks:{precision:0,color:TICK,font:{size:12}},grid:{color:GRID},border:{display:false}}
+            },
+            onClick:(_, elements)=>{
+                if (!elements.length) return;
+                const point = elements[0];
+                const kind = point.datasetIndex === 0 ? "modified" : "created";
+                const query = new URLSearchParams({scope:"activity", activity:kind, date:dates[point.index]});
+                goToArchive(`/Archive?${query.toString()}`);
+            },
+            onHover:(event, elements)=>{
+                if (event.native?.target) event.native.target.style.cursor = elements.length ? "pointer" : "default";
             }
         }
     });
@@ -919,6 +973,23 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         showPage(1);
+    });
+
+    document.querySelectorAll("[data-archive-url]").forEach(element => {
+        const open = () => {
+            const url = element.dataset.archiveUrl;
+            if (url) window.location.assign(url);
+        };
+        element.addEventListener("click", event => {
+            if (event.target.closest("a,button,input")) return;
+            open();
+        });
+        element.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                open();
+            }
+        });
     });
 });
 </script>
