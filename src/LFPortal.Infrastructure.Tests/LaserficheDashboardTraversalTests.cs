@@ -14,6 +14,74 @@ namespace LFPortal.Infrastructure.Tests;
 
 public sealed class LaserficheDashboardTraversalTests
 {
+    private static CompleteLaserficheEntryService Complete(QueueHandler handler)
+    {
+        var options = new LaserficheOptions { ServerUrl = "https://lf.test", ApiBasePath = "/LFRepositoryAPI", ApiVersion = "v2" };
+        var factory = new ClientFactory(handler);
+        var context = new RepositoryContext();
+        var adapter = new LaserficheApiAdapter(new OptionsMonitor(options));
+        return new CompleteLaserficheEntryService(
+            new LaserficheEntryService(factory, context, adapter, NullLogger<LaserficheEntryService>.Instance),
+            factory, context, adapter,
+            new LaserficheTemplateService(factory, context, adapter, NullLogger<LaserficheTemplateService>.Instance),
+            NullLogger<CompleteLaserficheEntryService>.Instance);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"value\":null}")]
+    [InlineData("{\"error\":\"unexpected\"}")]
+    public async Task CompleteListing_RejectsInvalidEnvelopeInsteadOfReportingZero(string body)
+    {
+        await Assert.ThrowsAsync<System.Text.Json.JsonException>(() => Complete(new QueueHandler(Json(body))).GetAllFolderChildrenAsync(1));
+    }
+
+    [Fact]
+    public async Task CompleteListing_ResolvesMissingTypeFromDetails()
+    {
+        var handler = new QueueHandler(
+            Json("""{"value":[{"id":101,"name":"D"}]}"""),
+            Json("""{"id":101,"name":"D","entryType":"Document","templateId":7}"""));
+        var entries = await Complete(handler).GetAllFolderChildrenAsync(1);
+        Assert.Equal(LFEntryType.Document, Assert.Single(entries).EntryType);
+        Assert.Equal(7, entries[0].TemplateId);
+        Assert.Equal(2, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task CompleteListing_UsesODataTypeWhenEntryTypeIsEmpty()
+    {
+        var handler = new QueueHandler(Json("""{"value":[{"id":101,"entryType":"","@odata.type":"#Laserfiche.Repository.Document"}]}"""));
+        Assert.Equal(LFEntryType.Document, Assert.Single(await Complete(handler).GetAllFolderChildrenAsync(1)).EntryType);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task CompleteListing_SecondPageFailureDoesNotReturnPartialTotals()
+    {
+        var handler = new QueueHandler(
+            Json("""{"value":[{"id":101,"entryType":"Document"}],"@odata.nextLink":"/page2"}"""),
+            new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("limited") });
+        await Assert.ThrowsAsync<LFPortal.Domain.Exceptions.LaserficheException>(() => Complete(handler).GetAllFolderChildrenAsync(1));
+    }
+
+    [Fact]
+    public async Task RecursiveScan_BoundsConcurrentFolderRequests()
+    {
+        var active = 0;
+        var peak = 0;
+        var roots = Enumerable.Range(1, 20).Select(i => Folder(i, i.ToString()));
+        await LaserficheDashboardService.ScanRootFoldersAsync(roots, async (id, ct) =>
+        {
+            var count = Interlocked.Increment(ref active);
+            lock (this) { peak = Math.Max(peak, count); }
+            await Task.Delay(10, ct);
+            Interlocked.Decrement(ref active);
+            return new[] { Document(100 + id, "D") };
+        }, NullLogger.Instance, CancellationToken.None);
+        Assert.InRange(peak, 1, 4);
+    }
+
     [Fact]
     public async Task RecursiveScan_CountsThreeRootFoldersNestedDocumentsAndDocumentTemplatesOnly()
     {

@@ -39,6 +39,18 @@ namespace LFPortal.Web.Tests;
 /// </summary>
 public sealed class LoginControllerSsoDormantTests
 {
+    [Fact]
+    public async Task FailedWebClientLogin_PreservesRepositoryAndInputPolicy()
+    {
+        var (controller, auth, _) = Build(directBrowser: false);
+        auth.TryAuthenticateResult = false;
+        var result = await controller.Index(new LoginInputModel { Username = "admin" }, CancellationToken.None);
+        var model = Assert.IsType<LoginViewModel>(Assert.IsType<ViewResult>(result).Model);
+        Assert.Equal("TestRepo", model.ActiveRepository);
+        Assert.Equal("TestRepo", model.SubmittedRepository);
+        Assert.False(model.AllowRepositoryInput);
+    }
+
     // ── Default (dormant-SSO) options ─────────────────────────────────────────
 
     /// <summary>

@@ -62,15 +62,22 @@ public sealed class LaunchController : Controller
         var repositoryId = repository!.Trim();
         var safeReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl! : "/Dashboard";
 
-        // RepositoryPassword already owns its authentication through /Login. Do not
-        // clear the cookie/session here and do not send the browser through StartSso.
-        // If the browser is not authenticated (or is authenticated for another repo),
-        // SessionAuthGuardMiddleware will redirect to /Login exactly once on the next
-        // protected request. After a successful POST /Login, returning through /Launch
-        // therefore continues directly to the Dashboard instead of asking for login again.
+        // Password launches establish a fresh boundary, then the protected Dashboard
+        // redirects to Login. The continuation never returns through /Launch.
         if (_options.CurrentValue.AuthenticationMode ==
             LaserficheAuthenticationMode.RepositoryPassword)
         {
+            // A Web Client launch carries a repository, not a verified user identity.
+            // Never reuse a previous Dashboard account even for the same repository.
+            // /Launch is excluded from the guard; login continues to /Dashboard,
+            // not back through this fresh-launch boundary.
+            await _authService.InvalidateCurrentSessionTokensAsync();
+            await HttpContext.SignOutAsync(DashboardAuthenticationDefaults.Scheme);
+            _oAuthTransactionCookie.Delete(HttpContext);
+            await _sessionCredentialStore.ClearAsync(cancellationToken);
+            RemoveDashboardSessionState(HttpContext.Session);
+            HttpContext.User = new System.Security.Claims.ClaimsPrincipal(
+                new System.Security.Claims.ClaimsIdentity());
             HttpContext.Session.SetString(
                 RepositorySessionMiddleware.SessionKeyRepositoryId,
                 repositoryId);
@@ -80,7 +87,7 @@ public sealed class LaunchController : Controller
 
             _logger.LogInformation(
                 "Web Client launch using RepositoryPassword. Repository={RepositoryId}; " +
-                "preserving Dashboard auth state and redirecting to {RedirectTarget}.",
+                "cleared prior Dashboard identity and redirecting to {RedirectTarget}.",
                 repositoryId,
                 safeReturnUrl);
 

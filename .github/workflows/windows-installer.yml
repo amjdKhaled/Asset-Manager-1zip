@@ -40,6 +40,12 @@ jobs:
             **/*.wixproj
             .config/dotnet-tools.json
 
+      - name: Run application regression tests
+        shell: powershell
+        run: |
+          dotnet test LFPortal.sln --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build and validate installer
         shell: powershell
         run: .\build\publish.ps1
