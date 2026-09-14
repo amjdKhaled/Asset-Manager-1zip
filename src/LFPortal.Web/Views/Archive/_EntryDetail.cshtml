@@ -41,6 +41,15 @@
                color:var(--a-text); background:rgba(255,255,255,.04); }
  .det-action:hover { background:rgba(59,130,246,.14); border-color:rgba(59,130,246,.45); color:#bfdbfe; }
  .det-action-primary { background:rgba(59,130,246,.16); border-color:rgba(59,130,246,.38); color:#93c5fd; }
+ .det-preview { background:#111827; border:1px solid var(--a-border); border-radius:7px; overflow:hidden; }
+ .det-preview iframe { display:block; width:100%; height:430px; border:0; background:#fff; }
+ .det-preview img { display:block; max-width:100%; max-height:430px; object-fit:contain; margin:0 auto; }
+ .det-preview-body { min-height:220px; display:flex; align-items:center; justify-content:center; padding:8px; }
+ .det-preview-nav { display:flex; align-items:center; justify-content:center; gap:10px; padding:8px;
+                    border-top:1px solid var(--a-border); color:var(--a-muted); font-size:.72rem; }
+ .det-preview-nav button { width:30px;height:28px;border:1px solid var(--a-border);border-radius:5px;
+                           color:var(--a-text);background:var(--a-surface);cursor:pointer; }
+ .det-preview-nav button:disabled { opacity:.35;cursor:not-allowed; }
 </style>
 
 @if (!string.IsNullOrWhiteSpace(Model.EntryError))
@@ -126,7 +135,7 @@ else if (Model.Entry is {} entry)
     {
         <div class="det-actions" aria-label="Document actions">
             <a class="det-action det-action-primary"
-               asp-controller="Document" asp-action="View" asp-route-entryId="@entry.Id">
+               asp-controller="Archive" asp-action="Index" asp-route-scope="document" asp-route-entryId="@entry.Id">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12Z"/><circle cx="12" cy="12" r="3"/></svg>
                 @L["ViewDocument"]
             </a>
@@ -135,6 +144,56 @@ else if (Model.Entry is {} entry)
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
                 @L["DownloadOriginal"]
             </a>
+        </div>
+
+        <div class="det-section">
+            <div class="det-section-lbl">@L["ViewDocument"]</div>
+            @if (Model.HasElectronicDocument && Model.IsInlineElectronicDocument)
+            {
+                <div class="det-preview">
+                    @if (Model.ElectronicDocumentContentType == "application/pdf")
+                    {
+                        <iframe src="@Url.Action("Content", "Document", new { entryId = entry.Id })"
+                                title="@entry.Name"></iframe>
+                    }
+                    else
+                    {
+                        <div class="det-preview-body">
+                            <img src="@Url.Action("Content", "Document", new { entryId = entry.Id })"
+                                 alt="@entry.Name" />
+                        </div>
+                    }
+                </div>
+            }
+            else if (Model.Pages.Count > 0)
+            {
+                <div class="det-preview" data-archive-preview data-entry-id="@entry.Id"
+                     data-page-count="@Model.Pages.Count" data-current-page="1">
+                    <div class="det-preview-body">
+                        <img data-archive-page-image
+                             src="@Url.Action("PageImage", "Document", new { entryId = entry.Id, pageNumber = 1 })"
+                             alt="Page 1 of @Model.Pages.Count" />
+                    </div>
+                    <div class="det-preview-nav">
+                        <button type="button" data-archive-page-delta="-1" disabled title="Previous page">←</button>
+                        <span data-archive-page-counter>1 / @Model.Pages.Count</span>
+                        <button type="button" data-archive-page-delta="1"
+                                disabled="@(Model.Pages.Count <= 1 ? "disabled" : null)" title="Next page">→</button>
+                    </div>
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(Model.PreviewError))
+            {
+                <div class="det-warn">@Model.PreviewError</div>
+            }
+            else if (Model.HasElectronicDocument)
+            {
+                <div class="det-warn">This file type cannot be previewed in the browser. Use Download Original.</div>
+            }
+            else
+            {
+                <div style="font-size:.78rem;color:var(--a-muted)">No preview content is available.</div>
+            }
         </div>
     }
 

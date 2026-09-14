@@ -104,6 +104,7 @@ public sealed class LaserficheDashboardTraversalTests
         Assert.Equal(3, result.Count);
         Assert.Equal(5, result.Sum(x => x.Documents));
         Assert.Equal(2, result.Sum(x => x.Folders));
+        Assert.Equal(new[] { 11, 21 }, result.SelectMany(x => x.AllFolders).Select(x => x.Id).OrderBy(x => x));
         Assert.Equal(3, result.Single(x => x.Name == "A").Documents);
         Assert.Equal(2, result.SelectMany(x => x.TemplateCounts).Sum(x => x.Value));
         Assert.Contains(result.SelectMany(x => x.TemplateCounts), x => x.Key == "Template #7");

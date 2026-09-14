@@ -2,6 +2,7 @@ using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Entities;
 using LFPortal.Infrastructure.Adapters;
 using Microsoft.AspNetCore.Mvc;
+using System.Net;
 
 namespace LFPortal.Web.Controllers;
 
@@ -14,17 +15,23 @@ public sealed class ArchiveController : Controller
 {
     private readonly ILaserficheEntryService            _entryService;
     private readonly ILaserficheFieldDefinitionService  _fieldDefService;
+    private readonly ILaserficheDashboardService        _dashboardService;
+    private readonly ILaserficheDocumentService         _documentService;
     private readonly ILaserficheApiAdapter              _adapter;
     private readonly ILogger<ArchiveController>         _logger;
 
     public ArchiveController(
         ILaserficheEntryService           entryService,
         ILaserficheFieldDefinitionService fieldDefService,
+        ILaserficheDashboardService       dashboardService,
+        ILaserficheDocumentService        documentService,
         ILaserficheApiAdapter             adapter,
         ILogger<ArchiveController>        logger)
     {
         _entryService    = entryService;
         _fieldDefService = fieldDefService;
+        _dashboardService = dashboardService;
+        _documentService = documentService;
         _adapter         = adapter;
         _logger          = logger;
     }
@@ -34,8 +41,43 @@ public sealed class ArchiveController : Controller
     public async Task<IActionResult> Index(
         int    entryId = 0,
         string trail   = "",
+        string scope = "",
+        string? template = null,
+        string? folder = null,
+        string? creator = null,
+        string? date = null,
+        string? activity = null,
         CancellationToken cancellationToken = default)
     {
+        // Dashboard drill-down mode uses the same authoritative sets that produced
+        // the selected statistic, so the Archive result count cannot drift from it.
+        if (!string.IsNullOrWhiteSpace(scope))
+        {
+            var stats = await _dashboardService
+                .GetDashboardStatsAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!stats.IsConnected)
+                return View(ArchiveViewModel.Error(
+                    stats.ErrorMessage ?? "Could not load dashboard results from Laserfiche."));
+
+            var result = ArchiveDrillDown.Apply(
+                stats, scope, template, folder, creator, date, activity, entryId);
+
+            return View(new ArchiveViewModel
+            {
+                IsConnected = true,
+                IsDrillDown = true,
+                DrillDownScope = result.Scope,
+                DrillDownTitle = result.Title,
+                DrillDownDescription = result.Description,
+                CurrentName = result.Title,
+                Entries = result.Entries,
+                Templates = result.Templates,
+                OpenEntryId = result.OpenEntryId
+            });
+        }
+
         // 1. Resolve root entry ID from configuration (fast path — no API call)
         var rootId = _adapter.GetConfiguredRootEntryId();
         if (rootId <= 0)
@@ -239,12 +281,91 @@ public sealed class ArchiveController : Controller
                 $"Field names may be incomplete — field definitions could not be loaded: {fieldDefsError}";
         }
 
+        var preview = await LoadPreviewAsync(entry, cancellationToken).ConfigureAwait(false);
+
         return PartialView("_EntryDetail", new ArchiveDetailViewModel
         {
             Entry       = entry,
             Fields      = resolvedFields,
-            FieldsError = combinedFieldsError
+            FieldsError = combinedFieldsError,
+            HasElectronicDocument = preview.HasElectronicDocument,
+            ElectronicDocumentContentType = preview.ContentType,
+            ElectronicDocumentExtension = preview.Extension,
+            Pages = preview.Pages,
+            PreviewError = preview.Error
         });
+    }
+
+    private async Task<ArchivePreviewResult> LoadPreviewAsync(
+        LFEntry entry,
+        CancellationToken cancellationToken)
+    {
+        if (entry.EntryType != LFEntryType.Document)
+            return new ArchivePreviewResult();
+
+        try
+        {
+            using var edoc = await _documentService
+                .StreamEdocAsync(entry.Id, cancellationToken)
+                .ConfigureAwait(false);
+
+            return new ArchivePreviewResult
+            {
+                HasElectronicDocument = true,
+                ContentType = edoc.ContentType,
+                Extension = edoc.Extension
+            };
+        }
+        catch (LFPortal.Domain.Exceptions.LaserficheException ex)
+            when (ex.StatusCode == (int)HttpStatusCode.NotFound)
+        {
+            // A valid Laserfiche document may have image pages but no electronic file.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Archive preview: electronic document check failed for entry {EntryId}.", entry.Id);
+        }
+
+        try
+        {
+            var pages = await _documentService
+                .GetDocumentPagesAsync(entry.Id, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (pages.Count == 0 && entry.PageCount is > 0)
+                pages = BuildPageFallback(entry.PageCount.Value);
+
+            return new ArchivePreviewResult { Pages = pages };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Archive preview: page list failed for entry {EntryId}.", entry.Id);
+
+            if (entry.PageCount is > 0)
+                return new ArchivePreviewResult { Pages = BuildPageFallback(entry.PageCount.Value) };
+
+            return new ArchivePreviewResult
+            {
+                Error = "Document preview is not available from Laserfiche at this time."
+            };
+        }
+    }
+
+    private static IReadOnlyList<LFDocumentPage> BuildPageFallback(int pageCount) =>
+        Enumerable.Range(1, pageCount)
+            .Select(number => new LFDocumentPage { PageNumber = number })
+            .ToList()
+            .AsReadOnly();
+
+    private sealed record ArchivePreviewResult
+    {
+        public bool HasElectronicDocument { get; init; }
+        public string? ContentType { get; init; }
+        public string? Extension { get; init; }
+        public IReadOnlyList<LFDocumentPage> Pages { get; init; } = [];
+        public string? Error { get; init; }
     }
 
     // ── Breadcrumb parser ─────────────────────────────────────────────────────

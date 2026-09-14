@@ -44,6 +44,9 @@ public sealed record DashboardStatsDto
     public IReadOnlyList<TemplateStatDto> TemplateStats { get; init; } = [];
     public IReadOnlyList<RootFolderStatDto> RootFolders { get; init; } = [];
 
+    /// <summary>All template definitions returned by the repository.</summary>
+    public IReadOnlyList<LFTemplateDefinition> TemplateDefinitions { get; init; } = [];
+
     // ── Document source rows ───────────────────────────────────────────────
     /// <summary>All discovered documents sorted newest-created first; no hidden fixed cap.</summary>
     public IReadOnlyList<LFEntry> RecentDocs { get; init; } = [];
@@ -57,6 +60,9 @@ public sealed record DashboardStatsDto
 
     /// <summary>All unique documents discovered during the recursive scan.</summary>
     public IReadOnlyList<LFEntry> AllDocs { get; init; } = [];
+
+    /// <summary>All folders discovered below the repository root.</summary>
+    public IReadOnlyList<LFEntry> AllFolders { get; init; } = [];
 
     // ── Portal search activity ─────────────────────────────────────────────
     /// <summary>Portal search counts for the last 7 days; not Laserfiche Audit Trail events.</summary>

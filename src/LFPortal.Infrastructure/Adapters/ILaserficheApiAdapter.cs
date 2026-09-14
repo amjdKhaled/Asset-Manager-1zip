@@ -25,6 +25,9 @@ public interface ILaserficheApiAdapter
     /// <summary>Builds the URL for a single document page image.</summary>
     string BuildPageImageUrl(string repositoryId, int entryId, int pageNumber);
 
+    /// <summary>Builds the V2 simple-export URL for one or more document pages.</summary>
+    string BuildDocumentExportUrl(string repositoryId, int entryId, string? pageRange = null);
+
     /// <summary>Builds a simple or advanced search endpoint URL.</summary>
     string BuildSearchUrl(string repositoryId, SearchType searchType);
 

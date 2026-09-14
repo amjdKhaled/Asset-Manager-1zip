@@ -30,6 +30,7 @@
 
     var folders   = Model.Entries.Where(e => e.EntryType == LFEntryType.Folder).ToList();
     var documents = Model.Entries.Where(e => e.EntryType != LFEntryType.Folder).ToList();
+    var templates = Model.Templates;
 }
 
 @section Styles {
@@ -148,13 +149,20 @@ footer.site-footer { background: #0a1020 !important; }
 <div class="arc-header">
     <div>
         <h1 class="arc-title">🗂️ @L["DocumentArchive"]</h1>
-        <p class="arc-sub">@L["BrowseRepository"]</p>
+        <p class="arc-sub">@(Model.IsDrillDown ? Model.DrillDownDescription : L["BrowseRepository"].Value)</p>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:.75rem;color:var(--a-muted)">
-            @Model.Entries.Count entr@(Model.Entries.Count == 1 ? "y" : "ies") ·
-            @folders.Count folder@(folders.Count == 1 ? "" : "s") ·
-            @documents.Count doc@(documents.Count == 1 ? "" : "s")
+            @if (templates.Count > 0)
+            {
+                <text>@templates.Count template@(templates.Count == 1 ? "" : "s")</text>
+            }
+            else
+            {
+                <text>@Model.Entries.Count entr@(Model.Entries.Count == 1 ? "y" : "ies") ·
+                @folders.Count folder@(folders.Count == 1 ? "" : "s") ·
+                @documents.Count doc@(documents.Count == 1 ? "" : "s")</text>
+            }
         </span>
     </div>
 </div>
@@ -171,13 +179,22 @@ footer.site-footer { background: #0a1020 !important; }
 <!-- ── Breadcrumb ─────────────────────────────────────────────────────────── -->
 <div class="arc-crumb">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--a-muted)" stroke-width="2" style="flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-    @for (var i = 0; i < Model.Breadcrumb.Count; i++)
+    @if (Model.IsDrillDown)
     {
-        var crumb = Model.Breadcrumb[i];
-        <a href="/Archive?entryId=@crumb.EntryId&trail=@Uri.EscapeDataString(crumb.Trail)">@crumb.Name</a>
+        <a href="/Archive">Repository</a>
         <span class="arc-crumb-sep">›</span>
+        <span class="arc-crumb-cur">@Model.DrillDownTitle</span>
     }
-    <span class="arc-crumb-cur">@Model.CurrentName</span>
+    else
+    {
+        @for (var i = 0; i < Model.Breadcrumb.Count; i++)
+        {
+            var crumb = Model.Breadcrumb[i];
+            <a href="/Archive?entryId=@crumb.EntryId&trail=@Uri.EscapeDataString(crumb.Trail)">@crumb.Name</a>
+            <span class="arc-crumb-sep">›</span>
+        }
+        <span class="arc-crumb-cur">@Model.CurrentName</span>
+    }
 </div>
 
 <!-- ── Layout: table + detail panel ─────────────────────────────────────────── -->
@@ -190,7 +207,8 @@ footer.site-footer { background: #0a1020 !important; }
             <input id="arcFilter" class="arc-filter" type="text"
                    placeholder="@L["FilterCurrentFolder"]" autocomplete="off" />
             <span class="arc-count" id="arcCount">
-                @Model.Entries.Count entr@(Model.Entries.Count == 1 ? "y" : "ies")
+                @(templates.Count > 0 ? templates.Count : Model.Entries.Count)
+                @(templates.Count > 0 ? (templates.Count == 1 ? "template" : "templates") : (Model.Entries.Count == 1 ? "entry" : "entries"))
             </span>
         </div>
 
@@ -204,12 +222,48 @@ footer.site-footer { background: #0a1020 !important; }
         }
 
         <div class="arc-card">
-            @if (Model.IsConnected && Model.Entries.Count == 0 && string.IsNullOrWhiteSpace(Model.ErrorMessage))
+            @if (Model.IsConnected && Model.Entries.Count == 0 && templates.Count == 0 && string.IsNullOrWhiteSpace(Model.ErrorMessage))
             {
                 <div class="arc-empty">
                     <svg class="arc-empty-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                     <span class="arc-empty-text">@L["ThisFolderIsEmpty"]</span>
                 </div>
+            }
+            else if (templates.Count > 0)
+            {
+                <table class="arc-tbl" id="arcTable">
+                    <thead>
+                        <tr>
+                            <th data-col="name" class="sorted" style="min-width:220px">@L["Template"] <span class="sort-icon">▲</span></th>
+                            <th data-col="type" style="width:110px">@L["Type"] <span class="sort-icon">⇅</span></th>
+                            <th data-col="created" style="width:130px">@L["Documents"] <span class="sort-icon">⇅</span></th>
+                            <th data-col="template">Description <span class="sort-icon">⇅</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="arcTbody">
+                    @foreach (var template in templates)
+                    {
+                        <tr data-type="template"
+                            data-name="@template.Name.ToLower()"
+                            data-template="@(template.Description?.ToLower() ?? string.Empty)"
+                            data-creator=""
+                            data-created="@template.DocumentCount"
+                            data-modified="0">
+                            <td>
+                                <div class="arc-name">
+                                    <svg class="arc-icon" width="15" height="17" viewBox="0 0 24 24" fill="#8b5cf6" stroke="#7c3aed" stroke-width="1"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8" fill="none" stroke="#6d28d9" stroke-width="1.5"/></svg>
+                                    <a href="@Url.Action("Index", "Archive", new { scope = "template", template = template.Name })">@template.Name</a>
+                                </div>
+                            </td>
+                            <td><span class="arc-badge arc-badge-other">Template</span></td>
+                            <td style="color:var(--a-muted)">
+                                <a href="@Url.Action("Index", "Archive", new { scope = "template", template = template.Name })">@template.DocumentCount</a>
+                            </td>
+                            <td style="color:var(--a-muted)">@(template.Description ?? "—")</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
             }
             else if (Model.Entries.Count > 0)
             {
@@ -240,6 +294,9 @@ footer.site-footer { background: #0a1020 !important; }
                                 LFEntryType.Shortcut => "arc-badge-shortcut",
                                 _ => "arc-badge-other"
                             };
+                            var folderUrl = Model.IsDrillDown
+                                ? Url.Action("Index", "Archive", new { entryId = entry.Id })
+                                : Url.Action("Index", "Archive", new { entryId = entry.Id, trail = childTrail });
 
                             <tr data-type="@typeLabel.ToLower()"
                                 data-name="@entry.Name.ToLower()"
@@ -255,7 +312,7 @@ footer.site-footer { background: #0a1020 !important; }
                                         {
                                             <!-- Folder icon -->
                                             <svg class="arc-icon" width="17" height="17" viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" stroke-width="1"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                                            <a href="/Archive?entryId=@entry.Id&trail=@Uri.EscapeDataString(childTrail)"
+                                            <a href="@folderUrl"
                                                title="Open folder: @entry.Name">@entry.Name</a>
                                         }
                                         else
@@ -395,14 +452,8 @@ footer.site-footer { background: #0a1020 !important; }
     const detailPanel = document.getElementById('arcDetailPanel');
     const detailInner = document.getElementById('arcDetailInner');
 
-    document.addEventListener('click', async function (e) {
-        const link = e.target.closest('.arc-doc-link');
-        if (!link) return;
-        e.preventDefault();
-
-        const entryId = link.dataset.entryId;
+    async function openDocumentDetail(entryId) {
         if (!entryId) return;
-
         // Show panel with spinner
         detailPanel.style.display = '';
         layout.classList.add('with-detail');
@@ -421,6 +472,13 @@ footer.site-footer { background: #0a1020 !important; }
                 `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>` +
                 `Could not load document details: ${err.message}</div>`;
         }
+    }
+
+    document.addEventListener('click', async function (e) {
+        const link = e.target.closest('.arc-doc-link');
+        if (!link) return;
+        e.preventDefault();
+        await openDocumentDetail(link.dataset.entryId);
     });
 
     // Close detail panel
@@ -429,7 +487,31 @@ footer.site-footer { background: #0a1020 !important; }
             detailPanel.style.display = 'none';
             layout.classList.remove('with-detail');
         }
+
+        const pageButton = e.target.closest('[data-archive-page-delta]');
+        if (pageButton) {
+            const preview = pageButton.closest('[data-archive-preview]');
+            const image = preview?.querySelector('[data-archive-page-image]');
+            const counter = preview?.querySelector('[data-archive-page-counter]');
+            if (!preview || !image || !counter) return;
+
+            const total = Number.parseInt(preview.dataset.pageCount || '0', 10);
+            const current = Number.parseInt(preview.dataset.currentPage || '1', 10);
+            const delta = Number.parseInt(pageButton.dataset.archivePageDelta || '0', 10);
+            const target = Math.min(total, Math.max(1, current + delta));
+            if (target === current) return;
+
+            preview.dataset.currentPage = target.toString();
+            image.src = `/Document/PageImage/${preview.dataset.entryId}/${target}`;
+            image.alt = `Page ${target} of ${total}`;
+            counter.textContent = `${target} / ${total}`;
+            preview.querySelector('[data-archive-page-delta="-1"]').disabled = target <= 1;
+            preview.querySelector('[data-archive-page-delta="1"]').disabled = target >= total;
+        }
     });
+
+    const initialEntryId = @Model.OpenEntryId;
+    if (initialEntryId > 0) openDocumentDetail(initialEntryId.toString());
 
 })();
 </script>

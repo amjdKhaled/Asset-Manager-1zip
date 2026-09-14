@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LFPortal.Application.DTOs;
@@ -112,6 +113,17 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         var url = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, EntryResource.Edoc);
 
         using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
+
+        // Repository API V2 retrieves an electronic document through Simple Export.
+        // The /Document/Edoc resource is used for mutation, while Export is the
+        // documented browser-safe retrieval flow and returns a short-lived link.
+        if (_adapter.ApiVersion.Equals("v2", StringComparison.OrdinalIgnoreCase))
+        {
+            return await ExportElectronicDocumentAsync(
+                    client, repo.RepositoryId, entryId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*"));
 
@@ -135,10 +147,11 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 .ReadAsStreamAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            var contentType = response.Content.Headers.ContentType?.MediaType
-                ?? "application/octet-stream";
             var contentDisposition = response.Content.Headers.ContentDisposition?.ToString();
             var fileName = GetFileName(response.Content.Headers.ContentDisposition);
+            var contentType = NormalizeContentType(
+                response.Content.Headers.ContentType?.MediaType,
+                fileName);
             var extension = GetExtension(fileName, contentType);
 
             return new LaserficheEdocStream(
@@ -187,6 +200,24 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 statusCode);
         }
 
+        var directFileName = GetFileName(response.Content.Headers.ContentDisposition);
+        var directContentType = NormalizeContentType(
+            response.Content.Headers.ContentType?.MediaType,
+            directFileName);
+
+        // Laserfiche image pages are commonly stored as TIFF. Browsers do not
+        // consistently render TIFF, so V2 asks Laserfiche to export this one page
+        // as PNG while preserving the original repository document unchanged.
+        if (_adapter.ApiVersion.Equals("v2", StringComparison.OrdinalIgnoreCase) &&
+            (directContentType.Equals("image/tiff", StringComparison.OrdinalIgnoreCase) ||
+             directContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase)))
+        {
+            response.Dispose();
+            return await ExportPageAsPngAsync(
+                    client, repo.RepositoryId, entryId, pageNumber, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         try
         {
             var contentStream = await response.Content
@@ -194,15 +225,15 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 .ConfigureAwait(false);
 
             // Do not invent an image type when the server omits Content-Type.
-            var contentType = response.Content.Headers.ContentType?.MediaType
-                ?? "application/octet-stream";
+            var fileName = directFileName;
+            var contentType = directContentType;
 
             return new LaserficheEdocStream(
                 contentStream,
                 contentType,
                 contentDisposition: response.Content.Headers.ContentDisposition?.ToString(),
-                fileName: GetFileName(response.Content.Headers.ContentDisposition),
-                extension: GetExtension(GetFileName(response.Content.Headers.ContentDisposition), contentType),
+                fileName: fileName,
+                extension: GetExtension(fileName, contentType),
                 contentLength: response.Content.Headers.ContentLength,
                 owner: response);
         }
@@ -217,6 +248,186 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         int entryId,
         CancellationToken cancellationToken = default) =>
         _entryService.GetEntryAsync(entryId, cancellationToken);
+
+    private async Task<LaserficheEdocStream> ExportPageAsPngAsync(
+        HttpClient client,
+        string repositoryId,
+        int entryId,
+        int pageNumber,
+        CancellationToken cancellationToken)
+    {
+        var exportUrl = _adapter.BuildDocumentExportUrl(
+            repositoryId, entryId, pageNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        const string requestJson =
+            "{\"part\":\"Image\",\"imageOptions\":{\"format\":\"PNG\",\"includeAnnotations\":true,\"includeRedactions\":true}}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, exportUrl)
+        {
+            Content = new StringContent(requestJson, Encoding.UTF8, "application/json")
+        };
+        using var exportResponse = await client
+            .SendAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+        var exportBody = await exportResponse.Content
+            .ReadAsStringAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!exportResponse.IsSuccessStatusCode)
+        {
+            throw new LaserficheException(
+                $"PNG page export failed for entry {entryId} page {pageNumber}: " +
+                $"HTTP {(int)exportResponse.StatusCode}. Body: {exportBody}",
+                (int)exportResponse.StatusCode);
+        }
+
+        var downloadLink = ParseExportDownloadLink(exportBody);
+        var downloadUrl = ResolveTrustedExportLink(exportUrl, downloadLink);
+        var downloadResponse = await client
+            .GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!downloadResponse.IsSuccessStatusCode)
+        {
+            var body = await downloadResponse.Content
+                .ReadAsStringAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var statusCode = (int)downloadResponse.StatusCode;
+            downloadResponse.Dispose();
+            throw new LaserficheException(
+                $"PNG page download failed for entry {entryId} page {pageNumber}: " +
+                $"HTTP {statusCode}. Body: {body}",
+                statusCode);
+        }
+
+        try
+        {
+            var stream = await downloadResponse.Content
+                .ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var fileName = GetFileName(downloadResponse.Content.Headers.ContentDisposition)
+                ?? $"page-{pageNumber}.png";
+            var contentType = NormalizeContentType(
+                downloadResponse.Content.Headers.ContentType?.MediaType,
+                fileName);
+
+            return new LaserficheEdocStream(
+                stream,
+                contentType == "application/octet-stream" ? "image/png" : contentType,
+                downloadResponse.Content.Headers.ContentDisposition?.ToString(),
+                fileName,
+                ".png",
+                downloadResponse.Content.Headers.ContentLength,
+                downloadResponse);
+        }
+        catch
+        {
+            downloadResponse.Dispose();
+            throw;
+        }
+    }
+
+    private async Task<LaserficheEdocStream> ExportElectronicDocumentAsync(
+        HttpClient client,
+        string repositoryId,
+        int entryId,
+        CancellationToken cancellationToken)
+    {
+        var exportUrl = _adapter.BuildDocumentExportUrl(repositoryId, entryId);
+        using var request = new HttpRequestMessage(HttpMethod.Post, exportUrl)
+        {
+            Content = new StringContent("{\"part\":\"Edoc\"}", Encoding.UTF8, "application/json")
+        };
+        using var exportResponse = await client
+            .SendAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+        var exportBody = await exportResponse.Content
+            .ReadAsStringAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!exportResponse.IsSuccessStatusCode)
+        {
+            throw new LaserficheException(
+                $"Electronic document export failed for entry {entryId}: " +
+                $"HTTP {(int)exportResponse.StatusCode}. Body: {exportBody}",
+                (int)exportResponse.StatusCode);
+        }
+
+        var downloadLink = ParseExportDownloadLink(exportBody);
+        var downloadUrl = ResolveTrustedExportLink(exportUrl, downloadLink);
+        var downloadResponse = await client
+            .GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!downloadResponse.IsSuccessStatusCode)
+        {
+            var body = await downloadResponse.Content
+                .ReadAsStringAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var statusCode = (int)downloadResponse.StatusCode;
+            downloadResponse.Dispose();
+            throw new LaserficheException(
+                $"Electronic document download failed for entry {entryId}: " +
+                $"HTTP {statusCode}. Body: {body}",
+                statusCode);
+        }
+
+        try
+        {
+            var stream = await downloadResponse.Content
+                .ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var fileName = GetFileName(downloadResponse.Content.Headers.ContentDisposition);
+            var contentType = NormalizeContentType(
+                downloadResponse.Content.Headers.ContentType?.MediaType,
+                fileName);
+
+            return new LaserficheEdocStream(
+                stream,
+                contentType,
+                downloadResponse.Content.Headers.ContentDisposition?.ToString(),
+                fileName,
+                GetExtension(fileName, contentType),
+                downloadResponse.Content.Headers.ContentLength,
+                downloadResponse);
+        }
+        catch
+        {
+            downloadResponse.Dispose();
+            throw;
+        }
+    }
+
+    internal static string ParseExportDownloadLink(string body)
+    {
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        if (root.ValueKind == JsonValueKind.String)
+            return root.GetString() ?? throw new JsonException("Export download link was empty.");
+
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("value", out var value) &&
+            value.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(value.GetString()))
+        {
+            return value.GetString()!;
+        }
+
+        throw new JsonException("Export response did not contain a download link.");
+    }
+
+    private static string ResolveTrustedExportLink(string exportUrl, string downloadLink)
+    {
+        if (!Uri.TryCreate(exportUrl, UriKind.Absolute, out var source) ||
+            !Uri.TryCreate(source, downloadLink, out var resolved) ||
+            (resolved.Scheme != Uri.UriSchemeHttp && resolved.Scheme != Uri.UriSchemeHttps) ||
+            !string.Equals(source.Scheme, resolved.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(source.Authority, resolved.Authority, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new JsonException("Laserfiche export returned an untrusted download link.");
+        }
+
+        return resolved.AbsoluteUri;
+    }
 
     private static PageList ParsePage(string body)
     {
@@ -276,6 +487,29 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
             "image/jpeg" => ".jpg",
             "image/webp" => ".webp",
             _ => null
+        };
+    }
+
+    internal static string NormalizeContentType(string? contentType, string? fileName)
+    {
+        if (!string.IsNullOrWhiteSpace(contentType) &&
+            !contentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase) &&
+            !contentType.Equals("binary/octet-stream", StringComparison.OrdinalIgnoreCase))
+        {
+            var normalized = contentType.Trim().ToLowerInvariant();
+            return normalized == "image/jpg" ? "image/jpeg" : normalized;
+        }
+
+        return Path.GetExtension(fileName ?? string.Empty).ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            ".gif" => "image/gif",
+            ".bmp" => "image/bmp",
+            ".tif" or ".tiff" => "image/tiff",
+            _ => "application/octet-stream"
         };
     }
 

@@ -169,7 +169,13 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 .AsReadOnly();
 
             var totalDocuments = allDocs.Count;
-            var totalFolders = rootFolderEntries.Count + rootFolderResults.Sum(r => r.Folders);
+            var allFolders = rootFolderEntries
+                .Concat(rootFolderResults.SelectMany(r => r.AllFolders))
+                .GroupBy(f => f.Id)
+                .Select(g => g.First())
+                .ToList()
+                .AsReadOnly();
+            var totalFolders = allFolders.Count;
 
             // Template KPIs are derived directly from the authoritative document list.
             // TemplateId=0 is not an assigned template.
@@ -193,11 +199,13 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
 
             // Root-folder distribution (for bar chart).
             var rootFolderStats = rootFolderResults
-                .Select(r => new RootFolderStatDto
+                .Zip(rootFolderEntries, (r, folder) => new RootFolderStatDto
                 {
+                    EntryId   = folder.Id,
                     Name      = r.Name,
                     Documents = r.Documents,
-                    Folders   = r.Folders
+                    Folders   = r.Folders,
+                    DocumentIds = r.AllDocs.Select(d => d.Id).Distinct().ToList().AsReadOnly()
                 })
                 .ToList()
                 .AsReadOnly();
@@ -263,9 +271,11 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 DocsWithoutTemplate      = docsWithoutTemplate,
                 TemplateStats            = templateStats,
                 RootFolders              = rootFolderStats,
+                TemplateDefinitions      = templateDefs,
                 RecentDocs               = allRecentDocs,
                 ModifiedDocs             = allModifiedDocs,
                 AllDocs                  = allDocs,
+                AllFolders               = allFolders,
                 SearchActivityByDay      = activityByDay,
                 TopSearchedQueries       = topQueries,
                 TotalSearches            = totalSearches,
@@ -408,7 +418,7 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         if (!visited.TryAdd(folderId, 0))
         {
             logger.LogDebug("Cycle detected — skipping already-visited folder {FolderId}.", folderId);
-            return new ScanResult(folderName, 0, 0, [], []);
+            return new ScanResult(folderName, 0, 0, [], [], []);
         }
 
         IReadOnlyList<LFEntry> children;
@@ -461,9 +471,14 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
             .ToList();
 
         var documents = allDocs.Count;
-        var folders   = subFolderEntries.Count + subResults.Sum(r => r.Folders);
+        var allFolders = subFolderEntries
+            .Concat(subResults.SelectMany(r => r.AllFolders))
+            .GroupBy(f => f.Id)
+            .Select(g => g.First())
+            .ToList();
+        var folders = allFolders.Count;
 
-        return new ScanResult(folderName, documents, folders, localTmpl, allDocs);
+        return new ScanResult(folderName, documents, folders, localTmpl, allDocs, allFolders);
     }
 
     private static bool HasTemplate(LFEntry entry) =>
@@ -510,5 +525,6 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
         int                        Documents,
         int                        Folders,
         Dictionary<string, int>    TemplateCounts,
-        List<LFEntry>              AllDocs);
+        List<LFEntry>              AllDocs,
+        List<LFEntry>              AllFolders);
 }
