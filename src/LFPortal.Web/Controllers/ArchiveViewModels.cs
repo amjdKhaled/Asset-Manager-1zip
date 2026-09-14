@@ -31,6 +31,13 @@ public sealed class ArchiveViewModel
     public string DrillDownScope { get; init; } = string.Empty;
     public int OpenEntryId { get; init; }
 
+    public int PageNumber { get; init; } = 1;
+    public int PageSize { get; init; } = 10;
+    public int TotalCount { get; init; }
+    public int TotalPages => PageSize > 0 ? (int)Math.Ceiling((double)TotalCount / PageSize) : 0;
+    public string? LaserficheWebClientUrl { get; init; }
+    public string? LaserficheWebClientEntryUrlPrefix { get; init; }
+
     /// <summary>Template catalog rows used by the Total Templates drill-down.</summary>
     public IReadOnlyList<ArchiveTemplateResult> Templates { get; init; } = [];
 
