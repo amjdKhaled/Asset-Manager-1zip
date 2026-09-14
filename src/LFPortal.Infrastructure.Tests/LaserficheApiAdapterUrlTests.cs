@@ -179,6 +179,16 @@ public sealed class LaserficheApiAdapterUrlTests
     }
 
     [Fact]
+    public void SearchUrls_V2_UseDocumentedLongOperationRoutes()
+    {
+        var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v2");
+
+        Assert.EndsWith("/Searches/SearchAsync", adapter.BuildSearchUrl("Documents", SearchType.Advanced));
+        Assert.EndsWith("/Tasks?taskIds=abc", adapter.BuildTaskStatusUrl("Documents", "abc"));
+        Assert.EndsWith("/Searches/abc/Results", adapter.BuildSearchResultsUrl("Documents", "abc"));
+    }
+
+    [Fact]
     public void DocumentPageUrls_V1_PreserveLegacyRoute()
     {
         var adapter = CreateAdapter("https://lf-server.corp.local", apiVersion: "v1");

@@ -1,5 +1,6 @@
 @model LFPortal.Web.Controllers.ArchiveViewModel
 @using LFPortal.Domain.Entities
+@using Microsoft.AspNetCore.Http
 @{
     ViewData["Title"] = "Archive";
 
@@ -31,6 +32,20 @@
     var folders   = Model.Entries.Where(e => e.EntryType == LFEntryType.Folder).ToList();
     var documents = Model.Entries.Where(e => e.EntryType != LFEntryType.Folder).ToList();
     var templates = Model.Templates;
+
+    string BuildPageUrl(int targetPage)
+    {
+        var values = Context.Request.Query.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value.ToString(),
+            StringComparer.OrdinalIgnoreCase);
+        values["page"] = targetPage.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return QueryString.Create(values.Select(pair =>
+            new KeyValuePair<string, string?>(pair.Key, pair.Value))).ToUriComponent();
+    }
+
+    var pageWindowStart = Model.TotalPages > 0 ? ((Model.PageNumber - 1) / 10) * 10 + 1 : 1;
+    var pageWindowEnd = Math.Min(pageWindowStart + 9, Model.TotalPages);
 }
 
 @section Styles {
@@ -76,6 +91,16 @@ footer.site-footer { background: #0a1020 !important; }
 .arc-filter::placeholder { color:var(--a-muted); }
 .arc-filter:focus { border-color:var(--a-accent); box-shadow:0 0 0 2px rgba(59,130,246,.2); }
 .arc-count  { color:var(--a-muted); font-size:.78rem; white-space:nowrap; }
+.arc-open-lf { display:inline-flex;align-items:center;gap:6px;background:var(--a-accent);border:1px solid var(--a-accent);
+               color:#fff;padding:7px 12px;border-radius:8px;font-size:.78rem;text-decoration:none;white-space:nowrap; }
+.arc-open-lf:hover { color:#fff;filter:brightness(1.08); }
+.arc-pager { display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;padding:14px; }
+.arc-page { min-width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--a-border);
+            border-radius:7px;background:var(--a-surf2);color:var(--a-text);text-decoration:none;font-size:.76rem;padding:0 9px; }
+.arc-page.active { background:var(--a-accent);border-color:var(--a-accent);color:#fff; }
+.arc-page.disabled { opacity:.45;pointer-events:none; }
+.arc-page-input { width:58px;height:34px;border:1px solid var(--a-border);border-radius:7px;background:var(--a-surf2);
+                  color:var(--a-text);text-align:center;font-size:.76rem; }
 
 /* Main card */
 .arc-card   { background:var(--a-surface); border:1px solid var(--a-border); border-radius:12px;
@@ -152,6 +177,12 @@ footer.site-footer { background: #0a1020 !important; }
         <p class="arc-sub">@(Model.IsDrillDown ? Model.DrillDownDescription : L["BrowseRepository"].Value)</p>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
+        @if (Model.IsDrillDown && !string.IsNullOrWhiteSpace(Model.LaserficheWebClientUrl))
+        {
+            <a class="arc-open-lf" href="@Model.LaserficheWebClientUrl" target="_blank" rel="noopener">
+                Open in Laserfiche
+            </a>
+        }
         <span style="font-size:.75rem;color:var(--a-muted)">
             @if (templates.Count > 0)
             {
@@ -159,7 +190,7 @@ footer.site-footer { background: #0a1020 !important; }
             }
             else
             {
-                <text>@Model.Entries.Count entr@(Model.Entries.Count == 1 ? "y" : "ies") ·
+                <text>@(Model.IsDrillDown ? Model.TotalCount : Model.Entries.Count) entr@((Model.IsDrillDown ? Model.TotalCount : Model.Entries.Count) == 1 ? "y" : "ies") ·
                 @folders.Count folder@(folders.Count == 1 ? "" : "s") ·
                 @documents.Count doc@(documents.Count == 1 ? "" : "s")</text>
             }
@@ -314,6 +345,11 @@ footer.site-footer { background: #0a1020 !important; }
                                             <svg class="arc-icon" width="17" height="17" viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" stroke-width="1"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                                             <a href="@folderUrl"
                                                title="Open folder: @entry.Name">@entry.Name</a>
+                                            @if (!string.IsNullOrWhiteSpace(Model.LaserficheWebClientEntryUrlPrefix))
+                                            {
+                                                <a href="@(Model.LaserficheWebClientEntryUrlPrefix + entry.Id + ";view=browse")"
+                                                   target="_blank" rel="noopener" title="Open in Laserfiche">↗</a>
+                                            }
                                         }
                                         else
                                         {
@@ -321,6 +357,11 @@ footer.site-footer { background: #0a1020 !important; }
                                             <svg class="arc-icon" width="15" height="17" viewBox="0 0 24 24" fill="#3b82f6" stroke="#2563eb" stroke-width="1"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8" fill="none" stroke="#1d4ed8" stroke-width="1.5"/></svg>
                                             <a href="#" class="arc-doc-link" data-entry-id="@entry.Id"
                                                title="View document details: @entry.Name">@entry.Name</a>
+                                            @if (!string.IsNullOrWhiteSpace(Model.LaserficheWebClientEntryUrlPrefix))
+                                            {
+                                                <a href="@(Model.LaserficheWebClientEntryUrlPrefix + entry.Id + ";view=pages")"
+                                                   target="_blank" rel="noopener" title="Open in Laserfiche">↗</a>
+                                            }
                                         }
                                     </div>
                                 </td>
@@ -343,6 +384,20 @@ footer.site-footer { background: #0a1020 !important; }
                         }
                     </tbody>
                 </table>
+            }
+            @if (Model.IsDrillDown && Model.TotalPages > 1)
+            {
+                <nav class="arc-pager" aria-label="Archive result pages">
+                    <a class="arc-page @(Model.PageNumber <= 1 ? "disabled" : "")" href="@BuildPageUrl(Model.PageNumber - 1)">Previous</a>
+                    @for (var pageNumber = pageWindowStart; pageNumber <= pageWindowEnd; pageNumber++)
+                    {
+                        <a class="arc-page @(pageNumber == Model.PageNumber ? "active" : "")" href="@BuildPageUrl(pageNumber)">@pageNumber</a>
+                    }
+                    <a class="arc-page @(Model.PageNumber >= Model.TotalPages ? "disabled" : "")" href="@BuildPageUrl(Model.PageNumber + 1)">Next</a>
+                    <label for="archivePageInput" style="color:var(--a-muted);font-size:.76rem">Page</label>
+                    <input id="archivePageInput" class="arc-page-input" type="number" min="1" max="@Model.TotalPages" value="@Model.PageNumber" />
+                    <button id="archivePageGo" class="arc-page" type="button">Go</button>
+                </nav>
             }
         </div>
     </div>
@@ -512,6 +567,21 @@ footer.site-footer { background: #0a1020 !important; }
 
     const initialEntryId = @Model.OpenEntryId;
     if (initialEntryId > 0) openDocumentDetail(initialEntryId.toString());
+
+    const pageInput = document.getElementById('archivePageInput');
+    const pageGo = document.getElementById('archivePageGo');
+    function goToArchivePage() {
+        if (!pageInput) return;
+        const max = Number.parseInt(pageInput.max || '1', 10);
+        const target = Math.min(max, Math.max(1, Number.parseInt(pageInput.value || '1', 10)));
+        const url = new URL(window.location.href);
+        url.searchParams.set('page', target.toString());
+        window.location.assign(url.toString());
+    }
+    if (pageGo) pageGo.addEventListener('click', goToArchivePage);
+    if (pageInput) pageInput.addEventListener('keydown', event => {
+        if (event.key === 'Enter') goToArchivePage();
+    });
 
 })();
 </script>

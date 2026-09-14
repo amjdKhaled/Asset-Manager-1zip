@@ -1,4 +1,5 @@
 using LFPortal.Application.Interfaces;
+using LFPortal.Application.DTOs;
 using LFPortal.Domain.Entities;
 using LFPortal.Infrastructure.Adapters;
 using Microsoft.AspNetCore.Mvc;
@@ -15,7 +16,9 @@ public sealed class ArchiveController : Controller
 {
     private readonly ILaserficheEntryService            _entryService;
     private readonly ILaserficheFieldDefinitionService  _fieldDefService;
-    private readonly ILaserficheDashboardService        _dashboardService;
+    private readonly ILaserficheSearchService           _searchService;
+    private readonly ILaserficheTemplateService         _templateService;
+    private readonly IRepositoryContext                 _repositoryContext;
     private readonly ILaserficheDocumentService         _documentService;
     private readonly ILaserficheApiAdapter              _adapter;
     private readonly ILogger<ArchiveController>         _logger;
@@ -23,14 +26,18 @@ public sealed class ArchiveController : Controller
     public ArchiveController(
         ILaserficheEntryService           entryService,
         ILaserficheFieldDefinitionService fieldDefService,
-        ILaserficheDashboardService       dashboardService,
+        ILaserficheSearchService          searchService,
+        ILaserficheTemplateService        templateService,
+        IRepositoryContext                repositoryContext,
         ILaserficheDocumentService        documentService,
         ILaserficheApiAdapter             adapter,
         ILogger<ArchiveController>        logger)
     {
         _entryService    = entryService;
         _fieldDefService = fieldDefService;
-        _dashboardService = dashboardService;
+        _searchService = searchService;
+        _templateService = templateService;
+        _repositoryContext = repositoryContext;
         _documentService = documentService;
         _adapter         = adapter;
         _logger          = logger;
@@ -47,35 +54,38 @@ public sealed class ArchiveController : Controller
         string? creator = null,
         string? date = null,
         string? activity = null,
+        int page = 1,
         CancellationToken cancellationToken = default)
     {
-        // Dashboard drill-down mode uses the same authoritative sets that produced
-        // the selected statistic, so the Archive result count cannot drift from it.
         if (!string.IsNullOrWhiteSpace(scope))
         {
-            var stats = await _dashboardService
-                .GetDashboardStatsAsync(cancellationToken)
-                .ConfigureAwait(false);
+            page = Math.Max(1, page);
+            var rootEntryId = _adapter.GetConfiguredRootEntryId();
+            if (string.Equals(scope, "folders", StringComparison.OrdinalIgnoreCase) && rootEntryId <= 0)
+                rootEntryId = await _entryService.GetRootEntryIdAsync(cancellationToken).ConfigureAwait(false);
+            var query = LaserficheArchiveQuery.Build(
+                scope, template, folder, creator, date, activity, entryId, rootEntryId);
+            var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken).ConfigureAwait(false);
 
-            if (!stats.IsConnected)
-                return View(ArchiveViewModel.Error(
-                    stats.ErrorMessage ?? "Could not load dashboard results from Laserfiche."));
-
-            var result = ArchiveDrillDown.Apply(
-                stats, scope, template, folder, creator, date, activity, entryId);
-
-            return View(new ArchiveViewModel
+            if (query.IsTemplateCatalog)
             {
-                IsConnected = true,
-                IsDrillDown = true,
-                DrillDownScope = result.Scope,
-                DrillDownTitle = result.Title,
-                DrillDownDescription = result.Description,
-                CurrentName = result.Title,
-                Entries = result.Entries,
-                Templates = result.Templates,
-                OpenEntryId = result.OpenEntryId
-            });
+                var definitions = await _templateService.GetTemplateDefinitionsAsync(cancellationToken).ConfigureAwait(false);
+                var rows = definitions.Skip((page - 1) * 10).Take(10)
+                    .Select(item => new ArchiveTemplateResult { Id = item.Id, Name = item.Name, Description = item.Description })
+                    .ToList().AsReadOnly();
+                return View(BuildDrillDownModel(query, repo, rows, [], page, definitions.Count));
+            }
+
+            if (query.OpenEntryId > 0)
+            {
+                var entry = await _entryService.GetEntryAsync(query.OpenEntryId, cancellationToken).ConfigureAwait(false);
+                return View(BuildDrillDownModel(query, repo, [], [entry], 1, 1));
+            }
+
+            var results = await _searchService.AdvancedSearchAsync(
+                query.Expression, page, 10, cancellationToken).ConfigureAwait(false);
+            var entries = results.Items.Select(MapSearchEntry).ToList().AsReadOnly();
+            return View(BuildDrillDownModel(query, repo, [], entries, page, results.TotalCount));
         }
 
         // 1. Resolve root entry ID from configuration (fast path — no API call)
@@ -154,6 +164,56 @@ public sealed class ArchiveController : Controller
             IsConnected    = true
         });
     }
+
+    private static ArchiveViewModel BuildDrillDownModel(
+        LaserficheArchiveQuery query,
+        RepositoryDescriptor repository,
+        IReadOnlyList<ArchiveTemplateResult> templates,
+        IReadOnlyList<LFEntry> entries,
+        int page,
+        int totalCount)
+    {
+        var baseUrl = BuildWebClientBaseUrl(repository.ServerUrl, repository.RepositoryId);
+        return new ArchiveViewModel
+        {
+            IsConnected = true,
+            IsDrillDown = true,
+            DrillDownScope = query.Scope,
+            DrillDownTitle = query.Title,
+            DrillDownDescription = query.Description,
+            CurrentName = query.Title,
+            Entries = entries,
+            Templates = templates,
+            OpenEntryId = query.OpenEntryId,
+            PageNumber = page,
+            PageSize = 10,
+            TotalCount = totalCount,
+            LaserficheWebClientUrl = query.IsTemplateCatalog
+                ? baseUrl
+                : $"{baseUrl}search={Uri.EscapeDataString(query.Expression)};view=search",
+            LaserficheWebClientEntryUrlPrefix = $"{baseUrl}id="
+        };
+    }
+
+    private static string BuildWebClientBaseUrl(string serverUrl, string repositoryId)
+    {
+        var server = new Uri(serverUrl, UriKind.Absolute);
+        var origin = server.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+        return $"{origin}/Laserfiche/Browse.aspx?db={Uri.EscapeDataString(repositoryId)}#";
+    }
+
+    private static LFEntry MapSearchEntry(LFSearchResult item) => new()
+    {
+        Id = item.EntryId,
+        Name = item.Name,
+        FullPath = item.FullPath,
+        EntryType = item.EntryType,
+        TemplateId = item.TemplateId,
+        TemplateName = item.TemplateName,
+        Creator = item.Creator,
+        CreationTime = item.CreationTime,
+        LastModifiedTime = item.LastModifiedTime
+    };
 
     // GET /Archive/Detail?entryId=N
     // Returns a partial view loaded via fetch() for the document detail panel.

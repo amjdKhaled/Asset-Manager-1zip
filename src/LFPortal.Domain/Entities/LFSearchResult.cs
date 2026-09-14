@@ -20,6 +20,8 @@ public sealed record LFSearchResult
     /// <summary>Name of the template applied to this entry, if any.</summary>
     public string? TemplateName { get; init; }
 
+    public int? TemplateId { get; init; }
+
     /// <summary>Creator of this entry.</summary>
     public string? Creator { get; init; }
 

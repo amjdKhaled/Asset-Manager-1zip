@@ -77,6 +77,39 @@ public sealed class ArchiveDrillDownTests
         Assert.Equal(3, result.OpenEntryId);
     }
 
+    [Fact]
+    public void PagedArchiveQueries_UseEfficientLaserficheEntryTypeFilters()
+    {
+        Assert.Equal("{LF:Name=\"*\",Type=\"D\"}",
+            LaserficheArchiveQuery.Build("documents", null, null, null, null, null, 0, 1).Expression);
+        Assert.Equal("{LF:Name=\"*\",Type=\"B\"}",
+            LaserficheArchiveQuery.Build("without-template", null, null, null, null, null, 0, 1).Expression);
+        Assert.Contains("Type=\"F\"", LaserficheArchiveQuery.Build(
+            "folders", null, null, null, null, null, 0, 1).Expression);
+    }
+
+    [Fact]
+    public void FolderAndActivityQueries_PreserveTheExactDashboardFilter()
+    {
+        var folder = LaserficheArchiveQuery.Build(
+            "root-folder", null, "Policies", null, null, null, 42, 1);
+        Assert.Contains("LookIn=\"42\"", folder.Expression);
+        Assert.Contains("Subfolders=y", folder.Expression);
+
+        var activity = LaserficheArchiveQuery.Build(
+            "activity", null, null, null, "2026-09-14", "modified", 0, 1);
+        Assert.Contains("Modified>=\"09/14/2026\"", activity.Expression);
+        Assert.Contains("Modified<\"09/15/2026\"", activity.Expression);
+    }
+
+    [Fact]
+    public void QueryValues_AreEscapedBeforeTheyEnterLaserficheSyntax()
+    {
+        var query = LaserficheArchiveQuery.Build(
+            "creator", null, null, "DOMAIN\\a\"user", null, null, 0, 1);
+        Assert.Contains("DOMAIN\\\\a\\\"user", query.Expression);
+    }
+
     private static LFEntry Doc(
         int id,
         string name,

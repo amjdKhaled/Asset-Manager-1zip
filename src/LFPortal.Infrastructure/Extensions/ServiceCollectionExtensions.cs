@@ -85,7 +85,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILaserficheSearchService, LaserficheSearchService>();
         services.AddScoped<ILaserficheDocumentService, LaserficheDocumentService>();
         services.AddScoped<ILaserficheTemplateService, LaserficheTemplateService>();
-        services.AddScoped<ILaserficheDashboardService, LaserficheDashboardService>();
+        services.AddScoped<LaserficheDashboardService>();
+        services.AddScoped<ILaserficheDashboardService, CachedLaserficheDashboardService>();
 
         // ── Health checks ──────────────────────────────────────────────────────
         services.AddHealthChecks()

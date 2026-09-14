@@ -11,8 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace LFPortal.Infrastructure.Services;
 
 /// <summary>
-/// Implements Laserfiche search operations. Search result collections are read to completion
-/// by following server-provided continuation links before caller pagination is applied.
+/// Implements Laserfiche search operations using Repository API server-side paging.
 /// </summary>
 internal sealed class LaserficheSearchService : ILaserficheSearchService
 {
@@ -140,22 +139,16 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
             TryGetPropertyIgnoreCase(submitDoc.RootElement, "value", out var value) &&
             value.ValueKind == JsonValueKind.Array)
         {
-            // SimpleSearches may return all results inline or a first OData page. Follow
-            // continuation links if present before applying UI pagination.
-            var allItems = await ReadAllResultPagesAsync(
-                    client,
-                    initialBody: submitBody,
-                    initialUrl: searchUrl,
-                    cancellationToken)
+            return await ReadRequestedPageAsync(client, submitBody, searchUrl, page, pageSize, cancellationToken)
                 .ConfigureAwait(false);
-
-            return ToPagedResult(allItems, page, pageSize);
         }
 
         var taskResult = JsonSerializer.Deserialize<LongOperationResponse>(submitBody, JsonOptions.Default)
             ?? throw new JsonException("Search submit response could not be deserialized.");
 
-        if (string.IsNullOrWhiteSpace(taskResult.OperationToken))
+        if (string.IsNullOrWhiteSpace(taskResult.OperationToken) &&
+            string.IsNullOrWhiteSpace(taskResult.TaskId) &&
+            string.IsNullOrWhiteSpace(taskResult.Token))
         {
             throw new LaserficheException(
                 $"Search for '{displayQuery}' returned neither an inline result collection nor an operation token. " +
@@ -171,7 +164,7 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
                 500);
         }
 
-        var token = taskResult.OperationToken;
+        var token = taskResult.OperationToken ?? taskResult.TaskId ?? taskResult.Token!;
         if (taskResult.Status?.Equals("Completed", StringComparison.OrdinalIgnoreCase) != true)
         {
             await WaitForSearchCompletionAsync(
@@ -220,8 +213,7 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
                     (int)statusResponse.StatusCode);
             }
 
-            var status = JsonSerializer.Deserialize<LongOperationResponse>(statusBody, JsonOptions.Default)
-                ?? throw new JsonException("Search status response could not be deserialized.");
+            var status = ParseOperationStatus(statusBody);
 
             if (status.Status?.Equals("Completed", StringComparison.OrdinalIgnoreCase) == true)
                 return;
@@ -248,28 +240,27 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         int pageSize,
         CancellationToken cancellationToken)
     {
-        var firstUrl = _adapter.BuildSearchResultsUrl(repositoryId, operationToken);
-        var allItems = await ReadAllResultPagesAsync(
-                client,
-                initialBody: null,
-                initialUrl: firstUrl,
-                cancellationToken)
+        var firstUrl = AddPagingQuery(
+            _adapter.BuildSearchResultsUrl(repositoryId, operationToken), page, pageSize);
+        return await ReadRequestedPageAsync(client, null, firstUrl, 1, pageSize, cancellationToken)
             .ConfigureAwait(false);
-
-        return ToPagedResult(allItems, page, pageSize);
     }
 
-    private async Task<IReadOnlyList<LFSearchResult>> ReadAllResultPagesAsync(
+    private async Task<PagedResult<LFSearchResult>> ReadRequestedPageAsync(
         HttpClient client,
         string? initialBody,
         string initialUrl,
+        int page,
+        int pageSize,
         CancellationToken cancellationToken)
     {
-        var all = new List<LFSearchResult>();
+        var skip = checked((page - 1) * pageSize);
+        var required = checked(skip + pageSize);
+        var received = new List<LFSearchResult>(Math.Min(required, 512));
         var visitedUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? nextUrl = initialUrl;
         string? body = initialBody;
-        var pageNumber = 0;
+        int? totalCount = null;
 
         while (!string.IsNullOrWhiteSpace(nextUrl))
         {
@@ -282,7 +273,6 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
                     500);
             }
 
-            pageNumber++;
             if (body is null)
             {
                 using var response = await client.GetAsync(nextUrl, cancellationToken).ConfigureAwait(false);
@@ -297,22 +287,35 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
             }
 
             var parsed = ParseResultPage(body);
-            all.AddRange(parsed.Items.Select(MapSearchResult));
+            received.AddRange(parsed.Items.Select(MapSearchResult));
+            totalCount ??= parsed.TotalCount;
             nextUrl = ResolveNextLink(nextUrl, parsed.NextLink);
             body = null;
 
             _logger.LogInformation(
-                "Search results page {Page}: {PageCount} item(s), running total={Total}, nextLink={HasNext}.",
-                pageNumber, parsed.Items.Count, all.Count, nextUrl is null ? "no" : "yes");
+                "Search result chunk: {PageCount} item(s), buffered={Buffered}, total={Total}, nextLink={HasNext}.",
+                parsed.Items.Count, received.Count, totalCount, nextUrl is null ? "no" : "yes");
+
+            if (received.Count >= required || nextUrl is null)
+                break;
         }
 
-        return all
+        var distinct = received
             .GroupBy(r => r.EntryId)
             .Select(g => g
                 .OrderByDescending(r => r.LastModifiedTime ?? r.CreationTime ?? DateTimeOffset.MinValue)
                 .First())
-            .ToList()
-            .AsReadOnly();
+            .ToList();
+
+        var items = distinct.Skip(skip).Take(pageSize).ToList().AsReadOnly();
+        var effectiveTotal = totalCount ?? (nextUrl is null ? distinct.Count : skip + items.Count + 1);
+        return new PagedResult<LFSearchResult>
+        {
+            Items = items,
+            TotalCount = Math.Max(effectiveTotal, skip + items.Count),
+            PageNumber = page,
+            PageSize = pageSize
+        };
     }
 
     private static ResultPage ParseResultPage(string body)
@@ -324,28 +327,32 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         if (body.StartsWith('['))
         {
             var items = JsonSerializer.Deserialize<List<SearchResultResource>>(body, JsonOptions.Default) ?? [];
-            return new ResultPage(items, null);
+            return new ResultPage(items, null, items.Count);
         }
 
         var result = JsonSerializer.Deserialize<ODataPagedList<SearchResultResource>>(body, JsonOptions.Default)
             ?? throw new JsonException("Search result response could not be deserialized.");
 
-        return new ResultPage(result.Value, result.NextLink ?? result.PlainNextLink);
+        return new ResultPage(result.Value, result.NextLink ?? result.PlainNextLink, result.TotalCount);
     }
 
-    private static PagedResult<LFSearchResult> ToPagedResult(
-        IReadOnlyList<LFSearchResult> allItems,
-        int page,
-        int pageSize)
+    private static LongOperationResponse ParseOperationStatus(string body)
     {
-        var skip = (page - 1) * pageSize;
-        return new PagedResult<LFSearchResult>
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        if (root.ValueKind == JsonValueKind.Object &&
+            TryGetPropertyIgnoreCase(root, "value", out var value) &&
+            value.ValueKind == JsonValueKind.Array)
         {
-            Items = allItems.Skip(skip).Take(pageSize).ToList().AsReadOnly(),
-            TotalCount = allItems.Count,
-            PageNumber = page,
-            PageSize = pageSize
-        };
+            var first = value.EnumerateArray().FirstOrDefault();
+            if (first.ValueKind == JsonValueKind.Undefined)
+                throw new JsonException("Search status response contained no task.");
+            return first.Deserialize<LongOperationResponse>(JsonOptions.Default)
+                ?? throw new JsonException("Search status task could not be deserialized.");
+        }
+
+        return root.Deserialize<LongOperationResponse>(JsonOptions.Default)
+            ?? throw new JsonException("Search status response could not be deserialized.");
     }
 
     private static LFSearchResult MapSearchResult(SearchResultResource r) => new()
@@ -355,6 +362,7 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         FullPath = r.FullPath,
         EntryType = ParseEntryType(r.EntryType ?? r.ODataType),
         TemplateName = r.TemplateName,
+        TemplateId = r.TemplateId,
         Creator = r.Creator,
         CreationTime = r.CreationTime,
         LastModifiedTime = r.LastModifiedTime
@@ -383,6 +391,13 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
             throw new ArgumentOutOfRangeException(nameof(page), "Page must be at least 1.");
         if (pageSize < 1)
             throw new ArgumentOutOfRangeException(nameof(pageSize), "Page size must be at least 1.");
+    }
+
+    private static string AddPagingQuery(string url, int page, int pageSize)
+    {
+        var skip = checked((page - 1) * pageSize);
+        var separator = url.Contains('?', StringComparison.Ordinal) ? '&' : '?';
+        return $"{url}{separator}$skip={skip}&$top={pageSize}&$count=true&$orderby=creationTime%20desc";
     }
 
     private static string EscapeSearchTerm(string term) =>
@@ -434,6 +449,12 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         [JsonPropertyName("operationToken")]
         public string? OperationToken { get; init; }
 
+        [JsonPropertyName("taskId")]
+        public string? TaskId { get; init; }
+
+        [JsonPropertyName("token")]
+        public string? Token { get; init; }
+
         [JsonPropertyName("status")]
         public string? Status { get; init; }
 
@@ -444,7 +465,7 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         public List<string> Errors { get; init; } = [];
     }
 
-    private sealed record ResultPage(List<SearchResultResource> Items, string? NextLink);
+    private sealed record ResultPage(List<SearchResultResource> Items, string? NextLink, int? TotalCount);
 
     private sealed record ODataPagedList<T>
     {
@@ -456,6 +477,9 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
 
         [JsonPropertyName("nextLink")]
         public string? PlainNextLink { get; init; }
+
+        [JsonPropertyName("@odata.count")]
+        public int? TotalCount { get; init; }
     }
 
     private sealed record SearchResultResource
@@ -477,6 +501,9 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
 
         [JsonPropertyName("templateName")]
         public string? TemplateName { get; init; }
+
+        [JsonPropertyName("templateId")]
+        public int? TemplateId { get; init; }
 
         [JsonPropertyName("creator")]
         public string? Creator { get; init; }
