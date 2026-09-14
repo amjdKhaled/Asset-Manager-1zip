@@ -25,8 +25,10 @@ public sealed class DashboardController : Controller
     }
 
     [HttpGet]
-    public async Task<IActionResult> Index(CancellationToken cancellationToken)
+    public async Task<IActionResult> Index(bool refresh, CancellationToken cancellationToken)
     {
+        if (refresh && _dashboardService is IDashboardCacheControl cacheControl)
+            await cacheControl.InvalidateAsync(cancellationToken);
         _logger.LogInformation("Dashboard: fetching statistics.");
         var stats = await _dashboardService.GetDashboardStatsAsync(cancellationToken);
         _logger.LogInformation(
