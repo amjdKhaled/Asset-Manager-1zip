@@ -1,1 +1,1 @@
-2bd1e7ffe2922d5eb16f634f7c3f1422b242efd2a6a514a69d28229815bfa588  LFDashboard-Setup.exe
+5789b97faa75671f23c27f73e64b9d327d011b6a1e006e05ccfb2894c49bb693  LFDashboard-Setup.exe
