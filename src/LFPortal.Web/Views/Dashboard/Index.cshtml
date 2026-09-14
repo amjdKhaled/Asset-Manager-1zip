@@ -303,7 +303,20 @@ footer.site-footer { background: #F7F8FD !important; }
 .template-percent-canvas { position:relative; flex:1 1 auto; min-width:0; height:28px; }
 .template-percent-canvas canvas { width:100% !important; height:28px !important; }
 .totalPercentText { min-width:48px; flex-shrink:0; font-size:11px; color:#64748B; font-variant-numeric:tabular-nums; white-space:nowrap; text-align:end; }
-.dashboard-drilldown { color:inherit; text-decoration:none; cursor:pointer; }
+.dashboard-drilldown { text-decoration:none; cursor:pointer; }
+.d-card.dashboard-drilldown { color:inherit; }
+a.folder-kpi-card,
+a.folder-kpi-card:visited,
+a.folder-kpi-card:hover,
+a.folder-kpi-card:focus,
+a.folder-kpi-card:active {
+    background:linear-gradient(135deg,#0878e8,#0b40a2);
+    color:#fff;
+    text-decoration:none;
+}
+a.folder-kpi-card .folder-kpi-icon,
+a.folder-kpi-card .folder-kpi-value { color:#fff; }
+a.folder-kpi-card .folder-kpi-label { color:rgba(255,255,255,.95); }
 .dashboard-drilldown-row { cursor:pointer; }
 .dashboard-drilldown-row:focus-visible { outline:2px solid var(--d-accent); outline-offset:-2px; }
 @@media(max-width:700px){.template-percent-cell{min-width:220px}.totalPercentText{min-width:42px}.template-percent-chart{gap:8px}}
