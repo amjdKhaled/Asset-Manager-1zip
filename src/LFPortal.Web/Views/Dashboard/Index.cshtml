@@ -332,7 +332,7 @@ a.folder-kpi-card .folder-kpi-label { color:rgba(255,255,255,.95); }
         <p class="d-sub">@L["Laserfiche Repository Live Statistics"]</p>
     </div>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <a href="@(externalShareReadOnly ? "/Share/Dashboard" : "/Dashboard")" style="display:inline-flex;align-items:center;gap:6px;background:#FFFFFF;border:1px solid var(--d-border);color:var(--d-text);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
+        <a href="@(externalShareReadOnly ? "/Share/Dashboard" : "/Dashboard?refresh=true")" style="display:inline-flex;align-items:center;gap:6px;background:#FFFFFF;border:1px solid var(--d-border);color:var(--d-text);padding:5px 13px;border-radius:8px;font-size:.8rem;text-decoration:none">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             @L["Refresh"]
         </a>
