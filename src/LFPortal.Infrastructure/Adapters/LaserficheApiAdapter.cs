@@ -64,15 +64,19 @@ public sealed class LaserficheApiAdapter : ILaserficheApiAdapter
         searchType switch
         {
             SearchType.Simple   => $"{RepoBase(repositoryId)}/SimpleSearches",
-            SearchType.Advanced => $"{RepoBase(repositoryId)}/Searches",
+            SearchType.Advanced => ApiVersion.Equals("v2", StringComparison.OrdinalIgnoreCase)
+                ? $"{RepoBase(repositoryId)}/Searches/SearchAsync"
+                : $"{RepoBase(repositoryId)}/Searches",
             _ => throw new ArgumentOutOfRangeException(nameof(searchType), searchType, "Unknown search type.")
         };
 
     public string BuildTaskStatusUrl(string repositoryId, string operationToken) =>
-        $"{RepoBase(repositoryId)}/Tasks/{Uri.EscapeDataString(operationToken)}";
+        ApiVersion.Equals("v2", StringComparison.OrdinalIgnoreCase)
+            ? $"{RepoBase(repositoryId)}/Tasks?taskIds={Uri.EscapeDataString(operationToken)}"
+            : $"{RepoBase(repositoryId)}/Searches/{Uri.EscapeDataString(operationToken)}";
 
     public string BuildSearchResultsUrl(string repositoryId, string operationToken) =>
-        $"{RepoBase(repositoryId)}/SearchResults/{Uri.EscapeDataString(operationToken)}";
+        $"{RepoBase(repositoryId)}/Searches/{Uri.EscapeDataString(operationToken)}/Results";
 
     public string BuildTokenUrlFor(string serverUrl, string repositoryId) =>
         $"{BuildApiBase(serverUrl)}/Repositories/{EncodeRepositoryId(repositoryId)}/Token";
