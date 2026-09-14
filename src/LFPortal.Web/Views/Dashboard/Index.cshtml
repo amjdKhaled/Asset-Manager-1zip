@@ -269,6 +269,9 @@ footer.site-footer { background: #F7F8FD !important; }
 .pagination-button:hover:not(:disabled):not(.active) { background: #89b6ff; color: #ffffff; }
 .pagination-button.active { background: #3b82f6; border-color: #3b82f6; color: #ffffff; cursor: default; }
 .pagination-button:disabled { opacity: 0.35; cursor: not-allowed; }
+.pagination-jump { display:flex; align-items:center; gap:5px; margin-inline-start:6px; color:var(--d-muted); font-size:12px; white-space:nowrap; }
+.pagination-jump input { width:50px; height:34px; padding:0 7px; border:1px solid #dbe2ef; border-radius:6px; background:#fff; color:var(--d-text); font:inherit; text-align:center; }
+.pagination-jump button { min-width:34px; padding:0 8px; }
 .folder-kpi-card {
     background: linear-gradient(135deg, #0878e8, #0b40a2);
     border-radius: 18px;
@@ -515,12 +518,12 @@ footer.site-footer { background: #F7F8FD !important; }
         else
         {
             var palette = new[]{"#F59E0B","#8B5CF6","#EF4444","#22C55E","#14B8A6","#3B82F6","#F97316","#06B6D4","#EC4899","#84CC16"};
-            <div style="display:flex;flex-direction:column;gap:10px">
+            <div id="listDocumentTypes" style="display:flex;flex-direction:column;gap:10px">
                 @for (var i = 0; i < s.TemplateStats.Count; i++)
                 {
                     var t = s.TemplateStats[i];
                     var color = palette[i % palette.Length];
-                    <div style="display:flex;align-items:flex-start;gap:10px">
+                    <div class="document-type-row" style="display:flex;align-items:flex-start;gap:10px">
                         <div style="width:11px;height:11px;border-radius:50%;background:@color;flex-shrink:0"></div>
                         <span style="flex:1;color:var(--d-text);font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@t.Name</span>
                         <span style="font-weight:700;color:var(--d-text);font-size:.82rem">@t.Count.ToString("N0")</span>
@@ -529,13 +532,14 @@ footer.site-footer { background: #F7F8FD !important; }
                 @if (s.DocsWithoutTemplate > 0)
                 {
                     var noTemplateColor = palette[s.TemplateStats.Count % palette.Length];
-                    <div style="display:flex;align-items:flex-start;gap:10px">
+                    <div class="document-type-row" style="display:flex;align-items:flex-start;gap:10px">
                         <div style="width:11px;height:11px;border-radius:50%;background:@noTemplateColor;flex-shrink:0"></div>
                         <span style="flex:1;color:var(--d-text);font-size:.82rem">@noTemplateLabel</span>
                         <span style="font-weight:700;color:var(--d-text);font-size:.82rem">@s.DocsWithoutTemplate.ToString("N0")</span>
                     </div>
                 }
             </div>
+            <div class="table-pagination" data-list="listDocumentTypes"></div>
         }
     </div>
 
@@ -811,13 +815,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.querySelectorAll(".table-pagination").forEach(function (pagination) {
         const tableId = pagination.dataset.table;
-        const table = document.getElementById(tableId);
-        if (!table) return;
+        const listId = pagination.dataset.list;
+        const table = tableId ? document.getElementById(tableId) : null;
+        const list = listId ? document.getElementById(listId) : null;
+        if (!table && !list) return;
 
-        const tbody = table.querySelector("tbody");
-        if (!tbody) return;
-
-        const rows = Array.from(tbody.querySelectorAll("tr"));
+        const rows = table
+            ? Array.from(table.querySelectorAll("tbody tr"))
+            : Array.from(list.querySelectorAll(".document-type-row"));
         if (rows.length === 0) {
             pagination.style.display = "none";
             return;
@@ -863,6 +868,39 @@ document.addEventListener("DOMContentLoaded", function () {
                 pagination.appendChild(createButton(page.toString(), page, false, page === currentPage));
             }
             pagination.appendChild(createButton("Next", currentPage + 1, currentPage === totalPages, false));
+
+            const jump = document.createElement("label");
+            jump.className = "pagination-jump";
+            jump.title = `Go to page 1–${totalPages}`;
+            jump.append("Page");
+
+            const input = document.createElement("input");
+            input.type = "number";
+            input.min = "1";
+            input.max = totalPages.toString();
+            input.step = "1";
+            input.value = currentPage.toString();
+            input.setAttribute("aria-label", `Go to page, from 1 to ${totalPages}`);
+
+            function goToEnteredPage() {
+                const page = Number.parseInt(input.value, 10);
+                if (Number.isInteger(page) && page >= 1 && page <= totalPages) {
+                    showPage(page);
+                } else {
+                    input.value = currentPage.toString();
+                    input.focus();
+                }
+            }
+
+            input.addEventListener("keydown", event => {
+                if (event.key === "Enter") goToEnteredPage();
+            });
+
+            const goButton = createButton("Go", currentPage, false, false);
+            goButton.classList.add("pagination-jump-go");
+            goButton.addEventListener("click", goToEnteredPage);
+            jump.append(input, goButton);
+            pagination.appendChild(jump);
         }
 
         showPage(1);
