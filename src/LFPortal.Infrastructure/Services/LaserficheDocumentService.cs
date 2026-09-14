@@ -419,7 +419,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
     {
         if (!Uri.TryCreate(exportUrl, UriKind.Absolute, out var source) ||
             !Uri.TryCreate(source, downloadLink, out var resolved) ||
-            resolved.Scheme is not (Uri.UriSchemeHttp or Uri.UriSchemeHttps) ||
+            (resolved.Scheme != Uri.UriSchemeHttp && resolved.Scheme != Uri.UriSchemeHttps) ||
             !string.Equals(source.Scheme, resolved.Scheme, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(source.Authority, resolved.Authority, StringComparison.OrdinalIgnoreCase))
         {
