@@ -792,7 +792,79 @@ if(folderEl){
                 y:{ticks:{color:TICK,precision:0,font:{size:12}},grid:{color:GRID},border:{display:false},beginAtZero:true}
             },
             onClick:(_, elements)=>{
-                if (elements.length) goToArchive(urls[elements[0].indconst tmplEl = document.getElementById("chartTemplates");
+                if (elements.length) goToArchive(urls[elements[0].index]);
+            },
+            onHover:(event, elements)=>{
+                if (event.native?.target) event.native.target.style.cursor = elements.length ? "pointer" : "default";
+            }
+        }
+    });
+}
+
+const templateLabels = @Html.Raw(JsonSerializer.Serialize(tmplLabels));
+const templateData   = @Html.Raw(JsonSerializer.Serialize(tmplData));
+const templateUrls   = @Html.Raw(JsonSerializer.Serialize(tmplUrls));
+const totalDocuments = @s.TotalDocuments;
+
+const isRtlPercent = document.documentElement.dir === "rtl";
+
+document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
+    const count = Number(templateData[index] ?? 0);
+    const percent = totalDocuments > 0 ? (count / totalDocuments) * 100 : 0;
+    const textElement = canvas.closest("td")?.querySelector(".totalPercentText");
+    if (textElement) textElement.textContent = `${percent.toFixed(1)}%`;
+
+    new Chart(canvas, {
+        type:"bar",
+        data:{
+            labels:[""],
+            datasets:[
+                {
+                    label:"100%",
+                    data:[100],
+                    backgroundColor:"#EEF2F2",
+                    borderWidth:0,
+                    borderRadius:999,
+                    borderSkipped:false,
+                    grouped:false,
+                    barThickness:8,
+                    order:2
+                },
+                {
+                    label:templateLabels[index],
+                    data:[percent],
+                    backgroundColor:"#0B66D4",
+                    borderWidth:0,
+                    borderRadius:999,
+                    borderSkipped:false,
+                    grouped:false,
+                    barThickness:8,
+                    order:1
+                }
+            ]
+        },
+        options:{
+            responsive:true,
+            maintainAspectRatio:false,
+            indexAxis:"y",
+            animation:{duration:400},
+            plugins:{
+                legend:{display:false},
+                tooltip:{
+                    ...TOOLTIP,
+                    filter:item=>item.datasetIndex===1,
+                    callbacks:{label:()=>`${percent.toFixed(1)}%`}
+                }
+            },
+            scales:{
+                x:{min:0,max:100,reverse:isRtlPercent,display:false,grid:{display:false},border:{display:false}},
+                y:{display:false,grid:{display:false},border:{display:false}}
+            }
+        }
+    });
+});
+
+const tmplEl = document.getElementById("chartTemplates");
 if(tmplEl){
     const templateCount = templateLabels.length;
     const doughnutRadius = templateCount > 35 ? "52%" : templateCount > 24 ? "60%" : templateCount > 14 ? "70%" : "82%";
@@ -861,69 +933,6 @@ if(tmplEl){
         window.addEventListener("resize",updateLegendArrows);
         requestAnimationFrame(updateLegendArrows);
     }
-}
-
-  responsive:true,
-            maintainAspectRatio:false,
-            indexAxis:"y",
-            animation:{duration:400},
-            plugins:{
-                legend:{display:false},
-                tooltip:{
-                    ...TOOLTIP,
-                    filter:item=>item.datasetIndex===1,
-                    callbacks:{label:()=>`${percent.toFixed(1)}%`}
-                }
-            },
-            scales:{
-                x:{min:0,max:100,reverse:isRtlPercent,display:false,grid:{display:false},border:{display:false}},
-                y:{display:false,grid:{display:false},border:{display:false}}
-            }
-        }
-    });
-});
-
-const tmplEl = document.getElementById("chartTemplates");
-if(tmplEl){
-    const templateCount = templateLabels.length;
-    const legendFontSize = templateCount > 35 ? 7 : templateCount > 24 ? 8 : templateCount > 14 ? 10 : 12;
-    const legendBoxSize = templateCount > 24 ? 7 : templateCount > 14 ? 9 : 11;
-    const legendPadding = templateCount > 35 ? 1 : templateCount > 24 ? 2 : templateCount > 14 ? 4 : 8;
-    const doughnutRadius = templateCount > 35 ? "52%" : templateCount > 24 ? "60%" : templateCount > 14 ? "70%" : "82%";
-    new Chart(tmplEl, {
-        type:"doughnut",
-        data:{labels:templateLabels,datasets:[{
-            data:templateData,
-            backgroundColor:templateLabels.map((_,i)=>PALETTE[i%PALETTE.length]),
-            radius:doughnutRadius,
-            borderWidth:0
-        }]},
-        options:{
-            responsive:true,
-            maintainAspectRatio:false,
-            plugins:{
-                legend:{
-                    position:"right",
-                    labels:{
-                        color:TICK,
-                        boxWidth:legendBoxSize,
-                        boxHeight:legendBoxSize,
-                        padding:legendPadding,
-                        font:{size:legendFontSize}
-                    },
-                    onClick:(_, item)=>goToArchive(templateUrls[item.index])
-                },
-                tooltip:{...TOOLTIP}
-            },
-            layout:{padding:{top:5,bottom:0}},
-            onClick:(_, elements)=>{
-                if (elements.length) goToArchive(templateUrls[elements[0].index]);
-            },
-            onHover:(event, elements)=>{
-                if (event.native?.target) event.native.target.style.cursor = elements.length ? "pointer" : "default";
-            }
-        }
-    });
 }
 
 const docActEl = document.getElementById("chartDocActivity");
