@@ -241,6 +241,68 @@ footer.site-footer { background: #F7F8FD !important; }
 .chart-h270 { height:270px; }
 .donut-wrap { display:flex;flex-direction:column;align-items:center; }
 .donut-wrap canvas { max-width:800px !important; max-height:250px !important; }
+.template-distribution-layout {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    align-items:center;
+    gap:10px;
+    height:100%;
+    direction:ltr;
+}
+.template-doughnut-canvas { position:relative;min-width:0;height:100%; }
+.template-doughnut-canvas canvas { width:100% !important;height:100% !important; }
+.template-legend-shell {
+    display:grid;
+    grid-template-rows:18px minmax(0,1fr) 18px;
+    min-width:0;
+    height:240px;
+    direction:inherit;
+}
+.template-legend-list {
+    min-height:0;
+    overflow-y:auto;
+    overscroll-behavior:contain;
+    scrollbar-width:none;
+}
+.template-legend-list::-webkit-scrollbar { display:none; }
+.template-legend-item {
+    display:flex;
+    align-items:center;
+    width:100%;
+    min-width:0;
+    gap:7px;
+    padding:3px 2px;
+    border:0;
+    background:transparent;
+    color:var(--d-text);
+    font:inherit;
+    font-size:12px;
+    line-height:18px;
+    text-align:start;
+    cursor:pointer;
+}
+.template-legend-item:focus-visible { outline:2px solid var(--d-accent);outline-offset:-2px; }
+.template-legend-color { width:11px;height:11px;flex:0 0 11px; }
+.template-legend-label { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.template-legend-scroll {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:100%;
+    height:18px;
+    padding:0;
+    border:0;
+    background:transparent;
+    color:var(--d-text);
+    font-size:12px;
+    line-height:1;
+    cursor:pointer;
+}
+.template-legend-scroll:disabled { visibility:hidden;cursor:default; }
+@@media(max-width:700px){
+    .template-distribution-layout{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px}
+    .template-legend-item{font-size:11px;gap:5px}
+}
 #chartDocActivity { direction:ltr !important; }
 @@media(max-width:900px){.d-grid-5{grid-template-columns:repeat(2,1fr)}.d-grid-2{grid-template-columns:1fr}}
 @@media(max-width:500px){.d-grid-5{grid-template-columns:1fr}}
@@ -419,7 +481,16 @@ a.folder-kpi-card .folder-kpi-label { color:rgba(255,255,255,.95); }
         }
         else
         {
-            <div class="chart-container chart-h280 donut-wrap"><canvas id="chartTemplates"></canvas></div>
+            <div class="chart-container chart-h280 donut-wrap">
+                <div class="template-distribution-layout">
+                    <div class="template-doughnut-canvas"><canvas id="chartTemplates"></canvas></div>
+                    <div class="template-legend-shell" id="templateLegendShell">
+                        <button type="button" class="template-legend-scroll" id="templateLegendUp" aria-label="Scroll template names up" title="Scroll up">▲</button>
+                        <div class="template-legend-list" id="templateLegendList" role="list"></div>
+                        <button type="button" class="template-legend-scroll" id="templateLegendDown" aria-label="Scroll template names down" title="Scroll down">▼</button>
+                    </div>
+                </div>
+            </div>
         }
     </div>
 </div>
@@ -796,9 +867,6 @@ document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
 const tmplEl = document.getElementById("chartTemplates");
 if(tmplEl){
     const templateCount = templateLabels.length;
-    const legendFontSize = templateCount > 35 ? 7 : templateCount > 24 ? 8 : templateCount > 14 ? 10 : 12;
-    const legendBoxSize = templateCount > 24 ? 7 : templateCount > 14 ? 9 : 11;
-    const legendPadding = templateCount > 35 ? 1 : templateCount > 24 ? 2 : templateCount > 14 ? 4 : 8;
     const doughnutRadius = templateCount > 35 ? "52%" : templateCount > 24 ? "60%" : templateCount > 14 ? "70%" : "82%";
     new Chart(tmplEl, {
         type:"doughnut",
@@ -812,17 +880,7 @@ if(tmplEl){
             responsive:true,
             maintainAspectRatio:false,
             plugins:{
-                legend:{
-                    position:"right",
-                    labels:{
-                        color:TICK,
-                        boxWidth:legendBoxSize,
-                        boxHeight:legendBoxSize,
-                        padding:legendPadding,
-                        font:{size:legendFontSize}
-                    },
-                    onClick:(_, item)=>goToArchive(templateUrls[item.index])
-                },
+                legend:{display:false},
                 tooltip:{...TOOLTIP}
             },
             layout:{padding:{top:5,bottom:0}},
@@ -834,6 +892,47 @@ if(tmplEl){
             }
         }
     });
+
+    const legendList = document.getElementById("templateLegendList");
+    const legendUp = document.getElementById("templateLegendUp");
+    const legendDown = document.getElementById("templateLegendDown");
+    if(legendList && legendUp && legendDown){
+        templateLabels.forEach((label,index)=>{
+            const item = document.createElement("button");
+            item.type = "button";
+            item.className = "template-legend-item";
+            item.setAttribute("role","listitem");
+            item.title = label;
+            item.addEventListener("click",()=>goToArchive(templateUrls[index]));
+
+            const color = document.createElement("span");
+            color.className = "template-legend-color";
+            color.style.backgroundColor = PALETTE[index%PALETTE.length];
+            color.setAttribute("aria-hidden","true");
+
+            const text = document.createElement("span");
+            text.className = "template-legend-label";
+            text.textContent = label;
+            item.append(color,text);
+            legendList.appendChild(item);
+        });
+
+        const updateLegendArrows = ()=>{
+            const maxScroll = Math.max(0,legendList.scrollHeight-legendList.clientHeight);
+            legendUp.disabled = legendList.scrollTop <= 1;
+            legendDown.disabled = legendList.scrollTop >= maxScroll-1;
+        };
+        const scrollLegend = direction=>{
+            const row = legendList.querySelector(".template-legend-item");
+            const step = Math.max(72,(row?.getBoundingClientRect().height||24)*3);
+            legendList.scrollBy({top:direction*step,behavior:"smooth"});
+        };
+        legendUp.addEventListener("click",()=>scrollLegend(-1));
+        legendDown.addEventListener("click",()=>scrollLegend(1));
+        legendList.addEventListener("scroll",updateLegendArrows,{passive:true});
+        window.addEventListener("resize",updateLegendArrows);
+        requestAnimationFrame(updateLegendArrows);
+    }
 }
 
 const docActEl = document.getElementById("chartDocActivity");
