@@ -17,6 +17,7 @@ public sealed class ArchiveController : Controller
     private readonly ILaserficheEntryService            _entryService;
     private readonly ILaserficheFieldDefinitionService  _fieldDefService;
     private readonly ILaserficheSearchService           _searchService;
+    private readonly ILaserficheDashboardService        _dashboardService;
     private readonly ILaserficheTemplateService         _templateService;
     private readonly IRepositoryContext                 _repositoryContext;
     private readonly ILaserficheDocumentService         _documentService;
@@ -27,6 +28,7 @@ public sealed class ArchiveController : Controller
         ILaserficheEntryService           entryService,
         ILaserficheFieldDefinitionService fieldDefService,
         ILaserficheSearchService          searchService,
+        ILaserficheDashboardService       dashboardService,
         ILaserficheTemplateService        templateService,
         IRepositoryContext                repositoryContext,
         ILaserficheDocumentService        documentService,
@@ -36,6 +38,7 @@ public sealed class ArchiveController : Controller
         _entryService    = entryService;
         _fieldDefService = fieldDefService;
         _searchService = searchService;
+        _dashboardService = dashboardService;
         _templateService = templateService;
         _repositoryContext = repositoryContext;
         _documentService = documentService;
@@ -59,33 +62,47 @@ public sealed class ArchiveController : Controller
     {
         if (!string.IsNullOrWhiteSpace(scope))
         {
-            page = Math.Max(1, page);
-            var rootEntryId = _adapter.GetConfiguredRootEntryId();
-            if (string.Equals(scope, "folders", StringComparison.OrdinalIgnoreCase) && rootEntryId <= 0)
-                rootEntryId = await _entryService.GetRootEntryIdAsync(cancellationToken).ConfigureAwait(false);
-            var query = LaserficheArchiveQuery.Build(
-                scope, template, folder, creator, date, activity, entryId, rootEntryId);
-            var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken).ConfigureAwait(false);
-
-            if (query.IsTemplateCatalog)
+            try
             {
-                var definitions = await _templateService.GetTemplateDefinitionsAsync(cancellationToken).ConfigureAwait(false);
-                var rows = definitions.Skip((page - 1) * 10).Take(10)
-                    .Select(item => new ArchiveTemplateResult { Id = item.Id, Name = item.Name, Description = item.Description })
-                    .ToList().AsReadOnly();
-                return View(BuildDrillDownModel(query, repo, rows, [], page, definitions.Count));
-            }
+                page = Math.Max(1, page);
+                var rootEntryId = _adapter.GetConfiguredRootEntryId();
+                if (string.Equals(scope, "folders", StringComparison.OrdinalIgnoreCase) && rootEntryId <= 0)
+                    rootEntryId = await _entryService.GetRootEntryIdAsync(cancellationToken).ConfigureAwait(false);
+                var query = LaserficheArchiveQuery.Build(
+                    scope, template, folder, creator, date, activity, entryId, rootEntryId);
+                var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken).ConfigureAwait(false);
 
-            if (query.OpenEntryId > 0)
+                if (query.IsTemplateCatalog)
+                {
+                    var definitions = await _templateService.GetTemplateDefinitionsAsync(cancellationToken).ConfigureAwait(false);
+                    var rows = definitions.Skip((page - 1) * 10).Take(10)
+                        .Select(item => new ArchiveTemplateResult { Id = item.Id, Name = item.Name, Description = item.Description })
+                        .ToList().AsReadOnly();
+                    return View(BuildDrillDownModel(query, repo, rows, [], page, definitions.Count));
+                }
+
+                if (query.OpenEntryId > 0)
+                {
+                    var entry = await _entryService.GetEntryAsync(query.OpenEntryId, cancellationToken).ConfigureAwait(false);
+                    return View(BuildDrillDownModel(query, repo, [], [entry], 1, 1));
+                }
+
+                var results = await _searchService.AdvancedSearchAsync(
+                    query.Expression, page, 10, cancellationToken).ConfigureAwait(false);
+                var entries = results.Items.Select(MapSearchEntry).ToList().AsReadOnly();
+                var stats = await _dashboardService.GetDashboardStatsAsync(cancellationToken).ConfigureAwait(false);
+                var expectedCount = ResolveDashboardCount(stats, scope, template, creator, date, activity, entryId);
+                return View(BuildDrillDownModel(
+                    query, repo, [], entries, page, Math.Max(results.TotalCount, expectedCount)));
+            }
+            catch (Exception ex)
             {
-                var entry = await _entryService.GetEntryAsync(query.OpenEntryId, cancellationToken).ConfigureAwait(false);
-                return View(BuildDrillDownModel(query, repo, [], [entry], 1, 1));
+                _logger.LogError(ex,
+                    "Archive dashboard drill-down failed. Scope={Scope}; Template={Template}; Page={Page}.",
+                    scope, template, page);
+                return View(ArchiveViewModel.Error(
+                    $"Could not load the requested Laserfiche results: {ex.Message}"));
             }
-
-            var results = await _searchService.AdvancedSearchAsync(
-                query.Expression, page, 10, cancellationToken).ConfigureAwait(false);
-            var entries = results.Items.Select(MapSearchEntry).ToList().AsReadOnly();
-            return View(BuildDrillDownModel(query, repo, [], entries, page, results.TotalCount));
         }
 
         // 1. Resolve root entry ID from configuration (fast path — no API call)
@@ -214,6 +231,45 @@ public sealed class ArchiveController : Controller
         CreationTime = item.CreationTime,
         LastModifiedTime = item.LastModifiedTime
     };
+
+    public static int ResolveDashboardCount(
+        DashboardStatsDto stats,
+        string scope,
+        string? template,
+        string? creator,
+        string? date,
+        string? activity,
+        int entryId)
+    {
+        if (!stats.IsConnected)
+            return 0;
+
+        return (scope ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "documents" => stats.TotalDocuments,
+            "folders" => stats.TotalFolders,
+            "with-template" => stats.DocsWithTemplate,
+            "without-template" => stats.DocsWithoutTemplate,
+            "template" => stats.TemplateStats.FirstOrDefault(item =>
+                string.Equals(item.Name, template?.Trim(), StringComparison.OrdinalIgnoreCase))?.Count ?? 0,
+            "root-folder" => stats.RootFolders.FirstOrDefault(item => item.EntryId == entryId)?.Documents ?? 0,
+            "creator" => stats.UserDocumentActivity.FirstOrDefault(item =>
+                string.Equals(item.Name, creator?.Trim(), StringComparison.OrdinalIgnoreCase))?.Created ?? 0,
+            "activity" => ResolveActivityCount(stats, date, activity),
+            "document" => entryId > 0 ? 1 : 0,
+            _ => 0
+        };
+    }
+
+    private static int ResolveActivityCount(DashboardStatsDto stats, string? date, string? activity)
+    {
+        if (!DateOnly.TryParseExact(date, "yyyy-MM-dd", out var day))
+            return 0;
+        var summary = stats.DocumentActivityByDay.FirstOrDefault(item => item.Date == day);
+        return string.Equals(activity, "modified", StringComparison.OrdinalIgnoreCase)
+            ? summary?.Modified ?? 0
+            : summary?.Created ?? 0;
+    }
 
     // GET /Archive/Detail?entryId=N
     // Returns a partial view loaded via fetch() for the document detail panel.
