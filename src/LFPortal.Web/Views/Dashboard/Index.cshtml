@@ -68,15 +68,10 @@
     var actEnd   = today;
     var actRangeLabel = isArabic ? "آخر 7 أيام" : "Last 7 days";
 
-    var createdByDay = s.AllDocs
-        .Where(d => d.CreationTime.HasValue)
-        .GroupBy(d => d.CreationTime!.Value.LocalDateTime.Date)
-        .ToDictionary(g => g.Key, g => g.Count());
-
-    var modifiedByDay = s.ModifiedDocs
-        .Where(d => d.LastModifiedTime.HasValue)
-        .GroupBy(d => d.LastModifiedTime!.Value.LocalDateTime.Date)
-        .ToDictionary(g => g.Key, g => g.Count());
+    var createdByDay = s.DocumentActivityByDay.ToDictionary(
+        item => item.Date.ToDateTime(TimeOnly.MinValue), item => item.Created);
+    var modifiedByDay = s.DocumentActivityByDay.ToDictionary(
+        item => item.Date.ToDateTime(TimeOnly.MinValue), item => item.Modified);
 
     var actLabels   = new List<string>();
     var actCreated  = new List<int>();
@@ -97,18 +92,12 @@
     var recentActivity = s.ModifiedDocs.ToList();
 
     // User activity is current-document ownership/activity derived from every scanned doc.
-    var userActivity = s.AllDocs
-        .Where(d => !string.IsNullOrWhiteSpace(d.Creator))
-        .GroupBy(d => d.Creator!)
-        .Select(g => new {
-            Name         = g.Key,
-            Created      = g.Count().ToString("N0"),
-            LastActivity = FmtAgo(
-                g.OrderByDescending(d => d.LastModifiedTime ?? d.CreationTime)
-                 .First().LastModifiedTime
-                ?? g.OrderByDescending(d => d.CreationTime).First().CreationTime)
+    var userActivity = s.UserDocumentActivity
+        .Select(item => new {
+            item.Name,
+            Created      = item.Created.ToString("N0"),
+            LastActivity = FmtAgo(item.LastActivity)
         })
-        .OrderByDescending(u => int.Parse(u.Created.Replace(",", "")))
         .ToList();
 
     var jsonOpts = new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
