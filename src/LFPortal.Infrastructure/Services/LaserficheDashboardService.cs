@@ -226,6 +226,32 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 .ToList()
                 .AsReadOnly();
 
+            var activityToday = DateTime.Today;
+            var documentActivity = Enumerable.Range(0, 7)
+                .Select(offset => activityToday.AddDays(offset - 6))
+                .Select(day => new DocumentActivityDayDto
+                {
+                    Date = DateOnly.FromDateTime(day),
+                    Created = allDocs.Count(entry => entry.CreationTime?.LocalDateTime.Date == day),
+                    Modified = allModifiedDocs.Count(entry => entry.LastModifiedTime?.LocalDateTime.Date == day)
+                })
+                .ToList()
+                .AsReadOnly();
+
+            var userDocumentActivity = allDocs
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.Creator))
+                .GroupBy(entry => entry.Creator!.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(group => new UserDocumentActivityDto
+                {
+                    Name = group.Key,
+                    Created = group.Count(),
+                    LastActivity = group.Max(entry => entry.LastModifiedTime ?? entry.CreationTime)
+                })
+                .OrderByDescending(item => item.Created)
+                .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+                .AsReadOnly();
+
             // ── 6. Portal search audit log ───────────────────────────────────
             var (activityByDay, topQueries, totalSearches) = await FetchAuditDataAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -276,6 +302,8 @@ internal sealed class LaserficheDashboardService : ILaserficheDashboardService
                 ModifiedDocs             = allModifiedDocs,
                 AllDocs                  = allDocs,
                 AllFolders               = allFolders,
+                DocumentActivityByDay    = documentActivity,
+                UserDocumentActivity     = userDocumentActivity,
                 SearchActivityByDay      = activityByDay,
                 TopSearchedQueries       = topQueries,
                 TotalSearches            = totalSearches,

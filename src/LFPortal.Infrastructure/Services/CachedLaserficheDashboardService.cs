@@ -82,7 +82,7 @@ internal sealed class CachedLaserficheDashboardService : ILaserficheDashboardSer
         return $"dashboard:v2:{repository.ServerUrl}:{repository.RepositoryId}:{auth}:{user}";
     }
 
-    private static DashboardStatsDto Compact(DashboardStatsDto source)
+    internal static DashboardStatsDto Compact(DashboardStatsDto source)
     {
         var recent = source.RecentDocs.Take(DashboardRowLimit).ToList().AsReadOnly();
         var modified = source.ModifiedDocs.Take(DashboardRowLimit).ToList().AsReadOnly();
