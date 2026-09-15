@@ -86,6 +86,42 @@ public sealed class ArchiveDrillDownTests
             LaserficheArchiveQuery.Build("without-template", null, null, null, null, null, 0, 1).Expression);
         Assert.Contains("Type=\"F\"", LaserficheArchiveQuery.Build(
             "folders", null, null, null, null, null, 0, 1).Expression);
+        Assert.Equal("{LF:TemplateName=\"General (2)\"}", LaserficheArchiveQuery.Build(
+            "template", "General (2)", null, null, null, null, 0, 1).Expression);
+    }
+
+    [Fact]
+    public void DashboardCounts_KeepArchivePagingAccurateWhenApiOmitsODataCount()
+    {
+        var stats = Stats() with
+        {
+            TotalDocuments = 1_234,
+            TotalFolders = 321,
+            DocsWithTemplate = 800,
+            DocsWithoutTemplate = 434,
+            UserDocumentActivity =
+            [
+                new UserDocumentActivityDto { Name = "ADMIN", Created = 700 }
+            ],
+            DocumentActivityByDay =
+            [
+                new DocumentActivityDayDto
+                {
+                    Date = new DateOnly(2026, 9, 14), Created = 25, Modified = 12
+                }
+            ]
+        };
+
+        Assert.Equal(1_234, ArchiveController.ResolveDashboardCount(
+            stats, "documents", null, null, null, null, 0));
+        Assert.Equal(321, ArchiveController.ResolveDashboardCount(
+            stats, "folders", null, null, null, null, 0));
+        Assert.Equal(1, ArchiveController.ResolveDashboardCount(
+            stats, "template", "Invoices", null, null, null, 0));
+        Assert.Equal(700, ArchiveController.ResolveDashboardCount(
+            stats, "creator", null, "admin", null, null, 0));
+        Assert.Equal(12, ArchiveController.ResolveDashboardCount(
+            stats, "activity", null, null, "2026-09-14", "modified", 0));
     }
 
     [Fact]
