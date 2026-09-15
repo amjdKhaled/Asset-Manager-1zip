@@ -420,7 +420,6 @@ a.folder-kpi-card .folder-kpi-label { color:rgba(255,255,255,.95); }
         else
         {
             <div class="chart-container chart-h280 donut-wrap"><canvas id="chartTemplates"></canvas></div>
-            <div id="templateChartPagination" class="table-pagination"></div>
         }
     </div>
 </div>
@@ -796,15 +795,17 @@ document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
 
 const tmplEl = document.getElementById("chartTemplates");
 if(tmplEl){
-    const pageSize = 10;
-    const totalPages = Math.ceil(templateLabels.length / pageSize);
-    let currentPage = 1;
-    let visibleUrls = [];
-    const chart = new Chart(tmplEl, {
+    const templateCount = templateLabels.length;
+    const legendFontSize = templateCount > 35 ? 7 : templateCount > 24 ? 8 : templateCount > 14 ? 10 : 12;
+    const legendBoxSize = templateCount > 24 ? 7 : templateCount > 14 ? 9 : 11;
+    const legendPadding = templateCount > 35 ? 1 : templateCount > 24 ? 2 : templateCount > 14 ? 4 : 8;
+    const doughnutRadius = templateCount > 35 ? "52%" : templateCount > 24 ? "60%" : templateCount > 14 ? "70%" : "82%";
+    new Chart(tmplEl, {
         type:"doughnut",
-        data:{labels:[],datasets:[{
-            data:[],
-            backgroundColor:[],
+        data:{labels:templateLabels,datasets:[{
+            data:templateData,
+            backgroundColor:templateLabels.map((_,i)=>PALETTE[i%PALETTE.length]),
+            radius:doughnutRadius,
             borderWidth:0
         }]},
         options:{
@@ -813,80 +814,26 @@ if(tmplEl){
             plugins:{
                 legend:{
                     position:"right",
-                    labels:{color:TICK,boxWidth:11,padding:8,font:{size:12}},
-                    onClick:(_, item)=>goToArchive(visibleUrls[item.index])
+                    labels:{
+                        color:TICK,
+                        boxWidth:legendBoxSize,
+                        boxHeight:legendBoxSize,
+                        padding:legendPadding,
+                        font:{size:legendFontSize}
+                    },
+                    onClick:(_, item)=>goToArchive(templateUrls[item.index])
                 },
                 tooltip:{...TOOLTIP}
             },
             layout:{padding:{top:5,bottom:0}},
             onClick:(_, elements)=>{
-                if (elements.length) goToArchive(visibleUrls[elements[0].index]);
+                if (elements.length) goToArchive(templateUrls[elements[0].index]);
             },
             onHover:(event, elements)=>{
                 if (event.native?.target) event.native.target.style.cursor = elements.length ? "pointer" : "default";
             }
         }
     });
-
-    const pagination = document.getElementById("templateChartPagination");
-    function button(text, page, disabled, active = false) {
-        const element = document.createElement("button");
-        element.type = "button";
-        element.textContent = text;
-        element.className = "pagination-button";
-        element.disabled = disabled;
-        if (active) element.classList.add("active");
-        if (!disabled && !active) element.addEventListener("click", () => showTemplatePage(page));
-        return element;
-    }
-    function showTemplatePage(page) {
-        currentPage = Math.min(Math.max(1, page), totalPages || 1);
-        const start = (currentPage - 1) * pageSize;
-        const labels = templateLabels.slice(start, start + pageSize);
-        chart.data.labels = labels;
-        chart.data.datasets[0].data = templateData.slice(start, start + pageSize);
-        chart.data.datasets[0].backgroundColor = labels.map((_, index) => PALETTE[(start + index) % PALETTE.length]);
-        visibleUrls = templateUrls.slice(start, start + pageSize);
-        chart.update();
-        renderTemplatePagination();
-    }
-    function renderTemplatePagination() {
-        pagination.innerHTML = "";
-        if (totalPages <= 1) {
-            pagination.style.display = "none";
-            return;
-        }
-        pagination.style.display = "flex";
-        pagination.appendChild(button("Previous", currentPage - 1, currentPage === 1));
-        const first = Math.floor((currentPage - 1) / 10) * 10 + 1;
-        const last = Math.min(first + 9, totalPages);
-        for (let page = first; page <= last; page++)
-            pagination.appendChild(button(page.toString(), page, false, page === currentPage));
-        pagination.appendChild(button("Next", currentPage + 1, currentPage === totalPages));
-
-        const jump = document.createElement("label");
-        jump.className = "pagination-jump";
-        jump.append("Page");
-        const input = document.createElement("input");
-        input.type = "number";
-        input.min = "1";
-        input.max = totalPages.toString();
-        input.value = currentPage.toString();
-        const go = () => {
-            const page = Number.parseInt(input.value, 10);
-            if (Number.isInteger(page) && page >= 1 && page <= totalPages) showTemplatePage(page);
-            else input.value = currentPage.toString();
-        };
-        input.addEventListener("keydown", event => { if (event.key === "Enter") go(); });
-        const goButton = document.createElement("button");
-        goButton.type = "button";
-        goButton.textContent = "Go";
-        goButton.className = "pagination-button pagination-jump-go";
-        goButton.addEventListener("click", go);
-        jump.append(input, goButton);
-        pagination.appendChild(jump);
-    }
-    showTemplatePage(1);
 }
 
 const docActEl = document.getElementById("chartDocActivity");
