@@ -258,7 +258,7 @@ public sealed record LaserficheArchiveQuery
                 "Documents counted in the no-template KPI", "{LF:Name=\"*\",Type=\"B\"}"),
             "template" => Create(normalized, $"Template: {(template ?? string.Empty).Trim()}",
                 "Documents counted for this template",
-                $"{{LF:Template=\"{Escape(template)}\"}}"),
+                $"{{LF:TemplateName=\"{Escape(template)}\"}}"),
             "root-folder" when entryId > 0 => Create(normalized,
                 $"Folder: {(folder ?? string.Empty).Trim()}", "Documents counted below this top-level folder",
                 $"{{LF:LookIn=\"{entryId}\",Subfolders=y}} & {documents}"),
