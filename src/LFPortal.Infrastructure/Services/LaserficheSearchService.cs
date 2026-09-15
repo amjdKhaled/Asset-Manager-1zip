@@ -242,6 +242,8 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
     {
         var firstUrl = AddPagingQuery(
             _adapter.BuildSearchResultsUrl(repositoryId, operationToken), page, pageSize);
+        client.DefaultRequestHeaders.Remove("Prefer");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Prefer", $"odata.maxpagesize={pageSize}");
         return await ReadRequestedPageAsync(client, null, firstUrl, 1, pageSize, cancellationToken)
             .ConfigureAwait(false);
     }
@@ -333,7 +335,10 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
         var result = JsonSerializer.Deserialize<ODataPagedList<SearchResultResource>>(body, JsonOptions.Default)
             ?? throw new JsonException("Search result response could not be deserialized.");
 
-        return new ResultPage(result.Value, result.NextLink ?? result.PlainNextLink, result.TotalCount);
+        return new ResultPage(
+            result.Value,
+            result.NextLink ?? result.PlainNextLink,
+            result.TotalCount ?? result.PlainCount ?? result.Count);
     }
 
     private static LongOperationResponse ParseOperationStatus(string body)
@@ -480,6 +485,12 @@ internal sealed class LaserficheSearchService : ILaserficheSearchService
 
         [JsonPropertyName("@odata.count")]
         public int? TotalCount { get; init; }
+
+        [JsonPropertyName("totalCount")]
+        public int? PlainCount { get; init; }
+
+        [JsonPropertyName("count")]
+        public int? Count { get; init; }
     }
 
     private sealed record SearchResultResource
