@@ -332,7 +332,10 @@ footer.site-footer { background: #F7F8FD !important; }
 .pagination-button.active { background: #3b82f6; border-color: #3b82f6; color: #ffffff; cursor: default; }
 .pagination-button:disabled { opacity: 0.35; cursor: not-allowed; }
 .pagination-jump { display:flex; align-items:center; gap:5px; margin-inline-start:6px; color:var(--d-muted); font-size:12px; white-space:nowrap; }
-.pagination-jump input { width:50px; height:34px; padding:0 7px; border:1px solid #dbe2ef; border-radius:6px; background:#fff; color:var(--d-text); font:inherit; text-align:center; }
+.pagination-jump input { width:50px; height:34px; padding:0 7px; border:1px solid #dbe2ef; border-radius:6px; background:#fff; color:var(--d-text); font:inherit; text-align:center; appearance:textfield; -moz-appearance:textfield; }
+.pagination-jump input::-webkit-outer-spin-button,
+.pagination-jump input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+.pagination-jump-total { font-variant-numeric:tabular-nums; }
 .pagination-jump button { min-width:34px; padding:0 8px; }
 .folder-kpi-card {
     background: linear-gradient(135deg, #0878e8, #0b40a2);
@@ -1042,8 +1045,12 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             pagination.style.display = "flex";
             pagination.appendChild(createButton("Previous", currentPage - 1, currentPage === 1, false));
-            const firstPage = Math.floor((currentPage - 1) / 10) * 10 + 1;
-            const lastPage = Math.min(firstPage + 9, totalPages);
+            const visiblePageCount = 10;
+            const maxFirstPage = Math.max(1, totalPages - visiblePageCount + 1);
+            const firstPage = Math.min(
+                Math.max(1, currentPage > 6 ? currentPage - 5 : 1),
+                maxFirstPage);
+            const lastPage = Math.min(firstPage + visiblePageCount - 1, totalPages);
             for (let page = firstPage; page <= lastPage; page++) {
                 pagination.appendChild(createButton(page.toString(), page, false, page === currentPage));
             }
@@ -1061,6 +1068,10 @@ document.addEventListener("DOMContentLoaded", function () {
             input.step = "1";
             input.value = currentPage.toString();
             input.setAttribute("aria-label", `Go to page, from 1 to ${totalPages}`);
+
+            const total = document.createElement("span");
+            total.className = "pagination-jump-total";
+            total.textContent = `of ${totalPages}`;
 
             function goToEnteredPage() {
                 const page = Number.parseInt(input.value, 10);
@@ -1081,7 +1092,7 @@ document.addEventListener("DOMContentLoaded", function () {
             goButton.textContent = "Go";
             goButton.className = "pagination-button pagination-jump-go";
             goButton.addEventListener("click", goToEnteredPage);
-            jump.append(input, goButton);
+            jump.append(input, total, goButton);
             pagination.appendChild(jump);
         }
 
