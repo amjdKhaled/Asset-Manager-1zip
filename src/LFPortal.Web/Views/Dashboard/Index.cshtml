@@ -359,13 +359,13 @@ a.folder-kpi-card .folder-kpi-label { color:rgba(255,255,255,.95); }
         <div class="d-kpi-val">@s.TotalDocuments.ToString("N0")</div>
         <div class="d-kpi-lbl">@L["TotalDocuments"]</div>
     </a>
-    <a class="d-card dashboard-drilldown" href="@Url.Action("Index", "Archive", new { scope = "templates" })" style="display:flex;flex-direction:column;gap:10px">
+    <div class="d-card" style="display:flex;flex-direction:column;gap:10px">
         <div class="d-kpi-icon" style="background:#EEF4FF">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         </div>
         <div class="d-kpi-val">@s.TotalTemplates.ToString("N0")</div>
         <div class="d-kpi-lbl">@L["TotalTemplates"]</div>
-    </a>
+    </div>
     <a class="d-card dashboard-drilldown" href="@Url.Action("Index", "Archive", new { scope = "with-template" })" style="display:flex;flex-direction:column;gap:10px">
         <div class="d-kpi-icon" style="background:#EEF4FF">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0878e8" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
@@ -420,6 +420,7 @@ a.folder-kpi-card .folder-kpi-label { color:rgba(255,255,255,.95); }
         else
         {
             <div class="chart-container chart-h280 donut-wrap"><canvas id="chartTemplates"></canvas></div>
+            <div id="templateChartPagination" class="table-pagination"></div>
         }
     </div>
 </div>
@@ -795,11 +796,15 @@ document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
 
 const tmplEl = document.getElementById("chartTemplates");
 if(tmplEl){
-    new Chart(tmplEl, {
+    const pageSize = 10;
+    const totalPages = Math.ceil(templateLabels.length / pageSize);
+    let currentPage = 1;
+    let visibleUrls = [];
+    const chart = new Chart(tmplEl, {
         type:"doughnut",
-        data:{labels:templateLabels,datasets:[{
-            data:templateData,
-            backgroundColor:templateLabels.map((_,i)=>PALETTE[i%PALETTE.length]),
+        data:{labels:[],datasets:[{
+            data:[],
+            backgroundColor:[],
             borderWidth:0
         }]},
         options:{
@@ -809,19 +814,79 @@ if(tmplEl){
                 legend:{
                     position:"right",
                     labels:{color:TICK,boxWidth:11,padding:8,font:{size:12}},
-                    onClick:(_, item)=>goToArchive(templateUrls[item.index])
+                    onClick:(_, item)=>goToArchive(visibleUrls[item.index])
                 },
                 tooltip:{...TOOLTIP}
             },
             layout:{padding:{top:5,bottom:0}},
             onClick:(_, elements)=>{
-                if (elements.length) goToArchive(templateUrls[elements[0].index]);
+                if (elements.length) goToArchive(visibleUrls[elements[0].index]);
             },
             onHover:(event, elements)=>{
                 if (event.native?.target) event.native.target.style.cursor = elements.length ? "pointer" : "default";
             }
         }
     });
+
+    const pagination = document.getElementById("templateChartPagination");
+    function button(text, page, disabled, active = false) {
+        const element = document.createElement("button");
+        element.type = "button";
+        element.textContent = text;
+        element.className = "pagination-button";
+        element.disabled = disabled;
+        if (active) element.classList.add("active");
+        if (!disabled && !active) element.addEventListener("click", () => showTemplatePage(page));
+        return element;
+    }
+    function showTemplatePage(page) {
+        currentPage = Math.min(Math.max(1, page), totalPages || 1);
+        const start = (currentPage - 1) * pageSize;
+        const labels = templateLabels.slice(start, start + pageSize);
+        chart.data.labels = labels;
+        chart.data.datasets[0].data = templateData.slice(start, start + pageSize);
+        chart.data.datasets[0].backgroundColor = labels.map((_, index) => PALETTE[(start + index) % PALETTE.length]);
+        visibleUrls = templateUrls.slice(start, start + pageSize);
+        chart.update();
+        renderTemplatePagination();
+    }
+    function renderTemplatePagination() {
+        pagination.innerHTML = "";
+        if (totalPages <= 1) {
+            pagination.style.display = "none";
+            return;
+        }
+        pagination.style.display = "flex";
+        pagination.appendChild(button("Previous", currentPage - 1, currentPage === 1));
+        const first = Math.floor((currentPage - 1) / 10) * 10 + 1;
+        const last = Math.min(first + 9, totalPages);
+        for (let page = first; page <= last; page++)
+            pagination.appendChild(button(page.toString(), page, false, page === currentPage));
+        pagination.appendChild(button("Next", currentPage + 1, currentPage === totalPages));
+
+        const jump = document.createElement("label");
+        jump.className = "pagination-jump";
+        jump.append("Page");
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "1";
+        input.max = totalPages.toString();
+        input.value = currentPage.toString();
+        const go = () => {
+            const page = Number.parseInt(input.value, 10);
+            if (Number.isInteger(page) && page >= 1 && page <= totalPages) showTemplatePage(page);
+            else input.value = currentPage.toString();
+        };
+        input.addEventListener("keydown", event => { if (event.key === "Enter") go(); });
+        const goButton = document.createElement("button");
+        goButton.type = "button";
+        goButton.textContent = "Go";
+        goButton.className = "pagination-button pagination-jump-go";
+        goButton.addEventListener("click", go);
+        jump.append(input, goButton);
+        pagination.appendChild(jump);
+    }
+    showTemplatePage(1);
 }
 
 const docActEl = document.getElementById("chartDocActivity");
