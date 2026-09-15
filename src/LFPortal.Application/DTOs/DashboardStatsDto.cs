@@ -64,6 +64,12 @@ public sealed record DashboardStatsDto
     /// <summary>All folders discovered below the repository root.</summary>
     public IReadOnlyList<LFEntry> AllFolders { get; init; } = [];
 
+    /// <summary>Compact exact document activity totals used after source entries are released.</summary>
+    public IReadOnlyList<DocumentActivityDayDto> DocumentActivityByDay { get; init; } = [];
+
+    /// <summary>Compact exact per-creator totals used after source entries are released.</summary>
+    public IReadOnlyList<UserDocumentActivityDto> UserDocumentActivity { get; init; } = [];
+
     // ── Portal search activity ─────────────────────────────────────────────
     /// <summary>Portal search counts for the last 7 days; not Laserfiche Audit Trail events.</summary>
     public IReadOnlyList<SearchActivityDayDto> SearchActivityByDay { get; init; } = [];
@@ -89,4 +95,18 @@ public sealed record DashboardStatsDto
     public IReadOnlyList<LFEntry> RecentDocuments { get; init; } = [];
     public IReadOnlyList<LFEntry> RecentlyIndexedDocuments { get; init; } = [];
     public IReadOnlyList<LFEntry> RecentEntries { get; init; } = [];
+}
+
+public sealed record DocumentActivityDayDto
+{
+    public DateOnly Date { get; init; }
+    public int Created { get; init; }
+    public int Modified { get; init; }
+}
+
+public sealed record UserDocumentActivityDto
+{
+    public string Name { get; init; } = string.Empty;
+    public int Created { get; init; }
+    public DateTimeOffset? LastActivity { get; init; }
 }
