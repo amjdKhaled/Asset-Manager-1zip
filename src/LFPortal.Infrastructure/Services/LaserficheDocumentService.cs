@@ -112,16 +112,27 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
 
         var url = _adapter.BuildEntryUrl(repo.RepositoryId, entryId, EntryResource.Edoc);
 
-        using var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
+        var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
 
+        // Keep the HttpClient alive for as long as ASP.NET is streaming the
+        // upstream response to the browser. Disposing it here truncates larger
+        // PDFs and images after the action has already returned.
         // Repository API V2 retrieves an electronic document through Simple Export.
         // The /Document/Edoc resource is used for mutation, while Export is the
         // documented browser-safe retrieval flow and returns a short-lived link.
         if (_adapter.ApiVersion.Equals("v2", StringComparison.OrdinalIgnoreCase))
         {
-            return await ExportElectronicDocumentAsync(
-                    client, repo.RepositoryId, entryId, cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                return await ExportElectronicDocumentAsync(
+                        client, repo.RepositoryId, entryId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                client.Dispose();
+                throw;
+            }
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -136,6 +147,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var statusCode = (int)response.StatusCode;
             response.Dispose();
+            client.Dispose();
             throw new LaserficheException(
                 $"Electronic document request failed for entry {entryId}: HTTP {statusCode}. Body: {body}",
                 statusCode);
@@ -161,11 +173,12 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 fileName,
                 extension,
                 response.Content.Headers.ContentLength,
-                response);
+                new ResponseClientOwner(response, client));
         }
         catch
         {
             response.Dispose();
+            client.Dispose();
             throw;
         }
     }
@@ -194,6 +207,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var statusCode = (int)response.StatusCode;
             response.Dispose();
+            client.Dispose();
             throw new LaserficheException(
                 $"Page image not available for entry {entryId} page {pageNumber}: " +
                 $"HTTP {statusCode}. Body: {body}",
@@ -213,9 +227,17 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
              directContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase)))
         {
             response.Dispose();
-            return await ExportPageAsPngAsync(
-                    client, repo.RepositoryId, entryId, pageNumber, cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                return await ExportPageAsPngAsync(
+                        client, repo.RepositoryId, entryId, pageNumber, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                client.Dispose();
+                throw;
+            }
         }
 
         try
@@ -235,11 +257,12 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 fileName: fileName,
                 extension: GetExtension(fileName, contentType),
                 contentLength: response.Content.Headers.ContentLength,
-                owner: response);
+                owner: new ResponseClientOwner(response, client));
         }
         catch
         {
             response.Dispose();
+            client.Dispose();
             throw;
         }
     }
@@ -317,7 +340,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 fileName,
                 ".png",
                 downloadResponse.Content.Headers.ContentLength,
-                downloadResponse);
+                new ResponseClientOwner(downloadResponse, client));
         }
         catch
         {
@@ -388,7 +411,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 fileName,
                 GetExtension(fileName, contentType),
                 downloadResponse.Content.Headers.ContentLength,
-                downloadResponse);
+                new ResponseClientOwner(downloadResponse, client));
         }
         catch
         {
@@ -511,6 +534,20 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
             ".tif" or ".tiff" => "image/tiff",
             _ => "application/octet-stream"
         };
+    }
+
+    private sealed class ResponseClientOwner(
+        HttpResponseMessage response,
+        HttpClient client) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            response.Dispose();
+            client.Dispose();
+        }
     }
 
     private sealed record PageList(List<PageResource> Items, string? NextLink);

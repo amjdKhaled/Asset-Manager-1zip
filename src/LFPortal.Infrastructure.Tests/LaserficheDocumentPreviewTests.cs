@@ -37,6 +37,32 @@ public sealed class LaserficheDocumentPreviewTests
     }
 
     [Fact]
+    public async Task ElectronicDocument_KeepsHttpClientAliveUntilReturnedStreamIsDisposed()
+    {
+        var export = Json("{\"value\":\"https://lf.test/download/document.pdf\"}");
+        var pdf = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent([0x25, 0x50, 0x44, 0x46])
+        };
+        pdf.Content.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
+
+        var factory = new ClientFactory(new QueueHandler(export, pdf));
+        var service = CreateService(factory);
+
+        var result = await service.StreamEdocAsync(42);
+
+        Assert.NotNull(factory.LastClient);
+        Assert.False(factory.LastClient.WasDisposed);
+
+        using var copy = new MemoryStream();
+        await result.Content.CopyToAsync(copy);
+        Assert.Equal([0x25, 0x50, 0x44, 0x46], copy.ToArray());
+
+        result.Dispose();
+        Assert.True(factory.LastClient.WasDisposed);
+    }
+
+    [Fact]
     public async Task TiffPage_IsExportedAsBrowserSafePngOnV2()
     {
         var tiff = new HttpResponseMessage(HttpStatusCode.OK)
@@ -82,7 +108,10 @@ public sealed class LaserficheDocumentPreviewTests
     public void ExportLinkParser_AcceptsSupportedResponses(string body) =>
         Assert.Equal("https://lf.test/file", LaserficheDocumentService.ParseExportDownloadLink(body));
 
-    private static LaserficheDocumentService CreateService(QueueHandler handler)
+    private static LaserficheDocumentService CreateService(QueueHandler handler) =>
+        CreateService(new ClientFactory(handler));
+
+    private static LaserficheDocumentService CreateService(ClientFactory factory)
     {
         var options = new LaserficheOptions
         {
@@ -90,7 +119,6 @@ public sealed class LaserficheDocumentPreviewTests
             ApiBasePath = "/LFRepositoryAPI",
             ApiVersion = "v2"
         };
-        var factory = new ClientFactory(handler);
         var adapter = new LaserficheApiAdapter(new StaticOptionsMonitor(options));
         return new LaserficheDocumentService(
             factory,
@@ -119,7 +147,22 @@ public sealed class LaserficheDocumentPreviewTests
 
     private sealed class ClientFactory(HttpMessageHandler handler) : IHttpClientFactory
     {
-        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+        public TrackingHttpClient? LastClient { get; private set; }
+
+        public HttpClient CreateClient(string name) =>
+            LastClient = new TrackingHttpClient(handler);
+    }
+
+    private sealed class TrackingHttpClient(HttpMessageHandler handler)
+        : HttpClient(handler, disposeHandler: false)
+    {
+        public bool WasDisposed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) WasDisposed = true;
+            base.Dispose(disposing);
+        }
     }
 
     private sealed class RepositoryContext : IRepositoryContext
