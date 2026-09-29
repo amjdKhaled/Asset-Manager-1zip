@@ -137,10 +137,12 @@ footer.site-footer { background: #0a1020 !important; }
 .arc-badge-other    { background:rgba(148,163,184,.1);  color:#94a3b8; border:1px solid rgba(148,163,184,.2); }
 
 /* Detail panel */
-.arc-layout { display:grid; grid-template-columns:1fr; gap:16px; }
-.arc-layout.with-detail { grid-template-columns:1fr 360px; }
+.arc-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; min-width:0; }
+.arc-layout > * { min-width:0; }
+.arc-layout.with-detail { grid-template-columns:minmax(0,1fr) minmax(0,360px); }
 .arc-detail { background:var(--a-surface); border:1px solid var(--a-border); border-radius:12px;
-               padding:18px; align-self:start; position:sticky; top:20px; }
+               padding:18px; align-self:start; position:sticky; top:20px; min-width:0; max-width:100%;
+               overflow:hidden; box-sizing:border-box; }
 .arc-detail-title { color:var(--a-text); font-size:.9rem; font-weight:600; margin-bottom:14px;
                      padding-bottom:10px; border-bottom:1px solid var(--a-border);
                      display:flex; align-items:center; justify-content:space-between; }
