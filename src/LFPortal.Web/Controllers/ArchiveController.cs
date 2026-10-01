@@ -220,7 +220,14 @@ public sealed class ArchiveController : Controller
     {
         var server = new Uri(serverUrl, UriKind.Absolute);
         var origin = server.GetLeftPart(UriPartial.Authority).TrimEnd('/');
-        return $"{origin}/Laserfiche/Browse.aspx?db={Uri.EscapeDataString(repositoryId)}#";
+        return $"{origin}/Laserfiche/index.aspx?db={Uri.EscapeDataString(repositoryId)}#";
+    }
+
+    public async Task<IActionResult> OpenInLaserfiche(int entryId, CancellationToken cancellationToken = default)
+    {
+        if (entryId <= 0) return BadRequest();
+        var repository = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+        return Redirect($"{BuildWebClientBaseUrl(repository.ServerUrl, repository.RepositoryId)}id={entryId};view=pages");
     }
 
     private static LFEntry MapSearchEntry(LFSearchResult item) => new()

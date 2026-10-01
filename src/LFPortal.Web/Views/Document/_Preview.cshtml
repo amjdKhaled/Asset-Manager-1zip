@@ -9,7 +9,7 @@ else if (Model.Entry is {} entry && Model.IsInlineElectronicDocument)
 {
     if (Model.ElectronicDocumentContentType == "application/pdf")
     {
-        <iframe src="@Url.Action("Content", "Document", new { entryId = entry.Id })#toolbar=0&view=FitH" title="معاينة @entry.Name"
+        <iframe hidden data-preview-source="@Url.Action("Content", "Document", new { entryId = entry.Id })" title="معاينة @entry.Name"
                 style="width:100%;height:320px;border:0"></iframe>
     }
     else

@@ -313,12 +313,6 @@ public sealed class DocumentController : Controller
         contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) &&
         contentType is not "image/svg+xml" and not "image/tiff";
 
-    private static IReadOnlyList<LFDocumentPage> BuildPageFallback(int pageCount) =>
-        Enumerable.Range(1, pageCount)
-            .Select(number => new LFDocumentPage { PageNumber = number })
-            .ToList()
-            .AsReadOnly();
-
     private IActionResult ProxyError(Exception exception, string operation)
     {
         if (exception is LaserficheException lf &&
