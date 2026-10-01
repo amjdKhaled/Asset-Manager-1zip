@@ -58,6 +58,7 @@ jobs:
             Release/LFDashboard-Setup.exe
             Release/README.txt
             Release/SHA256SUMS.txt
+            Release/build-info.json
           if-no-files-found: error
           retention-days: 14
 
@@ -67,7 +68,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Release/LFDashboard-Setup.exe Release/README.txt Release/SHA256SUMS.txt
+          git add Release/LFDashboard-Setup.exe Release/README.txt Release/SHA256SUMS.txt Release/build-info.json
           $releaseChanges = git status --porcelain -- Release/
           if ($releaseChanges) {
             git commit -m "chore(release): publish Windows installer [skip ci]"

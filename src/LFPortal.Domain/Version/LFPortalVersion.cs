@@ -14,7 +14,7 @@ public static class LFPortalVersion
     public const int Minor = 0;
 
     /// <summary>Patch version. Increment for bug fixes.</summary>
-    public const int Patch = 0;
+    public const int Patch = 4;
 
     /// <summary>Full semantic version string, e.g. <c>1.0.0</c>.</summary>
     public static string Full => $"{Major}.{Minor}.{Patch}";
