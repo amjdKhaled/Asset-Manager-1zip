@@ -377,7 +377,7 @@ else {
 
 Write-Step "Checking Browse.aspx for existing Dashboard script tag..."
 
-$existingTags = Select-String -Path $BrowseAspx -Pattern "lf-dashboard-button\.js" -AllMatches
+$existingTags = @(Select-String -Path $BrowseAspx -Pattern "lf-dashboard-button\.js" -AllMatches)
 if ($existingTags.Count -gt 0) {
     Write-OK "Dashboard script tag already present ($($existingTags.Count) occurrence(s)).  Nothing to change."
 }
@@ -428,7 +428,7 @@ else {
 Write-Step "Verifying result..."
 
 $verifyScript = Test-Path $ButtonScriptDest
-$verifyTag    = (Select-String -Path $BrowseAspx -Pattern "lf-dashboard-button\.js").Count
+$verifyTag    = @(Select-String -Path $BrowseAspx -Pattern "lf-dashboard-button\.js").Count
 $verifyDupe   = $verifyTag -le 1
 
 if ($verifyScript -and $verifyTag -ge 1 -and $verifyDupe) {
