@@ -1,6 +1,9 @@
+@inject LFPortal.Application.Interfaces.IRepositoryContext RepositoryContext
 @model LFPortal.Web.Controllers.DocumentViewModel
 @using System.Text.Json
+@using Microsoft.AspNetCore.Http
 @{
+    var webClientRepository = Model.Entry is null ? null : await RepositoryContext.GetActiveRepositoryAsync();
     ViewData["Title"] = Model.Entry?.Name ?? L["ViewDocument"].Value;
     var ar = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ar";
     string T(string arabic, string english) => ar ? arabic : english;
@@ -67,7 +70,7 @@ else if (Model.Entry is {} entry)
                 <a class="dv-btn dv-btn-primary" asp-action="Download" asp-route-entryId="@entry.Id">@L["DownloadOriginal"]</a>
             }
             <a class="dv-btn" asp-controller="Archive" asp-action="OpenInLaserfiche" asp-route-entryId="@entry.Id"
-               target="_blank" rel="noopener">@T("فتح في Laserfiche", "Open in Laserfiche") ↗</a>
+               data-laserfiche-url="@(LFPortal.Web.Controllers.LaserficheWebClientLinks.EntrySearch(webClientRepository!.ServerUrl, webClientRepository.RepositoryId, entry.Id, Context.Session.GetString(LFPortal.Web.Controllers.LaserficheWebClientLinks.OriginSessionKey)))" target="_blank" rel="noopener">@T("فتح في Laserfiche", "Open in Laserfiche") ↗</a>
             <a class="dv-btn" href="@Model.ReturnUrl">@T("إغلاق", "Close")</a>
         </div>
     </header>

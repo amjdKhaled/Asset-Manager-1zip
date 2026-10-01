@@ -4,6 +4,7 @@ on:
     paths:
       - 'src/**'
       - 'scripts/test-document-preview.mjs'
+      - 'scripts/test-webclient-return.mjs'
       - '.github/workflows/archive-preview-tests.yml'
   workflow_dispatch:
 permissions:
@@ -22,5 +23,7 @@ jobs:
         run: dotnet test src/LFPortal.Infrastructure.Tests/LFPortal.Infrastructure.Tests.csproj --configuration Release
       - name: Test PDF preview error states
         run: node scripts/test-document-preview.mjs
+      - name: Test return searches in the existing Web Client session
+        run: node scripts/test-webclient-return.mjs
       - name: Test archive drilldowns
         run: dotnet test src/LFPortal.Web.Tests/LFPortal.Web.Tests.csproj --configuration Release

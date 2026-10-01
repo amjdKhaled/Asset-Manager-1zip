@@ -363,7 +363,7 @@ footer.site-footer { background: #F7F8FD !important; }
                                             @if (!string.IsNullOrWhiteSpace(Model.LaserficheWebClientEntryUrlPrefix))
                                             {
                                                 <a href="@Url.Action("OpenInLaserfiche", "Archive", new { entryId = entry.Id })"
-                                                   class="arc-laserfiche-link" target="_blank" rel="noopener" title="Open in Laserfiche">فتح في Laserfiche ↗</a>
+                                                   data-laserfiche-url="@(Model.LaserficheWebClientEntryUrlPrefix[..^3] + "search=" + Uri.EscapeDataString($"{{LF:ID={entry.Id}}}") + ";view=search")" class="arc-laserfiche-link" target="_blank" rel="noopener" title="Open in Laserfiche">فتح في Laserfiche ↗</a>
                                             }
                                         }
                                         else
@@ -375,7 +375,7 @@ footer.site-footer { background: #F7F8FD !important; }
                                             @if (!string.IsNullOrWhiteSpace(Model.LaserficheWebClientEntryUrlPrefix))
                                             {
                                                 <a href="@Url.Action("OpenInLaserfiche", "Archive", new { entryId = entry.Id })"
-                                                   class="arc-laserfiche-link" target="_blank" rel="noopener" title="Open in Laserfiche">فتح في Laserfiche ↗</a>
+                                                   data-laserfiche-url="@(Model.LaserficheWebClientEntryUrlPrefix[..^3] + "search=" + Uri.EscapeDataString($"{{LF:ID={entry.Id}}}") + ";view=search")" class="arc-laserfiche-link" target="_blank" rel="noopener" title="Open in Laserfiche">فتح في Laserfiche ↗</a>
                                             }
                                         }
                                     </div>
