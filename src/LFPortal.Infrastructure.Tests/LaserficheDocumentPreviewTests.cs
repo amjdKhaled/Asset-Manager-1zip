@@ -9,6 +9,7 @@ using LFPortal.Infrastructure.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
+using ImageMagick;
 
 namespace LFPortal.Infrastructure.Tests;
 
@@ -108,16 +109,86 @@ public sealed class LaserficheDocumentPreviewTests
     public void ExportLinkParser_AcceptsSupportedResponses(string body) =>
         Assert.Equal("https://lf.test/file", LaserficheDocumentService.ParseExportDownloadLink(body));
 
-    private static LaserficheDocumentService CreateService(QueueHandler handler) =>
-        CreateService(new ClientFactory(handler));
+    [Fact]
+    public async Task V1Edoc_UsesConfirmedRouteAndAcceptAndRetainsEveryByte()
+    {
+        var bytes = Encoding.ASCII.GetBytes("%PDF-1.7\nA complete document body with more than sixteen bytes.");
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) };
+        response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        var handler = new QueueHandler(response);
+        using var result = await CreateService(handler, "v1").StreamEdocAsync(619);
+        Assert.Equal("https://lf.test/LFRepositoryAPI/v1/Repositories/test/Entries/619/Laserfiche.Repository.Document/edoc", handler.Requests[0].Url);
+        Assert.Equal("application/octet-stream", handler.Requests[0].Accept);
+        Assert.Equal("application/pdf", result.ContentType);
+        using var copy = new MemoryStream();
+        await result.Content.CopyToAsync(copy);
+        Assert.Equal(bytes, copy.ToArray());
+    }
 
-    private static LaserficheDocumentService CreateService(ClientFactory factory)
+    [Fact]
+    public async Task V1TiffPage_IsConvertedLocallyToRealPng()
+    {
+        using var original = new MagickImage(MagickColors.White, 8, 12);
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(original.ToByteArray(MagickFormat.Tiff))
+        };
+        response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        var handler = new QueueHandler(response);
+        using var result = await CreateService(handler, "v1").GetPageImageAsync(42, 3);
+        Assert.Single(handler.Requests);
+        Assert.EndsWith("/Entries/42/pages/3/image", handler.Requests[0].Url);
+        Assert.Equal("image/png", result.ContentType);
+        using var rendered = new MagickImage(result.Content);
+        Assert.Equal(MagickFormat.Png, rendered.Format);
+        Assert.Equal(8u, rendered.Width);
+        Assert.Equal(12u, rendered.Height);
+    }
+
+    [Fact]
+    public async Task EdocTiff_DownloadRemainsOriginalTiff()
+    {
+        using var original = new MagickImage(MagickColors.White, 8, 12);
+        var bytes = original.ToByteArray(MagickFormat.Tiff);
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) };
+        var handler = new QueueHandler(response);
+        using var result = await CreateService(handler, "v1").StreamEdocAsync(619);
+        Assert.Equal("image/tiff", result.ContentType);
+        using var copy = new MemoryStream();
+        await result.Content.CopyToAsync(copy);
+        Assert.Equal(bytes, copy.ToArray());
+    }
+
+    [Fact]
+    public async Task Inspect_NonSeekableShortReadsRetainEveryByte()
+    {
+        var bytes = Encoding.ASCII.GetBytes("%PDF-1.7 document body");
+        using var source = new OneByteStream(bytes);
+        var inspected = await BrowserPreviewContent.InspectAsync(source, "application/octet-stream", default);
+        using var content = inspected.Content;
+        using var copy = new MemoryStream();
+        await content.CopyToAsync(copy);
+        Assert.Equal("application/pdf", inspected.ContentType);
+        Assert.Equal(bytes, copy.ToArray());
+    }
+
+    private sealed class OneByteStream(byte[] bytes) : MemoryStream(bytes)
+    {
+        public override bool CanSeek => false;
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            base.ReadAsync(buffer[..Math.Min(buffer.Length, 1)], cancellationToken);
+    }
+
+    private static LaserficheDocumentService CreateService(QueueHandler handler, string version = "v2") =>
+        CreateService(new ClientFactory(handler), version);
+
+    private static LaserficheDocumentService CreateService(ClientFactory factory, string version = "v2")
     {
         var options = new LaserficheOptions
         {
             ServerUrl = "https://lf.test",
             ApiBasePath = "/LFRepositoryAPI",
-            ApiVersion = "v2"
+            ApiVersion = version
         };
         var adapter = new LaserficheApiAdapter(new StaticOptionsMonitor(options));
         return new LaserficheDocumentService(
@@ -136,11 +207,11 @@ public sealed class LaserficheDocumentPreviewTests
     private sealed class QueueHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
     {
         private readonly Queue<HttpResponseMessage> _responses = new(responses);
-        public List<(HttpMethod Method, string Url)> Requests { get; } = [];
+        public List<(HttpMethod Method, string Url, string Accept)> Requests { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            Requests.Add((request.Method, request.RequestUri!.AbsoluteUri));
+            Requests.Add((request.Method, request.RequestUri!.AbsoluteUri, request.Headers.Accept.ToString()));
             return Task.FromResult(_responses.Dequeue());
         }
     }

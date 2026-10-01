@@ -397,91 +397,12 @@ public sealed class ArchiveController : Controller
                 $"Field names may be incomplete — field definitions could not be loaded: {fieldDefsError}";
         }
 
-        var preview = await LoadPreviewAsync(entry, cancellationToken).ConfigureAwait(false);
-
         return PartialView("_EntryDetail", new ArchiveDetailViewModel
         {
-            Entry       = entry,
-            Fields      = resolvedFields,
-            FieldsError = combinedFieldsError,
-            HasElectronicDocument = preview.HasElectronicDocument,
-            ElectronicDocumentContentType = preview.ContentType,
-            ElectronicDocumentExtension = preview.Extension,
-            Pages = preview.Pages,
-            PreviewError = preview.Error
+            Entry = entry,
+            Fields = resolvedFields,
+            FieldsError = combinedFieldsError
         });
-    }
-
-    private async Task<ArchivePreviewResult> LoadPreviewAsync(
-        LFEntry entry,
-        CancellationToken cancellationToken)
-    {
-        if (entry.EntryType != LFEntryType.Document)
-            return new ArchivePreviewResult();
-
-        try
-        {
-            using var edoc = await _documentService
-                .StreamEdocAsync(entry.Id, cancellationToken)
-                .ConfigureAwait(false);
-
-            return new ArchivePreviewResult
-            {
-                HasElectronicDocument = true,
-                ContentType = edoc.ContentType,
-                Extension = edoc.Extension
-            };
-        }
-        catch (LFPortal.Domain.Exceptions.LaserficheException ex)
-            when (ex.StatusCode == (int)HttpStatusCode.NotFound)
-        {
-            // A valid Laserfiche document may have image pages but no electronic file.
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Archive preview: electronic document check failed for entry {EntryId}.", entry.Id);
-        }
-
-        try
-        {
-            var pages = await _documentService
-                .GetDocumentPagesAsync(entry.Id, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (pages.Count == 0 && entry.PageCount is > 0)
-                pages = BuildPageFallback(entry.PageCount.Value);
-
-            return new ArchivePreviewResult { Pages = pages };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Archive preview: page list failed for entry {EntryId}.", entry.Id);
-
-            if (entry.PageCount is > 0)
-                return new ArchivePreviewResult { Pages = BuildPageFallback(entry.PageCount.Value) };
-
-            return new ArchivePreviewResult
-            {
-                Error = "Document preview is not available from Laserfiche at this time."
-            };
-        }
-    }
-
-    private static IReadOnlyList<LFDocumentPage> BuildPageFallback(int pageCount) =>
-        Enumerable.Range(1, pageCount)
-            .Select(number => new LFDocumentPage { PageNumber = number })
-            .ToList()
-            .AsReadOnly();
-
-    private sealed record ArchivePreviewResult
-    {
-        public bool HasElectronicDocument { get; init; }
-        public string? ContentType { get; init; }
-        public string? Extension { get; init; }
-        public IReadOnlyList<LFDocumentPage> Pages { get; init; } = [];
-        public string? Error { get; init; }
     }
 
     // ── Breadcrumb parser ─────────────────────────────────────────────────────

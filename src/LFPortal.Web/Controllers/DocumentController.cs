@@ -3,6 +3,7 @@ using LFPortal.Application.DTOs;
 using LFPortal.Application.Interfaces;
 using LFPortal.Domain.Entities;
 using LFPortal.Domain.Exceptions;
+using LFPortal.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LFPortal.Web.Controllers;
@@ -33,6 +34,7 @@ public sealed class DocumentController : Controller
     // GET /Document/View/{entryId}
     public async Task<IActionResult> View(
         int entryId,
+        string? returnUrl = null,
         CancellationToken cancellationToken = default)
     {
         if (entryId <= 0)
@@ -70,6 +72,7 @@ public sealed class DocumentController : Controller
 
         var model = new DocumentViewModel
         {
+            ReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl! : Url.Action("Index", "Archive")!,
             Entry = entry,
             Fields = fields.Values,
             FieldsError = fields.Error,
@@ -158,6 +161,8 @@ public sealed class DocumentController : Controller
         try
         {
             edoc = await _documentService.StreamEdocAsync(entryId, cancellationToken).ConfigureAwait(false);
+            if (edoc.ContentType == "image/tiff")
+                edoc = await BrowserPreviewContent.ConvertTiffAsync(edoc, cancellationToken).ConfigureAwait(false);
             if (!IsInlineType(edoc.ContentType))
             {
                 edoc.Dispose();
@@ -182,6 +187,7 @@ public sealed class DocumentController : Controller
     }
 
     // GET /Document/PageImage/{entryId}/{pageNumber}
+    [HttpGet("Document/PageImage/{entryId:int}/{pageNumber:int}")]
     public async Task<IActionResult> PageImage(
         int entryId,
         int pageNumber,

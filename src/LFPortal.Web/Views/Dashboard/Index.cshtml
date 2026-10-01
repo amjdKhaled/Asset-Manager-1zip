@@ -1045,10 +1045,10 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             pagination.style.display = "flex";
             pagination.appendChild(createButton("Previous", currentPage - 1, currentPage === 1, false));
-            const visiblePageCount = 10;
+            const visiblePageCount = 5;
             const maxFirstPage = Math.max(1, totalPages - visiblePageCount + 1);
             const firstPage = Math.min(
-                Math.max(1, currentPage > 6 ? currentPage - 5 : 1),
+                Math.max(1, currentPage - 2),
                 maxFirstPage);
             const lastPage = Math.min(firstPage + visiblePageCount - 1, totalPages);
             for (let page = firstPage; page <= lastPage; page++) {

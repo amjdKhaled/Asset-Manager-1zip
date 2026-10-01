@@ -44,24 +44,24 @@
             new KeyValuePair<string, string?>(pair.Key, pair.Value))).ToUriComponent();
     }
 
-    var pageWindowStart = Model.TotalPages > 0 ? ((Model.PageNumber - 1) / 10) * 10 + 1 : 1;
-    var pageWindowEnd = Math.Min(pageWindowStart + 9, Model.TotalPages);
+    var pageWindowStart = Math.Min(Math.Max(1, Model.PageNumber - 2), Math.Max(1, Model.TotalPages - 4));
+    var pageWindowEnd = Math.Min(pageWindowStart + 4, Model.TotalPages);
 }
 
 @section Styles {
 <style>
-/* ── Archive page — dark theme matching dashboard ── */
-body   { background: #0f172a !important; }
+/* Archive identity follows the dashboard palette. */
+body   { background: #F7F8FD !important; }
 main   { max-width: 1440px !important; padding: 18px 22px !important; }
-footer.site-footer { background: #0a1020 !important; }
+footer.site-footer { background: #F7F8FD !important; }
 
 :root {
-    --a-bg:      #0f172a;
-    --a-surface: #1e293b;
-    --a-surf2:   #263349;
-    --a-border:  #334155;
-    --a-text:    #f1f5f9;
-    --a-muted:   #94a3b8;
+    --a-bg:      #F7F8FD;
+    --a-surface: #FFFFFF;
+    --a-surf2:   #f1f5fb;
+    --a-border:  #e1e5ed;
+    --a-text:    #17233b;
+    --a-muted:   #596b86;
     --a-accent:  #3b82f6;
     --a-teal:    #14b8a6;
     --a-green:   #22c55e;
@@ -104,7 +104,7 @@ footer.site-footer { background: #0a1020 !important; }
 
 /* Main card */
 .arc-card   { background:var(--a-surface); border:1px solid var(--a-border); border-radius:12px;
-               box-shadow:0 1px 3px rgba(0,0,0,.4); overflow:hidden; }
+               box-shadow:0 1px 3px rgba(15,23,42,.08); overflow:hidden; }
 
 /* Table */
 .arc-tbl    { width:100%; border-collapse:collapse; font-size:.8rem; }
@@ -114,16 +114,16 @@ footer.site-footer { background: #0a1020 !important; }
 .arc-tbl th:hover { color:var(--a-text); }
 .arc-tbl th .sort-icon { font-size:.65rem; margin-left:4px; opacity:.5; }
 .arc-tbl th.sorted .sort-icon { opacity:1; color:var(--a-accent); }
-.arc-tbl td { padding:9px 14px; color:var(--a-text); border-bottom:1px solid rgba(51,65,85,.45); vertical-align:middle; }
+.arc-tbl td { padding:9px 14px; color:var(--a-text); border-bottom:1px solid #e8edf4; vertical-align:middle; }
 .arc-tbl tr:last-child td { border-bottom:none; }
-.arc-tbl tr:hover td { background:rgba(255,255,255,.03); }
+.arc-tbl tr:hover td { background:#eff6ff; }
 
 /* Entry name cell */
 .arc-name   { display:flex; align-items:center; gap:9px; }
 .arc-name a { color:var(--a-text); text-decoration:none; font-weight:500; }
 .arc-name a:hover { color:var(--a-accent); text-decoration:underline; }
 .arc-name-folder a { color:var(--a-yellow); }
-.arc-name-folder a:hover { color:#fbbf24; }
+.arc-name-folder a:hover { color:#b45309; }
 
 /* Icons */
 .arc-icon { flex-shrink:0; }
@@ -131,17 +131,17 @@ footer.site-footer { background: #0a1020 !important; }
 /* Type badge */
 .arc-badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:4px;
               font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
-.arc-badge-folder   { background:rgba(245,158,11,.12); color:#fbbf24; border:1px solid rgba(245,158,11,.2); }
-.arc-badge-document { background:rgba(59,130,246,.12);  color:#60a5fa; border:1px solid rgba(59,130,246,.2); }
-.arc-badge-shortcut { background:rgba(148,163,184,.1);  color:#94a3b8; border:1px solid rgba(148,163,184,.2); }
-.arc-badge-other    { background:rgba(148,163,184,.1);  color:#94a3b8; border:1px solid rgba(148,163,184,.2); }
+.arc-badge-folder   { background:rgba(245,158,11,.12); color:#b45309; border:1px solid rgba(245,158,11,.2); }
+.arc-badge-document { background:rgba(59,130,246,.12);  color:#2563eb; border:1px solid rgba(59,130,246,.2); }
+.arc-badge-shortcut { background:rgba(148,163,184,.1);  color:#596b86; border:1px solid rgba(148,163,184,.2); }
+.arc-badge-other    { background:rgba(148,163,184,.1);  color:#596b86; border:1px solid rgba(148,163,184,.2); }
 
 /* Detail panel */
 .arc-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; min-width:0; }
 .arc-layout > * { min-width:0; }
-.arc-layout.with-detail { grid-template-columns:minmax(0,1fr) minmax(0,360px); }
+.arc-layout.with-detail { grid-template-columns:minmax(0,1fr); }
 .arc-detail { background:var(--a-surface); border:1px solid var(--a-border); border-radius:12px;
-               padding:18px; align-self:start; position:sticky; top:20px; min-width:0; max-width:100%;
+               padding:22px; min-width:0; width:100%; min-height:100%;
                overflow:hidden; box-sizing:border-box; }
 .arc-detail-title { color:var(--a-text); font-size:.9rem; font-weight:600; margin-bottom:14px;
                      padding-bottom:10px; border-bottom:1px solid var(--a-border);
@@ -157,7 +157,7 @@ footer.site-footer { background: #0a1020 !important; }
 
 /* Alert */
 .arc-alert { background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.25); border-radius:10px;
-              padding:12px 16px; color:#fca5a5; font-size:.83rem; display:flex; align-items:flex-start; gap:10px; }
+              padding:12px 16px; color:#b91c1c; font-size:.83rem; display:flex; align-items:flex-start; gap:10px; }
 
 /* Loading spinner */
 .arc-loading { display:flex; align-items:center; justify-content:center; padding:48px; color:var(--a-muted); gap:10px; font-size:.83rem; }
@@ -166,7 +166,19 @@ footer.site-footer { background: #0a1020 !important; }
                 border-radius:50%; animation:spin .7s linear infinite; }
 
 @@media(max-width:900px){ .arc-layout.with-detail { grid-template-columns:1fr; } }
-@@media(max-width:600px){ .arc-tbl th:nth-child(n+4), .arc-tbl td:nth-child(n+4) { display:none; } }
+#arcDetailPanel { position:fixed; inset:0; z-index:1050; background:rgba(15,23,42,.3); }
+#arcDetailInner { position:absolute; inset-block:0; inset-inline-end:0; width:min(440px,94vw);
+                  overflow:auto; border-radius:18px 0 0 18px; box-shadow:0 12px 40px rgba(15,23,42,.18); }
+.arc-card { overflow-x:auto; }
+.arc-tbl { min-width:900px; }
+.arc-tbl td:last-child { white-space:nowrap; min-width:130px; }
+.arc-tbl th { text-align:start; background:#f8faff; }
+.arc-tbl td { line-height:1.6; }
+.arc-name a { overflow-wrap:anywhere; }
+.arc-page-input { appearance:textfield; -moz-appearance:textfield; }
+.arc-page-input::-webkit-inner-spin-button, .arc-page-input::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+.arc-page-total { color:var(--a-muted); font-size:.78rem; white-space:nowrap; }
+[dir="rtl"] #arcDetailInner { border-radius:0 18px 18px 0; }
 </style>
 }
 
@@ -398,6 +410,7 @@ footer.site-footer { background: #0a1020 !important; }
                     <a class="arc-page @(Model.PageNumber >= Model.TotalPages ? "disabled" : "")" href="@BuildPageUrl(Model.PageNumber + 1)">Next</a>
                     <label for="archivePageInput" style="color:var(--a-muted);font-size:.76rem">Page</label>
                     <input id="archivePageInput" class="arc-page-input" type="number" min="1" max="@Model.TotalPages" value="@Model.PageNumber" />
+                    <span class="arc-page-total">@(System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ar" ? "إجمالي الصفحات:" : "Total pages:") @Model.TotalPages</span>
                     <button id="archivePageGo" class="arc-page" type="button">Go</button>
                 </nav>
             }
@@ -405,7 +418,7 @@ footer.site-footer { background: #0a1020 !important; }
     </div>
 
     <!-- Detail panel (hidden until a document is clicked) -->
-    <div id="arcDetailPanel" style="display:none">
+    <div id="arcDetailPanel" style="display:none" role="dialog" aria-modal="true" aria-label="@L["EntryInformation"]" tabindex="-1">
         <div class="arc-detail" id="arcDetailInner">
             <div class="arc-loading">
                 <div class="arc-spinner"></div>
@@ -509,61 +522,60 @@ footer.site-footer { background: #0a1020 !important; }
     const detailPanel = document.getElementById('arcDetailPanel');
     const detailInner = document.getElementById('arcDetailInner');
 
-    async function openDocumentDetail(entryId) {
+    const detailUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("Detail", "Archive")));
+    let detailRequest;
+    let selectedLink;
+    function closeDetail() {
+        detailRequest?.abort();
+        detailPanel.style.display = 'none';
+        document.body.style.overflow = '';
+        selectedLink?.focus();
+    }
+    async function openDocumentDetail(entryId, link) {
         if (!entryId) return;
-        // Show panel with spinner
+        detailRequest?.abort();
+        const request = new AbortController();
+        detailRequest = request;
+        selectedLink = link;
         detailPanel.style.display = '';
-        layout.classList.add('with-detail');
-        detailInner.innerHTML =
-            '<div class="arc-loading"><div class="arc-spinner"></div>Loading…</div>';
-
+        document.body.style.overflow = 'hidden';
+        detailPanel.focus();
+        detailInner.innerHTML = '<button class="det-close" id="arcCloseDetail" aria-label="Close">✕</button><div class="arc-loading"><div class="arc-spinner"></div>Loading…</div>';
         try {
-            const resp = await fetch(`/Archive/Detail?entryId=${entryId}`, {
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            const url = new URL(detailUrl, window.location.origin);
+            url.searchParams.set('entryId', entryId);
+            const resp = await fetch(url, { signal:request.signal, headers:{'X-Requested-With':'XMLHttpRequest'} });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const html = await resp.text();
+            if (request.signal.aborted) return;
+            detailInner.innerHTML = html;
+            detailInner.querySelectorAll('a.det-action-primary').forEach(action => {
+                const target = new URL(action.href);
+                target.searchParams.set('returnUrl', window.location.pathname + window.location.search);
+                action.href = target.toString();
             });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            detailInner.innerHTML = await resp.text();
-        } catch (err) {
-            detailInner.innerHTML =
-                `<div class="arc-alert" style="margin:0">` +
-                `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>` +
-                `Could not load document details: ${err.message}</div>`;
+            detailInner.querySelector('#arcCloseDetail')?.focus();
+        } catch (error) {
+            if (error.name === 'AbortError') return;
+            detailInner.innerHTML = '<button class="det-close" id="arcCloseDetail" aria-label="Close">✕</button><div class="arc-alert">Could not load document details.</div>';
         }
     }
-
-    document.addEventListener('click', async function (e) {
-        const link = e.target.closest('.arc-doc-link');
-        if (!link) return;
-        e.preventDefault();
-        await openDocumentDetail(link.dataset.entryId);
+    document.addEventListener('click', event => {
+        const link = event.target.closest('.arc-doc-link');
+        if (link) { event.preventDefault(); openDocumentDetail(link.dataset.entryId, link); }
+        if (event.target === detailPanel || event.target.closest('#arcCloseDetail')) closeDetail();
     });
-
-    // Close detail panel
-    document.addEventListener('click', function (e) {
-        if (e.target.closest('#arcCloseDetail')) {
-            detailPanel.style.display = 'none';
-            layout.classList.remove('with-detail');
-        }
-
-        const pageButton = e.target.closest('[data-archive-page-delta]');
-        if (pageButton) {
-            const preview = pageButton.closest('[data-archive-preview]');
-            const image = preview?.querySelector('[data-archive-page-image]');
-            const counter = preview?.querySelector('[data-archive-page-counter]');
-            if (!preview || !image || !counter) return;
-
-            const total = Number.parseInt(preview.dataset.pageCount || '0', 10);
-            const current = Number.parseInt(preview.dataset.currentPage || '1', 10);
-            const delta = Number.parseInt(pageButton.dataset.archivePageDelta || '0', 10);
-            const target = Math.min(total, Math.max(1, current + delta));
-            if (target === current) return;
-
-            preview.dataset.currentPage = target.toString();
-            image.src = `/Document/PageImage/${preview.dataset.entryId}/${target}`;
-            image.alt = `Page ${target} of ${total}`;
-            counter.textContent = `${target} / ${total}`;
-            preview.querySelector('[data-archive-page-delta="-1"]').disabled = target <= 1;
-            preview.querySelector('[data-archive-page-delta="1"]').disabled = target >= total;
+    document.addEventListener('keydown', event => {
+        if (detailPanel.style.display === 'none') return;
+        if (event.key === 'Escape') closeDetail();
+        if (event.key !== 'Tab') return;
+        const items = [...detailInner.querySelectorAll('a[href],button:not(:disabled),input')];
+        const first = items[0], last = items[items.length - 1];
+        if (!first) { event.preventDefault(); detailPanel.focus(); return; }
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === detailPanel)) {
+            event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === detailPanel)) {
+            event.preventDefault(); first.focus();
         }
     });
 
@@ -575,7 +587,9 @@ footer.site-footer { background: #0a1020 !important; }
     function goToArchivePage() {
         if (!pageInput) return;
         const max = Number.parseInt(pageInput.max || '1', 10);
-        const target = Math.min(max, Math.max(1, Number.parseInt(pageInput.value || '1', 10)));
+        const parsed = Number.parseInt(pageInput.value, 10);
+        if (!Number.isFinite(parsed)) return;
+        const target = Math.min(max, Math.max(1, parsed));
         const url = new URL(window.location.href);
         url.searchParams.set('page', target.toString());
         window.location.assign(url.toString());

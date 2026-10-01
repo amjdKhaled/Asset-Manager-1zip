@@ -1,0 +1,23 @@
+name: Archive preview tests
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - '.github/workflows/archive-preview-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build web application and compile Razor views
+        run: dotnet build src/LFPortal.Web/LFPortal.Web.csproj --configuration Release
+      - name: Test document retrieval and TIFF conversion
+        run: dotnet test src/LFPortal.Infrastructure.Tests/LFPortal.Infrastructure.Tests.csproj --configuration Release
+      - name: Test archive drilldowns
+        run: dotnet test src/LFPortal.Web.Tests/LFPortal.Web.Tests.csproj --configuration Release
