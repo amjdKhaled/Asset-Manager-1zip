@@ -32,13 +32,10 @@
  * ONE capture-phase delegated listener on _doc handles all clicks.
  * ONE anchor navigation (<a>) opens the Dashboard tab.
  *
- * WHY NOT window.open?
- * When called with 'noopener,noreferrer' features, window.open() returns null
- * on some browsers even when the new tab opened successfully.  Checking that
- * null return value as a "popup blocked" signal then triggers a second anchor
- * navigation — opening two tabs from one click.  Using a single programmatic
- * anchor click (<a target="_blank" rel="noopener noreferrer">) avoids any
- * return-value ambiguity and guarantees exactly one tab per click.
+ * RETURN NAVIGATION
+ * The configured Dashboard retains an opener reference to this Web Client tab.
+ * A validated postMessage requests a search in the existing SPA. No session
+ * token, credential or cookie is transferred to the Dashboard.
  *
  * REPOSITORY DETECTION
  * ─────────────────────
@@ -153,12 +150,8 @@
     /**
      * Opens the Dashboard in a new tab using a single programmatic anchor.
      *
-     * WHY ANCHOR INSTEAD OF window.open?
-     * window.open(url, '_blank', 'noopener,noreferrer') returns null on some
-     * browsers even when the new tab opened successfully.  Using the null
-     * return as a "blocked" signal then triggers a second anchor navigation,
-     * opening two tabs per click.  A single anchor click has no return value
-     * to misinterpret — it is one navigation, always.
+     * The anchor opens exactly one Dashboard tab and explicitly retains its
+     * opener so searches can return to the authenticated Web Client SPA.
      *
      * @param {string} url  Full Dashboard URL including query parameters.
      */
@@ -166,7 +159,8 @@
         var a = _doc.createElement('a');
         a.href   = url;
         a.target = '_blank';
-        a.rel    = 'noopener noreferrer';
+        // Retain the connection to this trusted, authenticated Web Client tab.
+        a.rel    = 'opener';
         a.style.display = 'none';
         _doc.body.appendChild(a);
         a.click();
@@ -443,6 +437,28 @@
             }
         }, 250);
     }
+
+    // Accept return searches only from the configured Dashboard. Navigate the
+    // existing SPA fragment instead of loading another Web Client login page.
+    _win.addEventListener('message', function (event) {
+        var data = event.data;
+        if (!data || data.type !== 'lf-dashboard-search' || typeof data.url !== 'string' ||
+            typeof data.requestId !== 'string' || !event.source || !_doc.getElementById('rightNavbar')) return;
+        try {
+            if (event.origin !== new URL(DASHBOARD_BASE_URL).origin) return;
+            var target = new URL(data.url);
+            if (target.origin !== _win.location.origin ||
+                target.pathname.toLowerCase() !== _win.location.pathname.toLowerCase() ||
+                (target.searchParams.get('db') || '').toLowerCase() !== (getRepository() || '').toLowerCase()) return;
+            var search = target.hash.replace(/^#[/?]?/, '');
+            if (!/^search=.+;view=search$/.test(search) || search.length > 16000) return;
+            event.source.postMessage({ type: 'lf-dashboard-search-accepted', requestId: data.requestId }, event.origin);
+            var prefix = _win.location.hash.indexOf('#/') === 0 ? '#/' :
+                _win.location.hash.indexOf('#?') === 0 ? '#?' : '#';
+            _win.location.hash = prefix + search;
+            _win.focus();
+        } catch (e) { /* Invalid URL or a closed Dashboard tab: ignore. */ }
+    });
 
     // ── Startup ───────────────────────────────────────────────────────────
     if (_doc.readyState === 'loading') {
