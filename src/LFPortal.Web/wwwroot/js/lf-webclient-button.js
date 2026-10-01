@@ -48,8 +48,8 @@
  *
  * SECURITY
  * ─────────
- * Only the repository name and the literal string "webclient" are sent via
- * the URL.  No credentials, tokens, or session cookies leave the Web Client.
+ * The repository name, launch source and Web Client origin/path are sent
+ * via the URL; query strings and fragments are excluded.  No credentials, tokens, or session cookies leave the Web Client.
  * ──────────────────────────────────────────────────────────────────────────
  */
 
@@ -146,7 +146,8 @@
     function buildDashboardUrl(repo) {
         return DASHBOARD_BASE_URL.replace(/\/+$/, '') +
                '/Launch?repository=' + encodeURIComponent(repo) +
-               '&source=webclient';
+               '&source=webclient&webClientUrl=' +
+               encodeURIComponent(_win.location.origin + _win.location.pathname);
     }
 
     /**

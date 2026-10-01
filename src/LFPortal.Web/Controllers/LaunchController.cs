@@ -48,7 +48,8 @@ public sealed class LaunchController : Controller
         string? repository,
         string? source,
         string? returnUrl = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? webClientUrl = null)
     {
         if (!string.Equals(source, "webclient", StringComparison.OrdinalIgnoreCase) ||
             !IsValidRepositoryId(repository))
@@ -59,8 +60,12 @@ public sealed class LaunchController : Controller
             return BadRequest("A valid Web Client repository launch is required.");
         }
 
-        var webClientOrigin = LaserficheWebClientLinks.ValidateOrigin(
-            _options.CurrentValue.ServerUrl, Request.Headers.Referer.ToString());
+        var webClientOrigin = LaserficheWebClientLinks.ValidateClientUrl(
+            _options.CurrentValue.ServerUrl, webClientUrl) ??
+            LaserficheWebClientLinks.ValidateClientUrl(
+                _options.CurrentValue.ServerUrl, Request.Headers.Referer.ToString()) ??
+            LaserficheWebClientLinks.ValidateOrigin(
+                _options.CurrentValue.ServerUrl, Request.Headers.Referer.ToString());
         if (webClientOrigin is not null)
             HttpContext.Session.SetString(LaserficheWebClientLinks.OriginSessionKey, webClientOrigin);
         else

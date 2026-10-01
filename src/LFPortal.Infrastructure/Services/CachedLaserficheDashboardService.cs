@@ -20,6 +20,7 @@ internal sealed class CachedLaserficheDashboardService : ILaserficheDashboardSer
 
     private readonly LaserficheDashboardService _inner;
     private readonly IRepositoryContext _repositoryContext;
+    private readonly ILaserficheEntryService _entries;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IMemoryCache _cache;
     private readonly ILogger<CachedLaserficheDashboardService> _logger;
@@ -29,13 +30,15 @@ internal sealed class CachedLaserficheDashboardService : ILaserficheDashboardSer
         IRepositoryContext repositoryContext,
         IHttpContextAccessor httpContextAccessor,
         IMemoryCache cache,
-        ILogger<CachedLaserficheDashboardService> logger)
+        ILogger<CachedLaserficheDashboardService> logger,
+        ILaserficheEntryService entries)
     {
         _inner = inner;
         _repositoryContext = repositoryContext;
         _httpContextAccessor = httpContextAccessor;
         _cache = cache;
         _logger = logger;
+        _entries = entries;
     }
 
     public async Task<DashboardStatsDto> GetDashboardStatsAsync(CancellationToken cancellationToken = default)
@@ -43,6 +46,10 @@ internal sealed class CachedLaserficheDashboardService : ILaserficheDashboardSer
         var key = await GetCacheKeyAsync(cancellationToken).ConfigureAwait(false);
         if (_cache.TryGetValue(key, out DashboardStatsDto? cached) && cached is not null)
         {
+            // A locally cached access token/snapshot does not prove that its
+            // repository session survived an administrator deleting the session.
+            var root = await _entries.GetRootEntryIdAsync(cancellationToken).ConfigureAwait(false);
+            await _entries.GetEntryAsync(root, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Dashboard snapshot cache hit for {CacheKey}.", key);
             return cached;
         }
@@ -52,7 +59,11 @@ internal sealed class CachedLaserficheDashboardService : ILaserficheDashboardSer
         try
         {
             if (_cache.TryGetValue(key, out cached) && cached is not null)
+            {
+                var root = await _entries.GetRootEntryIdAsync(cancellationToken).ConfigureAwait(false);
+                await _entries.GetEntryAsync(root, cancellationToken).ConfigureAwait(false);
                 return cached;
+            }
 
             var live = await _inner.GetDashboardStatsAsync(cancellationToken).ConfigureAwait(false);
             if (!live.IsConnected)

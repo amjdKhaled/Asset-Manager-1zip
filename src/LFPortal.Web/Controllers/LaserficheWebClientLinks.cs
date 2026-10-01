@@ -17,8 +17,22 @@ public static class LaserficheWebClientLinks
     {
         var origin = ValidateOrigin(serverUrl, webClientOrigin)
             ?? new Uri(serverUrl, UriKind.Absolute).GetLeftPart(UriPartial.Authority);
-        // Preserve the Web Client route used by the working dashboard drill-down.
-        return $"{origin}/Laserfiche/Browse.aspx?db={Uri.EscapeDataString(repositoryId)}#";
+        var client = ValidateClientUrl(serverUrl, webClientOrigin) ?? origin + "/laserfiche/Browse.aspx";
+        return $"{client}?db={Uri.EscapeDataString(repositoryId)}#";
+    }
+
+    public static string? ValidateClientUrl(string serverUrl, string? candidate)
+    {
+        var origin = ValidateOrigin(serverUrl, candidate);
+        if (origin is null || !Uri.TryCreate(candidate, UriKind.Absolute, out var uri)) return null;
+        var path = uri.AbsolutePath;
+        var slash = path.LastIndexOf('/');
+        var page = path[(slash + 1)..];
+        if (!page.Equals("Browse.aspx", StringComparison.OrdinalIgnoreCase) &&
+            !page.Equals("index.aspx", StringComparison.OrdinalIgnoreCase)) return null;
+        // Cookie paths are case-sensitive even when IIS routes are not. Keep the
+        // exact virtual-directory spelling used by the authenticated Web Client.
+        return origin + path[..(slash + 1)] + "Browse.aspx";
     }
 
     public static string EntrySearch(string serverUrl, string repositoryId, int entryId, string? origin = null)
