@@ -136,7 +136,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
 
         var response = await client
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
@@ -164,14 +164,16 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
             var contentType = NormalizeContentType(
                 response.Content.Headers.ContentType?.MediaType,
                 fileName);
-            var extension = GetExtension(fileName, contentType);
+
+            var inspected = await BrowserPreviewContent.InspectAsync(
+                contentStream, contentType, cancellationToken).ConfigureAwait(false);
 
             return new LaserficheEdocStream(
-                contentStream,
-                contentType,
+                inspected.Content,
+                inspected.ContentType,
                 contentDisposition,
                 fileName,
-                extension,
+                GetExtension(fileName, inspected.ContentType),
                 response.Content.Headers.ContentLength,
                 new ResponseClientOwner(response, client));
         }
@@ -250,14 +252,17 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
             var fileName = directFileName;
             var contentType = directContentType;
 
-            return new LaserficheEdocStream(
-                contentStream,
-                contentType,
-                contentDisposition: response.Content.Headers.ContentDisposition?.ToString(),
-                fileName: fileName,
-                extension: GetExtension(fileName, contentType),
-                contentLength: response.Content.Headers.ContentLength,
-                owner: new ResponseClientOwner(response, client));
+            var inspected = await BrowserPreviewContent.InspectAsync(
+                contentStream, contentType, cancellationToken).ConfigureAwait(false);
+            var result = new LaserficheEdocStream(
+                inspected.Content, inspected.ContentType,
+                response.Content.Headers.ContentDisposition?.ToString(),
+                fileName, GetExtension(fileName, inspected.ContentType),
+                response.Content.Headers.ContentLength,
+                new ResponseClientOwner(response, client));
+            return inspected.ContentType == "image/tiff"
+                ? await BrowserPreviewContent.ConvertTiffAsync(result, cancellationToken).ConfigureAwait(false)
+                : result;
         }
         catch
         {
@@ -404,12 +409,15 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 downloadResponse.Content.Headers.ContentType?.MediaType,
                 fileName);
 
+            var inspected = await BrowserPreviewContent.InspectAsync(
+                stream, contentType, cancellationToken).ConfigureAwait(false);
+
             return new LaserficheEdocStream(
-                stream,
-                contentType,
+                inspected.Content,
+                inspected.ContentType,
                 downloadResponse.Content.Headers.ContentDisposition?.ToString(),
                 fileName,
-                GetExtension(fileName, contentType),
+                GetExtension(fileName, inspected.ContentType),
                 downloadResponse.Content.Headers.ContentLength,
                 new ResponseClientOwner(downloadResponse, client));
         }

@@ -5,6 +5,8 @@ namespace LFPortal.Web.Controllers;
 /// <summary>View model for the confirmed electronic-document viewer.</summary>
 public sealed record DocumentViewModel
 {
+    public string ReturnUrl { get; init; } = "/Archive";
+
     public LFEntry? Entry { get; init; }
     public IReadOnlyList<LFFieldValue> Fields { get; init; } = [];
     public string? FieldsError { get; init; }
@@ -34,7 +36,8 @@ public sealed record DocumentViewModel
             or "image/jpeg"
             or "image/webp"
             or "image/gif"
-            or "image/bmp";
+            or "image/bmp"
+            or "image/tiff";
 
     public static DocumentViewModel Error(string message) => new()
     {
