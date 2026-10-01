@@ -92,7 +92,7 @@ try
     builder.Services.AddLocalization();
 
     // ── MVC ───────────────────────────────────────────────────────────────────
-    builder.Services.AddControllersWithViews()
+    builder.Services.AddControllersWithViews(options => options.Filters.Add<LFPortal.Web.Authentication.RepositoryAuthenticationFilter>())
                     .AddViewLocalization();
 
     // ── Authentication ────────────────────────────────────────────────────────

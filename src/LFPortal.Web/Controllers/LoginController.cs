@@ -94,6 +94,8 @@ public sealed class LoginController : Controller
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
         var vm   = new LoginViewModel
         {
+            ErrorMessage = HttpContext.Request.Query["sessionExpired"] == "true"
+                ? "انتهت جلسة Laserfiche. سجّل الدخول للعودة إلى الصفحة التي كنت تعرضها." : null,
             ActiveRepository     = repo.RepositoryId,
             AllowRepositoryInput = AllowRepositoryInput(),
             SubmittedRepository  = repo.RepositoryId,

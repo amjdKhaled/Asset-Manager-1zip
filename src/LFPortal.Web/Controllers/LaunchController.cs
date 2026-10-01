@@ -59,6 +59,13 @@ public sealed class LaunchController : Controller
             return BadRequest("A valid Web Client repository launch is required.");
         }
 
+        var webClientOrigin = LaserficheWebClientLinks.ValidateOrigin(
+            _options.CurrentValue.ServerUrl, Request.Headers.Referer.ToString());
+        if (webClientOrigin is not null)
+            HttpContext.Session.SetString(LaserficheWebClientLinks.OriginSessionKey, webClientOrigin);
+        else
+            HttpContext.Session.Remove(LaserficheWebClientLinks.OriginSessionKey);
+
         var repositoryId = repository!.Trim();
         var safeReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl! : "/Dashboard";
 

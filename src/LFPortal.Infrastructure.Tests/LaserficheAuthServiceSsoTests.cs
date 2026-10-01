@@ -376,6 +376,78 @@ public sealed class LaserficheAuthServiceSsoTests
         Assert.Equal("admin-token", await service.GetTokenAsync(repo));
     }
 
+    [Theory]
+    [InlineData("LFDS")]
+    [InlineData("RepositoryPassword")]
+    public async Task InteractiveExpiry_RefreshesOnceForConcurrentRequestsWithoutStoredPassword(string method)
+    {
+        var opts = new LaserficheOptions { ServerUrl = "http://lf-server.test", ApiBasePath = "/LFRepositoryAPI" };
+        var context = UserContext("renewal-" + Guid.NewGuid(), "user");
+        context.User = new ClaimsPrincipal(new ClaimsIdentity([
+            new Claim(ClaimTypes.AuthenticationMethod, method)
+        ], "Dashboard.Cookie"));
+        var accessor = new HttpContextAccessor { HttpContext = context };
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var credentials = new ThrowingCredentialProvider();
+        var first = SuccessHandler("first-token");
+        first.Response!.Content = new StringContent("{\"access_token\":\"first-token\",\"expires_in\":900,\"refresh_token\":\"refresh-one\"}");
+        var renewed = SuccessHandler("renewed-token");
+        renewed.Response!.Content = new StringContent("{\"access_token\":\"renewed-token\",\"expires_in\":900,\"refresh_token\":\"refresh-two\"}");
+        var service = new LaserficheAuthService(new SequentialHttpClientFactory([first, new DelayedHandler(renewed)]), credentials,
+            new LaserficheApiAdapter(new StaticOptionsMonitor<LaserficheOptions>(opts)), cache,
+            new OptionsWrapper<LaserficheOptions>(opts), accessor, NullLogger<LaserficheAuthService>.Instance);
+        var repo = MakeRepo();
+        Assert.True(await service.TryAuthenticateAsync(repo, "user", "request-only-password"));
+        await service.InvalidateTokenAsync(repo);
+        var tokens = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => service.GetTokenAsync(repo)));
+        Assert.All(tokens, token => Assert.Equal("renewed-token", token));
+        Assert.Equal(1, renewed.RequestCount);
+        Assert.Contains("grant_type=refresh_token", renewed.LastRequestBody!);
+        Assert.Contains("refresh_token=refresh-one", renewed.LastRequestBody!);
+        Assert.DoesNotContain("password", renewed.LastRequestBody!);
+        Assert.EndsWith("/v2/Repositories/TestRepo/Token", renewed.LastRequestUri!);
+        Assert.Equal(0, credentials.CallCount);
+        await service.InvalidateCurrentSessionTokensAsync();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.GetTokenAsync(repo));
+        Assert.Equal(1, renewed.RequestCount); // Logout makes refresh token unreachable too.
+    }
+
+    [Fact]
+    public async Task PasswordTokenWithoutRefresh_IsNotEvictedBeforeItsActualExpiry()
+    {
+        var opts = new LaserficheOptions { ServerUrl = "http://lf-server.test", ApiBasePath = "/LFRepositoryAPI" };
+        var clock = new TestClock();
+#pragma warning disable CS0618
+        var cache = new MemoryCache(new MemoryCacheOptions { Clock = clock });
+#pragma warning restore CS0618
+        var handler = SuccessHandler();
+        handler.Response!.Content = new StringContent("{\"access_token\":\"valid-token\",\"expires_in\":60}");
+        var service = new LaserficheAuthService(new TestHttpClientFactory(handler), new ThrowingCredentialProvider(),
+            new LaserficheApiAdapter(new StaticOptionsMonitor<LaserficheOptions>(opts)), cache,
+            new OptionsWrapper<LaserficheOptions>(opts),
+            new HttpContextAccessor { HttpContext = UserContext("ttl-" + Guid.NewGuid(), "user") },
+            NullLogger<LaserficheAuthService>.Instance);
+        Assert.True(await service.TryAuthenticateAsync(MakeRepo(), "user", "password"));
+        clock.UtcNow = clock.UtcNow.AddSeconds(40);
+        Assert.Equal("valid-token", await service.GetTokenAsync(MakeRepo()));
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    private sealed class DelayedHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            await Task.Delay(40, ct);
+            return await base.SendAsync(request, ct);
+        }
+    }
+#pragma warning disable CS0618
+    private sealed class TestClock : Microsoft.Extensions.Internal.ISystemClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = DateTimeOffset.UtcNow;
+    }
+#pragma warning restore CS0618
+
     private static DefaultHttpContext UserContext(string sessionId, string username)
     {
         var context = new DefaultHttpContext

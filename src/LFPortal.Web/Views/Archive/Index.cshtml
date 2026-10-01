@@ -362,8 +362,8 @@ footer.site-footer { background: #F7F8FD !important; }
                                                title="Open folder: @entry.Name">@entry.Name</a>
                                             @if (!string.IsNullOrWhiteSpace(Model.LaserficheWebClientEntryUrlPrefix))
                                             {
-                                                <a href="@(Model.LaserficheWebClientEntryUrlPrefix + entry.Id + ";view=browse")"
-                                                   class="arc-laserfiche-link" target="_blank" rel="noopener" title="Open in Laserfiche">فتح في Laserfiche ↗</a>
+                                                <a href="@Url.Action("OpenInLaserfiche", "Archive", new { entryId = entry.Id })"
+                                                   class="arc-laserfiche-link" rel="noopener" title="Open in Laserfiche">فتح في Laserfiche ↗</a>
                                             }
                                         }
                                         else
@@ -374,8 +374,8 @@ footer.site-footer { background: #F7F8FD !important; }
                                                title="View document details: @entry.Name">@entry.Name</a>
                                             @if (!string.IsNullOrWhiteSpace(Model.LaserficheWebClientEntryUrlPrefix))
                                             {
-                                                <a href="@(Model.LaserficheWebClientEntryUrlPrefix + entry.Id + ";view=pages")"
-                                                   class="arc-laserfiche-link" target="_blank" rel="noopener" title="Open in Laserfiche">فتح في Laserfiche ↗</a>
+                                                <a href="@Url.Action("OpenInLaserfiche", "Archive", new { entryId = entry.Id })"
+                                                   class="arc-laserfiche-link" rel="noopener" title="Open in Laserfiche">فتح في Laserfiche ↗</a>
                                             }
                                         }
                                     </div>
@@ -547,6 +547,10 @@ footer.site-footer { background: #F7F8FD !important; }
             const url = new URL(detailUrl, window.location.origin);
             url.searchParams.set('entryId', entryId);
             const resp = await fetch(url, { signal:request.signal, headers:{'X-Requested-With':'XMLHttpRequest'} });
+            if (resp.status === 401) {
+                const error = await resp.json();
+                window.location.assign(error.loginUrl); return;
+            }
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const html = await resp.text();
             if (request.signal.aborted) return;
@@ -554,7 +558,13 @@ footer.site-footer { background: #F7F8FD !important; }
             const preview = detailInner.querySelector('[data-preview-url]');
             if (preview) {
                 fetch(preview.dataset.previewUrl, { signal:request.signal })
-                    .then(response => { if (!response.ok) throw new Error(); return response.text(); })
+                    .then(async response => {
+                        if (response.status === 401) {
+                            const error = await response.json();
+                            window.location.assign(error.loginUrl); throw new DOMException('Session expired', 'AbortError');
+                        }
+                        if (!response.ok) throw new Error(); return response.text();
+                    })
                     .then(html => {
                         if (request.signal.aborted) return;
                         preview.innerHTML = html;

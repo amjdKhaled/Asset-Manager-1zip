@@ -67,7 +67,7 @@ else if (Model.Entry is {} entry)
                 <a class="dv-btn dv-btn-primary" asp-action="Download" asp-route-entryId="@entry.Id">@L["DownloadOriginal"]</a>
             }
             <a class="dv-btn" asp-controller="Archive" asp-action="OpenInLaserfiche" asp-route-entryId="@entry.Id"
-               target="_blank" rel="noopener">@T("فتح في Laserfiche", "Open in Laserfiche") ↗</a>
+               rel="noopener">@T("فتح في Laserfiche", "Open in Laserfiche") ↗</a>
             <a class="dv-btn" href="@Model.ReturnUrl">@T("إغلاق", "Close")</a>
         </div>
     </header>

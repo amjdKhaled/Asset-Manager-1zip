@@ -186,7 +186,7 @@ public sealed class ArchiveController : Controller
         });
     }
 
-    private static ArchiveViewModel BuildDrillDownModel(
+    private ArchiveViewModel BuildDrillDownModel(
         LaserficheArchiveQuery query,
         RepositoryDescriptor repository,
         IReadOnlyList<ArchiveTemplateResult> templates,
@@ -211,23 +211,21 @@ public sealed class ArchiveController : Controller
             TotalCount = totalCount,
             LaserficheWebClientUrl = query.IsTemplateCatalog
                 ? baseUrl
-                : $"{baseUrl}search={Uri.EscapeDataString(query.Expression)};view=search",
+                : $"{baseUrl}search={Uri.EscapeDataString(query.Expression)}",
             LaserficheWebClientEntryUrlPrefix = $"{baseUrl}id="
         };
     }
 
-    private static string BuildWebClientBaseUrl(string serverUrl, string repositoryId)
-    {
-        var server = new Uri(serverUrl, UriKind.Absolute);
-        var origin = server.GetLeftPart(UriPartial.Authority).TrimEnd('/');
-        return $"{origin}/Laserfiche/index.aspx?db={Uri.EscapeDataString(repositoryId)}#";
-    }
+    private string BuildWebClientBaseUrl(string serverUrl, string repositoryId) =>
+        LaserficheWebClientLinks.BaseUrl(serverUrl, repositoryId,
+            HttpContext.Session.GetString(LaserficheWebClientLinks.OriginSessionKey));
 
     public async Task<IActionResult> OpenInLaserfiche(int entryId, CancellationToken cancellationToken = default)
     {
         if (entryId <= 0) return BadRequest();
         var repository = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
-        return Redirect($"{BuildWebClientBaseUrl(repository.ServerUrl, repository.RepositoryId)}id={entryId};view=pages");
+        return Redirect(LaserficheWebClientLinks.EntrySearch(repository.ServerUrl, repository.RepositoryId,
+            entryId, HttpContext.Session.GetString(LaserficheWebClientLinks.OriginSessionKey)));
     }
 
     private static LFEntry MapSearchEntry(LFSearchResult item) => new()
