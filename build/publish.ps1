@@ -606,6 +606,22 @@ Invoke-NativeCommand -Stage "dotnet publish (web app, self-contained win-x64)" -
 
 Write-OK "Web app published to: $webAppOut"
 
+# Record the exact source revision inside the installed application and Release.
+$sourceCommit = $env:GITHUB_SHA
+if ([string]::IsNullOrWhiteSpace($sourceCommit)) {
+    $sourceCommit = (& git -C $RepoRoot rev-parse HEAD | Select-Object -First 1)
+    if ($LASTEXITCODE -ne 0) { throw "Cannot determine installer source commit." }
+}
+$buildTimeUtc = [DateTime]::UtcNow.ToString("o")
+$buildInfo = [ordered]@{
+    Version = $Version
+    SourceCommit = $sourceCommit
+    BuiltAtUtc = $buildTimeUtc
+}
+[System.IO.File]::WriteAllText((Join-Path $webAppOut "build-info.json"),
+    ($buildInfo | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+
+
 # Post-publish guard: appsettings.json must be present in the staged WebApp
 # folder.  WriteConfigAction patches the "Urls" key in this file at install
 # time so the ASP.NET Core app binds the wizard-selected port.  A missing
@@ -1983,6 +1999,15 @@ if (Test-Path $bundleExeSrc) {
     # file compatible with certutil, PowerShell 5.1, and common hash tools.
     $releaseExe = Join-Path $ReleaseDir "LFDashboard-Setup.exe"
     $releaseHash = (Get-FileHash -Path $releaseExe -Algorithm SHA256).Hash.ToLowerInvariant()
+    $releaseInfo = [ordered]@{
+        Version = $Version
+        SourceCommit = $sourceCommit
+        BuiltAtUtc = $buildTimeUtc
+        InstallerSha256 = $releaseHash
+    }
+    [System.IO.File]::WriteAllText((Join-Path $ReleaseDir "build-info.json"),
+        ($releaseInfo | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+
     ("{0}  LFDashboard-Setup.exe" -f $releaseHash) |
         Set-Content -Path (Join-Path $ReleaseDir "SHA256SUMS.txt") -Encoding ASCII
     Write-OK "Release\SHA256SUMS.txt created."
