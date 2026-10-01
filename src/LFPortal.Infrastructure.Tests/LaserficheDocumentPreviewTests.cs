@@ -172,14 +172,16 @@ public sealed class LaserficheDocumentPreviewTests
         Assert.Equal(bytes, copy.ToArray());
     }
 
-    [Fact]
-    public async Task V1MissingPageRoute_TriesDocumentedV2OnSameServer()
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.NotFound)]
+    public async Task V1MissingPageRoute_TriesDocumentedV2OnSameServer(HttpStatusCode status)
     {
         var png = new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new ByteArrayContent([137, 80, 78, 71, 13, 10, 26, 10, 1])
         };
-        var handler = new QueueHandler(new HttpResponseMessage(HttpStatusCode.NotFound), png);
+        var handler = new QueueHandler(new HttpResponseMessage(status), png);
         using var result = await CreateService(handler, "v1").GetPageImageAsync(42, 1);
         Assert.Equal("image/png", result.ContentType);
         Assert.EndsWith("/v2/Repositories/Documents/Entries/42/Document/Pages/1/Image", handler.Requests[1].Url);

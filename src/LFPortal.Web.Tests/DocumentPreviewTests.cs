@@ -45,6 +45,16 @@ public sealed class DocumentPreviewTests
     }
 
     [Fact]
+    public async Task KnownElectronicFile_WithBadRequest_IsNotMislabelledAsEmpty()
+    {
+        var service = new Documents { EdocError = new LaserficheException("Bad request", 400) };
+        var model = await DocumentPreviewResolver.ResolveAsync(service,
+            Entry() with { FileSizeBytes = 4096 }, NullLogger.Instance, default);
+        Assert.NotNull(model.PreviewError);
+        Assert.Null(model.ErrorMessage);
+    }
+
+    [Fact]
     public async Task FailedPageMetadata_UsesKnownPageCount()
     {
         var service = new Documents { EdocError = new LaserficheException("No edoc", 400),

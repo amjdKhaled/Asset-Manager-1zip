@@ -59,7 +59,8 @@ public static class DocumentPreviewResolver
 
         // A 400 from edoc alone does not prove that the document is empty.
         // Require an empty page list or explicit zero-page metadata as well.
-        var absentEdoc = edocError is null or LaserficheException { StatusCode: 400 or 404 };
+        var absentEdoc = edocError is null or LaserficheException { StatusCode: 404 } ||
+            (edocError is LaserficheException { StatusCode: 400 } && entry.FileSizeBytes is null or 0);
         var absentPages = pagesError is null ||
             (entry.PageCount == 0 && pagesError is LaserficheException { StatusCode: 400 or 404 or 405 });
         return absentEdoc && absentPages ? model : model with

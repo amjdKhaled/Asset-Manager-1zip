@@ -276,7 +276,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
         if (_adapter.ApiVersion.Equals("v1", StringComparison.OrdinalIgnoreCase) &&
-            response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed &&
+            (response.StatusCode is System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed) &&
             url.Contains("/v1/Repositories/", StringComparison.OrdinalIgnoreCase))
         {
             // Image-page retrieval is documented by API v2. Older v1 installations
