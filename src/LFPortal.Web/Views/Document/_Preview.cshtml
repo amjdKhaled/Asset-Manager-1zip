@@ -29,3 +29,10 @@ else
 }
 <p data-preview-error hidden role="status">تعذر تحميل صورة الوثيقة. افتح العارض أو أعد المحاولة.</p>
 </div>
+
+@if (Model.HasElectronicDocument && Model.Entry is {} downloadable)
+{
+    <div class="det-actions">
+        <a class="det-action" asp-controller="Document" asp-action="Download" asp-route-entryId="@downloadable.Id">@L["DownloadOriginal"]</a>
+    </div>
+}

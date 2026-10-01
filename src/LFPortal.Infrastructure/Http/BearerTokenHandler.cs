@@ -64,17 +64,24 @@ internal sealed class BearerTokenHandler : DelegatingHandler
                 request.Method,
                 request.RequestUri);
 
+            response.Dispose(); // Also release it when acquiring a fresh token fails.
             await _authService.InvalidateTokenAsync(repo).ConfigureAwait(false);
 
             var freshToken = await _authService
                 .GetTokenAsync(repo, cancellationToken)
                 .ConfigureAwait(false);
 
-            var retryRequest = await CloneRequestAsync(request, cancellationToken).ConfigureAwait(false);
+            using var retryRequest = await CloneRequestAsync(request, cancellationToken).ConfigureAwait(false);
             retryRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", freshToken);
 
-            response.Dispose();
             response = await base.SendAsync(retryRequest, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                response.Dispose();
+                await _authService.InvalidateTokenAsync(repo).ConfigureAwait(false);
+                await _authService.InvalidateCurrentSessionTokensAsync().ConfigureAwait(false);
+                throw new UnauthorizedAccessException("Laserfiche rejected the renewed repository session. Sign in again.");
+            }
         }
 
         return response;

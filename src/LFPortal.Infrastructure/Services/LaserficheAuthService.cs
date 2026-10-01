@@ -217,6 +217,30 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 "Token cache miss for repository {Key}. Acquiring new token.",
                 repository.Key);
 
+            // Refresh the current user's token under the same single-flight lock.
+            // Never switch an interactive browser to configured service credentials.
+            var refreshKey = RefreshKeyPrefix + cacheKey;
+            if (_cache.TryGetValue(refreshKey, out string? refreshToken) && !string.IsNullOrWhiteSpace(refreshToken))
+            {
+                var method = _httpContextAccessor.HttpContext?.User.FindFirst(ClaimTypes.AuthenticationMethod)?.Value;
+                var refreshUrl = string.Equals(method, "LFDS", StringComparison.OrdinalIgnoreCase)
+                    ? _options.GetSsoTokenEndpoint(repository.RepositoryId)
+                    : IsInteractiveDashboardPrincipal() || IsExternalShareSession()
+                        ? _adapter.BuildTokenUrlV2(repository.RepositoryId)
+                        : _adapter.BuildTokenUrl(repository.RepositoryId);
+                try
+                {
+                    var refreshed = await RequestRefreshTokenAsync(refreshUrl, refreshToken, cancellationToken);
+                    CacheTokenResponse(repository, cacheKey, refreshed);
+                    return refreshed.AccessToken;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    _cache.Remove(refreshKey);
+                    throw;
+                }
+            }
+
             // External Share passwords are deliberately request-only and are never
             // persisted in ASP.NET session state. If that user's cached token has
             // expired, do not silently switch to the configured service/admin account.
@@ -264,10 +288,8 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                     tokenUrl, credentials.Username, credentials.Password, cancellationToken)
                 .ConfigureAwait(false);
 
-            var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
-            _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
-            if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken))
-                _cache.Set(RefreshKeyFor(repository), tokenResponse.RefreshToken, TimeSpan.FromHours(8));
+            var expirySeconds = TokenCacheLifetime(tokenResponse);
+            CacheTokenResponse(repository, cacheKey, tokenResponse);
 
             _logger.LogDebug(
                 "Token acquired for repository {Key}. Expires in {Seconds}s (cached for {CacheSeconds}s).",
@@ -385,10 +407,8 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 .ConfigureAwait(false);
 
             // Warm the token cache so subsequent GetTokenAsync calls skip re-authentication.
-            var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
-            _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
-            if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken))
-                _cache.Set(RefreshKeyFor(repository), tokenResponse.RefreshToken, TimeSpan.FromHours(8));
+            var expirySeconds = TokenCacheLifetime(tokenResponse);
+            CacheTokenResponse(repository, cacheKey, tokenResponse);
 
             _logger.LogInformation(
                 "[LF AUTH] Login succeeded for repository {RepoId}. Token cached for {CacheSeconds}s.",
@@ -424,10 +444,14 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         using var response = await client.PostAsync(tokenUrl, form, cancellationToken)
             .ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             throw new UnauthorizedAccessException("The Repository API refresh token was rejected.");
-        return JsonSerializer.Deserialize<TokenResponse>(body, JsonOptions.Default)
-            ?? throw new UnauthorizedAccessException("The Repository API refresh response was invalid.");
+        if (!response.IsSuccessStatusCode)
+            throw new Domain.Exceptions.LaserficheException("The Repository API token refresh is temporarily unavailable.", (int)response.StatusCode);
+        var token = JsonSerializer.Deserialize<TokenResponse>(body, JsonOptions.Default);
+        if (token is null || string.IsNullOrWhiteSpace(token.AccessToken) || token.ExpiresIn <= 0)
+            throw new UnauthorizedAccessException("The Repository API refresh response was invalid.");
+        return token;
     }
 
     private void CacheTokenResponse(
@@ -435,11 +459,15 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         string cacheKey,
         TokenResponse response)
     {
-        var expirySeconds = Math.Max(response.ExpiresIn - EarlyExpiryBufferSeconds, 30);
-        _cache.Set(cacheKey, response.AccessToken, TimeSpan.FromSeconds(expirySeconds));
+        _cache.Set(cacheKey, response.AccessToken, TimeSpan.FromSeconds(TokenCacheLifetime(response)));
         if (!string.IsNullOrWhiteSpace(response.RefreshToken))
-            _cache.Set(RefreshKeyFor(repository), response.RefreshToken, TimeSpan.FromHours(8));
+            _cache.Set(RefreshKeyPrefix + cacheKey, response.RefreshToken, TimeSpan.FromHours(8));
+        else
+            _cache.Remove(RefreshKeyPrefix + cacheKey);
     }
+
+    private static int TokenCacheLifetime(TokenResponse response) =>
+        Math.Max(1, response.ExpiresIn - (string.IsNullOrWhiteSpace(response.RefreshToken) ? 0 : EarlyExpiryBufferSeconds));
 
     /// <summary>
     /// Posts a password-grant token request to the Laserfiche <c>/Token</c> endpoint
@@ -698,10 +726,8 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
         }
 
         var cacheKey      = CacheKeyFor(repository);
-        var expirySeconds = Math.Max(tokenResponse.ExpiresIn - EarlyExpiryBufferSeconds, 30);
-        _cache.Set(cacheKey, tokenResponse.AccessToken, TimeSpan.FromSeconds(expirySeconds));
-        if (!string.IsNullOrWhiteSpace(tokenResponse.RefreshToken))
-            _cache.Set(RefreshKeyFor(repository), tokenResponse.RefreshToken, TimeSpan.FromHours(8));
+        var expirySeconds = TokenCacheLifetime(tokenResponse);
+        CacheTokenResponse(repository, cacheKey, tokenResponse);
 
         var username = TryReadTokenUsername(tokenResponse.AccessToken);
         if (!string.IsNullOrWhiteSpace(username))

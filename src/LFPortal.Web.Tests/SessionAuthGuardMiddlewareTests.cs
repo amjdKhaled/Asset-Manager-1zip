@@ -34,6 +34,46 @@ public sealed class SessionAuthGuardMiddlewareTests
         Assert.Empty(context.Response.Headers.Location.ToString());
     }
 
+    [Fact]
+    public async Task ExpiredPartialRequest_Returns401AndTheFullArchiveDestination()
+    {
+        var middleware = MakeMiddleware(authenticationMode: LaserficheAuthenticationMode.RepositoryPassword);
+        var context = MakeContext(path: "/Archive/Detail", activeRepoId: "TestEmployee");
+        context.Request.Scheme = "https";
+        context.Request.Host = new HostString("portal.test");
+        context.Request.Headers["X-Requested-With"] = "XMLHttpRequest";
+        context.Request.Headers.Referer = "https://portal.test/Archive?entryId=17";
+        await middleware.InvokeAsync(context);
+        Assert.Equal(401, context.Response.StatusCode);
+        Assert.Empty(context.Response.Headers.Location.ToString());
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.Contains("%2FArchive%3FentryId%3D17", body);
+        Assert.DoesNotContain("%2FArchive%2FDetail", body);
+    }
+
+    [Fact]
+    public async Task ExpiredInteractiveLogin_NeverFallsThroughToLegacyFallbackAccount()
+    {
+        var middleware = MakeMiddleware(ssoConfigured: false);
+        var context = MakeContext(path: "/Archive", source: "Laserfiche Web Client", activeRepoId: "TestEmployee");
+        context.Session.SetString("InteractiveSessionExpired", "true");
+        await middleware.InvokeAsync(context);
+        Assert.StartsWith("/Login?returnUrl=", context.Response.Headers.Location.ToString());
+    }
+
+    [Fact]
+    public async Task WebClientNavigation_RemainsAvailableWithoutPortalCookie()
+    {
+        var called = false;
+        var middleware = MakeMiddleware(authenticationMode: LaserficheAuthenticationMode.RepositoryPassword,
+            next: _ => { called = true; return Task.CompletedTask; });
+        var context = MakeContext(path: "/Archive/OpenInLaserfiche", activeRepoId: "TestEmployee");
+        await middleware.InvokeAsync(context);
+        Assert.True(called);
+        Assert.Empty(context.Response.Headers.Location.ToString());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static SessionAuthGuardMiddleware MakeMiddleware(

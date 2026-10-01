@@ -94,6 +94,8 @@ public sealed class LoginController : Controller
         var repo = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
         var vm   = new LoginViewModel
         {
+            ErrorMessage = HttpContext.Request.Query["sessionExpired"] == "true"
+                ? "انتهت جلسة Laserfiche. سجّل الدخول للعودة إلى الصفحة التي كنت تعرضها." : null,
             ActiveRepository     = repo.RepositoryId,
             AllowRepositoryInput = AllowRepositoryInput(),
             SubmittedRepository  = repo.RepositoryId,
@@ -202,6 +204,8 @@ public sealed class LoginController : Controller
             return View(ViewWithError(
                 $"Unable to sign in to {repoId}. Check the username and password."));
         }
+
+        HttpContext.Session.Remove("InteractiveSessionExpired");
 
         // ── Authentication succeeded ──────────────────────────────────────────
 
@@ -708,6 +712,7 @@ public sealed class LoginController : Controller
         string repositoryId,
         string authenticationMethod)
     {
+        HttpContext.Session.Remove("InteractiveSessionExpired");
         var claims = new List<Claim>
         {
             new Claim(DashboardAuthenticationDefaults.RepositoryClaimType, repositoryId),

@@ -230,7 +230,7 @@
                     <div class="field">
                         <label for="Repository">Repository</label>
                         <input type="text" id="Repository" name="Repository"
-                               value="@Html.Encode(Model.SubmittedRepository)" required />
+                               value="@Model.SubmittedRepository" required />
                     </div>
                 }
 
@@ -241,7 +241,7 @@
                            name="Username"
                            autocomplete="username"
                            placeholder="e.g. ADMIN"
-                           value="@Html.Encode(Model.SubmittedUsername)"
+                           value="@Model.SubmittedUsername"
                            required />
                     @if (ViewData.ModelState["Username"]?.Errors.Count > 0)
                     {
