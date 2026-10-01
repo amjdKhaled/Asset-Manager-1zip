@@ -159,13 +159,33 @@ public sealed class SessionAuthGuardMiddleware
                 context.User.Identity?.IsAuthenticated == true,
                 claimedRepoId ?? "(none)");
 
-            var returnUrl = Uri.EscapeDataString(
-                context.Request.PathBase + context.Request.Path + context.Request.QueryString);
-            context.Response.Redirect($"/Login?returnUrl={returnUrl}");
+            await RedirectToLoginAsync(context);
             return;
         }
 
         await _next(context);
+    }
+
+    private static async Task RedirectToLoginAsync(HttpContext context)
+    {
+        var partial = context.Request.Headers["X-Requested-With"] == "XMLHttpRequest" ||
+            context.Request.Path.StartsWithSegments("/Document/Preview");
+        var destination = context.Request.PathBase + context.Request.Path + context.Request.QueryString;
+        if (partial)
+        {
+            destination = "/Archive";
+            if (Uri.TryCreate(context.Request.Headers.Referer.ToString(), UriKind.Absolute, out var referer) &&
+                referer.GetLeftPart(UriPartial.Authority).Equals(
+                    $"{context.Request.Scheme}://{context.Request.Host}", StringComparison.OrdinalIgnoreCase))
+                destination = referer.PathAndQuery;
+        }
+        var loginUrl = "/Login?returnUrl=" + Uri.EscapeDataString(destination);
+        if (partial)
+        {
+            context.Response.StatusCode = 401;
+            await context.Response.WriteAsJsonAsync(new { loginUrl, message = "سجّل الدخول للمتابعة." });
+        }
+        else context.Response.Redirect(loginUrl);
     }
 
     private static bool IsExcluded(PathString path) =>

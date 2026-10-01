@@ -34,6 +34,24 @@ public sealed class SessionAuthGuardMiddlewareTests
         Assert.Empty(context.Response.Headers.Location.ToString());
     }
 
+    [Fact]
+    public async Task ExpiredPartialRequest_Returns401AndTheFullArchiveDestination()
+    {
+        var middleware = MakeMiddleware(authenticationMode: LaserficheAuthenticationMode.RepositoryPassword);
+        var context = MakeContext(path: "/Archive/Detail", activeRepoId: "TestEmployee");
+        context.Request.Scheme = "https";
+        context.Request.Host = new HostString("portal.test");
+        context.Request.Headers["X-Requested-With"] = "XMLHttpRequest";
+        context.Request.Headers.Referer = "https://portal.test/Archive?entryId=17";
+        await middleware.InvokeAsync(context);
+        Assert.Equal(401, context.Response.StatusCode);
+        Assert.Empty(context.Response.Headers.Location.ToString());
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.Contains("%2FArchive%3FentryId%3D17", body);
+        Assert.DoesNotContain("%2FArchive%2FDetail", body);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static SessionAuthGuardMiddleware MakeMiddleware(
