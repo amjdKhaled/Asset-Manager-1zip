@@ -200,7 +200,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         var url = _adapter.BuildPageImageUrl(repo.RepositoryId, entryId, pageNumber);
 
         var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
-        var response = await GetPageResponseAsync(client, url, cancellationToken).ConfigureAwait(false);
+        var response = await GetPageResponseAsync(client, url, cancellationToken, image: true).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -271,9 +271,9 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
     }
 
     private async Task<HttpResponseMessage> GetPageResponseAsync(
-        HttpClient client, string url, CancellationToken cancellationToken)
+        HttpClient client, string url, CancellationToken cancellationToken, bool image = false)
     {
-        var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+        var response = await GetResponseAsync(client, url, image, cancellationToken)
             .ConfigureAwait(false);
         if (_adapter.ApiVersion.Equals("v1", StringComparison.OrdinalIgnoreCase) &&
             (response.StatusCode is System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed) &&
@@ -287,10 +287,19 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 versioned = versioned[..entries] + "/Document/Pages" + versioned[(entries + 6)..];
             versioned = versioned.Replace("/image", "/Image", StringComparison.OrdinalIgnoreCase);
             response.Dispose();
-            response = await client.GetAsync(versioned, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            response = await GetResponseAsync(client, versioned, image, cancellationToken)
                 .ConfigureAwait(false);
         }
         return response;
+    }
+
+    private static async Task<HttpResponseMessage> GetResponseAsync(
+        HttpClient client, string url, bool binary, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (binary) request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+        return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public Task<LFEntry> GetDocumentMetadataAsync(
@@ -331,8 +340,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
 
         var downloadLink = ParseExportDownloadLink(exportBody);
         var downloadUrl = ResolveTrustedExportLink(exportUrl, downloadLink);
-        var downloadResponse = await client
-            .GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+        var downloadResponse = await GetResponseAsync(client, downloadUrl, binary: true, cancellationToken)
             .ConfigureAwait(false);
 
         if (!downloadResponse.IsSuccessStatusCode)
@@ -403,8 +411,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
 
         var downloadLink = ParseExportDownloadLink(exportBody);
         var downloadUrl = ResolveTrustedExportLink(exportUrl, downloadLink);
-        var downloadResponse = await client
-            .GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+        var downloadResponse = await GetResponseAsync(client, downloadUrl, binary: true, cancellationToken)
             .ConfigureAwait(false);
 
         if (!downloadResponse.IsSuccessStatusCode)

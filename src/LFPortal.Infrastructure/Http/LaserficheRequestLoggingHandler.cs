@@ -37,26 +37,28 @@ internal sealed class LaserficheRequestLoggingHandler : DelegatingHandler
             request.RequestUri);
 
         var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var responseBody = await response.Content
-            .ReadAsStringAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        _logger.LogInformation(
-            "Laserfiche response: HTTP {StatusCode} {ReasonPhrase} for {Method} {RequestUrl}. " +
-            "Response body: {ResponseBody}",
-            (int)response.StatusCode,
-            response.ReasonPhrase,
-            request.Method,
-            request.RequestUri,
-            RedactSensitiveJson(responseBody));
-
-        // Reading the content above consumes it. Replace it so the service layer
-        // receives the exact same response body after it has been logged.
-        var mediaType = response.Content.Headers.ContentType?.MediaType ?? "application/json";
-        response.Content = new StringContent(
-            responseBody,
-            Encoding.UTF8,
-            mediaType);
+        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        var isJson = mediaType is not null &&
+            (mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase) ||
+             mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase));
+        if (isJson)
+        {
+            // ReadAsStringAsync buffers HttpContent; it does not require replacing
+            // the body. Keep its original bytes, encoding, disposition and length.
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Laserfiche response: HTTP {StatusCode} {ReasonPhrase} for {Method} {RequestUrl}. Response body: {ResponseBody}",
+                (int)response.StatusCode, response.ReasonPhrase, request.Method, request.RequestUri,
+                RedactSensitiveJson(responseBody));
+        }
+        else
+        {
+            // PDF/TIFF/JPEG and unknown content MUST remain binary and streamed.
+            _logger.LogInformation(
+                "Laserfiche response: HTTP {StatusCode} {ReasonPhrase} for {Method} {RequestUrl}. Content-Type={ContentType}; Content-Length={ContentLength}.",
+                (int)response.StatusCode, response.ReasonPhrase, request.Method, request.RequestUri,
+                mediaType, response.Content.Headers.ContentLength);
+        }
 
         return response;
     }
