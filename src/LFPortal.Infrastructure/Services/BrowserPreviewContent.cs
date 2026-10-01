@@ -64,6 +64,31 @@ public static class BrowserPreviewContent
         }
     }
 
+    /// <summary>Spools to a seekable file with automatic deletion after MVC finishes.</summary>
+    public static async Task<(Stream Content, string ContentType)> BufferForPreviewAsync(
+        LaserficheEdocStream source, CancellationToken cancellationToken)
+    {
+        using (source)
+        {
+            var output = new FileStream(Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()),
+                FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 81920,
+                FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+            try
+            {
+                await source.Content.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+                if (output.Length == 0 || (source.ContentLength is > 0 && output.Length != source.ContentLength))
+                    throw new IOException("Laserfiche returned an empty or incomplete preview file.");
+                output.Position = 0;
+                return (output, source.ContentType);
+            }
+            catch
+            {
+                await output.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
+    }
+
     private sealed class PrefixStream(ReadOnlyMemory<byte> prefix, Stream source) : Stream
     {
         private int _position;

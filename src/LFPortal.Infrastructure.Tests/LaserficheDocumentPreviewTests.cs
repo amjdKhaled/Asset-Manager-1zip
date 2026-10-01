@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
 using ImageMagick;
+using LFPortal.Infrastructure.Http;
 
 namespace LFPortal.Infrastructure.Tests;
 
@@ -35,6 +36,7 @@ public sealed class LaserficheDocumentPreviewTests
         Assert.Equal(HttpMethod.Post, handler.Requests[0].Method);
         Assert.EndsWith("/Entries/42/Export", handler.Requests[0].Url);
         Assert.Equal("https://lf.test/download/document.pdf", handler.Requests[1].Url);
+        Assert.Equal("application/octet-stream", handler.Requests[1].Accept);
     }
 
     [Fact]
@@ -172,6 +174,64 @@ public sealed class LaserficheDocumentPreviewTests
         Assert.Equal(bytes, copy.ToArray());
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.NotFound)]
+    public async Task V1MissingPageRoute_TriesDocumentedV2OnSameServer(HttpStatusCode status)
+    {
+        var png = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent([137, 80, 78, 71, 13, 10, 26, 10, 1])
+        };
+        var handler = new QueueHandler(new HttpResponseMessage(status), png);
+        using var result = await CreateService(handler, "v1").GetPageImageAsync(42, 1);
+        Assert.Equal("image/png", result.ContentType);
+        Assert.All(handler.Requests, request => Assert.Equal("application/octet-stream", request.Accept));
+        Assert.EndsWith("/v2/Repositories/Documents/Entries/42/Document/Pages/1/Image", handler.Requests[1].Url);
+    }
+
+    [Fact]
+    public async Task TextOnlyPages_AreExcludedFromImageList()
+    {
+        var handler = new QueueHandler(Json("{\"value\":[{\"pageNumber\":1,\"hasImage\":false},{\"pageNumber\":2,\"hasImage\":true}]}"));
+        var pages = await CreateService(handler).GetDocumentPagesAsync(42);
+        Assert.Equal(2, Assert.Single(pages).PageNumber);
+    }
+
+    [Theory]
+    [InlineData("application/pdf")]
+    [InlineData("image/png")]
+    [InlineData("image/tiff")]
+    [InlineData("application/octet-stream")]
+    [InlineData(null)]
+    public async Task RequestLogging_DoesNotDecodeOrReplaceBinaryBodies(string? mediaType)
+    {
+        byte[] bytes = [37, 80, 68, 70, 45, 49, 255, 254, 0, 128, 129, 192, 193];
+        var content = new ByteArrayContent(bytes);
+        if (mediaType is not null) content.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
+        content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment") { FileName = "original.bin" };
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+        using var client = new ClientFactory(new QueueHandler(response)).CreateClient("LaserficheAuthenticated");
+        using var received = await client.GetAsync("https://lf.test/file", HttpCompletionOption.ResponseHeadersRead);
+        Assert.Same(content, received.Content);
+        Assert.Equal(bytes, await received.Content.ReadAsByteArrayAsync());
+        Assert.Equal(bytes.Length, received.Content.Headers.ContentLength);
+        Assert.Equal("original.bin", received.Content.Headers.ContentDisposition?.FileName);
+    }
+
+    [Fact]
+    public async Task JsonLogging_PreservesOriginalEncodingAndHeaders()
+    {
+        var content = new StringContent("{\"name\":\"وثيقة\"}", Encoding.Unicode, "application/json");
+        var bytes = await content.ReadAsByteArrayAsync();
+        using var client = new ClientFactory(new QueueHandler(new HttpResponseMessage(HttpStatusCode.OK) { Content = content }))
+            .CreateClient("LaserficheAuthenticated");
+        using var received = await client.GetAsync("https://lf.test/metadata");
+        Assert.Same(content, received.Content);
+        Assert.Equal(bytes, await received.Content.ReadAsByteArrayAsync());
+        Assert.Equal("utf-16", received.Content.Headers.ContentType?.CharSet);
+    }
+
     private sealed class OneByteStream(byte[] bytes) : MemoryStream(bytes)
     {
         public override bool CanSeek => false;
@@ -220,8 +280,15 @@ public sealed class LaserficheDocumentPreviewTests
     {
         public TrackingHttpClient? LastClient { get; private set; }
 
-        public HttpClient CreateClient(string name) =>
-            LastClient = new TrackingHttpClient(handler);
+        public HttpClient CreateClient(string name)
+        {
+            var logging = new LaserficheRequestLoggingHandler(
+                new StaticOptionsMonitor(new LaserficheOptions()),
+                NullLogger<LaserficheRequestLoggingHandler>.Instance) { InnerHandler = handler };
+            LastClient = new TrackingHttpClient(logging);
+            LastClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return LastClient;
+        }
     }
 
     private sealed class TrackingHttpClient(HttpMessageHandler handler)

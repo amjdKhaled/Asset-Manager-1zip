@@ -37,6 +37,7 @@ footer.site-footer { background:#F7F8FD !important; }
 .dv-stage { height:calc(100vh - 250px); min-height:560px; overflow:auto; background:#edf1f7; position:relative; padding:24px; text-align:center; }
 .dv-frame { width:100%; height:100%; min-height:510px; border:0; background:white; }
 .dv-image { display:block; max-width:100%; max-height:100%; object-fit:contain; margin:auto; transform-origin:center; box-shadow:0 4px 22px rgba(15,23,42,.12); }
+.dv-image[hidden],.dv-frame[hidden] { display:none; }
 .dv-image.zoomed { max-width:none; max-height:none; }
 .dv-empty { margin:80px auto; max-width:520px; color:#596b86; line-height:1.7; }
 .dv-empty strong { display:block; color:#17233b; margin-bottom:14px; }
@@ -65,6 +66,8 @@ else if (Model.Entry is {} entry)
             {
                 <a class="dv-btn dv-btn-primary" asp-action="Download" asp-route-entryId="@entry.Id">@L["DownloadOriginal"]</a>
             }
+            <a class="dv-btn" asp-controller="Archive" asp-action="OpenInLaserfiche" asp-route-entryId="@entry.Id"
+               target="_blank" rel="noopener">@T("فتح في Laserfiche", "Open in Laserfiche") ↗</a>
             <a class="dv-btn" href="@Model.ReturnUrl">@T("إغلاق", "Close")</a>
         </div>
     </header>
@@ -92,11 +95,15 @@ else if (Model.Entry is {} entry)
                 </div>
             </div>
             <div class="dv-stage" id="dvStage">
-                @if (Model.HasElectronicDocument && Model.IsInlineElectronicDocument)
+                @if (!string.IsNullOrWhiteSpace(Model.PreviewError))
+                {
+                    <div class="dv-empty" role="status"><strong>@Model.PreviewError</strong></div>
+                }
+                else if (Model.HasElectronicDocument && Model.IsInlineElectronicDocument)
                 {
                     if (Model.ElectronicDocumentContentType == "application/pdf")
                     {
-                        <iframe class="dv-frame" src="@Url.Action("Content", "Document", new { entryId = entry.Id })" title="@entry.Name"></iframe>
+                        <iframe hidden class="dv-frame" data-preview-source="@Url.Action("Content", "Document", new { entryId = entry.Id })" title="@entry.Name"></iframe>
                     }
                     else
                     {
@@ -110,12 +117,12 @@ else if (Model.Entry is {} entry)
                 else
                 {
                     <div class="dv-empty">
-                        <strong>@(Model.HasElectronicDocument ? T("هذا النوع من الملفات لا يدعم المعاينة داخل المتصفح.", "This file type cannot be previewed in the browser.") : T("لا يتوفر محتوى للمعاينة.", "No preview content is available."))</strong>
+                        <strong>@(Model.HasElectronicDocument ? T("هذا النوع من الملفات لا يدعم المعاينة داخل المتصفح.", "This file type cannot be previewed in the browser.") : T("لا توجد صورة لهذه الوثيقة.", "This document has no image."))</strong>
                         @if (Model.HasElectronicDocument) { <a class="dv-btn dv-btn-primary" asp-action="Download" asp-route-entryId="@entry.Id">@L["DownloadOriginal"]</a> }
                     </div>
                 }
             </div>
-            <div class="dv-status" id="dvStatus" role="status" hidden></div>
+            <div class="dv-status" id="dvStatus" data-preview-error role="status" hidden></div>
             @if (Model.HasElectronicDocument && Model.IsInlineElectronicDocument)
             {
                 <div class="dv-status"><a asp-action="Content" asp-route-entryId="@entry.Id" target="_blank" rel="noopener">@T("فتح المحتوى في نافذة مستقلة", "Open content in a separate window")</a></div>
@@ -144,10 +151,12 @@ else if (Model.Entry is {} entry)
     </div>
 }
 @section Scripts {
+<script src="~/js/document-preview.js" asp-append-version="true"></script>
 <script>
 (function () {
     const viewer = document.getElementById('dvViewer');
     if (!viewer) return;
+    window.loadDocumentPdfPreviews(viewer);
     const img = document.getElementById('dvImage');
     const status = document.getElementById('dvStatus');
     const pages = @Html.Raw(JsonSerializer.Serialize(Model.Pages.Select(page => page.PageNumber)));

@@ -143,6 +143,7 @@ footer.site-footer { background: #F7F8FD !important; }
 .arc-detail { background:var(--a-surface); border:1px solid var(--a-border); border-radius:12px;
                padding:22px; min-width:0; width:100%; min-height:100%;
                overflow:hidden; box-sizing:border-box; }
+.arc-laserfiche-link { flex-shrink:0; font-size:.7rem; padding:5px 8px; border:1px solid var(--a-border); border-radius:6px; background:#eff6ff; color:#2563eb; }
 .arc-detail-title { color:var(--a-text); font-size:.9rem; font-weight:600; margin-bottom:14px;
                      padding-bottom:10px; border-bottom:1px solid var(--a-border);
                      display:flex; align-items:center; justify-content:space-between; }
@@ -362,7 +363,7 @@ footer.site-footer { background: #F7F8FD !important; }
                                             @if (!string.IsNullOrWhiteSpace(Model.LaserficheWebClientEntryUrlPrefix))
                                             {
                                                 <a href="@(Model.LaserficheWebClientEntryUrlPrefix + entry.Id + ";view=browse")"
-                                                   target="_blank" rel="noopener" title="Open in Laserfiche">↗</a>
+                                                   class="arc-laserfiche-link" target="_blank" rel="noopener" title="Open in Laserfiche">فتح في Laserfiche ↗</a>
                                             }
                                         }
                                         else
@@ -374,7 +375,7 @@ footer.site-footer { background: #F7F8FD !important; }
                                             @if (!string.IsNullOrWhiteSpace(Model.LaserficheWebClientEntryUrlPrefix))
                                             {
                                                 <a href="@(Model.LaserficheWebClientEntryUrlPrefix + entry.Id + ";view=pages")"
-                                                   target="_blank" rel="noopener" title="Open in Laserfiche">↗</a>
+                                                   class="arc-laserfiche-link" target="_blank" rel="noopener" title="Open in Laserfiche">فتح في Laserfiche ↗</a>
                                             }
                                         }
                                     </div>
@@ -431,6 +432,7 @@ footer.site-footer { background: #F7F8FD !important; }
 </div><!-- end outer -->
 
 @section Scripts {
+<script src="~/js/document-preview.js" asp-append-version="true"></script>
 <script>
 (function () {
     // ── Filter ──────────────────────────────────────────────────────────────
@@ -549,6 +551,24 @@ footer.site-footer { background: #F7F8FD !important; }
             const html = await resp.text();
             if (request.signal.aborted) return;
             detailInner.innerHTML = html;
+            const preview = detailInner.querySelector('[data-preview-url]');
+            if (preview) {
+                fetch(preview.dataset.previewUrl, { signal:request.signal })
+                    .then(response => { if (!response.ok) throw new Error(); return response.text(); })
+                    .then(html => {
+                        if (request.signal.aborted) return;
+                        preview.innerHTML = html;
+                        window.loadDocumentPdfPreviews(preview, request.signal);
+                        preview.querySelectorAll('img').forEach(img => {
+                            img.addEventListener('error', () => {
+                                img.hidden = true;
+                                preview.querySelector('[data-preview-error]').hidden = false;
+                            });
+                            if (img.complete && !img.naturalWidth) img.dispatchEvent(new Event('error'));
+                        });
+                    })
+                    .catch(error => { if (error.name !== 'AbortError') preview.textContent = 'تعذر تحميل المعاينة. أعد المحاولة.'; });
+            }
             detailInner.querySelectorAll('a.det-action-primary').forEach(action => {
                 const target = new URL(action.href);
                 target.searchParams.set('returnUrl', window.location.pathname + window.location.search);

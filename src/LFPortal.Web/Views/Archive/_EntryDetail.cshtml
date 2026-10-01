@@ -141,8 +141,19 @@ else if (Model.Entry is {} entry)
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
                 @L["DownloadOriginal"]
             </a>
+            <a class="det-action" asp-controller="Archive" asp-action="OpenInLaserfiche" asp-route-entryId="@entry.Id"
+               target="_blank" rel="noopener">فتح في Laserfiche ↗</a>
         </div>
 
+    }
+
+    @if (isDoc)
+    {
+        <div class="det-section" data-preview-url="@Url.Action("Preview", "Document", new { entryId = entry.Id })"
+             aria-label="معاينة الوثيقة" aria-live="polite">
+            <div class="det-section-lbl">معاينة الوثيقة</div>
+            <div style="padding:36px;text-align:center;color:var(--a-muted)">جاري تحميل المعاينة…</div>
+        </div>
     }
 
     <!-- Full path -->

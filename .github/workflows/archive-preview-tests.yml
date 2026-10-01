@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'src/**'
+      - 'scripts/test-document-preview.mjs'
       - '.github/workflows/archive-preview-tests.yml'
   workflow_dispatch:
 permissions:
@@ -19,5 +20,7 @@ jobs:
         run: dotnet build src/LFPortal.Web/LFPortal.Web.csproj --configuration Release
       - name: Test document retrieval and TIFF conversion
         run: dotnet test src/LFPortal.Infrastructure.Tests/LFPortal.Infrastructure.Tests.csproj --configuration Release
+      - name: Test PDF preview error states
+        run: node scripts/test-document-preview.mjs
       - name: Test archive drilldowns
         run: dotnet test src/LFPortal.Web.Tests/LFPortal.Web.Tests.csproj --configuration Release
