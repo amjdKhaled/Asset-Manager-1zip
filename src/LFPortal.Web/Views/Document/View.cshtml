@@ -92,7 +92,11 @@ else if (Model.Entry is {} entry)
                 </div>
             </div>
             <div class="dv-stage" id="dvStage">
-                @if (Model.HasElectronicDocument && Model.IsInlineElectronicDocument)
+                @if (!string.IsNullOrWhiteSpace(Model.PreviewError))
+                {
+                    <div class="dv-empty" role="status"><strong>@Model.PreviewError</strong></div>
+                }
+                else if (Model.HasElectronicDocument && Model.IsInlineElectronicDocument)
                 {
                     if (Model.ElectronicDocumentContentType == "application/pdf")
                     {
@@ -110,7 +114,7 @@ else if (Model.Entry is {} entry)
                 else
                 {
                     <div class="dv-empty">
-                        <strong>@(Model.HasElectronicDocument ? T("هذا النوع من الملفات لا يدعم المعاينة داخل المتصفح.", "This file type cannot be previewed in the browser.") : T("لا يتوفر محتوى للمعاينة.", "No preview content is available."))</strong>
+                        <strong>@(Model.HasElectronicDocument ? T("هذا النوع من الملفات لا يدعم المعاينة داخل المتصفح.", "This file type cannot be previewed in the browser.") : T("لا توجد صورة لهذه الوثيقة.", "This document has no image."))</strong>
                         @if (Model.HasElectronicDocument) { <a class="dv-btn dv-btn-primary" asp-action="Download" asp-route-entryId="@entry.Id">@L["DownloadOriginal"]</a> }
                     </div>
                 }

@@ -80,62 +80,37 @@ public sealed class DocumentController : Controller
             HasElectronicDocument = false
         };
 
-        // A 404 here means this valid entry has no edoc; it does not mean that
-        // the entry itself is missing. Other statuses remain visible as a
-        // connection/authentication state rather than an exception page.
-        try
+        var preview = await DocumentPreviewResolver.ResolveAsync(
+            _documentService, entry, _logger, cancellationToken);
+        model = preview with
         {
-            using var edoc = await _documentService
-                .StreamEdocAsync(entryId, cancellationToken)
-                .ConfigureAwait(false);
-
-            model = model with
-            {
-                HasElectronicDocument = true,
-                ElectronicDocumentContentType = edoc.ContentType,
-                ElectronicDocumentFileName = edoc.FileName,
-                ElectronicDocumentExtension = edoc.Extension
-            };
-        }
-        catch (LaserficheException ex) when (ex.StatusCode == (int)HttpStatusCode.NotFound)
-        {
-            _logger.LogInformation("Document/View: entry {EntryId} has no electronic document.", entryId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Document/View: failed to inspect edoc for entry {EntryId}.", entryId);
-            return View("View", model with
-            {
-                ErrorMessage = UserFacingError(ex, "check electronic-document availability")
-            });
-        }
-
-        // When no electronic file is present, always ask Laserfiche for image pages.
-        // Some API responses omit PageCount even though page metadata/images exist.
-        if (!model.HasElectronicDocument)
-        {
-            try
-            {
-                var pages = await _documentService
-                    .GetDocumentPagesAsync(entryId, cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (pages.Count == 0 && entry.PageCount is > 0)
-                    pages = BuildPageFallback(entry.PageCount.Value);
-
-                model = model with { Pages = pages };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "Document/View: page list unavailable for entry {EntryId}.", entryId);
-
-                if (entry.PageCount is > 0)
-                    model = model with { Pages = BuildPageFallback(entry.PageCount.Value) };
-            }
-        }
+            ReturnUrl = model.ReturnUrl, Fields = model.Fields,
+            FieldsError = model.FieldsError, Path = model.Path
+        };
 
         return View("View", model);
+    }
+
+    // Loaded independently after archive metadata so a slow image does not block the drawer.
+    public async Task<IActionResult> Preview(int entryId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var entry = await GetDocumentEntryOrNullAsync(entryId, cancellationToken);
+            if (entry is null) return NotFound();
+            var model = await DocumentPreviewResolver.ResolveAsync(
+                _documentService, entry, _logger, cancellationToken);
+            return PartialView("_Preview", model);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Archive preview failed for entry {EntryId}.", entryId);
+            return PartialView("_Preview", new DocumentViewModel
+            {
+                PreviewError = "تعذر تحميل معاينة الوثيقة. أعد المحاولة."
+            });
+        }
     }
 
     // GET /Document/Content/{entryId}
@@ -171,7 +146,11 @@ public sealed class DocumentController : Controller
             }
 
             Response.Headers.ContentDisposition = "inline";
-            return File(edoc.Content, edoc.ContentType, enableRangeProcessing: false);
+            // Native PDF readers issue byte-range requests. A seekable, complete
+            // response also prevents a late upstream failure producing a broken PDF.
+            var content = await BrowserPreviewContent.BufferForPreviewAsync(edoc, cancellationToken);
+            edoc = null; // BufferForPreviewAsync disposed the upstream owner.
+            return File(content.Content, content.ContentType, enableRangeProcessing: true);
         }
         catch (LaserficheException ex) when (ex.StatusCode == (int)HttpStatusCode.NotFound)
         {

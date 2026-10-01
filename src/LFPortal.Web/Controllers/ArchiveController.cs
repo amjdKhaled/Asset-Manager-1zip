@@ -171,8 +171,12 @@ public sealed class ArchiveController : Controller
             .ToList()
             .AsReadOnly();
 
+        var repository = await _repositoryContext.GetActiveRepositoryAsync(cancellationToken);
+        var webClientBase = BuildWebClientBaseUrl(repository.ServerUrl, repository.RepositoryId);
         return View(new ArchiveViewModel
         {
+            LaserficheWebClientUrl = webClientBase,
+            LaserficheWebClientEntryUrlPrefix = $"{webClientBase}id=",
             CurrentEntryId = entryId,
             CurrentName    = currentName,
             Trail          = trail,

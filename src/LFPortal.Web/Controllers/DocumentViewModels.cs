@@ -28,6 +28,7 @@ public sealed record DocumentViewModel
     /// </summary>
     public bool HasLaserfichePages => Entry?.PageCount is > 0;
 
+    public string? PreviewError { get; init; }
     public string? ErrorMessage { get; init; }
 
     public bool IsInlineElectronicDocument =>

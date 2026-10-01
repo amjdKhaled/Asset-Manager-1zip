@@ -172,6 +172,27 @@ public sealed class LaserficheDocumentPreviewTests
         Assert.Equal(bytes, copy.ToArray());
     }
 
+    [Fact]
+    public async Task V1MissingPageRoute_TriesDocumentedV2OnSameServer()
+    {
+        var png = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent([137, 80, 78, 71, 13, 10, 26, 10, 1])
+        };
+        var handler = new QueueHandler(new HttpResponseMessage(HttpStatusCode.NotFound), png);
+        using var result = await CreateService(handler, "v1").GetPageImageAsync(42, 1);
+        Assert.Equal("image/png", result.ContentType);
+        Assert.EndsWith("/v2/Repositories/Documents/Entries/42/Document/Pages/1/Image", handler.Requests[1].Url);
+    }
+
+    [Fact]
+    public async Task TextOnlyPages_AreExcludedFromImageList()
+    {
+        var handler = new QueueHandler(Json("{\"value\":[{\"pageNumber\":1,\"hasImage\":false},{\"pageNumber\":2,\"hasImage\":true}]}"));
+        var pages = await CreateService(handler).GetDocumentPagesAsync(42);
+        Assert.Equal(2, Assert.Single(pages).PageNumber);
+    }
+
     private sealed class OneByteStream(byte[] bytes) : MemoryStream(bytes)
     {
         public override bool CanSeek => false;

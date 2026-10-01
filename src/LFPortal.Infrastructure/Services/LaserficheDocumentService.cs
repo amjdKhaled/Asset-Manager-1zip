@@ -66,7 +66,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
             }
 
             apiPage++;
-            using var response = await client.GetAsync(nextUrl, cancellationToken).ConfigureAwait(false);
+            using var response = await GetPageResponseAsync(client, nextUrl, cancellationToken).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
@@ -87,7 +87,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         }
 
         return pages
-            .Where(p => p.PageNumber > 0)
+            .Where(p => p.PageNumber > 0 && p.HasImage != false)
             .GroupBy(p => p.PageNumber)
             .Select(g => g.Last())
             .OrderBy(p => p.PageNumber)
@@ -200,9 +200,7 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
         var url = _adapter.BuildPageImageUrl(repo.RepositoryId, entryId, pageNumber);
 
         var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
-        var response = await client
-            .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-            .ConfigureAwait(false);
+        var response = await GetPageResponseAsync(client, url, cancellationToken).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -270,6 +268,29 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
             client.Dispose();
             throw;
         }
+    }
+
+    private async Task<HttpResponseMessage> GetPageResponseAsync(
+        HttpClient client, string url, CancellationToken cancellationToken)
+    {
+        var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+        if (_adapter.ApiVersion.Equals("v1", StringComparison.OrdinalIgnoreCase) &&
+            response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed &&
+            url.Contains("/v1/Repositories/", StringComparison.OrdinalIgnoreCase))
+        {
+            // Image-page retrieval is documented by API v2. Older v1 installations
+            // may not expose the legacy pages route; try v2 on the SAME API server.
+            var versioned = url.Replace("/v1/Repositories/", "/v2/Repositories/", StringComparison.OrdinalIgnoreCase);
+            var entries = versioned.IndexOf("/pages", StringComparison.OrdinalIgnoreCase);
+            if (entries >= 0)
+                versioned = versioned[..entries] + "/Document/Pages" + versioned[(entries + 6)..];
+            versioned = versioned.Replace("/image", "/Image", StringComparison.OrdinalIgnoreCase);
+            response.Dispose();
+            response = await client.GetAsync(versioned, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        return response;
     }
 
     public Task<LFEntry> GetDocumentMetadataAsync(
@@ -574,6 +595,9 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
 
     private sealed record PageResource
     {
+        [JsonPropertyName("hasImage")]
+        public bool? HasImage { get; init; }
+
         [JsonPropertyName("pageNumber")]
         public int PageNumber { get; init; }
 

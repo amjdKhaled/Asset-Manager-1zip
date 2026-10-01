@@ -145,6 +145,15 @@ else if (Model.Entry is {} entry)
 
     }
 
+    @if (isDoc)
+    {
+        <div class="det-section" data-preview-url="@Url.Action("Preview", "Document", new { entryId = entry.Id })"
+             aria-label="معاينة الوثيقة" aria-live="polite">
+            <div class="det-section-lbl">معاينة الوثيقة</div>
+            <div style="padding:36px;text-align:center;color:var(--a-muted)">جاري تحميل المعاينة…</div>
+        </div>
+    }
+
     <!-- Full path -->
     @if (!string.IsNullOrWhiteSpace(entry.FullPath))
     {
