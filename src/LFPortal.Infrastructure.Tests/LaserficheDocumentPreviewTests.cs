@@ -117,7 +117,7 @@ public sealed class LaserficheDocumentPreviewTests
         response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         var handler = new QueueHandler(response);
         using var result = await CreateService(handler, "v1").StreamEdocAsync(619);
-        Assert.Equal("https://lf.test/LFRepositoryAPI/v1/Repositories/test/Entries/619/Laserfiche.Repository.Document/edoc", handler.Requests[0].Url);
+        Assert.Equal("https://lf.test/LFRepositoryAPI/v1/Repositories/Documents/Entries/619/Laserfiche.Repository.Document/edoc", handler.Requests[0].Url);
         Assert.Equal("application/octet-stream", handler.Requests[0].Accept);
         Assert.Equal("application/pdf", result.ContentType);
         using var copy = new MemoryStream();

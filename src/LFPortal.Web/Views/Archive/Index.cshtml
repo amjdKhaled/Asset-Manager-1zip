@@ -51,7 +51,7 @@
 @section Styles {
 <style>
 /* Archive identity follows the dashboard palette. */
-body   { background: #F7F8FD !important; }
+body   { background: #F7F8FD !important; font-family:"IBM Plex Sans Arabic","Segoe UI",Tahoma,Arial,sans-serif; }
 main   { max-width: 1440px !important; padding: 18px 22px !important; }
 footer.site-footer { background: #F7F8FD !important; }
 
@@ -402,12 +402,12 @@ footer.site-footer { background: #F7F8FD !important; }
             @if (Model.IsDrillDown && Model.TotalPages > 1)
             {
                 <nav class="arc-pager" aria-label="Archive result pages">
-                    <a class="arc-page @(Model.PageNumber <= 1 ? "disabled" : "")" href="@BuildPageUrl(Model.PageNumber - 1)">Previous</a>
+                    <a class="arc-page @(Model.PageNumber <= 1 ? "disabled" : "")" href="@BuildPageUrl(Model.PageNumber - 1)">@L["Previous"]</a>
                     @for (var pageNumber = pageWindowStart; pageNumber <= pageWindowEnd; pageNumber++)
                     {
                         <a class="arc-page @(pageNumber == Model.PageNumber ? "active" : "")" href="@BuildPageUrl(pageNumber)">@pageNumber</a>
                     }
-                    <a class="arc-page @(Model.PageNumber >= Model.TotalPages ? "disabled" : "")" href="@BuildPageUrl(Model.PageNumber + 1)">Next</a>
+                    <a class="arc-page @(Model.PageNumber >= Model.TotalPages ? "disabled" : "")" href="@BuildPageUrl(Model.PageNumber + 1)">@L["Next"]</a>
                     <label for="archivePageInput" style="color:var(--a-muted);font-size:.76rem">Page</label>
                     <input id="archivePageInput" class="arc-page-input" type="number" min="1" max="@Model.TotalPages" value="@Model.PageNumber" />
                     <span class="arc-page-total">@(System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ar" ? "إجمالي الصفحات:" : "Total pages:") @Model.TotalPages</span>
