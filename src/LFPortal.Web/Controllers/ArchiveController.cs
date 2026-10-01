@@ -211,7 +211,7 @@ public sealed class ArchiveController : Controller
             TotalCount = totalCount,
             LaserficheWebClientUrl = query.IsTemplateCatalog
                 ? baseUrl
-                : $"{baseUrl}search={Uri.EscapeDataString(query.Expression)}",
+                : $"{baseUrl}search={Uri.EscapeDataString(query.Expression)};view=search",
             LaserficheWebClientEntryUrlPrefix = $"{baseUrl}id="
         };
     }

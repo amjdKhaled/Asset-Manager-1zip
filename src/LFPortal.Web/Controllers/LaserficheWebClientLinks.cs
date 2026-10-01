@@ -17,12 +17,13 @@ public static class LaserficheWebClientLinks
     {
         var origin = ValidateOrigin(serverUrl, webClientOrigin)
             ?? new Uri(serverUrl, UriKind.Absolute).GetLeftPart(UriPartial.Authority);
-        return $"{origin}/Laserfiche/browse.aspx?db={Uri.EscapeDataString(repositoryId)}#?";
+        // Preserve the Web Client route used by the working dashboard drill-down.
+        return $"{origin}/Laserfiche/Browse.aspx?db={Uri.EscapeDataString(repositoryId)}#";
     }
 
     public static string EntrySearch(string serverUrl, string repositoryId, int entryId, string? origin = null)
     {
         if (entryId <= 0) throw new ArgumentOutOfRangeException(nameof(entryId));
-        return BaseUrl(serverUrl, repositoryId, origin) + "search=" + Uri.EscapeDataString($"{{LF:ID={entryId}}}");
+        return BaseUrl(serverUrl, repositoryId, origin) + "search=" + Uri.EscapeDataString($"{{LF:ID={entryId}}}") + ";view=search";
     }
 }
