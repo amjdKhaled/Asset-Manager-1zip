@@ -65,16 +65,28 @@ public sealed class RepositoryAuthenticationFilterTests
     }
 
     [Theory]
-    [InlineData("https://lf.test/LFRepositoryAPI", "http://lf.test/Laserfiche/index.aspx", "http://lf.test")]
+    [InlineData("https://lf.test/LFRepositoryAPI", "http://lf.test/laserfiche/index.aspx", "http://lf.test")]
     [InlineData("https://lf.test", "https://evil.test/Laserfiche", "https://lf.test")]
     public void EntryLink_SearchesExactIdAndPreservesOnlyTrustedWebClientOrigin(string api, string referer, string origin)
     {
         var url = LaserficheWebClientLinks.EntrySearch(api, "Arabic repository", 619, referer);
-        Assert.StartsWith(origin + "/Laserfiche/Browse.aspx?db=Arabic%20repository#search=", url);
+        Assert.StartsWith(origin + "/laserfiche/Browse.aspx?db=Arabic%20repository#search=", url);
         Assert.EndsWith(";view=search", url);
         Assert.DoesNotContain("#?", url);
         Assert.EndsWith("{LF:ID=619};view=search", Uri.UnescapeDataString(url));
         Assert.DoesNotContain("index.aspx", url);
+    }
+
+    [Theory]
+    [InlineData("https://lf.test/laserfiche/index.aspx?db=old#token=secret", "https://lf.test/laserfiche/Browse.aspx")]
+    [InlineData("http://lf.test:8080/LaserFiche/Browse.aspx", "http://lf.test:8080/LaserFiche/Browse.aspx")]
+    [InlineData("https://evil.test/laserfiche/Browse.aspx", null)]
+    [InlineData("https://lf.test/other/login.aspx", null)]
+    public void WebClientAddress_PreservesCookiePathAndRejectsForeignHosts(string candidate, string? expected)
+    {
+        Assert.Equal(expected, LaserficheWebClientLinks.ValidateClientUrl("https://lf.test", candidate));
+        if (expected is not null)
+            Assert.StartsWith(expected + "?db=repo#search=", LaserficheWebClientLinks.EntrySearch("https://lf.test", "repo", 445, candidate));
     }
 
     private static RepositoryAuthenticationFilter Filter(ILaserficheAuthService auth) => new(auth,
