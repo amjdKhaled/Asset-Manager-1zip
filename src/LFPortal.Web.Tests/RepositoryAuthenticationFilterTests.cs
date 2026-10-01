@@ -70,8 +70,10 @@ public sealed class RepositoryAuthenticationFilterTests
     public void EntryLink_SearchesExactIdAndPreservesOnlyTrustedWebClientOrigin(string api, string referer, string origin)
     {
         var url = LaserficheWebClientLinks.EntrySearch(api, "Arabic repository", 619, referer);
-        Assert.StartsWith(origin + "/Laserfiche/browse.aspx?db=Arabic%20repository#?search=", url);
-        Assert.EndsWith("{LF:ID=619}", Uri.UnescapeDataString(url));
+        Assert.StartsWith(origin + "/Laserfiche/Browse.aspx?db=Arabic%20repository#search=", url);
+        Assert.EndsWith(";view=search", url);
+        Assert.DoesNotContain("#?", url);
+        Assert.EndsWith("{LF:ID=619};view=search", Uri.UnescapeDataString(url));
         Assert.DoesNotContain("index.aspx", url);
     }
 
