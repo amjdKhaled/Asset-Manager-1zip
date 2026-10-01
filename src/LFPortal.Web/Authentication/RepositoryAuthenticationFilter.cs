@@ -43,6 +43,7 @@ public sealed class RepositoryAuthenticationFilter(
         catch (Exception ex) when (ex is UnauthorizedAccessException or LaserficheException { StatusCode: 401 })
         {
             logger.LogInformation("Dashboard repository session expired; returning to sign-in.");
+            http.Session.SetString("InteractiveSessionExpired", "true");
             http.Session.Remove("AuthenticatedRepositoryId");
             http.Session.Remove("AuthenticatedLaserficheUser");
             await http.SignOutAsync(DashboardAuthenticationDefaults.Scheme);

@@ -96,6 +96,7 @@ public sealed class SessionAuthGuardMiddleware
         // retain the legacy direct-open behavior.
         var authenticationMode = _options.CurrentValue.AuthenticationMode;
         var mustAuthenticate =
+            context.Session.GetString("InteractiveSessionExpired") == "true" ||
             authenticationMode == LaserficheAuthenticationMode.RepositoryPassword ||
             string.Equals(source, RepositorySessionMiddleware.SourceDesktop,
                 StringComparison.OrdinalIgnoreCase) ||
@@ -189,6 +190,7 @@ public sealed class SessionAuthGuardMiddleware
     }
 
     private static bool IsExcluded(PathString path) =>
+        path.StartsWithSegments("/Archive/OpenInLaserfiche", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/Launch",   StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/Login",    StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/Share",    StringComparison.OrdinalIgnoreCase) ||

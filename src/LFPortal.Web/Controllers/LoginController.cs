@@ -205,6 +205,8 @@ public sealed class LoginController : Controller
                 $"Unable to sign in to {repoId}. Check the username and password."));
         }
 
+        HttpContext.Session.Remove("InteractiveSessionExpired");
+
         // ── Authentication succeeded ──────────────────────────────────────────
 
         // Direct Repository API password login deliberately retains only the token
@@ -710,6 +712,7 @@ public sealed class LoginController : Controller
         string repositoryId,
         string authenticationMethod)
     {
+        HttpContext.Session.Remove("InteractiveSessionExpired");
         var claims = new List<Claim>
         {
             new Claim(DashboardAuthenticationDefaults.RepositoryClaimType, repositoryId),

@@ -52,6 +52,28 @@ public sealed class SessionAuthGuardMiddlewareTests
         Assert.DoesNotContain("%2FArchive%2FDetail", body);
     }
 
+    [Fact]
+    public async Task ExpiredInteractiveLogin_NeverFallsThroughToLegacyFallbackAccount()
+    {
+        var middleware = MakeMiddleware(ssoConfigured: false);
+        var context = MakeContext(path: "/Archive", source: "Laserfiche Web Client", activeRepoId: "TestEmployee");
+        context.Session.SetString("InteractiveSessionExpired", "true");
+        await middleware.InvokeAsync(context);
+        Assert.StartsWith("/Login?returnUrl=", context.Response.Headers.Location.ToString());
+    }
+
+    [Fact]
+    public async Task WebClientNavigation_RemainsAvailableWithoutPortalCookie()
+    {
+        var called = false;
+        var middleware = MakeMiddleware(authenticationMode: LaserficheAuthenticationMode.RepositoryPassword,
+            next: _ => { called = true; return Task.CompletedTask; });
+        var context = MakeContext(path: "/Archive/OpenInLaserfiche", activeRepoId: "TestEmployee");
+        await middleware.InvokeAsync(context);
+        Assert.True(called);
+        Assert.Empty(context.Response.Headers.Location.ToString());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static SessionAuthGuardMiddleware MakeMiddleware(
