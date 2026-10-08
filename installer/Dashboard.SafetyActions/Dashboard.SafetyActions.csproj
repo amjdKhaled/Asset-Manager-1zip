@@ -2,6 +2,8 @@
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
+    <Platform>x64</Platform>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AssemblyName>Dashboard.SafetyActions</AssemblyName>
@@ -14,3 +16,4 @@
     <Content Include="CustomAction.config" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
+

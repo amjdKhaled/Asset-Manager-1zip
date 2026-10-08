@@ -26,13 +26,15 @@ namespace Dashboard.SetupHelper
             if (!Uri.TryCreate(Opt(opts, "url"), UriKind.Absolute, out url) ||
                 (url.Scheme != "http" && url.Scheme != "https") || !string.IsNullOrEmpty(url.UserInfo))
                 throw new IOException("A valid HTTP(S) Dashboard URL without credentials is required.");
-            string source = FindSourceJs();
+            string source = string.IsNullOrWhiteSpace(Opt(opts, "source-js")) ? FindSourceJs() :
+                InstallerFileSafety.FullPath(Opt(opts, "source-js"));
+            InstallerFileSafety.EnsureNoReparsePoints(source);
             string content = File.ReadAllText(source, Encoding.UTF8);
             string escapedUrl = url.AbsoluteUri.TrimEnd('/').Replace("\\", "\\\\").Replace("'", "\\'");
-            string patched = Regex.Replace(content, @"(var DASHBOARD_BASE_URL\s*=\s*)'[^']*'",
+            const string urlPattern = @"(var DASHBOARD_BASE_URL\s*=\s*)'[^']*'";
+            if (!Regex.IsMatch(content, urlPattern)) throw new IOException("The Dashboard URL placeholder was not found.");
+            string patched = Regex.Replace(content, urlPattern,
                 match => match.Groups[1].Value + "'" + escapedUrl + "'");
-            if (patched == content && !content.Contains("var DASHBOARD_BASE_URL"))
-                throw new IOException("The Dashboard URL placeholder was not found.");
 
             byte[] pageBefore = File.ReadAllBytes(page);
             byte[] pageAfter = WebClientText.InsertTag(pageBefore);
@@ -64,6 +66,8 @@ namespace Dashboard.SetupHelper
             byte[] currentJs = File.Exists(js) ? File.ReadAllBytes(js) : null;
             if (!Equal(currentJs, jsBefore)) throw new IOException("The JavaScript changed during setup.");
             InstallerFileSafety.WriteBytesAtomic(js, jsAfter);
+            if (!File.ReadAllBytes(page).SequenceEqual(pageBefore))
+                throw new IOException("Browse.aspx changed during setup; its contents were preserved.");
             InstallerFileSafety.WriteBytesAtomic(page, pageAfter);
             SetupLog.Info("Dashboard Web Client button deployed with a transaction-specific rollback journal.");
             return 0;
@@ -181,3 +185,4 @@ namespace Dashboard.SetupHelper
         }
     }
 }
+

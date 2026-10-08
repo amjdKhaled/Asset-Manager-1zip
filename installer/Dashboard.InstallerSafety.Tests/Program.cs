@@ -46,6 +46,18 @@ try {
     });
     Check("path containment rejects another application's directory", () =>
         Refused(() => InstallerFileSafety.RequireSamePath(Path.Combine(fixture, "Laserfiche"), Path.Combine(fixture, "Dashboard"))));
+    Check("hard-linked files cannot redirect writes into a Laserfiche file", () => {
+        string target = Path.Combine(fixture, "hardlink-outside.txt");
+        string link = Path.Combine(fixture, "hardlink-dashboard.txt");
+        File.WriteAllText(target, "Laserfiche hard-link sentinel");
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe", "/c mklink /H \"" + link + "\" \"" + target + "\"")
+            { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true })!;
+        process.WaitForExit();
+        Require(process.ExitCode == 0);
+        Refused(() => InstallerFileSafety.EnsureNoReparsePoints(link));
+        Require(File.ReadAllText(target) == "Laserfiche hard-link sentinel");
+        File.Delete(link);
+    });
     Check("reparse point and ancestor junction are refused without changing outside files", () => {
         string outside = Path.Combine(fixture, "Laserfiche");
         Directory.CreateDirectory(outside);
@@ -108,3 +120,4 @@ try {
     // Only the isolated, randomly named test fixture after junctions are unlinked.
     Directory.Delete(fixture, true);
 }
+

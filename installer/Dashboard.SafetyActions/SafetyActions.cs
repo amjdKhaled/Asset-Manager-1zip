@@ -74,7 +74,29 @@ namespace Dashboard.SafetyActions
                 string config = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
                     "System32", "inetsrv", "config", "applicationHost.config");
                 InstallerFileSafety.EnsureNoReparsePoints(config);
-                if (File.Exists(config)) IisIsolation.Validate(XDocument.Load(config), Path.Combine(root, "WebApp"));
+                XDocument? iis = File.Exists(config) ? XDocument.Load(config) : null;
+                if (iis != null) IisIsolation.Validate(iis, Path.Combine(root, "WebApp"));
+                if (!session["REMOVE"].Split(',').Any(x => string.Equals(x, "ALL", StringComparison.OrdinalIgnoreCase)))
+                {
+                    // Resolve before IIS is re-authored, so direct repair preserves
+                    // the currently installed port instead of silently resetting it.
+                    string portText = session["DASHBOARD_PORT"];
+                    if (string.IsNullOrWhiteSpace(portText) && iis != null)
+                    {
+                        var site = iis.Descendants("site").FirstOrDefault(x =>
+                            string.Equals((string)x.Attribute("name"), "Dashboard", StringComparison.OrdinalIgnoreCase));
+                        var binding = site?.Descendants("binding").FirstOrDefault(x => (string)x.Attribute("protocol") == "http");
+                        string bindingInfo = (string?)binding?.Attribute("bindingInformation") ?? "";
+                        int lastColon = bindingInfo.LastIndexOf(':');
+                        int portColon = lastColon > 0 ? bindingInfo.LastIndexOf(':', lastColon - 1) : -1;
+                        if (portColon >= 0) portText = bindingInfo.Substring(portColon + 1, lastColon - portColon - 1);
+                    }
+                    if (string.IsNullOrWhiteSpace(portText)) portText = "5000";
+                    int port;
+                    if (!int.TryParse(portText, out port) || port < 1 || port > 65535)
+                        throw new IOException("Dashboard port must be an integer between 1 and 65535.");
+                    session["DASHBOARD_PORT"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
                 session["DASHBOARD_TRANSACTION_ID"] = Guid.NewGuid().ToString("N");
                 session.Log("Dashboard isolation validated before InstallInitialize; no machine changes made.");
                 return ActionResult.Success;
@@ -93,3 +115,4 @@ namespace Dashboard.SafetyActions
 
     }
 }
+

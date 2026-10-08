@@ -16,6 +16,31 @@ param(
 Set-StrictMode -Version 2
 $ErrorActionPreference = 'Stop'
 
+Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class DashboardDeploymentLinkCheck {
+    [StructLayout(LayoutKind.Sequential)]
+    struct Info {
+        public uint Attributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME Creation, Access, Write;
+        public uint Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
+    }
+    [DllImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetFileInformationByHandle(SafeFileHandle handle, out Info information);
+    public static void Check(string path) {
+        using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
+            Info info;
+            if (!GetFileInformationByHandle(stream.SafeFileHandle, out info) || info.Links > 1)
+                throw new IOException("Refused a hard-linked or unverifiable file: " + path);
+        }
+    }
+}
+'@
+
 function Assert-NoReparse([string] $Path) {
     $current = [IO.Path]::GetFullPath($Path)
     while ($current) {
@@ -41,6 +66,7 @@ function Assert-SafeTree([string] $Root) {
                 throw "Refused a junction or symbolic link: $($item.FullName)"
             }
             if ($item.PSIsContainer) { $pending.Enqueue($item.FullName) }
+            else { [DashboardDeploymentLinkCheck]::Check($item.FullName) }
         }
     }
 }
@@ -126,3 +152,4 @@ try {
     }
 }
 Write-Host "Dashboard updated. Extra destination files were preserved. Publish output: $publish"
+

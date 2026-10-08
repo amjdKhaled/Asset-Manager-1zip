@@ -21,13 +21,16 @@ $sentinelHash = (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash
 function Require-Sentinel {
     if ((Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash -ne $sentinelHash) { throw 'Laserfiche sentinel changed.' }
 }
-function Run-Msi([string[]] $Arguments, [bool] $ExpectSuccess = $true) {
+function Run-Msi([string[]] $Arguments, [bool] $ExpectSuccess = $true, [string] $ExpectedError = '') {
     $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList $Arguments -PassThru
     if (-not $process.WaitForExit(180000)) { throw 'MSI operation exceeded its timeout.' }
     if ($ExpectSuccess -and $process.ExitCode -notin @(0, 3010)) {
         throw "MSI failed: $($process.ExitCode). See artifacts/msi-*.log."
     }
     if (-not $ExpectSuccess -and $process.ExitCode -in @(0, 3010)) { throw 'Unsafe MSI operation was accepted.' }
+    if ($ExpectedError -and (Get-Content -LiteralPath $log -Raw) -notmatch $ExpectedError) {
+        throw 'The refused MSI did not report the expected isolation reason.'
+    }
     Require-Sentinel
 }
 # This fixture tests filesystem/IIS isolation, not whether the web application
@@ -45,7 +48,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not configure unrelated site.' }
 if ($LASTEXITCODE -ne 0) { throw 'Could not create colliding site.' }
 $log = Join-Path $repo 'artifacts\msi-collision.log'
 Run-Msi @('/i', ('"' + $msi + '"'), '/qn', '/norestart', 'ANCMV2PRESENT=1',
-    'INSTALL_DESKTOP_BUTTON=0', '/L*v', ('"' + $log + '"')) $false
+    'INSTALL_DESKTOP_BUTTON=0', '/L*v', ('"' + $log + '"')) $false 'existing IIS site named Dashboard'
 & $appcmd delete site Dashboard
 if ($LASTEXITCODE -ne 0) { throw 'Could not release colliding site.' }
 
@@ -60,11 +63,13 @@ $log = Join-Path $repo 'artifacts\msi-repair.log'
 Run-Msi @('/fa', ('"' + $msi + '"'), '/qn', '/norestart', 'ANCMV2PRESENT=1',
     'INSTALL_DESKTOP_BUTTON=0', '/L*v', ('"' + $log + '"'))
 if ([IO.File]::ReadAllText($unknown) -ne 'unrelated application-folder sentinel') { throw 'Repair changed an unknown file.' }
+$binding = & $appcmd list site Dashboard /text:bindings
+if ($LASTEXITCODE -ne 0 -or "$binding" -notmatch ':54323:') { throw 'Repair did not preserve the selected Dashboard port.' }
 
 & $appcmd set app 'LaserficheSentinel/' /applicationPool:Dashboard
 if ($LASTEXITCODE -ne 0) { throw 'Could not create shared-pool fixture.' }
 $log = Join-Path $repo 'artifacts\msi-shared-pool.log'
-Run-Msi @('/x', ('"' + $msi + '"'), '/qn', '/norestart', '/L*v', ('"' + $log + '"')) $false
+Run-Msi @('/x', ('"' + $msi + '"'), '/qn', '/norestart', '/L*v', ('"' + $log + '"')) $false 'app pool is used by another IIS site'
 if (-not (Test-Path -LiteralPath (Join-Path $root 'WebApp\LFPortal.Web.dll'))) { throw 'Refused removal deleted the application.' }
 & $appcmd set app 'LaserficheSentinel/' /applicationPool:LaserficheSentinel
 if ($LASTEXITCODE -ne 0) { throw 'Could not release shared-pool fixture.' }

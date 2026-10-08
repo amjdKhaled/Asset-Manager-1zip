@@ -149,13 +149,15 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
       <ComponentGroupRef Id="IisComponents" />
       <ComponentGroupRef Id="ConfigComponents" />
       <ComponentGroupRef Id="ShortcutComponents" />
+      <!-- SetupHelper is required even when Desktop button registration is disabled. -->
+      <ComponentGroupRef Id="ExtensionComponents" />
 
       <Feature Id="FeatureExtension"
                Title="Laserfiche Desktop Client Extension"
                Description="Adds a Dashboard button to the Laserfiche Desktop Client toolbar. Requires the Laserfiche Desktop Client to be installed."
                Level="1"
                AllowAdvertise="no">
-        <ComponentGroupRef Id="ExtensionComponents" />
+        <ComponentGroupRef Id="DesktopIntegrationChoice" />
       </Feature>
 
     </Feature>
@@ -526,3 +528,4 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
 
   </Package>
 </Wix>
+
