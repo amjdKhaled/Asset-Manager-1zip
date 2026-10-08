@@ -5,6 +5,117 @@
     var connected = Model.ConnectionStatus?.IsConnected ?? false;
 }
 
+@section Styles {
+<style>
+/* Presentation only: keep the existing form, values and actions unchanged. */
+body { background: #F7F8FD !important; }
+body main {
+    --lfp-bg: #F7F8FD;
+    --lfp-card: #FFFFFF;
+    --lfp-border: #e1e1e1;
+    --lfp-text: #000000;
+    --lfp-muted: #52627a;
+    --lfp-accent: #3B82F6;
+    max-width: 1440px !important;
+    padding: 18px 22px !important;
+    color: var(--lfp-text);
+    line-height: 1.65;
+}
+body main h1 { font-size: 1.8rem !important; font-weight: 700; }
+body main .card {
+    background: #FFFFFF;
+    border: 0;
+    border-radius: 12px;
+    padding: 22px;
+    box-shadow: 1px 1px 10px 1px rgba(0,0,0,.1);
+}
+body main .card__title {
+    color: #000000;
+    font-size: 1rem;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding-bottom: 14px;
+    border-bottom-color: #e1e1e1;
+}
+body main .card__title > span:first-child { min-width: 0; }
+body main .form-section { padding-block: 16px; }
+body main .form-section + .form-section {
+    border-top: 1px solid #eef1f6;
+    margin-top: 8px !important;
+}
+body main .form-section__title {
+    color: #044FC2;
+    font-size: .8rem;
+    letter-spacing: .02em;
+    margin-bottom: 14px;
+}
+body main .settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px 24px;
+}
+body main .field-group { min-width: 0; gap: 8px; }
+body main .field-label { color: #000000; }
+body main .field-input {
+    background: #FFFFFF;
+    color: #000000;
+    border-color: #dbe2ef;
+    border-radius: 8px;
+    min-height: 44px;
+    padding: 10px 12px;
+}
+body main .field-input::placeholder { color: #68768b; opacity: 1; }
+body main .field-input:focus {
+    border-color: #3B82F6;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+}
+body main .field-hint { color: #52627a; line-height: 1.7; overflow-wrap: anywhere; }
+body main .status-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
+}
+body main .status-item {
+    min-width: 0;
+    gap: 6px;
+    padding: 12px;
+    background: #F7F8FD;
+    border-radius: 8px;
+}
+body main .status-item__label { color: #52627a; letter-spacing: .02em; }
+body main .status-item__value { color: #000000; overflow-wrap: anywhere; }
+body main .alert { border-radius: 10px; line-height: 1.7; }
+body main .alert > div { min-width: 0; overflow-wrap: anywhere; }
+body main .alert--info { background: #EEF4FF; color: #00226C; border-color: #d5e3ff; }
+body main .alert--success { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
+body main .alert--error { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+body main .alert--amber { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+body main .badge--green { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+body main .badge--red { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+body main .badge--blue { background: #EEF4FF; color: #044FC2; border-color: #d5e3ff; }
+body main .badge--gray { background: #f1f5f9; color: #52627a; border-color: #dbe2ef; }
+body main .badge--amber { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+body main .btn { border-radius: 8px; }
+body main .btn--primary { background: #044FC2; color: #FFFFFF; border-color: #044FC2; }
+body main .btn--primary:hover { background: #00226C; }
+body main .btn--secondary { background: #FFFFFF; color: #044FC2; border-color: #dbe2ef; }
+body main .btn--secondary:hover { background: #EEF4FF; border-color: #3B82F6; }
+body main .btn:focus-visible,
+body main summary:focus-visible { outline: 2px solid #3B82F6; outline-offset: 3px; }
+body main code { color: #00226C; overflow-wrap: anywhere; }
+body main .alert ul { padding-inline-start: 20px; }
+footer.site-footer { background: #F7F8FD !important; color: #52627a; }
+@@media (max-width: 1100px) {
+    body main .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@@media (max-width: 760px) {
+    body main { width: 100%; padding: 18px 14px !important; }
+    body main .card { padding: 18px; }
+    body main .settings-grid,
+    body main .status-grid { grid-template-columns: minmax(0, 1fr); }
+    body main .settings-grid > .field-group { grid-column: auto !important; }
+}
+</style>
+}
+
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
     <h1 style="font-size:1.5rem;font-weight:700;color:var(--lfp-text);">&#9881;&#65039; @L["Settings"]</h1>
 </div>
