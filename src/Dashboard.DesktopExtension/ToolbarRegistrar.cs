@@ -105,7 +105,11 @@ namespace LFPortal.DesktopExtension
                 using (var toolbarMgr = clientManager.GetToolbarManager(ClientWindowType.Main))
                 {
                     // Create the toolbar that contains our button.
-                    toolbarMgr.AddToolbar(ToolbarName, ToolbarPosition.Top);
+                    bool toolbarExists = false;
+                    for (int i = 0; i < toolbarMgr.GetToolbarCount(); i++)
+                        if (string.Equals(toolbarMgr.GetToolbarName(i), ToolbarName, StringComparison.OrdinalIgnoreCase))
+                            toolbarExists = true;
+                    if (!toolbarExists) toolbarMgr.AddToolbar(ToolbarName, ToolbarPosition.Top);
 
                     // Register the custom button definition.
                     var buttonInfo = new CustomButtonInfo
@@ -190,29 +194,18 @@ namespace LFPortal.DesktopExtension
                 using (var clientManager = new ClientManager())
                 using (var toolbarMgr = clientManager.GetToolbarManager(ClientWindowType.Main))
                 {
-                    // Remove the named toolbar.
-                    int count = toolbarMgr.GetToolbarCount();
-                    for (int i = 0; i < count; i++)
-                    {
-                        if (string.Equals(
-                                toolbarMgr.GetToolbarName(i),
-                                ToolbarName,
-                                StringComparison.OrdinalIgnoreCase))
-                        {
-                            toolbarMgr.DeleteToolbar(ToolbarName);
-                            removed = true;
-                            break;
-                        }
-                    }
-
-                    // Remove any custom button whose command references this executable.
-                    var exeName = Path.GetFileName(Application.ExecutablePath);
+                    // A user may add unrelated buttons to a toolbar named Dashboard.
+                    // Preserve the toolbar; remove only buttons whose executable
+                    // exactly matches THIS installation's extension.
+                    var executable = Path.GetFullPath(Application.ExecutablePath);
                     int btnCount = toolbarMgr.GetCustomToolbarButtonCount();
                     for (int i = btnCount - 1; i >= 0; i--)
                     {
                         var info = toolbarMgr.GetCustomToolbarButton(i);
-                        if (info.Command.IndexOf(exeName,
-                                StringComparison.OrdinalIgnoreCase) >= 0)
+                        string command = info.Command ?? "";
+                        int quoteEnd = command.StartsWith("\"") ? command.IndexOf('"', 1) : -1;
+                        if (quoteEnd > 1 && string.Equals(command.Substring(1, quoteEnd - 1),
+                                executable, StringComparison.OrdinalIgnoreCase))
                         {
                             toolbarMgr.RemoveCustomToolbarButton(i);
                             removed = true;

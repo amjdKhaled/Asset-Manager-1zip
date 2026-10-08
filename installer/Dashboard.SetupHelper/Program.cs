@@ -109,6 +109,10 @@ namespace Dashboard.SetupHelper
                         rc = WebClientAction.Rollback(opts);
                         break;
 
+                    case "--commit-webclient":
+                        rc = WebClientAction.Commit(opts);
+                        break;
+
                     case "--prepare-tls":
                         rc = TlsSetupAction.Execute(opts);
                         break;
@@ -144,6 +148,7 @@ namespace Dashboard.SetupHelper
             "--write-config",
             "--deploy-webclient",
             "--remove-webclient",
+            "--commit-webclient",
             "--rollback-webclient",
             "--prepare-tls",
             "--remove-data",

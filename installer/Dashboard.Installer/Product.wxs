@@ -91,7 +91,7 @@
     </Property>
 
     <Launch
-      Condition="ANCMV2PRESENT"
+      Condition="Installed OR REMOVE~=&quot;ALL&quot; OR ANCMV2PRESENT"
       Message="ASP.NET Core Module V2 (ANCM) for IIS is required but was not found.
 
 Dashboard is self-contained and carries its own .NET runtime, but IIS still
@@ -100,6 +100,14 @@ needs ANCM to host it.  Install the ASP.NET Core Hosting Bundle (any version
 
 Download: https://dotnet.microsoft.com/download/dotnet/8.0
 Choose the &quot;Windows Hosting Bundle&quot; option." />
+
+    <!-- Embedded read-only guard runs before any install/remove/upgrade mutation. -->
+    <Binary Id="DashboardSafetyActions" SourceFile="$(var.SafetyActionsPath)" />
+    <CustomAction Id="ValidateDashboardIsolation"
+                  BinaryRef="DashboardSafetyActions"
+                  DllEntry="ValidateDashboardIsolation"
+                  Execute="immediate" Return="check" />
+    <Property Id="DASHBOARD_TRANSACTION_ID" Secure="yes" />
 
     <!-- Directory structure -->
 
@@ -270,12 +278,12 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
         Condition: only when INSTALL_WEB_BUTTON=1 and a path is provided.
 
       RollbackWebClient (rollback):
-        Restores Browse.aspx from the most recent .bak file.
+        Restores only unchanged files from this MSI transaction journal.
         Fires automatically if DeployWebClient ran and a later CA fails.
         Return=ignore: best-effort rollback.
 
       RemoveWebClient:
-        Removes the Dashboard script tag from Browse.aspx on uninstall.
+        Retained for compatibility; Laserfiche Web Client files are preserved.
         Return=ignore: optional cleanup; if Browse.aspx was already removed, skip.
 
       SetAppPoolNoManagedCode:
@@ -338,17 +346,22 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
 
     <CustomAction Id="DeployWebClient"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --deploy-webclient --url "[DASHBOARD_URL]" --path "[LF_WEB_CLIENT_PATH]."'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --deploy-webclient --url "[DASHBOARD_URL]" --path "[LF_WEB_CLIENT_PATH]." --transaction "[DASHBOARD_TRANSACTION_ID]"'
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />
 
     <CustomAction Id="RollbackWebClient"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --rollback-webclient --path "[LF_WEB_CLIENT_PATH]."'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --rollback-webclient --path "[LF_WEB_CLIENT_PATH]." --transaction "[DASHBOARD_TRANSACTION_ID]"'
                   Execute="rollback"
                   Impersonate="no"
                   Return="ignore" />
+
+    <CustomAction Id="CommitWebClient"
+                  Directory="EXTENSIONFOLDER"
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --commit-webclient --transaction "[DASHBOARD_TRANSACTION_ID]"'
+                  Execute="commit" Impersonate="no" Return="ignore" />
 
     <CustomAction Id="RemoveWebClient"
                   Directory="EXTENSIONFOLDER"
@@ -426,11 +439,11 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
         SetAppPoolNoManagedCode   (appcmd: sets managedRuntimeVersion="" on pool)
         WriteConfig               (writes %ProgramData%\Dashboard\ config files)
         RegisterExtension         (registers the Desktop Client toolbar button)
-        RollbackWebClient         (rollback CA: restores Browse.aspx if later step fails)
+        RollbackWebClient         (restores unchanged transaction-owned changes only)
         DeployWebClient           (patches Browse.aspx; conditioned on wizard choice)
 
       On uninstall (REMOVE~="ALL"):
-        RemoveWebClient           (strips Dashboard tag from Browse.aspx)
+        Web Client files          (preserved without running a removal action)
         UnregisterExtension       (removes toolbar button registration)
         RemoveFiles               (MSI built-in: deletes installed files)
 
@@ -440,6 +453,7 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
       by double-quotes.
     -->
     <InstallExecuteSequence>
+      <Custom Action="ValidateDashboardIsolation" Before="InstallInitialize" Condition="1" />
       <!--
         SetAppPoolNoManagedCode + SetIisBindingPort both run Before="InstallFinalize".
 
@@ -461,7 +475,7 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="SetIisBindingPort"
               Before="InstallFinalize"
-              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+              Condition="NOT REMOVE~=&quot;ALL&quot; AND DASHBOARD_PORT&lt;&gt;&quot;&quot;" />
 
       <!-- Install / Upgrade actions -->
       <!--
@@ -478,12 +492,15 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="RegisterExtension"
               After="WriteConfig"
-              Condition="NOT REMOVE~=&quot;ALL&quot; AND INSTALL_DESKTOP_BUTTON=&quot;1&quot;" />
+              Condition="NOT REMOVE~=&quot;ALL&quot; AND INSTALL_DESKTOP_BUTTON=&quot;1&quot; AND &amp;FeatureExtension=3" />
       <Custom Action="RollbackWebClient"
               After="RegisterExtension"
-              Condition="NOT REMOVE~=&quot;ALL&quot;" />
-      <Custom Action="DeployWebClient"
+              Condition="NOT REMOVE~=&quot;ALL&quot; AND INSTALL_WEB_BUTTON=&quot;1&quot; AND LF_WEB_CLIENT_PATH&lt;&gt;&quot;&quot;" />
+      <Custom Action="CommitWebClient"
               After="RollbackWebClient"
+              Condition="NOT REMOVE~=&quot;ALL&quot; AND INSTALL_WEB_BUTTON=&quot;1&quot; AND LF_WEB_CLIENT_PATH&lt;&gt;&quot;&quot;" />
+      <Custom Action="DeployWebClient"
+              After="CommitWebClient"
               Condition="NOT REMOVE~=&quot;ALL&quot; AND INSTALL_WEB_BUTTON=&quot;1&quot; AND LF_WEB_CLIENT_PATH&lt;&gt;&quot;&quot;" />
 
       <!-- Uninstall actions -->
@@ -492,12 +509,10 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
         button when this product is being removed as part of an upgrade: the
         replacing product owns the button from that point on.
       -->
-      <Custom Action="RemoveWebClient"
-              Before="UnregisterExtension"
-              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND LF_WEB_CLIENT_PATH&lt;&gt;&quot;&quot;" />
+      <!-- Web Client files are deliberately preserved on uninstall. -->
       <Custom Action="UnregisterExtension"
               Before="RemoveFiles"
-              Condition="REMOVE~=&quot;ALL&quot;" />
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND !FeatureExtension=3 AND &amp;FeatureExtension=2" />
       <Custom Action="RemoveUserData"
               After="StopDashboardAppPool"
               Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND REMOVE_USER_DATA=&quot;1&quot;" />

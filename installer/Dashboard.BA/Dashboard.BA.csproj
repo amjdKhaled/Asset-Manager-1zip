@@ -110,4 +110,7 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Dashboard.SetupHelper\InstallerFileSafety.cs" Link="InstallerFileSafety.cs" />
+  </ItemGroup>
 </Project>

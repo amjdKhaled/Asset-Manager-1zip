@@ -60,6 +60,7 @@
   -->
   <PropertyGroup>
     <DefineConstants>PublishDir=$(WebAppStagingDir)</DefineConstants>
+    <DefineConstants>$(DefineConstants);SafetyActionsPath=$(MSBuildThisFileDirectory)..\Dashboard.SafetyActions\bin\Release\net48\Dashboard.SafetyActions.CA.dll</DefineConstants>
     <DefineConstants>$(DefineConstants);ExtensionDir=$(ExtStagingDir)</DefineConstants>
     <DefineConstants>$(DefineConstants);ConfigTemplateDir=$(CfgTemplateStagingDir)</DefineConstants>
     <DefineConstants>$(DefineConstants);ProductVersion=$(ProductVersion)</DefineConstants>
@@ -118,4 +119,7 @@
     <EmbeddedResource Include="Dialog.bmp"  Condition="Exists('Dialog.bmp')" />
   </ItemGroup>
 
+  <Target Name="BuildSafetyActions" BeforeTargets="BeforeBuild">
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\Dashboard.SafetyActions\Dashboard.SafetyActions.csproj" Targets="Restore;Build" Properties="Configuration=Release" />
+  </Target>
 </Project>

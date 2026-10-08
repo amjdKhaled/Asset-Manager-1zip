@@ -31,7 +31,7 @@
 
   <!--
     Physical install root.  Web app and extension go into sub-folders.
-    Override at install time:  msiexec /i Dashboard-Setup.msi INSTALLFOLDER="D:\Apps\Dashboard\"
+    The isolation guard restricts installation to the dedicated Program Files Dashboard folder.
   -->
   <?define InstallFolderName = "Dashboard" ?>
 
