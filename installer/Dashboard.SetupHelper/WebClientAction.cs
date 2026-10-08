@@ -131,25 +131,7 @@ namespace Dashboard.SetupHelper
 
         private static string JournalPath(Dictionary<string, string> opts)
         {
-            Guid transaction;
-            if (!Guid.TryParseExact(Opt(opts, "transaction"), "N", out transaction))
-                throw new IOException("A transaction identifier is required; rollback never guesses a backup.");
-            string directory = Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.CommonApplicationData), "Dashboard", "installer-transactions");
-            InstallerFileSafety.EnsureNoReparsePoints(directory);
-            Directory.CreateDirectory(directory);
-            // Journal contents govern rollback of another product's page. They must
-            // not be editable by the Dashboard worker identity or normal users.
-            var security = new DirectorySecurity();
-            security.SetAccessRuleProtection(true, false);
-            foreach (var sid in new[] { WellKnownSidType.LocalSystemSid, WellKnownSidType.BuiltinAdministratorsSid })
-                security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(sid, null),
-                    FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
-                    PropagationFlags.None, AccessControlType.Allow));
-            Directory.SetAccessControl(directory, security);
-            string path = Path.Combine(directory, transaction.ToString("N") + ".bin");
-            InstallerFileSafety.EnsureNoReparsePoints(path);
-            return path;
+            return InstallerJournal.PathFor(opts, "webclient");
         }
 
         private static void WriteBytes(BinaryWriter writer, byte[] bytes)

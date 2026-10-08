@@ -16,6 +16,7 @@ param(
 Set-StrictMode -Version 2
 $ErrorActionPreference = 'Stop'
 
+if (-not ('DashboardDeploymentLinkCheck' -as [type])) {
 Add-Type -TypeDefinition @'
 using System;
 using System.IO;
@@ -40,6 +41,7 @@ public static class DashboardDeploymentLinkCheck {
     }
 }
 '@
+}
 
 function Assert-NoReparse([string] $Path) {
     $current = [IO.Path]::GetFullPath($Path)

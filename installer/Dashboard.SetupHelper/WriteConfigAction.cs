@@ -36,6 +36,7 @@ namespace Dashboard.SetupHelper
                 (string.IsNullOrEmpty(credentialFile) ? "absent" : "present") +
                 $" port='{portText}' webapp-path='{webAppPath}' config-dir='{configDirOverride}'");
 
+            ConfigTransaction.Begin(opts);
             int port = ResolvePort(portText, webAppPath);
             string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             string dashboardDir = string.IsNullOrEmpty(configDirOverride)
@@ -267,7 +268,7 @@ namespace Dashboard.SetupHelper
                 InstallerFileSafety.EnsureNoReparsePoints(credentialDirectory);
                 Directory.CreateDirectory(credentialDirectory);
                 string destination = Path.Combine(credentialDirectory, HashFilename("default"));
-                InstallerFileSafety.WriteBytesAtomic(destination, encrypted);
+                ConfigTransaction.Write(destination, encrypted);
                 File.Delete(sourcePath);
                 try
                 {
@@ -297,7 +298,7 @@ namespace Dashboard.SetupHelper
 
         private static void WriteUtf8Atomic(string path, string content)
         {
-            InstallerFileSafety.WriteBytesAtomic(path, new UTF8Encoding(false).GetBytes(content));
+            ConfigTransaction.Write(path, new UTF8Encoding(false).GetBytes(content));
         }
 
         private static void SplitFullApiUrl(string fullApiUrl, out string serverUrl, out string apiBasePath)
@@ -344,3 +345,4 @@ namespace Dashboard.SetupHelper
         }
     }
 }
+

@@ -315,7 +315,7 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
     -->
     <CustomAction Id="WriteConfig"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --server-url "[LF_SERVER_URL]" --api-base-path "[LF_API_BASE_PATH]" --api-version "[LF_API_VERSION]" --repo-id "[LF_REPO_ID]" --display-name "[LF_DISPLAY_NAME]" --root-entry-id "[LF_ROOT_ENTRY_ID]" --timeout-seconds "[LF_TIMEOUT_SECONDS]" --credential-file "[CREDENTIAL_IMPORT_PATH]" --port "[DASHBOARD_PORT]" --webapp-path "[WEBAPPFOLDER]."'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --write-config --url "[DASHBOARD_URL]" --lf-api "[LF_API_URL]" --server-url "[LF_SERVER_URL]" --api-base-path "[LF_API_BASE_PATH]" --api-version "[LF_API_VERSION]" --repo-id "[LF_REPO_ID]" --display-name "[LF_DISPLAY_NAME]" --root-entry-id "[LF_ROOT_ENTRY_ID]" --timeout-seconds "[LF_TIMEOUT_SECONDS]" --credential-file "[CREDENTIAL_IMPORT_PATH]" --port "[DASHBOARD_PORT]" --webapp-path "[WEBAPPFOLDER]." --transaction "[DASHBOARD_TRANSACTION_ID]"'
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />
@@ -339,6 +339,15 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
       logged to SetupHelper.log with the [TLS SETUP] prefix. A missing or
       unreachable API must never roll back the whole installation.
     -->
+    <CustomAction Id="RollbackConfig"
+                  Directory="EXTENSIONFOLDER"
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --rollback-config --transaction "[DASHBOARD_TRANSACTION_ID]"'
+                  Execute="rollback" Impersonate="no" Return="ignore" />
+    <CustomAction Id="CommitConfig"
+                  Directory="EXTENSIONFOLDER"
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --commit-config --transaction "[DASHBOARD_TRANSACTION_ID]"'
+                  Execute="commit" Impersonate="no" Return="ignore" />
+
     <CustomAction Id="PrepareTls"
                   Directory="EXTENSIONFOLDER"
                   ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --prepare-tls --lf-api "[LF_API_URL]" --trust-selfsigned "[TRUST_LF_CERT]"'
@@ -381,14 +390,14 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
 
     <CustomAction Id="StopDashboardSite"
                   Directory="WEBAPPFOLDER"
-                  ExeCommand='"[SystemFolder]inetsrv\appcmd.exe" stop site "$(IisSiteName)"'
+                  ExeCommand='"[System64Folder]inetsrv\appcmd.exe" stop site "$(IisSiteName)"'
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />
 
     <CustomAction Id="StopDashboardAppPool"
                   Directory="WEBAPPFOLDER"
-                  ExeCommand='"[SystemFolder]inetsrv\appcmd.exe" stop apppool "$(IisAppPoolName)"'
+                  ExeCommand='"[System64Folder]inetsrv\appcmd.exe" stop apppool "$(IisAppPoolName)"'
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />
@@ -420,17 +429,17 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
     -->
     <CustomAction Id="SetAppPoolNoManagedCode"
                   Directory="WEBAPPFOLDER"
-                  ExeCommand='"[SystemFolder]inetsrv\appcmd.exe" set apppool "$(IisAppPoolName)" /managedRuntimeVersion:""'
+                  ExeCommand='"[System64Folder]inetsrv\appcmd.exe" set apppool "$(IisAppPoolName)" /managedRuntimeVersion:""'
                   Execute="deferred"
                   Impersonate="no"
-                  Return="ignore" />
+                  Return="check" />
 
     <CustomAction Id="SetIisBindingPort"
                   Directory="WEBAPPFOLDER"
-                  ExeCommand='"[SystemFolder]inetsrv\appcmd.exe" set site "$(IisSiteName)" /bindings:"http/*:[DASHBOARD_PORT]:"'
+                  ExeCommand='"[System64Folder]inetsrv\appcmd.exe" set site "$(IisSiteName)" /bindings:"http/*:[DASHBOARD_PORT]:"'
                   Execute="deferred"
                   Impersonate="no"
-                  Return="ignore" />
+                  Return="check" />
 
     <!--
       Install execute sequence.
@@ -489,8 +498,10 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
       <Custom Action="PrepareTls"
               After="InstallFiles"
               Condition="NOT REMOVE~=&quot;ALL&quot; AND LF_API_URL&lt;&gt;&quot;&quot;" />
+      <Custom Action="RollbackConfig" After="PrepareTls" Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="CommitConfig" After="RollbackConfig" Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="WriteConfig"
-              After="PrepareTls"
+              After="CommitConfig"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="RegisterExtension"
               After="WriteConfig"

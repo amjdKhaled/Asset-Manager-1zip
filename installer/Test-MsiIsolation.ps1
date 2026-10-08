@@ -54,7 +54,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not release colliding site.' }
 
 $log = Join-Path $repo 'artifacts\msi-install.log'
 Run-Msi @('/i', ('"' + $msi + '"'), '/qn', '/norestart', 'ANCMV2PRESENT=1',
-    'INSTALL_DESKTOP_BUTTON=0', 'DASHBOARD_PORT=54323', '/L*v', ('"' + $log + '"'))
+    'INSTALL_DESKTOP_BUTTON=0', 'DASHBOARD_PORT=54323', 'DASHBOARD_URL=http://localhost:54323',
+    'ADDLOCAL=FeatureWebApp', '/L*v', ('"' + $log + '"'))
+if (-not (Test-Path -LiteralPath (Join-Path $root 'Extension\Dashboard.SetupHelper.exe'))) {
+    throw 'Core installation without the Desktop feature is missing SetupHelper.'
+}
 $unknown = Join-Path $root 'WebApp\unrelated-document.txt'
 [IO.File]::WriteAllText($unknown, 'unrelated application-folder sentinel')
 $unknownData = Join-Path $data 'unrelated-document.txt'
@@ -65,6 +69,23 @@ Run-Msi @('/fa', ('"' + $msi + '"'), '/qn', '/norestart', 'ANCMV2PRESENT=1',
 if ([IO.File]::ReadAllText($unknown) -ne 'unrelated application-folder sentinel') { throw 'Repair changed an unknown file.' }
 $binding = & $appcmd list site Dashboard /text:bindings
 if ($LASTEXITCODE -ne 0 -or "$binding" -notmatch ':54323:') { throw 'Repair did not preserve the selected Dashboard port.' }
+
+# A late deferred failure must roll back settings already written by setup.
+$extensionConfig = Join-Path $data 'extension.config.json'
+$configHash = (Get-FileHash -LiteralPath $extensionConfig -Algorithm SHA256).Hash
+$badPage = Join-Path $outside 'Browse.aspx'
+[IO.File]::WriteAllText($badPage, '<body>Unrelated Laserfiche page without a head anchor</body>')
+$badPageHash = (Get-FileHash -LiteralPath $badPage -Algorithm SHA256).Hash
+$log = Join-Path $repo 'artifacts\msi-failed-repair.log'
+Run-Msi @('/fa', ('"' + $msi + '"'), '/qn', '/norestart', 'ANCMV2PRESENT=1',
+    'INSTALL_DESKTOP_BUTTON=0', 'DASHBOARD_URL=http://localhost:54324', 'INSTALL_WEB_BUTTON=1',
+    ('LF_WEB_CLIENT_PATH="' + $outside + '"'), '/L*v', ('"' + $log + '"')) $false 'Action ended .*DeployWebClient.*Return value 3'
+if ((Get-FileHash -LiteralPath $extensionConfig -Algorithm SHA256).Hash -ne $configHash) {
+    throw 'Failed repair did not restore the prior Dashboard settings.'
+}
+if ((Get-FileHash -LiteralPath $badPage -Algorithm SHA256).Hash -ne $badPageHash) {
+    throw 'Failed repair changed an unrelated Laserfiche page.'
+}
 
 & $appcmd set app 'LaserficheSentinel/' /applicationPool:Dashboard
 if ($LASTEXITCODE -ne 0) { throw 'Could not create shared-pool fixture.' }
