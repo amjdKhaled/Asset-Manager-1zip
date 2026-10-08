@@ -77,7 +77,7 @@ $badPage = Join-Path $outside 'Browse.aspx'
 [IO.File]::WriteAllText($badPage, '<body>Unrelated Laserfiche page without a head anchor</body>')
 $badPageHash = (Get-FileHash -LiteralPath $badPage -Algorithm SHA256).Hash
 $log = Join-Path $repo 'artifacts\msi-failed-repair.log'
-Run-Msi @('/fa', ('"' + $msi + '"'), '/qn', '/norestart', 'ANCMV2PRESENT=1',
+Run-Msi @('/i', ('"' + $msi + '"'), '/qn', '/norestart', 'ANCMV2PRESENT=1', 'REINSTALL=ALL', 'REINSTALLMODE=amus',
     'INSTALL_DESKTOP_BUTTON=0', 'DASHBOARD_URL=http://localhost:54324', 'INSTALL_WEB_BUTTON=1',
     ('LF_WEB_CLIENT_PATH="' + $outside + '"'), '/L*v', ('"' + $log + '"')) $false 'Action ended .*DeployWebClient.*Return value 3'
 if ((Get-FileHash -LiteralPath $extensionConfig -Algorithm SHA256).Hash -ne $configHash) {

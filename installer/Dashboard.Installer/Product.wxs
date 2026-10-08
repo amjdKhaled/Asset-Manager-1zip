@@ -208,8 +208,8 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
     <!-- Contains only the path of a temporary machine-DPAPI encrypted file. -->
     <Property Id="CREDENTIAL_IMPORT_PATH"  Secure="yes" Hidden="yes" />
     <Property Id="LF_WEB_CLIENT_PATH"     Secure="yes" />
-    <Property Id="INSTALL_DESKTOP_BUTTON" Value="1" />
-    <Property Id="INSTALL_WEB_BUTTON"     Value="0" />
+    <Property Id="INSTALL_DESKTOP_BUTTON" Value="1" Secure="yes" />
+    <Property Id="INSTALL_WEB_BUTTON"     Value="0" Secure="yes" />
     <!--
       DASHBOARD_PORT: the TCP port selected by the wizard.
       INTENTIONALLY NO DEFAULT: when the property is empty (direct-MSI repair /
