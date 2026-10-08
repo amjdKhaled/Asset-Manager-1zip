@@ -150,7 +150,7 @@ try {
 } finally {
     if ($wasStarted) {
         & $appcmd start apppool /apppool.name:Dashboard
-        if ($LASTEXITCODE -ne 0) { Write-Warning 'The Dashboard app pool could not be restarted; check IIS.' }
+        if ($LASTEXITCODE -ne 0) { throw 'The Dashboard app pool could not be restarted; check IIS.' }
     }
 }
 Write-Host "Dashboard updated. Extra destination files were preserved. Publish output: $publish"

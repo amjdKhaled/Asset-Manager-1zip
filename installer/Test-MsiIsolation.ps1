@@ -87,6 +87,32 @@ if ((Get-FileHash -LiteralPath $badPage -Algorithm SHA256).Hash -ne $badPageHash
     throw 'Failed repair changed an unrelated Laserfiche page.'
 }
 
+# Repackage the same tested payload with a new ProductCode/PackageCode to
+# exercise the real MajorUpgrade sequence and same-version upgrade behavior.
+$upgradeMsi = Join-Path $repo 'artifacts\Dashboard-Upgrade-Isolation.msi'
+[IO.File]::Copy($msi, $upgradeMsi, $true)
+$installer = New-Object -ComObject WindowsInstaller.Installer
+$database = $installer.OpenDatabase($upgradeMsi, 1)
+$view = $database.OpenView("UPDATE ``Property`` SET ``Value`` = '{" + [Guid]::NewGuid().ToString().ToUpperInvariant() + "}' WHERE ``Property`` = 'ProductCode'")
+$view.Execute()
+$view.Close()
+$database.Commit()
+[Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) | Out-Null
+[Runtime.InteropServices.Marshal]::FinalReleaseComObject($database) | Out-Null
+$summary = $installer.SummaryInformation($upgradeMsi, 20)
+$summary.GetType().InvokeMember('Property', [Reflection.BindingFlags]::SetProperty, $null, $summary,
+    @(9, ('{' + [Guid]::NewGuid().ToString().ToUpperInvariant() + '}'))) | Out-Null
+$summary.Persist()
+[Runtime.InteropServices.Marshal]::FinalReleaseComObject($summary) | Out-Null
+[Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer) | Out-Null
+$log = Join-Path $repo 'artifacts\msi-upgrade.log'
+Run-Msi @('/i', ('"' + $upgradeMsi + '"'), '/qn', '/norestart', 'ANCMV2PRESENT=1',
+    'INSTALL_DESKTOP_BUTTON=0', '/L*v', ('"' + $log + '"'))
+if ([IO.File]::ReadAllText($unknown) -ne 'unrelated application-folder sentinel') { throw 'Upgrade changed an unknown application file.' }
+if ([IO.File]::ReadAllText($unknownData) -ne 'unrelated data-folder sentinel') { throw 'Upgrade changed an unknown data file.' }
+if ((Get-FileHash -LiteralPath $extensionConfig -Algorithm SHA256).Hash -ne $configHash) { throw 'Upgrade changed saved Dashboard configuration.' }
+$msi = $upgradeMsi
+
 & $appcmd set app 'LaserficheSentinel/' /applicationPool:Dashboard
 if ($LASTEXITCODE -ne 0) { throw 'Could not create shared-pool fixture.' }
 $log = Join-Path $repo 'artifacts\msi-shared-pool.log'
