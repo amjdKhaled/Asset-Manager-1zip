@@ -357,14 +357,14 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
 
     <CustomAction Id="DeployWebClient"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --deploy-webclient --url "[DASHBOARD_URL]" --path "[LF_WEB_CLIENT_PATH]." --transaction "[DASHBOARD_TRANSACTION_ID]"'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --deploy-webclient --url "[DASHBOARD_URL]" --path "[LF_WEB_CLIENT_PATH]\." --transaction "[DASHBOARD_TRANSACTION_ID]"'
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />
 
     <CustomAction Id="RollbackWebClient"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --rollback-webclient --path "[LF_WEB_CLIENT_PATH]." --transaction "[DASHBOARD_TRANSACTION_ID]"'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --rollback-webclient --path "[LF_WEB_CLIENT_PATH]\." --transaction "[DASHBOARD_TRANSACTION_ID]"'
                   Execute="rollback"
                   Impersonate="no"
                   Return="ignore" />
@@ -376,7 +376,7 @@ Choose the &quot;Windows Hosting Bundle&quot; option." />
 
     <CustomAction Id="RemoveWebClient"
                   Directory="EXTENSIONFOLDER"
-                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --remove-webclient --path "[LF_WEB_CLIENT_PATH]."'
+                  ExeCommand='"[EXTENSIONFOLDER]Dashboard.SetupHelper.exe" --remove-webclient --path "[LF_WEB_CLIENT_PATH]\."'
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />
