@@ -36,11 +36,13 @@ namespace Dashboard.SetupHelper
                 (string.IsNullOrEmpty(credentialFile) ? "absent" : "present") +
                 $" port='{portText}' webapp-path='{webAppPath}' config-dir='{configDirOverride}'");
 
+            ConfigTransaction.Begin(opts);
             int port = ResolvePort(portText, webAppPath);
             string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             string dashboardDir = string.IsNullOrEmpty(configDirOverride)
                 ? Path.Combine(programData, "Dashboard")
                 : configDirOverride;
+            InstallerFileSafety.EnsureNoReparsePoints(dashboardDir);
             Directory.CreateDirectory(dashboardDir);
 
             Console.WriteLine("[SetupHelper] Config directory: " + dashboardDir);
@@ -243,7 +245,15 @@ namespace Dashboard.SetupHelper
             if (!File.Exists(sourcePath))
                 throw new FileNotFoundException("The encrypted credential package was not found.", sourcePath);
 
-            byte[] encrypted = File.ReadAllBytes(sourcePath);
+            string fullSource = Path.GetFullPath(sourcePath);
+            string packageDirectory = Path.GetDirectoryName(fullSource) ?? "";
+            Guid packageId;
+            if (Path.GetFileName(fullSource) != "credentials.dpapi.pending" ||
+                !Guid.TryParseExact(Path.GetFileName(packageDirectory), "N", out packageId) ||
+                Path.GetFileName(Path.GetDirectoryName(packageDirectory)) != "LaserficheDashboardSetup")
+                throw new IOException("Refused an unrecognized credential staging path.");
+            InstallerFileSafety.EnsureNoReparsePoints(fullSource);
+            byte[] encrypted = File.ReadAllBytes(fullSource);
             byte[] plain = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.LocalMachine);
             try
             {
@@ -255,12 +265,10 @@ namespace Dashboard.SetupHelper
                     throw new InvalidDataException("The encrypted credential package is invalid.");
 
                 string credentialDirectory = Path.Combine(dashboardDir, "credentials");
+                InstallerFileSafety.EnsureNoReparsePoints(credentialDirectory);
                 Directory.CreateDirectory(credentialDirectory);
                 string destination = Path.Combine(credentialDirectory, HashFilename("default"));
-                string temporaryDestination = destination + ".new";
-                File.WriteAllBytes(temporaryDestination, encrypted);
-                if (File.Exists(destination)) File.Delete(destination);
-                File.Move(temporaryDestination, destination);
+                ConfigTransaction.Write(destination, encrypted);
                 File.Delete(sourcePath);
                 try
                 {
@@ -290,10 +298,7 @@ namespace Dashboard.SetupHelper
 
         private static void WriteUtf8Atomic(string path, string content)
         {
-            string temporary = path + ".new";
-            File.WriteAllText(temporary, content, new UTF8Encoding(false));
-            if (File.Exists(path)) File.Delete(path);
-            File.Move(temporary, path);
+            ConfigTransaction.Write(path, new UTF8Encoding(false).GetBytes(content));
         }
 
         private static void SplitFullApiUrl(string fullApiUrl, out string serverUrl, out string apiBasePath)
@@ -340,3 +345,4 @@ namespace Dashboard.SetupHelper
         }
     }
 }
+

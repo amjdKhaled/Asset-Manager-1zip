@@ -1796,6 +1796,13 @@ else {
         }
         Write-OK ("Harvested Extension: {0} files -> {1}" -f $extFileCount, $extHarvestWxs)
 
+        # Build the embedded guard; it is available before InstallFiles, even on uninstall.
+        $safetyProject = Join-Path $RepoRoot "installer\Dashboard.SafetyActions\Dashboard.SafetyActions.csproj"
+        Invoke-NativeCommand -Stage "Build installer isolation guard" -FilePath "dotnet" `
+            -Arguments @("build", $safetyProject, "--configuration", "Release")
+        $safetyActionsPath = Join-Path $RepoRoot "installer\Dashboard.SafetyActions\bin\Release\net48\Dashboard.SafetyActions.CA.dll"
+        if (-not (Test-Path -LiteralPath $safetyActionsPath)) { Fail "Embedded installer isolation guard was not built." }
+
         # 8e -- Build the MSI.
         # All source and output paths are absolute (derived from $RepoRoot /
         # $ArtifactsDir) so the build is independent of the current directory.
@@ -1825,6 +1832,7 @@ else {
             "-d",      "ProductVersion=$Version",
             "-d",      "DashboardPort=5000",
             "-d",      "ConfigTemplateDir=$cfgTemplateDir",
+            "-d",      "SafetyActionsPath=$safetyActionsPath",
             "-b",      $installerSrcDir,
             "-intermediatefolder", $msiIntermDir,
             "-pdbtype", "none",

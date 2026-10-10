@@ -964,7 +964,7 @@ namespace Dashboard.BA
             _welcomeHeading.Text = "Laserfiche Dashboard is installed";
             _welcomeBody.Text =
                 "Repair restores application files and integrations while preserving settings. " +
-                "Uninstall removes the application; you can choose whether saved configuration, credentials and logs are also deleted.";
+                "Uninstall removes Dashboard. Optional cleanup removes only known Dashboard settings and credentials; logs, other files and Laserfiche Web Client files are preserved.";
             _headerTitle.Text = "Dashboard maintenance";
             _headerSubtitle.Text = "Repair or remove the existing installation.";
             if (_pageIndex != PAGE_WELCOME) NavigateTo(PAGE_WELCOME);
@@ -1238,7 +1238,7 @@ namespace Dashboard.BA
                 if (_operation == SetupOperation.Uninstall)
                 {
                     _completeDetail.Text = _removeUserData
-                        ? "The application and its saved configuration, credentials and logs were removed."
+                        ? "The application was removed. Cleanup of known Dashboard settings and credentials was requested. Logs, other files and Laserfiche Web Client files were preserved; check the setup log for cleanup failures."
                         : "The application was removed. Saved configuration, credentials and logs were kept for a future reinstall.";
                 }
                 else if (_operation == SetupOperation.Repair)
@@ -1335,14 +1335,14 @@ namespace Dashboard.BA
             };
             var body = new Label
             {
-                Text = "The IIS site, application pool, shortcuts, installed files and client integrations will be removed.",
+                Text = "Dashboard application files, its dedicated IIS site/pool and shortcuts will be removed. Laserfiche Web Client files are preserved.",
                 Location = new Point(24, 56),
                 Size = new Size(450, 46),
                 ForeColor = Muted
             };
             var remove = new CheckBox
             {
-                Text = "Also delete saved configuration, credentials and logs",
+                Text = "Also delete known Dashboard settings and credentials",
                 Location = new Point(24, 112),
                 AutoSize = true,
                 ForeColor = Color.Firebrick

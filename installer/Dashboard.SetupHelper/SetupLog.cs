@@ -33,6 +33,8 @@ namespace Dashboard.SetupHelper
                 string programData = Environment.GetFolderPath(
                     Environment.SpecialFolder.CommonApplicationData);
                 string logDir = Path.Combine(programData, "Dashboard", "Logs");
+                InstallerFileSafety.EnsureNoReparsePoints(logDir);
+                InstallerFileSafety.EnsureNoReparsePoints(Path.Combine(logDir, "SetupHelper.log"));
                 Directory.CreateDirectory(logDir);
                 _logPath = Path.Combine(logDir, "SetupHelper.log");
             }
@@ -86,6 +88,7 @@ namespace Dashboard.SetupHelper
             try
             {
                 string line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] {message}{Environment.NewLine}";
+                InstallerFileSafety.EnsureNoReparsePoints(_logPath);
                 File.AppendAllText(_logPath, line, Encoding.UTF8);
             }
             catch { /* never throw from the logger */ }

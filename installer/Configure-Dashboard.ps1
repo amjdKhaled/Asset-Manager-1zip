@@ -114,12 +114,28 @@ function Test-Url([string]$url) {
     }
 }
 
+function Assert-NoReparse([string] $Path) {
+    $current = [IO.Path]::GetFullPath($Path)
+    while ($current) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Refused a junction or symbolic link: $current"
+            }
+        }
+        $parent = [IO.Path]::GetDirectoryName($current)
+        if ($parent -eq $current) { break }
+        $current = $parent
+    }
+}
+
 function Read-JsonFile([string]$path) {
     # Reads a JSON file and returns a hashtable.
     # Returns an empty hashtable if the file does not exist.
     if (-not (Test-Path $path)) {
         return @{}
     }
+    Assert-NoReparse $path
     $text = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)
     # PowerShell 5.1: ConvertFrom-Json returns a PSCustomObject; convert to hashtable.
     $obj = ConvertFrom-Json -InputObject $text
@@ -130,12 +146,21 @@ function Read-JsonFile([string]$path) {
 
 function Write-JsonFile([string]$path, [hashtable]$data) {
     # Writes a hashtable as indented JSON to the specified path.
+    Assert-NoReparse $path
     $dir = Split-Path $path -Parent
     if ($dir -and -not (Test-Path $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
     $json = ConvertTo-Json -InputObject $data -Depth 10
-    [System.IO.File]::WriteAllText($path, $json, [System.Text.UTF8Encoding]::new($false))
+    $temporary = $path + '.dashboard-' + [Guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        [IO.File]::WriteAllText($temporary, $json, [Text.UTF8Encoding]::new($false))
+        Assert-NoReparse $path
+        if ([IO.File]::Exists($path)) { [IO.File]::Replace($temporary, $path, $null) }
+        else { [IO.File]::Move($temporary, $path) }
+    } finally {
+        if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+    }
 }
 
 # ---------- Resolve ProgramData paths ----------------------------------------
@@ -143,6 +168,7 @@ function Write-JsonFile([string]$path, [hashtable]$data) {
 
 $ProgramData   = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::CommonApplicationData)
 $DashboardData = Join-Path $ProgramData "Dashboard"
+Assert-NoReparse $DashboardData
 $LFConfigPath  = Join-Path $DashboardData "laserfiche.config.json"
 $ExtConfigPath = Join-Path $DashboardData "extension.config.json"
 
@@ -314,3 +340,4 @@ if (-not [string]::IsNullOrWhiteSpace($DashboardUrl)) {
     Write-Host "     .\Deploy-WebClientButton.ps1 -DashboardUrl `"$DashboardUrl`"" -ForegroundColor Gray
 }
 Write-Host ""
+

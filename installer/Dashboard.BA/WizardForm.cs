@@ -1029,7 +1029,7 @@ namespace Dashboard.BA
             {
                 AutoSize = true,
                 Location = new Point(18, 92),
-                Text = "Also delete saved configuration, credentials, and logs"
+                Text = "Also delete known Dashboard settings and credentials"
             };
             var warning = new Label
             {
@@ -1605,7 +1605,7 @@ namespace Dashboard.BA
                 if (_operation == SetupOperation.Uninstall)
                 {
                     _lblCompleteDetail.Text = _removeUserData
-                        ? "Dashboard was removed and full cleanup of saved configuration, credentials, and logs was requested. If a file was locked, check %ProgramData%\\Dashboard after closing related applications.\r\n\r\nClick Finish to close setup."
+                        ? "Dashboard was removed. Cleanup of known Dashboard settings and credentials was requested. Logs, other files and Laserfiche Web Client files were preserved. Check the setup log for cleanup failures.\r\n\r\nClick Finish to close setup."
                         : "Dashboard was removed successfully. Saved configuration, credentials, and logs were kept in %ProgramData%\\Dashboard for a future reinstall.\r\n\r\nClick Finish to close setup.";
                 }
                 else if (_operation == SetupOperation.Repair)

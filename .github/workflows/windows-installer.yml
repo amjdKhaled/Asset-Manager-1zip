@@ -46,9 +46,31 @@ jobs:
           dotnet test LFPortal.sln --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Run installer isolation regression tests
+        shell: powershell
+        run: |
+          dotnet run --project installer/Dashboard.InstallerSafety.Tests --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build and validate installer
         shell: powershell
         run: .\build\publish.ps1
+
+      - name: Exercise Web Client install and rollback in isolated fixtures
+        shell: powershell
+        run: .\installer\Test-WebClientSafety.ps1
+
+      - name: Test MSI lifecycle isolation on disposable Windows runner
+        shell: powershell
+        run: .\installer\Test-MsiIsolation.ps1 -DisposableRunner
+
+      - name: Upload installer test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Installer-isolation-logs-${{ github.sha }}
+          path: artifacts/msi-*.log
+          if-no-files-found: ignore
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
@@ -76,3 +98,4 @@ jobs:
           } else {
             Write-Host "Release files are already current."
           }
+

@@ -52,10 +52,18 @@ namespace Dashboard.BA
             if (string.IsNullOrWhiteSpace(path)) return;
             try
             {
-                if (File.Exists(path)) File.Delete(path);
+                string full = Path.GetFullPath(path);
+                string directoryPath = Path.GetDirectoryName(full) ?? "";
+                Guid packageId;
+                if (Path.GetFileName(full) != "credentials.dpapi.pending" ||
+                    !Guid.TryParseExact(Path.GetFileName(directoryPath), "N", out packageId) ||
+                    Path.GetFileName(Path.GetDirectoryName(directoryPath)) != "LaserficheDashboardSetup")
+                    return;
+                Dashboard.SetupHelper.InstallerFileSafety.EnsureNoReparsePoints(full);
+                if (File.Exists(full)) File.Delete(full);
                 string? directory = Path.GetDirectoryName(path);
                 if (!string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
-                    Directory.Delete(directory, recursive: true);
+                    Directory.Delete(directory, recursive: false);
             }
             catch
             {
