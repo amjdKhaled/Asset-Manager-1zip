@@ -5,6 +5,113 @@
     var connected = Model.ConnectionStatus?.IsConnected ?? false;
 }
 
+@section Styles {
+<style>
+    /* Settings presentation only; shared layout and form behavior are unchanged. */
+    body:has(.settings-page) { background: #F7F8FD; }
+    main:has(> .settings-page) { max-width: 1440px; padding: 18px 22px; }
+    body:has(.settings-page) footer.site-footer { background: #F7F8FD; color: #64748B; }
+
+    .settings-page {
+        --lfp-bg: #F7F8FD;
+        --lfp-card: #FFFFFF;
+        --lfp-border: #E1E1E1;
+        --lfp-text: #000000;
+        --lfp-muted: #64748B;
+        --lfp-accent: #044FC2;
+        --radius: 12px;
+        color: var(--lfp-text);
+        color-scheme: light;
+    }
+    .settings-page > div:first-child h1 { font-size: 1.8rem !important; font-weight: 700; }
+    .settings-page .card {
+        background: #FFFFFF;
+        border: 0;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 1px 1px 10px 1px rgba(0, 0, 0, .1);
+    }
+    .settings-page .card__title {
+        color: #000000;
+        border-bottom-color: #E1E1E1;
+        padding-bottom: 16px;
+        margin-bottom: 20px;
+    }
+    .settings-page .card__title::before {
+        content: "";
+        display: inline-block;
+        width: 4px;
+        height: 18px;
+        margin-inline-end: 8px;
+        border-radius: 4px;
+        background: #3B82F6;
+        vertical-align: middle;
+        flex-shrink: 0;
+    }
+    .settings-page .card__title[style] { justify-content: flex-start !important; }
+    .settings-page .card__title > .badge { margin-inline-start: auto; }
+    .settings-page .status-grid { gap: 16px; }
+    .settings-page .status-item { min-width: 0; gap: 8px; }
+    .settings-page .status-item__label { color: #64748B; letter-spacing: 0; }
+    .settings-page .status-item__value { color: #000000; overflow-wrap: anywhere; }
+    .settings-page .form-section + .form-section {
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid #E1E1E1;
+    }
+    .settings-page .form-section__title {
+        color: #044FC2;
+        font-size: .85rem;
+        letter-spacing: 0;
+        margin-bottom: 16px;
+    }
+    .settings-page .field-label { color: #000000; }
+    .settings-page .field-input {
+        background: #F7F8FD;
+        color: #000000;
+        border: 1px solid #E1E1E1;
+        border-radius: 8px;
+        padding: 11px 12px;
+        min-width: 0;
+    }
+    .settings-page .field-input::placeholder { color: #64748B; opacity: 1; }
+    .settings-page .field-input:focus {
+        border-color: #3B82F6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, .15);
+    }
+    .settings-page .field-hint { color: #64748B; line-height: 1.7; overflow-wrap: anywhere; }
+    .settings-page .field-hint code { color: #044FC2; }
+    .settings-page .btn { border-radius: 8px; }
+    .settings-page .btn--primary { background: #044FC2; border-color: #044FC2; color: #FFFFFF; }
+    .settings-page .btn--primary:hover { background: #0343A5; border-color: #0343A5; }
+    .settings-page .btn--secondary { background: #FFFFFF; border-color: #E1E1E1; color: #000000; }
+    .settings-page .btn--secondary:hover { background: #EDF4FF; border-color: #BFD5FA; }
+    .settings-page .alert { border-radius: 12px; line-height: 1.7; padding: 14px 18px; }
+    .settings-page .alert--info { background: #EDF4FF; color: #1E3A8A; border-color: #C7DBFC; }
+    .settings-page .alert--success { background: #F0FDF4; color: #166534; border-color: #BBF7D0; }
+    .settings-page .alert--error { background: #FEF2F2; color: #991B1B; border-color: #FECACA; }
+    .settings-page .alert--amber { background: #FFFBEB; color: #92400E; border-color: #FDE68A; }
+    .settings-page .badge--green { background: #F0FDF4; color: #15803D; border-color: #BBF7D0; }
+    .settings-page .badge--red { background: #FEF2F2; color: #B91C1C; border-color: #FECACA; }
+    .settings-page .badge--blue { background: #EDF4FF; color: #044FC2; border-color: #C7DBFC; }
+    .settings-page .badge--amber { background: #FFFBEB; color: #92400E; border-color: #FDE68A; }
+    .settings-page .badge--gray { background: #F1F5F9; color: #475569; border-color: #E2E8F0; }
+    .settings-page details > summary { padding: 4px 0; }
+    .settings-page details > summary:focus-visible { outline: 2px solid #3B82F6; outline-offset: 4px; }
+    @@media (max-width: 900px) {
+        main:has(> .settings-page) { width: 100%; }
+        .settings-page .settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @@media (max-width: 600px) {
+        main:has(> .settings-page) { padding: 18px 14px; }
+        .settings-page .card { padding: 18px; }
+        .settings-page .settings-grid, .settings-page .status-grid { grid-template-columns: minmax(0, 1fr); }
+        .settings-page .field-group[style] { grid-column: auto !important; }
+    }
+</style>
+}
+
+<div class="settings-page">
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
     <h1 style="font-size:1.5rem;font-weight:700;color:var(--lfp-text);">&#9881;&#65039; @L["Settings"]</h1>
 </div>
@@ -477,6 +584,8 @@ else
         </div>
     </div>
 }
+
+</div>
 
 @section Scripts {
 <script>
