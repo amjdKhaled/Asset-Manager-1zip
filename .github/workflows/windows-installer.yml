@@ -46,6 +46,10 @@ jobs:
           dotnet test LFPortal.sln --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test deployment IIS isolation and inherited settings
+        shell: powershell
+        run: .\build\Test-DeployIisIsolation.ps1
+
       - name: Run installer isolation regression tests
         shell: powershell
         run: |

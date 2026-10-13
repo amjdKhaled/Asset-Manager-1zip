@@ -1,4 +1,5 @@
 #Requires -Version 5.1
+#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
 Updates the installed Dashboard without deleting destination files.
@@ -76,6 +77,47 @@ function Canonical([string] $Path) {
     return [IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
 }
 
+
+# Query effective pools through IIS. The applicationPool XML attribute is optional
+# and may be inherited, so strict-mode property access is not a valid pool check.
+function Assert-DashboardIisIsolation {
+    param([xml] $Iis, [string] $ExpectedPath, [string] $AppCmd)
+    $sites = @($Iis.SelectNodes('/configuration/system.applicationHost/sites/site[@name="Dashboard"]'))
+    if ($sites.Count -ne 1) { throw 'The Dashboard IIS site was not found or is ambiguous.' }
+    $apps = @($sites[0].SelectNodes('application'))
+    if ($apps.Count -ne 1 -or $apps[0].GetAttribute('path') -ne '/') {
+        throw 'The Dashboard site has an unexpected or shared application.'
+    }
+    $vdirs = @($apps[0].SelectNodes('virtualDirectory'))
+    if ($vdirs.Count -ne 1 -or $vdirs[0].GetAttribute('path') -ne '/') {
+        throw 'Unexpected IIS virtual directories.'
+    }
+    $physicalPath = $vdirs[0].GetAttribute('physicalPath')
+    if ([string]::IsNullOrWhiteSpace($physicalPath)) { throw 'The Dashboard physical path is missing.' }
+    $physical = [Environment]::ExpandEnvironmentVariables($physicalPath)
+    if ((Canonical $physical) -ine (Canonical $ExpectedPath)) { throw 'IIS points outside the Dashboard folder.' }
+
+    $effectiveOutput = & $AppCmd list app /xml
+    if ($LASTEXITCODE -ne 0) { throw 'Could not inspect effective IIS application pools.' }
+    try { [xml] $effective = $effectiveOutput -join [Environment]::NewLine }
+    catch { throw 'IIS returned an invalid application inventory.' }
+    $effectiveApps = @($effective.SelectNodes('/appcmd/APP'))
+    $dashboardApps = @($effectiveApps | Where-Object { $_.GetAttribute('APP.NAME') -ieq 'Dashboard/' })
+    if ($dashboardApps.Count -ne 1 -or $dashboardApps[0].GetAttribute('APPPOOL.NAME') -ine 'Dashboard') {
+        throw 'The Dashboard application must use the dedicated Dashboard app pool.'
+    }
+    foreach ($app in $effectiveApps) {
+        $name = $app.GetAttribute('APP.NAME')
+        $pool = $app.GetAttribute('APPPOOL.NAME')
+        if ([string]::IsNullOrWhiteSpace($name) -or [string]::IsNullOrWhiteSpace($pool)) {
+            throw 'IIS returned an incomplete application inventory; isolation could not be verified.'
+        }
+        if ($name -ine 'Dashboard/' -and $pool -ieq 'Dashboard') {
+            throw 'Another IIS application uses the Dashboard app pool.'
+        }
+    }
+}
+
 $expected = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Dashboard\WebApp'
 if (-not $WebAppPath) { $WebAppPath = $expected }
 if ((Canonical $WebAppPath) -ine (Canonical $expected)) {
@@ -94,23 +136,7 @@ $appcmd = Join-Path $env:SystemRoot 'System32\inetsrv\appcmd.exe'
 $configPath = Join-Path $env:SystemRoot 'System32\inetsrv\config\applicationHost.config'
 Assert-NoReparse $configPath
 [xml] $iis = Get-Content -LiteralPath $configPath -Raw
-$sites = @($iis.configuration.'system.applicationHost'.sites.site)
-$site = @($sites | Where-Object { $_.name -eq 'Dashboard' })
-if ($site.Count -ne 1) { throw 'The Dashboard IIS site was not found.' }
-$apps = @($site[0].application)
-if ($apps.Count -ne 1 -or $apps[0].path -ne '/' -or $apps[0].applicationPool -ne 'Dashboard') {
-    throw 'The Dashboard site has an unexpected or shared application.'
-}
-$vdirs = @($apps[0].virtualDirectory)
-if ($vdirs.Count -ne 1 -or $vdirs[0].path -ne '/') { throw 'Unexpected IIS virtual directories.' }
-$physical = [Environment]::ExpandEnvironmentVariables($vdirs[0].physicalPath)
-if ((Canonical $physical) -ine (Canonical $expected)) { throw 'IIS points outside the Dashboard folder.' }
-foreach ($other in $sites) {
-    if ($other.name -eq 'Dashboard') { continue }
-    foreach ($app in @($other.application)) {
-        if ($app.applicationPool -eq 'Dashboard') { throw 'Another IIS site uses the Dashboard app pool.' }
-    }
-}
+Assert-DashboardIisIsolation -Iis $iis -ExpectedPath $expected -AppCmd $appcmd
 
 if ($SkipPublish) {
     if (-not $PublishOutputPath) { throw 'With -SkipPublish, supply -PublishOutputPath from a previous successful publish.' }

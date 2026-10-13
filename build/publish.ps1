@@ -606,6 +606,27 @@ Invoke-NativeCommand -Stage "dotnet publish (web app, self-contained win-x64)" -
 
 Write-OK "Web app published to: $webAppOut"
 
+# A successful DLL publish is insufficient if the visual identity assets are missing.
+$brandAssets = @(
+    'css\isb-theme.css',
+    'frontend\brand-tokens.css',
+    'frontend\isb-logo.jpg',
+    'frontend\header-pattern-tile.svg',
+    'frontend\font\ReadexPro-ExtraLight.ttf',
+    'frontend\font\ReadexPro-Light.ttf',
+    'frontend\font\ReadexPro-Regular.ttf',
+    'frontend\font\ReadexPro-Medium.ttf',
+    'frontend\font\ReadexPro-SemiBold.ttf',
+    'frontend\font\ReadexPro-Bold.ttf'
+)
+foreach ($brandAsset in $brandAssets) {
+    if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $webAppOut 'wwwroot') $brandAsset) -PathType Leaf)) {
+        Fail "Required ISB identity asset missing from installer payload: $brandAsset"
+    }
+}
+Write-OK "ISB identity CSS, logo, pattern and all local fonts confirmed in installer payload."
+
+
 # Record the exact source revision inside the installed application and Release.
 $sourceCommit = $env:GITHUB_SHA
 if ([string]::IsNullOrWhiteSpace($sourceCommit)) {

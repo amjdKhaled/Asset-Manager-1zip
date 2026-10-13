@@ -609,7 +609,7 @@ a.folder-kpi-card .folder-kpi-label { color:rgba(255,255,255,.95); }
         }
         else
         {
-            var palette = new[]{"#F59E0B","#8B5CF6","#EF4444","#22C55E","#14B8A6","#3B82F6","#F97316","#06B6D4","#EC4899","#84CC16"};
+            var palette = new[]{"#0B3954","#5FA3C9","#C29A2E","#14618A","#2E7D5B","#9FB1C4","#E0B95A","#4A5C69"};
             <div id="listDocumentTypes" style="display:flex;flex-direction:column;gap:10px">
                 @for (var i = 0; i < s.TemplateStats.Count; i++)
                 {
@@ -757,16 +757,17 @@ a.folder-kpi-card .folder-kpi-label { color:rgba(255,255,255,.95); }
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 (function(){
-const PALETTE = ["#0D98FF","#00226C","#044FC2","#9BD9FE","#4682B4","#0073DD","#0C132D"];
-const GRID    = "#F2F2F2";
-const TICK    = "#000000";
+Chart.defaults.font.family = "Readex Pro, Segoe UI, Tahoma, sans-serif";
+const PALETTE = ["#0B3954","#5FA3C9","#C29A2E","#14618A","#2E7D5B","#9FB1C4","#E0B95A","#4A5C69"];
+const GRID    = "#E3EAF0";
+const TICK    = "#4A5C69";
 const goToArchive = url => { if (url) window.location.assign(url); };
 const TOOLTIP = {
-    backgroundColor:"#1e293b",
-    borderColor:"#334155",
+    backgroundColor:"#FFFFFF",
+    borderColor:"#D4DEE6",
     borderWidth:1,
-    titleColor:"#94a3b8",
-    bodyColor:"#f1f5f9",
+    titleColor:"#4A5C69",
+    bodyColor:"#142633",
     padding:10,
     cornerRadius:8
 };
@@ -825,7 +826,7 @@ document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
                 {
                     label:"100%",
                     data:[100],
-                    backgroundColor:"#EEF2F2",
+                    backgroundColor:"#F0F5F8",
                     borderWidth:0,
                     borderRadius:999,
                     borderSkipped:false,
@@ -836,7 +837,7 @@ document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
                 {
                     label:templateLabels[index],
                     data:[percent],
-                    backgroundColor:"#0B66D4",
+                    backgroundColor:"#14618A",
                     borderWidth:0,
                     borderRadius:999,
                     borderSkipped:false,
@@ -952,8 +953,8 @@ if(docActEl){
     new Chart(docActEl, {
         type:"bar",
         data:{labels,datasets:[
-            {label:modifiedLabel,data:modified,backgroundColor:"#00226C",borderWidth:0,barPercentage:0.75,categoryPercentage:0.75},
-            {label:createdLabel,data:created,backgroundColor:"#0D98FF",borderWidth:0,barPercentage:0.75,categoryPercentage:0.75}
+            {label:modifiedLabel,data:modified,backgroundColor:"#0B3954",borderWidth:0,barPercentage:0.75,categoryPercentage:0.75},
+            {label:createdLabel,data:created,backgroundColor:"#5FA3C9",borderWidth:0,barPercentage:0.75,categoryPercentage:0.75}
         ]},
         options:{
             responsive:true,

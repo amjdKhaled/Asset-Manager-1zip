@@ -450,7 +450,6 @@ textarea {
 
         /* ── RTL layout overrides ──────────────────────────────────────────── */
         @* { flex-direction: row-reverse; } *@
-        [dir=rtl] .site-header 
         [dir=rtl] .site-header__nav { margin-left: 0; margin-inline-start: auto; }
         [dir=rtl] .site-header__logo { margin-right: 0; }
         [dir=rtl] .lang-switcher { margin-inline-start: 0; margin-inline-end: 8px; }
@@ -480,9 +479,11 @@ textarea {
             justify-content: left;
             align-items: center;
             flex-direction: column;
-            @* gap: 6px;} *@
+        }
             
     </style>
+    <link rel="stylesheet" href="~/frontend/brand-tokens.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/isb-theme.css" asp-append-version="true" />
 </head>
 
 <body>
@@ -499,7 +500,7 @@ textarea {
         <a class="site-header__logo"
            href="@(_externalShareReadOnly ? "/Share/Dashboard" : Url.Action("Index", "Dashboard"))">
             @* IS<span>B</span> *@
-            <img src="~/image/isb logo 2020 2.jpg" alt="ISB" class="logo_size" >
+            <img src="~/frontend/isb-logo.jpg" alt="ISB" width="108" height="48" />
         </a>
 
 
