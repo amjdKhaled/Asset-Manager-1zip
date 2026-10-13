@@ -757,7 +757,7 @@ a.folder-kpi-card .folder-kpi-label { color:rgba(255,255,255,.95); }
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 (function(){
-Chart.defaults.font.family = "Readex Pro, Segoe UI, Tahoma, sans-serif";
+if (window.Chart) Chart.defaults.font.family = "Readex Pro, Segoe UI, Tahoma, sans-serif";
 const PALETTE = ["#0B3954","#5FA3C9","#C29A2E","#14618A","#2E7D5B","#9FB1C4","#E0B95A","#4A5C69"];
 const GRID    = "#E3EAF0";
 const TICK    = "#4A5C69";

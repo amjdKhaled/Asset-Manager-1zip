@@ -55,4 +55,5 @@ $script:inventory = '<invalid'
 Check-Fixture 'Malformed AppCmd output refused' $fixture '*invalid application inventory*'
 $script:commandExit = 1
 Check-Fixture 'Failed AppCmd query refused' $fixture '*Could not inspect effective*'
+$global:LASTEXITCODE = 0
 Write-Host 'All deployment IIS isolation fixtures passed.'
