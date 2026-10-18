@@ -58,7 +58,8 @@ public interface ILaserficheAuthService
     /// find a warm cache without prompting for credentials again.
     /// </para>
     /// <para>
-    /// Returns <c>false</c> for credential failures (HTTP 4xx).
+    /// Returns <c>false</c> for credential failures (HTTP 400/401).
+    /// Access denied (HTTP 403) and other failures propagate for precise reporting.
     /// Infrastructure errors (network failures, HTTP 5xx) are propagated as exceptions.
     /// The password is never logged.
     /// </para>

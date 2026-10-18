@@ -141,6 +141,7 @@ public sealed class LoginController : Controller
             AllowRepositoryInput = allowRepoInput,
             SubmittedRepository  = repoId,
             SubmittedUsername    = input.Username,
+            SelectedAccountType  = input.AccountType,
             ErrorMessage         = error,
             IsRepositoryPasswordMode = opts.AuthenticationMode ==
                 LaserficheAuthenticationMode.RepositoryPassword,
@@ -149,6 +150,13 @@ public sealed class LoginController : Controller
 
         if (!ModelState.IsValid)
             return View(ViewWithError(null));
+
+        // Explicit namespace selection avoids authenticating a migrated LFDS user
+        // against a same-named repository account. Never retry another identity.
+        var loginUsername = input.Username.Trim();
+        if (input.AccountType == LoginAccountType.DirectoryServer &&
+            !loginUsername.EndsWith("@LFDS", StringComparison.OrdinalIgnoreCase))
+            loginUsername += "@LFDS";
 
         if (string.IsNullOrWhiteSpace(repoId))
         {
@@ -166,14 +174,14 @@ public sealed class LoginController : Controller
 
         _logger.LogInformation(
             "Login: authenticating user {Username} for repository {RepoId}.",
-            input.Username, repoId);
+            loginUsername, repoId);
 
         bool success;
         try
         {
             success = await _authService.TryAuthenticateAsync(
                 targetRepo,
-                input.Username,
+                loginUsername,
                 input.Password ?? string.Empty,
                 cancellationToken);
         }
@@ -202,7 +210,11 @@ public sealed class LoginController : Controller
             _logger.LogInformation(
                 "Login: invalid credentials submitted for repository {RepoId}.", repoId);
             return View(ViewWithError(
-                $"Unable to sign in to {repoId}. Check the username and password."));
+                input.AccountType == LoginAccountType.DirectoryServer
+                    ? $"تعذر تسجيل الدخول بحساب Directory Server إلى {repoId}. تحقق من بيانات الحساب " +
+                      "وربط المستخدم أو مجموعته بالمستودع في Laserfiche. / Unable to sign in with the LFDS account; " +
+                      "verify its credentials and repository membership."
+                    : $"Unable to sign in to {repoId}. Check the account type, username and password."));
         }
 
         HttpContext.Session.Remove("InteractiveSessionExpired");
@@ -218,7 +230,7 @@ public sealed class LoginController : Controller
             repoId);
 
         await EstablishDashboardIdentityAsync(
-            input.Username,
+            loginUsername,
             repoId,
             DashboardAuthenticationDefaults.PasswordAuthenticationMethod);
 
@@ -633,6 +645,11 @@ public sealed class LoginController : Controller
     {
         if (ex is LaserficheException lex)
         {
+            if (lex.StatusCode == 403)
+                return "رفض Laserfiche طلب الدخول (HTTP 403). تحقق من ربط الحساب أو مجموعته بالمستودع " +
+                       "وصلاحية الدخول والترخيص؛ هذا الرد لا يثبت أن كلمة المرور خاطئة. / " +
+                       "Laserfiche denied sign-in. Verify repository access and licensing.";
+
             if (lex.StatusCode == 404)
                 return $"Repository \"{repoId}\" was not found on the Laserfiche server. " +
                        "Check the repository name (it is case-sensitive).";
@@ -956,6 +973,8 @@ public sealed class LoginViewModel
     /// <summary>Preserves the username the user entered on a failed attempt.</summary>
     public string SubmittedUsername { get; init; } = string.Empty;
 
+    public LoginAccountType SelectedAccountType { get; init; }
+
     /// <summary>
     /// True when SSO is configured but the SSO flow failed and the user has been
     /// redirected back to the password form as a fallback.
@@ -975,6 +994,9 @@ public sealed class LoginInputModel
     /// <summary>Repository name for direct browser sessions.</summary>
     public string? Repository { get; set; }
 
+    [EnumDataType(typeof(LoginAccountType), ErrorMessage = "Choose a valid account type.")]
+    public LoginAccountType AccountType { get; set; }
+
     /// <summary>Laserfiche username. Required.</summary>
     [Required(ErrorMessage = "Username is required.")]
     public string Username { get; set; } = string.Empty;
@@ -985,4 +1007,12 @@ public sealed class LoginInputModel
     /// </summary>
     public string? Password { get; set; }
     public string? ReturnUrl { get; set; }
+}
+
+/// <summary>Explicit account namespace; existing forms default to repository users.</summary>
+public enum LoginAccountType
+{
+    Repository = 0,
+    DirectoryServer = 1,
+    Windows = 2,
 }

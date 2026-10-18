@@ -1,4 +1,5 @@
 @model LFPortal.Web.Controllers.LoginViewModel
+@using LFPortal.Web.Controllers
 @{
     Layout = null;   // Standalone page — no nav/header shell
     ViewData["Title"] = "Sign In";
@@ -235,6 +236,19 @@
                                value="@Model.SubmittedRepository" required />
                     </div>
                 }
+
+                <div class="field">
+                    <label for="AccountType">نوع الحساب / Account type</label>
+                    <select class="field-input" id="AccountType" name="AccountType">
+                        <option value="Repository" selected="@(Model.SelectedAccountType == LoginAccountType.Repository)">حساب المستودع / Repository account</option>
+                        <option value="DirectoryServer" selected="@(Model.SelectedAccountType == LoginAccountType.DirectoryServer)">Laserfiche Directory Server (LFDS)</option>
+                        <option value="Windows" selected="@(Model.SelectedAccountType == LoginAccountType.Windows)">Windows / Active Directory</option>
+                    </select>
+                    <div style="font-size:.75rem;color:var(--lfp-muted);margin-top:6px;line-height:1.6">
+                        LFDS: اكتب اسم الحساب؛ تُضاف <bdi>@@LFDS</bdi> تلقائيًا لتحديد نوعه.
+                        Windows: <bdi>DOMAIN\username</bdi> أو <bdi>username@@domain</bdi>.
+                    </div>
+                </div>
 
                 <div class="field">
                     <label for="Username">Username</label>

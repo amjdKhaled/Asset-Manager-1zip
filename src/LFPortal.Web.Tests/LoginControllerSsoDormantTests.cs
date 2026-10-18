@@ -51,6 +51,62 @@ public sealed class LoginControllerSsoDormantTests
         Assert.False(model.AllowRepositoryInput);
     }
 
+    [Theory]
+    [InlineData(LoginAccountType.DirectoryServer, "operator", "operator@LFDS")]
+    [InlineData(LoginAccountType.DirectoryServer, " operator@lfds ", "operator@lfds")]
+    [InlineData(LoginAccountType.Repository, "operator", "operator")]
+    [InlineData(LoginAccountType.Windows, "DOMAIN\\operator", "DOMAIN\\operator")]
+    [InlineData(LoginAccountType.Windows, "operator@example.test", "operator@example.test")]
+    public async Task Login_Post_UsesExplicitAccountNamespaceWithoutRetrying(
+        LoginAccountType accountType, string username, string expectedUsername)
+    {
+        var (controller, auth, _) = Build(directBrowser: false);
+        auth.TryAuthenticateResult = false;
+        var result = await controller.Index(new LoginInputModel {
+            Username = username, Password = " unchanged ", AccountType = accountType
+        }, CancellationToken.None);
+        var model = Assert.IsType<LoginViewModel>(Assert.IsType<ViewResult>(result).Model);
+        Assert.Equal(expectedUsername, auth.LastLoginUsername);
+        Assert.Equal(" unchanged ", auth.LastLoginPassword);
+        Assert.Equal(1, auth.TryAuthenticateCallCount);
+        Assert.Equal(accountType, model.SelectedAccountType);
+        Assert.Equal(username, model.SubmittedUsername);
+        Assert.Equal("TestRepo", model.ActiveRepository);
+    }
+
+    [Fact]
+    public async Task Login_Post_DirectoryServerSuccess_KeepsQualifiedIdentity()
+    {
+        var (controller, auth, _) = Build(directBrowser: false);
+        await controller.Index(new LoginInputModel {
+            Username = "operator", AccountType = LoginAccountType.DirectoryServer
+        }, CancellationToken.None);
+        Assert.Equal("operator@LFDS", auth.LastLoginUsername);
+        var cookiePair = controller.Response.Headers.SetCookie.ToString().Split(';', 2)[0];
+        using var scope = controller.HttpContext.RequestServices.CreateScope();
+        var nextRequest = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        nextRequest.Request.Headers.Cookie = cookiePair;
+        var authentication = await nextRequest.AuthenticateAsync(DashboardAuthenticationDefaults.Scheme);
+        Assert.True(authentication.Succeeded);
+        Assert.Equal("operator@LFDS", authentication.Principal?.Identity?.Name);
+        Assert.Equal(1, auth.TryAuthenticateCallCount);
+    }
+
+    [Fact]
+    public async Task Login_Post_Forbidden_ShowsRepositoryAccessFailureInsteadOfWrongPassword()
+    {
+        var (controller, auth, _) = Build(directBrowser: false);
+        auth.LoginException = new LaserficheException("Access denied", 403);
+        var result = await controller.Index(new LoginInputModel {
+            Username = "operator", AccountType = LoginAccountType.DirectoryServer
+        }, CancellationToken.None);
+        var model = Assert.IsType<LoginViewModel>(Assert.IsType<ViewResult>(result).Model);
+        Assert.Contains("HTTP 403", model.ErrorMessage);
+        Assert.Contains("repository access", model.ErrorMessage);
+        Assert.Equal(LoginAccountType.DirectoryServer, model.SelectedAccountType);
+        Assert.Equal(1, auth.TryAuthenticateCallCount);
+    }
+
     // ── Default (dormant-SSO) options ─────────────────────────────────────────
 
     /// <summary>
@@ -898,6 +954,9 @@ public sealed class LoginControllerSsoDormantTests
     private sealed class SpyAuthService : ILaserficheAuthService
     {
         public bool TryAuthenticateResult       { get; set; } = true;
+        public string? LastLoginUsername { get; private set; }
+        public string? LastLoginPassword { get; private set; }
+        public Exception? LoginException { get; set; }
         public int  TryAuthenticateCallCount    { get; private set; }
         public int  ExchangeAuthCodeCallCount   { get; private set; }
         public bool InvalidateCurrentSessionCalled { get; private set; }
@@ -908,6 +967,9 @@ public sealed class LoginControllerSsoDormantTests
             RepositoryDescriptor r, string u, string p, CancellationToken ct = default)
         {
             TryAuthenticateCallCount++;
+            LastLoginUsername = u;
+            LastLoginPassword = p;
+            if (LoginException is not null) return Task.FromException<bool>(LoginException);
             return Task.FromResult(TryAuthenticateResult);
         }
 
