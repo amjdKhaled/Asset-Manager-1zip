@@ -1,6 +1,14 @@
 Laserfiche Dashboard - Windows Setup
 ====================================
 
+OFFLINE VERSION 1.0.5
+- The installer includes all application assets and the local Office converter.
+- To run without IIS or an SDK, extract LFDashboard-Standalone-win-x64.zip and
+  double-click Start-Dashboard.cmd. Default URL: http://localhost:5050
+- Laserfiche and the configured identity server must remain reachable on the LAN.
+- Installer IIS/Hosting Module and optional Desktop WebView2 prerequisites below
+  must already exist. Standalone browser use requires none of those components.
+
 INSTALL
 1. Keep all files in this Release folder together.
 2. Right-click LFDashboard-Setup.exe and choose "Run as administrator".

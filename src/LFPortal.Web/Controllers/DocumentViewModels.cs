@@ -1,4 +1,5 @@
 using LFPortal.Domain.Entities;
+using LFPortal.Infrastructure.Services;
 
 namespace LFPortal.Web.Controllers;
 
@@ -31,7 +32,11 @@ public sealed record DocumentViewModel
     public string? PreviewError { get; init; }
     public string? ErrorMessage { get; init; }
 
-    public bool IsInlineElectronicDocument =>
+    public bool IsConvertedElectronicDocument => OfficeDocumentPreview.CanConvert(
+        ElectronicDocumentFileName, ElectronicDocumentContentType);
+    public bool UsesPdfPreview => ElectronicDocumentContentType is "application/pdf" or "image/tiff" || IsConvertedElectronicDocument;
+    public bool IsInlineElectronicDocument => IsNativeElectronicDocument || (IsConvertedElectronicDocument && Pages.Count == 0);
+    public bool IsNativeElectronicDocument =>
         ElectronicDocumentContentType is "application/pdf"
             or "image/png"
             or "image/jpeg"

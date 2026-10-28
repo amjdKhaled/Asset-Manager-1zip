@@ -50,3 +50,9 @@ Thumbs.db
 # Replit internal (never gitignore these)
 # .replit  ← must NOT be ignored
 # replit.nix ← must NOT be ignored
+
+# Windows deliverables are published as release assets, not source files.
+Release/*.exe
+Release/*.zip
+Release/build-info.json
+Release/SHA256SUMS.txt

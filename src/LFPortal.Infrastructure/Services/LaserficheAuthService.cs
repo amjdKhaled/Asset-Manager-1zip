@@ -418,7 +418,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
             return true;
         }
         catch (Domain.Exceptions.LaserficheException ex)
-            when (ex.StatusCode is 400 or 401 or 403)
+            when (ex.StatusCode is 400 or 401)
         {
             _logger.LogInformation(
                 "[LF AUTH] Login failed for repository {RepoId}: HTTP {StatusCode}.",
@@ -426,7 +426,7 @@ internal sealed class LaserficheAuthService : ILaserficheAuthService
                 ex.StatusCode);
             return false;
         }
-        // 404 (unknown repository), other 4xx, network failures and 5xx errors
+        // 403 (access denied), 404 (unknown repository), other 4xx, network failures and 5xx errors
         // propagate to the caller so it can show a precise error message.
     }
 

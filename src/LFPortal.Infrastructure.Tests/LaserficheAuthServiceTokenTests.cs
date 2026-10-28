@@ -205,10 +205,12 @@ public sealed class LaserficheAuthServiceTokenTests
     }
 
     [Fact]
-    public async Task TryAuthenticate_403_ReturnsFalse_DoesNotThrow()
+    public async Task TryAuthenticate_403_PreservesAccessDeniedInsteadOfInvalidPassword()
     {
         var svc = CreateService(StatusHandler(HttpStatusCode.Forbidden));
-        Assert.False(await svc.TryAuthenticateAsync(MakeRepo(), "u", "p"));
+        var ex = await Assert.ThrowsAsync<LaserficheException>(
+            () => svc.TryAuthenticateAsync(MakeRepo(), "u@LFDS", "p"));
+        Assert.Equal(403, ex.StatusCode);
     }
 
     [Fact]

@@ -32,10 +32,10 @@ public static class DocumentPreviewResolver
             logger.LogWarning(ex, "Electronic preview unavailable for entry {EntryId}; checking image pages.", entry.Id);
         }
 
-        if (model.IsInlineElectronicDocument) return model;
-        // An authentication failure must not be presented as an empty document.
-        if (edocError is LaserficheException { StatusCode: 401 or 403 })
-            return model with { PreviewError = "تعذر عرض الوثيقة. تحقق من تسجيل الدخول وصلاحية عرض المستند." };
+        if (model.IsNativeElectronicDocument) return model;
+        // Image pages may be readable even when exporting the electronic file
+        // is forbidden. Check them independently; never hide an access failure
+        // as an empty document if neither component is available.
 
         Exception? pagesError = null;
         try
@@ -49,7 +49,7 @@ public static class DocumentPreviewResolver
             pagesError = ex;
             logger.LogWarning(ex, "Image page list unavailable for entry {EntryId}.", entry.Id);
         }
-        if (model.Pages.Count == 0 && pagesError is not null && entry.PageCount is > 0)
+        if (model.Pages.Count == 0 && pagesError is LaserficheException { StatusCode: 400 or 404 or 405 or 501 } && entry.PageCount is > 0)
             model = model with
             {
                 Pages = Enumerable.Range(1, entry.PageCount.Value)

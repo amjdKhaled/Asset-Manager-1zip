@@ -23,7 +23,10 @@ function Require-Sentinel {
 }
 function Run-Msi([string[]] $Arguments, [bool] $ExpectSuccess = $true, [string] $ExpectedError = '') {
     $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList $Arguments -PassThru
-    if (-not $process.WaitForExit(180000)) { throw 'MSI operation exceeded its timeout.' }
+    # The full offline Office runtime adds thousands of files. A forced repair
+    # reinstalls all of them; the old three-minute limit expired just before a
+    # successful repair completed on CI. Keep a bounded ten-minute wait.
+    if (-not $process.WaitForExit(600000)) { throw "MSI operation exceeded ten minutes. See $log" }
     if ($ExpectSuccess -and $process.ExitCode -notin @(0, 3010)) {
         throw "MSI failed: $($process.ExitCode). See artifacts/msi-*.log."
     }
