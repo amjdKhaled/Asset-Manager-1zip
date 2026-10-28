@@ -1,7 +1,9 @@
 param([Parameter(Mandatory = $true)][string]$WebAppPath)
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $cache = Join-Path $PSScriptRoot '..\.build-cache\office'
 $null = New-Item -ItemType Directory -Path $cache -Force
+$cache = (Resolve-Path $cache).Path
 $version = '26.2.6'
 $msi = Join-Path $cache "LibreOffice_$($version)_Win_x86-64.msi"
 $baseUrl = "https://download.documentfoundation.org/libreoffice/stable/$version/win/x86_64/LibreOffice_$($version)_Win_x86-64.msi"

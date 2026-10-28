@@ -8,9 +8,9 @@ public static class OfficeDocumentPreview
 {
     private static readonly SemaphoreSlim Slots = new(2);
     private static readonly HashSet<string> Extensions = new(StringComparer.OrdinalIgnoreCase)
-    { ".doc", ".docx", ".dot", ".dotx", ".rtf", ".odt", ".ott", ".xls", ".xlsx",
-      ".xlt", ".xltx", ".ods", ".ots", ".csv", ".tsv", ".ppt", ".pptx", ".pps", ".ppsx",
-      ".odp", ".otp", ".odg", ".vsd", ".vsdx", ".txt" };
+    { ".doc", ".docx", ".docm", ".dot", ".dotx", ".dotm", ".rtf", ".odt", ".ott", ".xls", ".xlsx",
+      ".xlsm", ".xlsb", ".xlt", ".xltx", ".xltm", ".ods", ".ots", ".csv", ".tsv", ".ppt", ".pptx", ".pps", ".ppsx",
+      ".pptm", ".potx", ".potm", ".ppsm", ".odp", ".otp", ".odg", ".vsd", ".vsdx", ".txt" };
 
     public static string? GetExtension(string? fileName, string? contentType)
     {
@@ -107,10 +107,16 @@ public static class OfficeDocumentPreview
             {
                 if (process is not null)
                 {
-                    if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync().ConfigureAwait(false); }
+                    try
+                    {
+                        if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync().ConfigureAwait(false); }
+                    }
+                    catch (InvalidOperationException) { /* Process exited between the check and kill. */ }
                     process.Dispose();
                 }
                 try { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+                catch (IOException) { /* OS/antivirus may briefly retain a handle; the temp folder is isolated. */ }
+                catch (UnauthorizedAccessException) { /* Do not replace a conversion result with a cleanup error. */ }
                 finally { Slots.Release(); }
             }
         }

@@ -31,9 +31,9 @@ the Laserfiche server if it has not been configured on this computer.
 | PNG, JPEG, GIF, BMP, WebP | Browser image |
 | Laserfiche scanned image pages | Per-page images, including TIFF-to-PNG conversion |
 | Electronic TIFF, including multiple frames | Local PDF conversion retaining all pages |
-| Word DOC/DOCX/DOT/DOTX, RTF, ODT/OTT | Laserfiche pages if available; otherwise local LibreOffice PDF conversion |
-| Excel XLS/XLSX/XLT/XLTX, ODS/OTS, CSV/TSV | Laserfiche pages or local PDF conversion |
-| PowerPoint PPT/PPTX/PPS/PPSX, ODP/OTP | Laserfiche pages or local PDF conversion |
+| Word DOC/DOCX/DOCM/DOT/DOTX/DOTM, RTF, ODT/OTT | Laserfiche pages if available; otherwise local LibreOffice PDF conversion |
+| Excel XLS/XLSX/XLSM/XLSB/XLT/XLTX/XLTM, ODS/OTS, CSV/TSV | Laserfiche pages or local PDF conversion |
+| PowerPoint PPT/PPTX/PPTM/PPS/PPSX/PPSM/POTX/POTM, ODP/OTP | Laserfiche pages or local PDF conversion |
 | TXT, ODG, VSD/VSDX | Local PDF conversion where supported by the bundled LibreOffice filters |
 | Other formats | Laserfiche image pages when present; otherwise download the original |
 
@@ -60,7 +60,7 @@ access to that provider; offline assets cannot replace those services.
 
 CI builds Razor, runs infrastructure/web regression tests, and converts real
 DOCX/XLSX/PPTX/RTF fixtures through the exact staged Office runtime. It starts
-the standalone EXE and checks local JS/font endpoints. A source scan rejects
+the standalone EXE and checks local JS/font endpoints while outbound access is blocked for the app and converter. A source scan rejects
 external script/style/font references. Finally the installer isolation checks
 exercise upgrade/repair/uninstall behavior in disposable Windows fixtures.
 Confirm archive and viewer previews against live repository entries after deployment.

@@ -3,6 +3,16 @@ $repo = Split-Path $PSScriptRoot
 $web = Join-Path $repo 'artifacts\WebApp'
 $office = Join-Path $web 'tools\LibreOffice\program\soffice.com'
 if (-not (Test-Path $office)) { throw 'Downloaded distribution has no Office converter.' }
+# Disposable Windows CI runner: prove conversions do not need external services.
+$firewallNames = @()
+try {
+    foreach ($file in @($office, (Join-Path (Split-Path $office) 'soffice.exe'), (Join-Path (Split-Path $office) 'soffice.bin'), (Join-Path $web 'LFPortal.Web.exe'))) {
+        if (Test-Path $file) {
+            $name = 'DashboardOfflineTest-' + [guid]::NewGuid().ToString('N')
+            New-NetFirewallRule -Name $name -DisplayName $name -Direction Outbound -Program $file -Action Block -RemoteAddress @('0.0.0.0-126.255.255.255', '128.0.0.0-255.255.255.255', '::/0') | Out-Null
+            $firewallNames += $name
+        }
+    }
 $env:DASHBOARD_OFFICE_TEST_PATH = $office
 try {
     dotnet test (Join-Path $repo 'src\LFPortal.Infrastructure.Tests\LFPortal.Infrastructure.Tests.csproj') --configuration Release --filter 'FullyQualifiedName~BundledOffice'
@@ -28,3 +38,8 @@ try {
 }
 finally { if (-not $process.HasExited) { Stop-Process $process.Id -Force } }
 Write-Host 'Bundled Office conversion, standalone startup and local assets passed.'
+
+}
+finally {
+    foreach ($name in $firewallNames) { Remove-NetFirewallRule -Name $name -ErrorAction SilentlyContinue }
+}

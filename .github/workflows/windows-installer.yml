@@ -102,3 +102,15 @@ jobs:
           $tag = "dashboard-1.0.5-${{ github.run_number }}"
           gh release create $tag Release/LFDashboard-Setup.exe Release/LFDashboard-Standalone-win-x64.zip Release/README.txt Release/SHA256SUMS.txt Release/build-info.json --target ${{ github.sha }} --title "Dashboard 1.0.5 offline Windows packages" --notes "Includes local Office-to-PDF conversion, TIFF previews and offline browser assets. Standalone ZIP requires no SDK or IIS. See README.txt."
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Downloadable preview requested for this implementation branch. It is
+      # published only after all conversion, offline and installer checks pass.
+      - name: Publish offline preview packages
+        if: github.event_name == 'pull_request' && github.head_ref == 'feature/offline-document-preview' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "dashboard-1.0.5-preview-${{ github.run_number }}"
+          gh release create $tag Release/LFDashboard-Setup.exe Release/LFDashboard-Standalone-win-x64.zip Release/README.txt Release/SHA256SUMS.txt Release/build-info.json --target ${{ github.event.pull_request.head.sha }} --prerelease --title "Dashboard 1.0.5 offline preview" --notes "Preview packages for PR #${{ github.event.pull_request.number }}. Built and checked from the linked source commit. Includes installed and standalone Windows packages with local Office conversion. Verify against your live Laserfiche repository before production deployment."
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
