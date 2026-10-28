@@ -21,6 +21,10 @@ public static class BrowserPreviewContent
 
         // Prefer actual file signatures over a missing or generic HTTP header.
         var detected = DetectContentType(prefix.AsSpan(0, count)) ?? contentType;
+        // OOXML is a ZIP container. Do not erase a useful Office MIME type
+        // when Laserfiche omits the filename/extension from the download.
+        if (detected == "application/zip" && OfficeDocumentPreview.CanConvert(null, contentType))
+            detected = contentType;
         return (new PrefixStream(prefix.AsMemory(0, count), source), detected);
     }
 

@@ -19,6 +19,24 @@ public sealed class OfficeDocumentPreviewTests
     public void FormatSelection(string? name, string? mime, string? expected) =>
         Assert.Equal(expected, OfficeDocumentPreview.GetExtension(name, mime));
 
+    [Theory]
+    [InlineData("application/vnd.openxmlformats-officedocument.wordprocessingml.document")]
+    [InlineData("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")]
+    [InlineData("application/vnd.openxmlformats-officedocument.presentationml.presentation")]
+    [InlineData("application/vnd.ms-word.document.macroenabled.12")]
+    public async Task OoxmlWithoutFilename_PreservesTheOfficeMimeType(string mime)
+    {
+        byte[] bytes = [80, 75, 3, 4, 1, 2, 3, 4];
+        using var input = new MemoryStream(bytes);
+        var inspected = await BrowserPreviewContent.InspectAsync(input, mime, default);
+        using var content = inspected.Content;
+        Assert.Equal(mime, inspected.ContentType);
+        Assert.True(OfficeDocumentPreview.CanConvert(null, inspected.ContentType));
+        using var copy = new MemoryStream();
+        await content.CopyToAsync(copy);
+        Assert.Equal(bytes, copy.ToArray());
+    }
+
     [Fact]
     public async Task MissingRuntime_DisposesOriginalAndReportsRepair()
     {
