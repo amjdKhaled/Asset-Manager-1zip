@@ -56,6 +56,12 @@ jobs:
           dotnet run --project installer/Dashboard.InstallerSafety.Tests --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Cache offline build dependencies
+        uses: actions/cache@v4
+        with:
+          path: .build-cache
+          key: dashboard-offline-windows-libreoffice-26.2.6-v1
+
       - name: Build and validate installer
         shell: powershell
         run: .\build\publish.ps1

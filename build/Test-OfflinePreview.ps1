@@ -9,7 +9,7 @@ try {
     foreach ($file in @($office, (Join-Path (Split-Path $office) 'soffice.exe'), (Join-Path (Split-Path $office) 'soffice.bin'), (Join-Path $web 'LFPortal.Web.exe'))) {
         if (Test-Path $file) {
             $name = 'DashboardOfflineTest-' + [guid]::NewGuid().ToString('N')
-            New-NetFirewallRule -Name $name -DisplayName $name -Direction Outbound -Program $file -Action Block -RemoteAddress @('0.0.0.0-126.255.255.255', '128.0.0.0-255.255.255.255', '::/0') | Out-Null
+            New-NetFirewallRule -Name $name -DisplayName $name -Direction Outbound -Program $file -Action Block -RemoteAddress Any | Out-Null
             $firewallNames += $name
         }
     }

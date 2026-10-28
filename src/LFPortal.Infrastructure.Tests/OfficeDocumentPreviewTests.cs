@@ -30,6 +30,43 @@ public sealed class OfficeDocumentPreviewTests
     }
 
     [Fact]
+    public async Task OversizedOfficeFile_IsRejectedBeforeStartingAConverter()
+    {
+        var input = new MemoryStream([1, 2, 3]);
+        var source = new LaserficheEdocStream(input, "application/msword", null, "large.doc", ".doc", 101L * 1024 * 1024, input);
+        var error = await Assert.ThrowsAsync<IOException>(() => OfficeDocumentPreview.ConvertAsync(source, default));
+        Assert.Contains("100 MB", error.Message);
+        Assert.False(input.CanRead);
+    }
+
+    [Fact]
+    public async Task CancelledOfficeRequest_DisposesInputWithoutStartingProcess()
+    {
+        var executable = Path.GetTempFileName();
+        try
+        {
+            var input = new MemoryStream([1, 2, 3]);
+            var source = new LaserficheEdocStream(input, "application/msword", null, "file.doc", ".doc", input.Length, input);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => OfficeDocumentPreview.ConvertAsync(source, cancellation.Token, executable));
+            Assert.False(input.CanRead);
+        }
+        finally { File.Delete(executable); }
+    }
+
+    [Fact]
+    public async Task BundledOffice_EmptyFileDoesNotBecomeAnEmptyPdfResponse()
+    {
+        var executable = Environment.GetEnvironmentVariable("DASHBOARD_OFFICE_TEST_PATH");
+        if (string.IsNullOrEmpty(executable)) return;
+        var input = new MemoryStream();
+        var source = new LaserficheEdocStream(input, "application/msword", null, "empty.docx", ".docx", 0, input);
+        await Assert.ThrowsAsync<IOException>(() => OfficeDocumentPreview.ConvertAsync(source, default, executable));
+        Assert.False(input.CanRead);
+    }
+
+    [Fact]
     public async Task ElectronicTiff_PreservesAllFramesInPdf()
     {
         using var pages = new MagickImageCollection();

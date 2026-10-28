@@ -8,7 +8,10 @@ $version = '26.2.6'
 $msi = Join-Path $cache "LibreOffice_$($version)_Win_x86-64.msi"
 $baseUrl = "https://download.documentfoundation.org/libreoffice/stable/$version/win/x86_64/LibreOffice_$($version)_Win_x86-64.msi"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-if (-not (Test-Path $msi)) { Invoke-WebRequest -UseBasicParsing -Uri $baseUrl -OutFile $msi }
+if (-not (Test-Path $msi)) {
+    & curl.exe --fail --location --retry 3 --connect-timeout 30 --max-time 900 --output $msi $baseUrl
+    if ($LASTEXITCODE -ne 0) { Remove-Item $msi -ErrorAction SilentlyContinue; throw 'LibreOffice download failed.' }
+}
 # Verify against the publisher's checksum before executing the administrative extraction.
 $checksum = (Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl.sha256").Content.Trim().Split(' ')[0]
 if ($checksum -notmatch '^[a-fA-F0-9]{64}$' -or (Get-FileHash $msi -Algorithm SHA256).Hash -ne $checksum) {
@@ -18,7 +21,11 @@ $extract = Join-Path $cache 'administrative-image'
 $marker = Join-Path $extract 'complete.txt'
 if (-not (Test-Path $marker)) {
     $null = New-Item -ItemType Directory -Path $extract -Force
-    $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/a', "`"$msi`"", '/qn', "TARGETDIR=`"$extract`"")
+    $logDirectory = Join-Path $PSScriptRoot '..\artifacts'
+    $null = New-Item -ItemType Directory -Path $logDirectory -Force
+    $logPath = Join-Path (Resolve-Path $logDirectory).Path 'msi-office-extract.log'
+    Write-Host "Extracting verified Office MSI: $msi"
+    $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/a', "`"$msi`"", '/qn', '/L*v', "`"$logPath`"", "TARGETDIR=`"$extract`"")
     if ($process.ExitCode -notin @(0, 3010)) { throw "LibreOffice extraction failed: $($process.ExitCode)" }
     Set-Content $marker $version
 }

@@ -43,6 +43,8 @@ public static class OfficeDocumentPreview
         {
             var extension = GetExtension(source.FileName, source.ContentType)
                 ?? throw new NotSupportedException("No local converter supports this file type.");
+            if (source.ContentLength > 100 * 1024 * 1024)
+                throw new IOException("Office preview exceeds the 100 MB conversion limit. Download the original file.");
             executable ??= Path.Combine(AppContext.BaseDirectory, "tools", "LibreOffice", "program", "soffice.com");
             if (!File.Exists(executable))
                 throw new IOException("The bundled Office preview converter is missing. Repair the Dashboard installation.");
@@ -68,6 +70,9 @@ public static class OfficeDocumentPreview
                         await file.WriteAsync(buffer.AsMemory(0, count), timeout.Token).ConfigureAwait(false);
                     }
                 }
+
+                if (new FileInfo(input).Length == 0)
+                    throw new IOException("The Office preview file is empty.");
 
                 // Every conversion gets a fresh profile, so parallel jobs and an
                 // interactive LibreOffice instance cannot capture each other's work.

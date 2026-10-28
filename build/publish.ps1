@@ -205,7 +205,7 @@ function New-HarvestWxs {
                 $idx++
                 $rel = $dPath.Substring($SourceDir.Length + 1) -replace '[^A-Za-z0-9]', '_'
                 if ($rel -match '^[0-9]') { $rel = "d_$rel" }
-                if ($rel.Length -gt 50)   { $rel = $rel.Substring(0, 50) }
+                if ($rel.Length -gt 40)   { $rel = $rel.Substring(0, 40) }
                 $dirId[$dPath] = ("dir_{0}_{1}_{2}" -f $ComponentGroupName, $idx, $rel)
             }
         }
@@ -1941,7 +1941,8 @@ else {
             # TLS 1.2 is required by download.microsoft.com; PowerShell 5.1
             # defaults to TLS 1.0 on older Windows builds.
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            Invoke-WebRequest -Uri $netFx48Url -OutFile $netFx48Installer -UseBasicParsing
+            & curl.exe --fail --location --retry 3 --connect-timeout 30 --max-time 600 --output $netFx48Installer $netFx48Url
+            if ($LASTEXITCODE -ne 0) { throw '.NET Framework offline installer download failed.' }
         }
         catch {
             Write-Host "  [FAILED] Could not download ndp48-web.exe: $_" -ForegroundColor Red

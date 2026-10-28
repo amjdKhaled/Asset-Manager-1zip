@@ -1,7 +1,7 @@
 # Offline Windows distribution (1.0.5)
 
 Download the Windows build artifact on the pull request, or the packages on the
-GitHub Releases page after merge. The old EXE committed under Release/ is 1.0.4.
+GitHub Releases page after merge. The old 1.0.4 binaries under Release/ are retired.
 Each new package includes build-info.json and a SHA-256 checksum file.
 
 ## Installed application
