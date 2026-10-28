@@ -754,9 +754,13 @@ a.folder-kpi-card .folder-kpi-label { color:rgba(255,255,255,.95); }
 </div>
 
 @section Scripts {
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+@* Served locally: dashboard servers and client PCs often have no route to public CDNs. *@
+<script src="~/lib/chart.js/dist/chart.umd.js" asp-append-version="true"></script>
 <script>
 (function(){
+// If Chart.js fails to load, skip the canvases but keep building the legend and the rest of the page.
+if (!window.Chart) console.error("Chart.js failed to load from /lib/chart.js/dist/chart.umd.js; dashboard charts are disabled.");
+const makeChart = (el, config) => window.Chart ? new Chart(el, config) : null;
 if (window.Chart) Chart.defaults.font.family = "Readex Pro, Segoe UI, Tahoma, sans-serif";
 const PALETTE = ["#0B3954","#5FA3C9","#C29A2E","#14618A","#2E7D5B","#9FB1C4","#E0B95A","#4A5C69"];
 const GRID    = "#E3EAF0";
@@ -778,7 +782,7 @@ if(folderEl){
     const data   = @Html.Raw(JsonSerializer.Serialize(folderData));
     const urls   = @Html.Raw(JsonSerializer.Serialize(folderUrls));
     const documentsLabel = @Html.Raw(JsonSerializer.Serialize(L["Documents"].Value));
-    new Chart(folderEl, {
+    makeChart(folderEl, {
         type:"bar",
         data:{labels,datasets:[{
             label:documentsLabel,
@@ -818,7 +822,7 @@ document.querySelectorAll(".totalPercent").forEach((canvas, index) => {
     const textElement = canvas.closest("td")?.querySelector(".totalPercentText");
     if (textElement) textElement.textContent = `${percent.toFixed(1)}%`;
 
-    new Chart(canvas, {
+    makeChart(canvas, {
         type:"bar",
         data:{
             labels:[""],
@@ -872,7 +876,7 @@ const tmplEl = document.getElementById("chartTemplates");
 if(tmplEl){
     const templateCount = templateLabels.length;
     const doughnutRadius = templateCount > 35 ? "52%" : templateCount > 24 ? "60%" : templateCount > 14 ? "70%" : "82%";
-    new Chart(tmplEl, {
+    makeChart(tmplEl, {
         type:"doughnut",
         data:{labels:templateLabels,datasets:[{
             data:templateData,
@@ -950,7 +954,7 @@ if(docActEl){
     const createdLabel  = @Html.Raw(JsonSerializer.Serialize(L["Created"].Value));
     const modifiedLabel = @Html.Raw(JsonSerializer.Serialize(L["Modified"].Value));
 
-    new Chart(docActEl, {
+    makeChart(docActEl, {
         type:"bar",
         data:{labels,datasets:[
             {label:modifiedLabel,data:modified,backgroundColor:"#0B3954",borderWidth:0,barPercentage:0.75,categoryPercentage:0.75},

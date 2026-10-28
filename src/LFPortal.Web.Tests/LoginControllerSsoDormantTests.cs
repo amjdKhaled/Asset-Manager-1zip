@@ -367,6 +367,7 @@ public sealed class LoginControllerSsoDormantTests
             redirect.Url,
             StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("LFDS", redirect.Url, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("repositoryId=TestRepo", uri.Query);
         Assert.Contains("response_type=code", uri.Query);
         Assert.Contains("redirect_uri=https%3A%2F%2Fdashboard.test%2Flogin%2FCallback", uri.Query);
         Assert.Contains("state=", uri.Query);

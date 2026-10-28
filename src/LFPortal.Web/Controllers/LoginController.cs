@@ -357,9 +357,6 @@ public sealed class LoginController : Controller
         // Bind state to this session so the callback can validate CSRF.
         HttpContext.Session.SetString(SessionKeyOAuthPendingState, state);
 
-        // ── Build authorization URL ───────────────────────────────────────────
-        var authUrl = BuildAuthorizationUrl(opts, state, codeChallenge, redirectUri);
-
         _logger.LogInformation(
             "[SSO] OAuth correlation cookie. State={State}; CookieName={CookieName}; " +
             "CookieWritten={CookieWritten}; SameSite={SameSite}; Secure={Secure}; Path={Path}; " +
@@ -385,7 +382,7 @@ public sealed class LoginController : Controller
         // Merge invariant: declare one authorizeUrl only. Logging and Redirect must
         // consume this exact value so conflict resolution cannot split the names again.
         var authorizeUrl = BuildAuthorizationUrl(
-            opts, state, codeChallenge, redirectUri, forceLogin);
+            opts, repo.RepositoryId, state, codeChallenge, redirectUri, forceLogin);
 
         _logger.LogInformation(
             "[SSO] Redirecting to Repository API authorize URL: {AuthorizeUrl} " +
@@ -875,9 +872,13 @@ public sealed class LoginController : Controller
     private bool IsLocalUrl(string? url) =>
         !string.IsNullOrEmpty(url) && Url.IsLocalUrl(url);
 
-    /// <summary>Builds the Repository API authorization URL with all required PKCE parameters.</summary>
+    /// <summary>
+    /// Builds the Repository API authorization URL with all required PKCE parameters.
+    /// <c>repositoryId</c> binds the LFDS sign-in to the repository open in the Web Client.
+    /// </summary>
     private static string BuildAuthorizationUrl(
         LaserficheOptions opts,
+        string            repositoryId,
         string            state,
         string            codeChallenge,
         string            redirectUri,
@@ -886,7 +887,8 @@ public sealed class LoginController : Controller
         var endpoint = opts.SsoAuthorizationEndpoint;
 
         var query = new StringBuilder();
-        query.Append("response_type=code");
+        query.Append("repositoryId=");      query.Append(Uri.EscapeDataString(repositoryId));
+        query.Append("&response_type=code");
         query.Append("&redirect_uri=");     query.Append(Uri.EscapeDataString(redirectUri));
         query.Append("&state=");            query.Append(Uri.EscapeDataString(state));
         query.Append("&code_challenge=");   query.Append(Uri.EscapeDataString(codeChallenge));
