@@ -1,4 +1,6 @@
 using System.Net;
+using System.IO.Compression;
+using LFPortal.Domain.Exceptions;
 using System.Net.Http.Headers;
 using System.Text;
 using LFPortal.Application.DTOs;
@@ -65,34 +67,67 @@ public sealed class LaserficheDocumentPreviewTests
         Assert.True(factory.LastClient.WasDisposed);
     }
 
-    [Fact]
-    public async Task TiffPage_IsExportedAsBrowserSafePngOnV2()
+    [Theory]
+    [InlineData(400)]
+    [InlineData(404)]
+    [InlineData(405)]
+    [InlineData(406)]
+    [InlineData(415)]
+    [InlineData(501)]
+    public async Task MissingDirectImageRoute_ExportsAndUnpacksSinglePng(int status)
     {
-        var tiff = new HttpResponseMessage(HttpStatusCode.OK)
+        using var original = new MagickImage(MagickColors.White, 8, 12);
+        var bytes = original.ToByteArray(MagickFormat.Png);
+        using var archive = new MemoryStream();
+        using (var zip = new ZipArchive(archive, ZipArchiveMode.Create, leaveOpen: true))
         {
-            Content = new ByteArrayContent([0x49, 0x49, 0x2A, 0x00])
-        };
-        tiff.Content.Headers.ContentType = new MediaTypeHeaderValue("image/tiff");
-        tiff.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("inline") { FileName = "page.tif" };
-
-        var export = Json("{\"value\":\"https://lf.test/download/page.png\"}");
-        var png = new HttpResponseMessage(HttpStatusCode.OK)
-        {
-            Content = new ByteArrayContent([0x89, 0x50, 0x4E, 0x47])
-        };
-        png.Content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
-
-        var handler = new QueueHandler(tiff, export, png);
-        var service = CreateService(handler);
-
-        using var result = await service.GetPageImageAsync(42, 1);
-
+            using var file = zip.CreateEntry("page-3.png").Open();
+            file.Write(bytes);
+        }
+        var download = new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new ByteArrayContent(archive.ToArray()) };
+        download.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        var handler = new QueueHandler(new HttpResponseMessage((HttpStatusCode)status),
+            Json("{\"value\":\"https://lf.test/download/page.zip\"}"), download);
+        using var result = await CreateService(handler).GetPageImageAsync(42, 3);
         Assert.Equal("image/png", result.ContentType);
-        Assert.Equal(3, handler.Requests.Count);
-        Assert.EndsWith("/Entries/42/Document/Pages/1/Image", handler.Requests[0].Url);
+        using var copy = new MemoryStream();
+        await result.Content.CopyToAsync(copy);
+        Assert.Equal(bytes, copy.ToArray());
         Assert.Equal(HttpMethod.Post, handler.Requests[1].Method);
-        Assert.EndsWith("/Entries/42/Export?pageRange=1", handler.Requests[1].Url);
-        Assert.Equal("https://lf.test/download/page.png", handler.Requests[2].Url);
+        Assert.EndsWith("/Entries/42/Export?pageRange=3", handler.Requests[1].Url);
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    [InlineData(500)]
+    public async Task DirectImageAccessOrServerError_DoesNotTryExport(int status)
+    {
+        var factory = new ClientFactory(new QueueHandler(new HttpResponseMessage((HttpStatusCode)status)));
+        var error = await Assert.ThrowsAsync<LaserficheException>(
+            () => CreateService(factory).GetPageImageAsync(42, 1));
+        Assert.Equal(status, error.StatusCode);
+        Assert.True(factory.LastClient!.WasDisposed);
+    }
+
+    [Fact]
+    public async Task GenericV2ImageHeader_UsesSignatureWithoutRequiringExport()
+    {
+        byte[] bytes = [137, 80, 78, 71, 13, 10, 26, 10, 1];
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) };
+        var handler = new QueueHandler(response);
+        using var result = await CreateService(handler).GetPageImageAsync(42, 1);
+        Assert.Single(handler.Requests);
+        Assert.Equal("image/png", result.ContentType);
+        Assert.Equal(bytes, await ReadBytesAsync(result.Content));
+    }
+
+    private static async Task<byte[]> ReadBytesAsync(Stream stream)
+    {
+        using var copy = new MemoryStream();
+        await stream.CopyToAsync(copy);
+        return copy.ToArray();
     }
 
     [Theory]
@@ -127,19 +162,22 @@ public sealed class LaserficheDocumentPreviewTests
         Assert.Equal(bytes, copy.ToArray());
     }
 
-    [Fact]
-    public async Task V1TiffPage_IsConvertedLocallyToRealPng()
+    [Theory]
+    [InlineData("v1", "application/octet-stream")]
+    [InlineData("v2", "image/tiff")]
+    [InlineData("v2", "application/octet-stream")]
+    public async Task TiffPage_IsConvertedLocallyToRealPng(string version, string contentType)
     {
         using var original = new MagickImage(MagickColors.White, 8, 12);
         var response = new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new ByteArrayContent(original.ToByteArray(MagickFormat.Tiff))
         };
-        response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        response.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         var handler = new QueueHandler(response);
-        using var result = await CreateService(handler, "v1").GetPageImageAsync(42, 3);
+        using var result = await CreateService(handler, version).GetPageImageAsync(42, 3);
         Assert.Single(handler.Requests);
-        Assert.EndsWith("/Entries/42/pages/3/image", handler.Requests[0].Url);
+        Assert.Contains("/Entries/42/", handler.Requests[0].Url);
         Assert.Equal("image/png", result.ContentType);
         using var rendered = new MagickImage(result.Content);
         Assert.Equal(MagickFormat.Png, rendered.Format);

@@ -198,73 +198,48 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
             .ConfigureAwait(false);
 
         var url = _adapter.BuildPageImageUrl(repo.RepositoryId, entryId, pageNumber);
-
         var client = _httpClientFactory.CreateClient("LaserficheAuthenticated");
-        var response = await GetPageResponseAsync(client, url, cancellationToken, image: true).ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var statusCode = (int)response.StatusCode;
-            response.Dispose();
-            client.Dispose();
-            throw new LaserficheException(
-                $"Page image not available for entry {entryId} page {pageNumber}: " +
-                $"HTTP {statusCode}. Body: {body}",
-                statusCode);
-        }
-
-        var directFileName = GetFileName(response.Content.Headers.ContentDisposition);
-        var directContentType = NormalizeContentType(
-            response.Content.Headers.ContentType?.MediaType,
-            directFileName);
-
-        // Laserfiche image pages are commonly stored as TIFF. Browsers do not
-        // consistently render TIFF, so V2 asks Laserfiche to export this one page
-        // as PNG while preserving the original repository document unchanged.
-        if (_adapter.ApiVersion.Equals("v2", StringComparison.OrdinalIgnoreCase) &&
-            (directContentType.Equals("image/tiff", StringComparison.OrdinalIgnoreCase) ||
-             directContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase)))
-        {
-            response.Dispose();
-            try
-            {
-                return await ExportPageAsPngAsync(
-                        client, repo.RepositoryId, entryId, pageNumber, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch
-            {
-                client.Dispose();
-                throw;
-            }
-        }
-
+        HttpResponseMessage? response = null;
         try
         {
-            var contentStream = await response.Content
-                .ReadAsStreamAsync(cancellationToken)
+            response = await GetPageResponseAsync(client, url, cancellationToken, image: true)
                 .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var statusCode = (int)response.StatusCode;
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                response.Dispose();
+                response = null;
+                // Some self-hosted releases expose Export but not the per-page
+                // binary route. Never treat authorization or server errors as
+                // evidence that this compatibility route is missing.
+                if (statusCode is 400 or 404 or 405 or 406 or 415 or 501)
+                    return await ExportPageAsPngAsync(client, repo.RepositoryId, entryId,
+                        pageNumber, cancellationToken).ConfigureAwait(false);
+                throw new LaserficheException(
+                    $"Page image not available for entry {entryId} page {pageNumber}: HTTP {statusCode}. Body: {body}",
+                    statusCode);
+            }
 
-            // Do not invent an image type when the server omits Content-Type.
-            var fileName = directFileName;
-            var contentType = directContentType;
-
+            var fileName = GetFileName(response.Content.Headers.ContentDisposition);
             var inspected = await BrowserPreviewContent.InspectAsync(
-                contentStream, contentType, cancellationToken).ConfigureAwait(false);
+                await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false),
+                NormalizeContentType(response.Content.Headers.ContentType?.MediaType, fileName),
+                cancellationToken).ConfigureAwait(false);
             var result = new LaserficheEdocStream(
                 inspected.Content, inspected.ContentType,
                 response.Content.Headers.ContentDisposition?.ToString(),
                 fileName, GetExtension(fileName, inspected.ContentType),
-                response.Content.Headers.ContentLength,
-                new ResponseClientOwner(response, client));
+                response.Content.Headers.ContentLength, new ResponseClientOwner(response, client));
+            // A valid TIFF already contains the requested page. Convert that
+            // response instead of discarding it and requiring a second export.
             return inspected.ContentType == "image/tiff"
                 ? await BrowserPreviewContent.ConvertTiffAsync(result, cancellationToken).ConfigureAwait(false)
                 : result;
         }
         catch
         {
-            response.Dispose();
+            response?.Dispose();
             client.Dispose();
             throw;
         }
@@ -316,6 +291,9 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
     {
         var exportUrl = _adapter.BuildDocumentExportUrl(
             repositoryId, entryId, pageNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        // The v1 compatibility path above may already have tried v2 pages.
+        // Export is a v2 operation on the same configured API server.
+        exportUrl = exportUrl.Replace("/v1/Repositories/", "/v2/Repositories/", StringComparison.OrdinalIgnoreCase);
         const string requestJson =
             "{\"part\":\"Image\",\"imageOptions\":{\"format\":\"PNG\",\"includeAnnotations\":true,\"includeRedactions\":true}}";
 
@@ -367,14 +345,18 @@ internal sealed class LaserficheDocumentService : ILaserficheDocumentService
                 downloadResponse.Content.Headers.ContentType?.MediaType,
                 fileName);
 
-            return new LaserficheEdocStream(
-                stream,
-                contentType == "application/octet-stream" ? "image/png" : contentType,
+            var inspected = await BrowserPreviewContent.InspectAsync(stream, contentType, cancellationToken)
+                .ConfigureAwait(false);
+            var result = new LaserficheEdocStream(
+                inspected.Content, inspected.ContentType,
                 downloadResponse.Content.Headers.ContentDisposition?.ToString(),
-                fileName,
-                ".png",
+                fileName, GetExtension(fileName, inspected.ContentType),
                 downloadResponse.Content.Headers.ContentLength,
                 new ResponseClientOwner(downloadResponse, client));
+            // PNG exports can be packaged in a ZIP even for one requested page.
+            // Return the image bytes, not a ZIP labelled as image/png.
+            return await BrowserPreviewContent.PreparePageImageAsync(result, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch
         {

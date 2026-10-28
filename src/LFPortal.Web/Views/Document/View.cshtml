@@ -163,7 +163,8 @@ else if (Model.Entry is {} entry)
     const img = document.getElementById('dvImage');
     const status = document.getElementById('dvStatus');
     const pages = @Html.Raw(JsonSerializer.Serialize(Model.Pages.Select(page => page.PageNumber)));
-    const pageUrl = @Html.Raw(JsonSerializer.Serialize(Url.Action("PageImage", "Document", new { entryId = Model.Entry?.Id, pageNumber = 1 })));
+    const pageUrls = @Html.Raw(JsonSerializer.Serialize(Model.Pages.Select(page =>
+        Url.Action("PageImage", "Document", new { entryId = Model.Entry?.Id, pageNumber = page.PageNumber }))));
     const loadingText = @Html.Raw(JsonSerializer.Serialize(T("جاري تحميل الصفحة…", "Loading page…")));
     const errorText = @Html.Raw(JsonSerializer.Serialize(T("تعذر تحميل الصورة. تحقق من الاتصال أو أعد المحاولة.", "The image could not be loaded. Check the connection or retry.")));
     const retryText = @Html.Raw(JsonSerializer.Serialize(T("إعادة المحاولة", "Retry")));
@@ -181,11 +182,7 @@ else if (Model.Entry is {} entry)
         const target = index + delta;
         if (!img || target < 0 || target >= pages.length) return;
         index = target; fit();
-        const url = new URL(pageUrl, window.location.origin);
-        // Use MVC query parameters instead of assuming a custom route exists.
-        url.pathname = url.pathname.replace(/\/1$/, '/' + pages[index]);
-        url.searchParams.set('pageNumber', pages[index]);
-        img.src = url.toString();
+        img.src = pageUrls[index];
         document.getElementById('dvPageCounter').textContent = (index + 1) + ' / ' + pages.length;
         document.getElementById('dvPrevBtn').disabled = index === 0;
         document.getElementById('dvNextBtn').disabled = index === pages.length - 1;

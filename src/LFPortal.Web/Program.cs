@@ -44,6 +44,9 @@ try
         optional: true,
         reloadOnChange: true);
 
+    // Explicit run arguments (for example --urls) override persisted settings.
+    builder.Configuration.AddCommandLine(args);
+
     // ── Serilog — replace the default ASP.NET Core logging pipeline ──────────
     builder.Host.UseSerilog((context, services, loggerConfig) =>
     {

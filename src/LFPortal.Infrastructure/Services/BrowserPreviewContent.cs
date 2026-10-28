@@ -1,4 +1,5 @@
 using ImageMagick;
+using System.IO.Compression;
 using LFPortal.Application.DTOs;
 
 namespace LFPortal.Infrastructure.Services;
@@ -25,6 +26,7 @@ public static class BrowserPreviewContent
 
     internal static string? DetectContentType(ReadOnlySpan<byte> bytes)
     {
+        if (bytes.StartsWith(new byte[] { 80, 75, 3, 4 })) return "application/zip";
         if (bytes.StartsWith("%PDF-"u8)) return "application/pdf";
         if (bytes.StartsWith(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })) return "image/png";
         if (bytes.StartsWith(new byte[] { 255, 216, 255 })) return "image/jpeg";
@@ -37,6 +39,47 @@ public static class BrowserPreviewContent
         if (bytes.Length >= 12 && bytes[..4].SequenceEqual("RIFF"u8) &&
             bytes.Slice(8, 4).SequenceEqual("WEBP"u8)) return "image/webp";
         return null;
+    }
+
+    /// <summary>Unpacks a single exported page and ensures it is a browser image.</summary>
+    public static async Task<LaserficheEdocStream> PreparePageImageAsync(
+        LaserficheEdocStream source, CancellationToken cancellationToken)
+    {
+        if (source.ContentType == "image/tiff")
+            return await ConvertTiffAsync(source, cancellationToken).ConfigureAwait(false);
+        if (source.ContentType != "application/zip") return source;
+
+        using (source)
+        {
+            using var input = new MemoryStream();
+            await source.Content.CopyToAsync(input, cancellationToken).ConfigureAwait(false);
+            input.Position = 0;
+            using var zip = new ZipArchive(input, ZipArchiveMode.Read);
+            var files = zip.Entries.Where(entry => !string.IsNullOrEmpty(entry.Name)).ToArray();
+            if (files.Length != 1)
+                throw new InvalidDataException("Single-page export did not contain exactly one image.");
+            using var file = files[0].Open();
+            var output = new MemoryStream();
+            try
+            {
+                await file.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+                output.Position = 0;
+                var inspected = await InspectAsync(output, "application/octet-stream", cancellationToken)
+                    .ConfigureAwait(false);
+                if (!inspected.ContentType.StartsWith("image/", StringComparison.Ordinal))
+                    throw new InvalidDataException("Single-page export did not contain an image.");
+                var result = new LaserficheEdocStream(inspected.Content, inspected.ContentType,
+                    null, files[0].Name, Path.GetExtension(files[0].Name), output.Length, output);
+                return inspected.ContentType == "image/tiff"
+                    ? await ConvertTiffAsync(result, cancellationToken).ConfigureAwait(false)
+                    : result;
+            }
+            catch
+            {
+                output.Dispose();
+                throw;
+            }
+        }
     }
 
     /// <summary>Converts only the requested TIFF page locally; the original stays unchanged.</summary>
