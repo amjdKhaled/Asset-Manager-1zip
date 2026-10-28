@@ -606,8 +606,14 @@ Invoke-NativeCommand -Stage "dotnet publish (web app, self-contained win-x64)" -
 
 Write-OK "Web app published to: $webAppOut"
 
-# Ship the exact same offline converter in both the MSI and standalone package.
-& (Join-Path $PSScriptRoot "Stage-OfflineRuntime.ps1") -WebAppPath $webAppOut
+# Ship the exact same offline converter in both Windows distributions. Preserve
+# the existing non-Windows web-only publish path: MSI administrative extraction
+# requires msiexec and cannot run on Linux/macOS.
+if ($IsWindowsOS) {
+    & (Join-Path $PSScriptRoot "Stage-OfflineRuntime.ps1") -WebAppPath $webAppOut
+} else {
+    Write-Warn "Web-only output has no Office converter. Build complete offline Windows packages on Windows."
+}
 if (-not (Test-Path (Join-Path $webAppOut 'wwwroot\lib\chartjs\chart.umd.min.js'))) {
     throw 'Local Chart.js runtime is missing from the publish output.'
 }
@@ -2102,6 +2108,8 @@ foreach ($doc in @("InstallationGuide.md", "UpgradeGuide.md", "ReleaseNotes.md")
 }
 
 # Standalone distribution: double-click the launcher, without SDK, IIS or dotnet run.
+# Only label a distribution offline-ready when its Windows converter was staged.
+if ($IsWindowsOS) {
 $launcher = @'
 @echo off
 cd /d "%~dp0"
@@ -2120,6 +2128,9 @@ if (Test-Path $standaloneZip) { Remove-Item $standaloneZip -Force }
 $standaloneHash = (Get-FileHash $standaloneZip -Algorithm SHA256).Hash.ToLowerInvariant()
 Add-Content (Join-Path $ReleaseDir 'SHA256SUMS.txt') ("{0}  LFDashboard-Standalone-win-x64.zip" -f $standaloneHash) -Encoding ASCII
 Write-OK "Artifacts assembled, including offline standalone ZIP."
+} else {
+    Write-OK "Web-only artifacts assembled; offline Windows ZIP requires a Windows build host."
+}
 
 # =============================================================================
 # STEP 11 -- Verify deliverables
