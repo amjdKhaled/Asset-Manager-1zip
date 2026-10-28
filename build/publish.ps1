@@ -205,7 +205,7 @@ function New-HarvestWxs {
                 $idx++
                 $rel = $dPath.Substring($SourceDir.Length + 1) -replace '[^A-Za-z0-9]', '_'
                 if ($rel -match '^[0-9]') { $rel = "d_$rel" }
-                if ($rel.Length -gt 50)   { $rel = $rel.Substring(0, 50) }
+                if ($rel.Length -gt 40)   { $rel = $rel.Substring(0, 40) }
                 $dirId[$dPath] = ("dir_{0}_{1}_{2}" -f $ComponentGroupName, $idx, $rel)
             }
         }
@@ -605,6 +605,18 @@ Invoke-NativeCommand -Stage "dotnet publish (web app, self-contained win-x64)" -
 )
 
 Write-OK "Web app published to: $webAppOut"
+
+# Ship the exact same offline converter in both Windows distributions. Preserve
+# the existing non-Windows web-only publish path: MSI administrative extraction
+# requires msiexec and cannot run on Linux/macOS.
+if ($IsWindowsOS) {
+    & (Join-Path $PSScriptRoot "Stage-OfflineRuntime.ps1") -WebAppPath $webAppOut
+} else {
+    Write-Warn "Web-only output has no Office converter. Build complete offline Windows packages on Windows."
+}
+if (-not (Test-Path (Join-Path $webAppOut 'wwwroot\lib\chartjs\chart.umd.min.js'))) {
+    throw 'Local Chart.js runtime is missing from the publish output.'
+}
 
 # A successful DLL publish is insufficient if the visual identity assets are missing.
 $brandAssets = @(
@@ -1924,18 +1936,19 @@ else {
     # The Authenticode signature is verified on every build -- cached or fresh.
     # -------------------------------------------------------------------------
     $prereqCacheDir    = Join-Path $RepoRoot ".build-cache\prerequisites"
-    $netFx48Installer  = Join-Path $prereqCacheDir "ndp48-web.exe"
-    $netFx48Url        = "https://go.microsoft.com/fwlink/?LinkId=2085155"
+    $netFx48Installer  = Join-Path $prereqCacheDir "ndp48-offline.exe"
+    $netFx48Url        = "https://go.microsoft.com/fwlink/?LinkId=2088631"
 
     $null = New-Item -ItemType Directory -Path $prereqCacheDir -Force
 
     if (-not (Test-Path $netFx48Installer)) {
-        Write-Host "  Downloading .NET Framework 4.8 web installer..." -ForegroundColor Cyan
+        Write-Host "  Downloading .NET Framework 4.8 offline installer..." -ForegroundColor Cyan
         try {
             # TLS 1.2 is required by download.microsoft.com; PowerShell 5.1
             # defaults to TLS 1.0 on older Windows builds.
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            Invoke-WebRequest -Uri $netFx48Url -OutFile $netFx48Installer -UseBasicParsing
+            & curl.exe --fail --location --retry 3 --connect-timeout 30 --max-time 600 --output $netFx48Installer $netFx48Url
+            if ($LASTEXITCODE -ne 0) { throw '.NET Framework offline installer download failed.' }
         }
         catch {
             Write-Host "  [FAILED] Could not download ndp48-web.exe: $_" -ForegroundColor Red
@@ -2094,7 +2107,30 @@ foreach ($doc in @("InstallationGuide.md", "UpgradeGuide.md", "ReleaseNotes.md")
     }
 }
 
-Write-OK "Artifacts assembled."
+# Standalone distribution: double-click the launcher, without SDK, IIS or dotnet run.
+# Only label a distribution offline-ready when its Windows converter was staged.
+if ($IsWindowsOS) {
+$launcher = @'
+@echo off
+cd /d "%~dp0"
+set "DASHBOARD_PORT=%~1"
+if "%DASHBOARD_PORT%"=="" set "DASHBOARD_PORT=5050"
+start "" "http://localhost:%DASHBOARD_PORT%"
+LFPortal.Web.exe --urls http://localhost:%DASHBOARD_PORT%
+pause
+'@
+Set-Content (Join-Path $webAppDst 'Start-Dashboard.cmd') $launcher -Encoding ASCII
+Copy-Item (Join-Path $RepoRoot 'docs\offline-preview.md') (Join-Path $webAppDst 'README-OFFLINE.md') -Force
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$standaloneZip = Join-Path $ReleaseDir 'LFDashboard-Standalone-win-x64.zip'
+if (Test-Path $standaloneZip) { Remove-Item $standaloneZip -Force }
+[System.IO.Compression.ZipFile]::CreateFromDirectory($webAppDst, $standaloneZip)
+$standaloneHash = (Get-FileHash $standaloneZip -Algorithm SHA256).Hash.ToLowerInvariant()
+Add-Content (Join-Path $ReleaseDir 'SHA256SUMS.txt') ("{0}  LFDashboard-Standalone-win-x64.zip" -f $standaloneHash) -Encoding ASCII
+Write-OK "Artifacts assembled, including offline standalone ZIP."
+} else {
+    Write-OK "Web-only artifacts assembled; offline Windows ZIP requires a Windows build host."
+}
 
 # =============================================================================
 # STEP 11 -- Verify deliverables

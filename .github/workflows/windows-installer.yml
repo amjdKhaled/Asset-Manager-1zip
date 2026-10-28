@@ -24,7 +24,7 @@ permissions:
 jobs:
   build-installer:
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Check out source
@@ -56,9 +56,19 @@ jobs:
           dotnet run --project installer/Dashboard.InstallerSafety.Tests --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Cache offline build dependencies
+        uses: actions/cache@v4
+        with:
+          path: .build-cache
+          key: dashboard-offline-windows-libreoffice-26.2.6-v1
+
       - name: Build and validate installer
         shell: powershell
         run: .\build\publish.ps1
+
+      - name: Verify bundled converter and offline standalone startup
+        shell: powershell
+        run: .\build\Test-OfflinePreview.ps1
 
       - name: Exercise Web Client install and rollback in isolated fixtures
         shell: powershell
@@ -82,24 +92,31 @@ jobs:
           name: Laserfiche-Dashboard-Windows-${{ github.sha }}
           path: |
             Release/LFDashboard-Setup.exe
+            Release/LFDashboard-Standalone-win-x64.zip
             Release/README.txt
             Release/SHA256SUMS.txt
             Release/build-info.json
           if-no-files-found: error
           retention-days: 14
 
-      - name: Publish installer to Release folder
+      - name: Publish downloadable Windows packages
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Release/LFDashboard-Setup.exe Release/README.txt Release/SHA256SUMS.txt Release/build-info.json
-          $releaseChanges = git status --porcelain -- Release/
-          if ($releaseChanges) {
-            git commit -m "chore(release): publish Windows installer [skip ci]"
-            git push origin HEAD:main
-          } else {
-            Write-Host "Release files are already current."
-          }
+          $tag = "dashboard-1.0.5-${{ github.run_number }}"
+          gh release create $tag Release/LFDashboard-Setup.exe Release/LFDashboard-Standalone-win-x64.zip Release/README.txt Release/SHA256SUMS.txt Release/build-info.json --target ${{ github.sha }} --title "Dashboard 1.0.5 offline Windows packages" --notes "Includes local Office-to-PDF conversion, TIFF previews and offline browser assets. Standalone ZIP requires no SDK or IIS. See README.txt."
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # Downloadable preview requested for this implementation branch. It is
+      # published only after all conversion, offline and installer checks pass.
+      - name: Publish offline preview packages
+        if: github.event_name == 'pull_request' && github.head_ref == 'feature/offline-document-preview' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "dashboard-1.0.5-preview-${{ github.run_number }}"
+          gh release create $tag Release/LFDashboard-Setup.exe Release/LFDashboard-Standalone-win-x64.zip Release/README.txt Release/SHA256SUMS.txt Release/build-info.json --target ${{ github.event.pull_request.head.sha }} --prerelease --title "Dashboard 1.0.5 offline preview" --notes "Preview packages for PR #${{ github.event.pull_request.number }}. Built and checked from the linked source commit. Includes installed and standalone Windows packages with local Office conversion. Verify against your live Laserfiche repository before production deployment."
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
