@@ -137,7 +137,9 @@ public sealed class DocumentController : Controller
         {
             edoc = await _documentService.StreamEdocAsync(entryId, cancellationToken).ConfigureAwait(false);
             if (edoc.ContentType == "image/tiff")
-                edoc = await BrowserPreviewContent.ConvertTiffAsync(edoc, cancellationToken).ConfigureAwait(false);
+                edoc = await BrowserPreviewContent.ConvertTiffDocumentAsync(edoc, cancellationToken).ConfigureAwait(false);
+            else if (OfficeDocumentPreview.CanConvert(edoc.FileName, edoc.ContentType))
+                edoc = await OfficeDocumentPreview.ConvertAsync(edoc, cancellationToken).ConfigureAwait(false);
             if (!IsInlineType(edoc.ContentType))
             {
                 edoc.Dispose();

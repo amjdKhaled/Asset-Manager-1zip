@@ -104,7 +104,7 @@ else if (Model.Entry is {} entry)
                 }
                 else if (Model.HasElectronicDocument && Model.IsInlineElectronicDocument)
                 {
-                    if (Model.ElectronicDocumentContentType == "application/pdf")
+                    if (Model.UsesPdfPreview)
                     {
                         <iframe hidden class="dv-frame" data-preview-source="@Url.Action("Content", "Document", new { entryId = entry.Id })" title="@entry.Name"></iframe>
                     }

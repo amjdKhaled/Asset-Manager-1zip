@@ -16,6 +16,39 @@ namespace LFPortal.Web.Tests;
 
 public sealed class DocumentPreviewTests
 {
+    [Fact]
+    public async Task ForbiddenEdoc_DoesNotPreventReadableImagePages()
+    {
+        var service = new Documents { EdocError = new LaserficheException("Forbidden", 403),
+            Pages = [new LFDocumentPage { PageNumber = 2 }] };
+        var model = await DocumentPreviewResolver.ResolveAsync(service, Entry(2), NullLogger.Instance, default);
+        Assert.Equal(2, Assert.Single(model.Pages).PageNumber);
+        Assert.Null(model.PreviewError);
+    }
+
+    [Fact]
+    public async Task ForbiddenPageMetadata_DoesNotInventAccessibleImages()
+    {
+        var service = new Documents { EdocError = new LaserficheException("No edoc", 404),
+            PagesError = new LaserficheException("Forbidden", 403) };
+        var model = await DocumentPreviewResolver.ResolveAsync(service, Entry(2), NullLogger.Instance, default);
+        Assert.Empty(model.Pages);
+        Assert.NotNull(model.PreviewError);
+    }
+
+    [Theory]
+    [InlineData("file.docx", "application/octet-stream")]
+    [InlineData(null, "application/msword")]
+    [InlineData("sheet.xlsx", "application/octet-stream")]
+    [InlineData("slides.pptx", "application/octet-stream")]
+    [InlineData("scan.tif", "image/tiff")]
+    public void ConvertedFiles_UsePdfPreview(string? name, string mime)
+    {
+        var model = new DocumentViewModel { HasElectronicDocument = true,
+            ElectronicDocumentFileName = name, ElectronicDocumentContentType = mime };
+        Assert.True(model.IsInlineElectronicDocument);
+        Assert.True(model.UsesPdfPreview);
+    }
     private static LFEntry Entry(int? pageCount = 0) => new()
     { Id = 619, Name = "Document", EntryType = LFEntryType.Document, PageCount = pageCount };
 

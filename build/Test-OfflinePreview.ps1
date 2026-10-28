@@ -1,0 +1,30 @@
+$ErrorActionPreference = 'Stop'
+$repo = Split-Path $PSScriptRoot
+$web = Join-Path $repo 'artifacts\WebApp'
+$office = Join-Path $web 'tools\LibreOffice\program\soffice.com'
+if (-not (Test-Path $office)) { throw 'Downloaded distribution has no Office converter.' }
+$env:DASHBOARD_OFFICE_TEST_PATH = $office
+try {
+    dotnet test (Join-Path $repo 'src\LFPortal.Infrastructure.Tests\LFPortal.Infrastructure.Tests.csproj') --configuration Release --filter 'FullyQualifiedName~BundledOffice'
+    if ($LASTEXITCODE -ne 0) { throw 'Bundled Office conversion integration tests failed.' }
+}
+finally { Remove-Item Env:DASHBOARD_OFFICE_TEST_PATH -ErrorAction SilentlyContinue }
+
+$port = 15983
+$process = Start-Process (Join-Path $web 'LFPortal.Web.exe') -ArgumentList @('--urls', "http://127.0.0.1:$port") -WorkingDirectory $web -PassThru
+try {
+    $ready = $false
+    for ($attempt = 0; $attempt -lt 40; $attempt++) {
+        try {
+            $response = Invoke-WebRequest "http://127.0.0.1:$port/Login" -UseBasicParsing -TimeoutSec 3
+            if ($response.StatusCode -eq 200) { $ready = $true; break }
+        } catch { Start-Sleep -Milliseconds 500 }
+    }
+    if (-not $ready) { throw 'Standalone executable did not start without dotnet run.' }
+    foreach ($asset in @('/lib/chartjs/chart.umd.min.js', '/js/document-preview.js', '/fonts/IBMPlexSansArabic-Regular.ttf')) {
+        $response = Invoke-WebRequest "http://127.0.0.1:$port$asset" -UseBasicParsing
+        if ($response.StatusCode -ne 200 -or $response.RawContentLength -eq 0) { throw "Missing offline asset: $asset" }
+    }
+}
+finally { if (-not $process.HasExited) { Stop-Process $process.Id -Force } }
+Write-Host 'Bundled Office conversion, standalone startup and local assets passed.'

@@ -107,6 +107,24 @@ public static class BrowserPreviewContent
         }
     }
 
+    /// <summary>Preserves every frame of an electronic multi-page TIFF in a PDF.</summary>
+    public static async Task<LaserficheEdocStream> ConvertTiffDocumentAsync(
+        LaserficheEdocStream source, CancellationToken cancellationToken)
+    {
+        using (source)
+        {
+            using var input = new MemoryStream();
+            await source.Content.CopyToAsync(input, cancellationToken).ConfigureAwait(false);
+            input.Position = 0;
+            cancellationToken.ThrowIfCancellationRequested();
+            using var pages = new MagickImageCollection(input);
+            var bytes = pages.ToByteArray(MagickFormat.Pdf);
+            cancellationToken.ThrowIfCancellationRequested();
+            var output = new MemoryStream(bytes, writable: false);
+            return new LaserficheEdocStream(output, "application/pdf", null, "preview.pdf", ".pdf", bytes.Length, output);
+        }
+    }
+
     /// <summary>Spools to a seekable file with automatic deletion after MVC finishes.</summary>
     public static async Task<(Stream Content, string ContentType)> BufferForPreviewAsync(
         LaserficheEdocStream source, CancellationToken cancellationToken)

@@ -606,6 +606,12 @@ Invoke-NativeCommand -Stage "dotnet publish (web app, self-contained win-x64)" -
 
 Write-OK "Web app published to: $webAppOut"
 
+# Ship the exact same offline converter in both the MSI and standalone package.
+& (Join-Path $PSScriptRoot "Stage-OfflineRuntime.ps1") -WebAppPath $webAppOut
+if (-not (Test-Path (Join-Path $webAppOut 'wwwroot\lib\chartjs\chart.umd.min.js'))) {
+    throw 'Local Chart.js runtime is missing from the publish output.'
+}
+
 # A successful DLL publish is insufficient if the visual identity assets are missing.
 $brandAssets = @(
     'css\isb-theme.css',
@@ -1924,13 +1930,13 @@ else {
     # The Authenticode signature is verified on every build -- cached or fresh.
     # -------------------------------------------------------------------------
     $prereqCacheDir    = Join-Path $RepoRoot ".build-cache\prerequisites"
-    $netFx48Installer  = Join-Path $prereqCacheDir "ndp48-web.exe"
-    $netFx48Url        = "https://go.microsoft.com/fwlink/?LinkId=2085155"
+    $netFx48Installer  = Join-Path $prereqCacheDir "ndp48-offline.exe"
+    $netFx48Url        = "https://go.microsoft.com/fwlink/?LinkId=2088631"
 
     $null = New-Item -ItemType Directory -Path $prereqCacheDir -Force
 
     if (-not (Test-Path $netFx48Installer)) {
-        Write-Host "  Downloading .NET Framework 4.8 web installer..." -ForegroundColor Cyan
+        Write-Host "  Downloading .NET Framework 4.8 offline installer..." -ForegroundColor Cyan
         try {
             # TLS 1.2 is required by download.microsoft.com; PowerShell 5.1
             # defaults to TLS 1.0 on older Windows builds.
@@ -2094,7 +2100,25 @@ foreach ($doc in @("InstallationGuide.md", "UpgradeGuide.md", "ReleaseNotes.md")
     }
 }
 
-Write-OK "Artifacts assembled."
+# Standalone distribution: double-click the launcher, without SDK, IIS or dotnet run.
+$launcher = @'
+@echo off
+cd /d "%~dp0"
+set "DASHBOARD_PORT=%~1"
+if "%DASHBOARD_PORT%"=="" set "DASHBOARD_PORT=5050"
+start "" "http://localhost:%DASHBOARD_PORT%"
+LFPortal.Web.exe --urls http://localhost:%DASHBOARD_PORT%
+pause
+'@
+Set-Content (Join-Path $webAppDst 'Start-Dashboard.cmd') $launcher -Encoding ASCII
+Copy-Item (Join-Path $RepoRoot 'docs\offline-preview.md') (Join-Path $webAppDst 'README-OFFLINE.md') -Force
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$standaloneZip = Join-Path $ReleaseDir 'LFDashboard-Standalone-win-x64.zip'
+if (Test-Path $standaloneZip) { Remove-Item $standaloneZip -Force }
+[System.IO.Compression.ZipFile]::CreateFromDirectory($webAppDst, $standaloneZip)
+$standaloneHash = (Get-FileHash $standaloneZip -Algorithm SHA256).Hash.ToLowerInvariant()
+Add-Content (Join-Path $ReleaseDir 'SHA256SUMS.txt') ("{0}  LFDashboard-Standalone-win-x64.zip" -f $standaloneHash) -Encoding ASCII
+Write-OK "Artifacts assembled, including offline standalone ZIP."
 
 # =============================================================================
 # STEP 11 -- Verify deliverables

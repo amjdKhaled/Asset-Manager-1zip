@@ -296,9 +296,8 @@
             a customer PC if DetectCondition is false and the cache is empty.
           Name: the filename Burn uses when caching the download locally.
         -->
-        <ExePackagePayload Name="ndp48-web.exe"
-                           SourceFile="$(var.NetFx48Installer)"
-                           DownloadUrl="https://go.microsoft.com/fwlink/?LinkId=2085155" />
+        <ExePackagePayload Name="ndp48-offline.exe" Compressed="yes"
+                           SourceFile="$(var.NetFx48Installer)" />
       </ExePackage>
 
       <MsiPackage
