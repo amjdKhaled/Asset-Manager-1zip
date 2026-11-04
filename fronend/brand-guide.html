@@ -12,21 +12,24 @@
     --deep: #0B3954; --blue: #14618A; --gold: #C29A2E;
     --ink: #142633; --slate: #4A5C69; --muted: #8595A2;
     --page: #E9EEF2; --field: #F0F5F8; --tint: #E1EEF5; --border: #D4DEE6; --border-soft: #E3EAF0;
-    --pattern: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2264%22%20height%3D%2264%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23FFFFFF%22%20stroke-opacity%3D%220.10%22%20stroke-width%3D%221.3%22%3E%3Crect%20x%3D%2220%22%20y%3D%2220%22%20width%3D%2224%22%20height%3D%2224%22%2F%3E%3Crect%20x%3D%2220%22%20y%3D%2220%22%20width%3D%2224%22%20height%3D%2224%22%20transform%3D%22rotate%2845%2032%2032%29%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+    --hdr-bg: linear-gradient(100deg, #0B3954 55%, #14618A);
+    --dots: radial-gradient(rgba(255, 255, 255, 0.12) 1.2px, transparent 1.4px);
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--page); color: var(--ink); font-family: 'Readex Pro', 'Segoe UI', Tahoma, sans-serif; line-height: 1.6; }
   .wrap { max-width: 1120px; margin: 0 auto; padding: 32px 16px 80px; }
   code { font-family: Consolas, monospace; direction: ltr; display: inline-block; }
 
-  .hdr { display: flex; align-items: center; gap: 24px; padding: 26px 28px 24px; background: var(--deep) var(--pattern) right top / 64px 64px; border-bottom: 4px solid var(--gold); border-radius: 14px 14px 0 0; color: #fff; direction: ltr; }
+  .hdr { position: relative; overflow: hidden; display: flex; align-items: center; gap: 24px; padding: 26px 28px 24px; background: var(--deep) var(--hdr-bg); border-bottom: 4px solid var(--gold); border-radius: 18px 18px 0 0; color: #fff; direction: ltr; }
+  .hdr::before, .pattern-strip::before, .kpi.feature::before { content: ""; position: absolute; top: 0; bottom: 0; left: 45%; right: 0; background-image: var(--dots); background-size: 14px 14px; -webkit-mask-image: linear-gradient(to right, transparent, #000); mask-image: linear-gradient(to right, transparent, #000); pointer-events: none; z-index: 0; }
+  .hdr > *, .kpi.feature > * { position: relative; z-index: 1; }
   .logo { flex: 0 0 auto; background: #fff; border-radius: 14px; padding: 8px 14px; line-height: 0; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
   .logo img { height: 64px; display: block; }
   .titles { flex: 1; min-width: 0; }
-  .t-en { font-size: 22px; font-weight: 600; line-height: 1.3; }
+  .t-en { font-size: 24px; font-weight: 700; line-height: 1.3; }
   .meta { display: flex; gap: 10px; margin-top: 8px; font-size: 13px; color: rgba(255,255,255,.78); font-weight: 500; align-items: center; flex-wrap: wrap; }
   .pill { padding: 2px 11px; border-radius: 999px; font-size: 12.5px; background: rgba(255,255,255,.14); color: #fff; }
-  .t-ar { font-size: 26px; font-weight: 600; direction: rtl; }
+  .t-ar { font-size: 28px; font-weight: 700; direction: rtl; }
   .hero-card { background: #fff; border-radius: 18px; box-shadow: 0 18px 40px -18px rgba(20,38,51,.28); overflow: hidden; }
   .hero-body { padding: 22px 28px 26px; display: flex; gap: 24px; flex-wrap: wrap; justify-content: space-between; align-items: center; }
   .hero-body h1 { margin: 0; font-size: 28px; font-weight: 700; }
@@ -80,7 +83,7 @@
   .pattern-spec li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px dashed var(--border); font-size: 14px; }
   .pattern-spec li:last-child { border: 0; }
   .pattern-spec code { color: var(--blue); }
-  .pattern-strip { height: 120px; border-radius: 14px; margin-top: 14px; background: var(--deep) var(--pattern) right top / 64px 64px; border-bottom: 4px solid var(--gold); }
+  .pattern-strip { position: relative; overflow: hidden; height: 120px; border-radius: 14px; margin-top: 14px; background: var(--deep) var(--hdr-bg); border-bottom: 4px solid var(--gold); }
 
   .notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 14px; }
   .note { background: #fff; border: 1px solid var(--border-soft); border-radius: 12px; padding: 12px 14px; font-size: 13.5px; }
@@ -97,7 +100,7 @@
   .field .in { height: 48px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); padding: 0 14px; display: flex; align-items: center; font-weight: 500; }
   .field .in.focus { background: #fff; border-color: var(--blue); box-shadow: 0 0 0 3px var(--tint); }
   .kpi { flex: 1 1 200px; background: #fff; border: 1px solid var(--border-soft); border-radius: 14px; padding: 18px; }
-  .kpi.feature { background: var(--deep) var(--pattern) right top / 64px 64px; color: #fff; border: 0; border-bottom: 3px solid var(--gold); }
+  .kpi.feature { position: relative; overflow: hidden; background: var(--deep) var(--hdr-bg); color: #fff; border: 0; border-bottom: 3px solid var(--gold); }
   .kpi .n { font-size: 30px; font-weight: 700; line-height: 1.1; }
   .kpi .l { font-size: 13px; color: var(--slate); }
   .kpi.feature .l { color: rgba(255,255,255,.78); }
@@ -140,11 +143,11 @@
     <div class="hero-body">
       <div>
         <h1>دليل هوية «نشر الوثائق»</h1>
-        <p>الألوان والخط والزخرفة اللي في هيدر الفورم، عشان نفس الشكل يتطبق على أي شاشة تانية.</p>
+        <p>الألوان والخط وخلفية الهيدر اللي في الفورم، عشان نفس الشكل يتطبق على أي شاشة تانية.</p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <span class="badge" style="background:#E1EEF5;color:#14618A">Readex Pro</span>
-        <span class="badge" style="background:#FBF1E0;color:#8A6A14">نجمة ثمانية</span>
+        <span class="badge" style="background:#FBF1E0;color:#8A6A14">تدرّج ونقط</span>
         <span class="badge" style="background:#F0F5F8;color:#0B3954">#0B3954</span>
       </div>
     </div>
@@ -154,7 +157,7 @@
     <h2>الألوان الأساسية</h2>
     <p class="lead">تلات ألوان بتعمل الهوية: الكحلي هو الأرضية، والأزرق للحاجات اللي بتتداس، والذهبي لمسة صغيرة بس. اضغط على أي كود عشان تنسخه.</p>
     <div class="swatches">
-      <div class="sw big"><div class="chip" style="background:#0B3954 var(--pattern) right top/64px;color:#fff">Deep Sea</div>
+      <div class="sw big"><div class="chip" style="background:#0B3954;color:#fff">Deep Sea</div>
         <div class="info"><div class="name">الكحلي</div><span class="hex">#0B3954</span><div class="use">خلفية الهيدر، الشريط الجانبي، الكارت المميز</div></div></div>
       <div class="sw"><div class="chip" style="background:#14618A;color:#fff">Blue</div>
         <div class="info"><div class="name">الأزرق</div><span class="hex">#14618A</span><div class="use">الزراير، الروابط، التبويب المختار</div></div></div>
@@ -242,35 +245,49 @@
   </section>
 
   <section>
-    <h2>الزخرفة: النجمة الثمانية</h2>
-    <p class="lead">مربعين فوق بعض، التاني متلف 45 درجة. بتتكرر كل 64px، ومرسومة بخط أبيض شفاف 10% بس، فبتبان هادية على الكحلي.</p>
+    <h2>خلفية الهيدر: تدرّج ونقط</h2>
+    <p class="lead">تدرّج هادي من الكحلي للأزرق، وفوقه شبكة نقط بيضا شفافة 12% على النص اليمين بس، بتبهت ناحية الشمال. من غير صور، كله CSS.</p>
     <div class="pattern-grid">
       <div class="tile-zoom">
-        <svg viewBox="0 0 64 64" aria-label="بلاطة الزخرفة مكبرة">
-          <rect x="0.5" y="0.5" width="63" height="63" fill="none" stroke="#FFFFFF" stroke-opacity=".2" stroke-dasharray="2 2" stroke-width=".5"/>
-          <g fill="none" stroke="#FFFFFF" stroke-opacity=".75" stroke-width="1.3"><rect x="20" y="20" width="24" height="24"/><rect x="20" y="20" width="24" height="24" transform="rotate(45 32 32)"/></g>
-          <circle cx="32" cy="32" r="1" fill="#C29A2E"/>
+        <svg viewBox="0 0 42 42" aria-label="شبكة النقط مكبرة">
+          <rect x="14.25" y="14.25" width="13.5" height="13.5" fill="none" stroke="#FFFFFF" stroke-opacity=".3" stroke-dasharray="1 1" stroke-width=".3"/>
+          <g fill="#FFFFFF" fill-opacity=".75">
+            <circle cx="7" cy="7" r="1.2"/><circle cx="21" cy="7" r="1.2"/><circle cx="35" cy="7" r="1.2"/>
+            <circle cx="7" cy="21" r="1.2"/><circle cx="21" cy="21" r="1.2"/><circle cx="35" cy="21" r="1.2"/>
+            <circle cx="7" cy="35" r="1.2"/><circle cx="21" cy="35" r="1.2"/><circle cx="35" cy="35" r="1.2"/>
+          </g>
         </svg>
       </div>
       <div class="card">
         <ul class="pattern-spec">
-          <li><span>حجم البلاطة</span><code>64 × 64 px</code></li>
-          <li><span>المربع</span><code>24 × 24 px · x,y = 20</code></li>
-          <li><span>المربع التاني</span><code>rotate(45°) around 32,32</code></li>
-          <li><span>لون الخط</span><code>#FFFFFF · opacity 0.10</code></li>
-          <li><span>سُمك الخط</span><code>1.3 px · no fill</code></li>
-          <li><span>التكرار</span><code>repeat · from right top</code></li>
+          <li><span>التدرّج</span><code>linear-gradient(100deg, #0B3954 55%, #14618A)</code></li>
+          <li><span>النقطة</span><code>1.2 px · every 14 px</code></li>
+          <li><span>لون النقط</span><code>#FFFFFF · opacity 0.12</code></li>
+          <li><span>مكان النقط</span><code>left 45% → right 0</code></li>
+          <li><span>البهتان</span><code>mask-image: transparent → #000</code></li>
+          <li><span>من غير mask</span><code>dots stay at 12%, no fade</code></li>
         </ul>
-        <p style="margin:12px 0 0;font-size:13px;color:#8595A2">البلاطة المكبرة على الشمال شفافيتها مرفوعة عشان تبان بس. الحقيقية 10%، زي الشريط اللي تحت.</p>
+        <p style="margin:12px 0 0;font-size:13px;color:#8595A2">النقط المكبرة شفافيتها مرفوعة عشان تبان بس. الحقيقية 12%، زي الشريط اللي تحت.</p>
       </div>
     </div>
     <div class="pattern-strip"></div>
-    <div style="margin-top:14px"><pre>&lt;svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"&gt;
-  &lt;g fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="1.3"&gt;
-    &lt;rect x="20" y="20" width="24" height="24"/&gt;
-    &lt;rect x="20" y="20" width="24" height="24" transform="rotate(45 32 32)"/&gt;
-  &lt;/g&gt;
-&lt;/svg&gt;</pre></div>
+    <div style="margin-top:14px"><pre>.my-header {
+  position: relative;
+  overflow: hidden;
+  background: #0B3954 linear-gradient(100deg, #0B3954 55%, #14618A);
+  border-bottom: 4px solid #C29A2E;
+}
+.my-header::before {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 45%; right: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1.2px, transparent 1.4px);
+  background-size: 14px 14px;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000);
+  mask-image: linear-gradient(to right, transparent, #000);
+  pointer-events: none;
+}
+.my-header &gt; * { position: relative; z-index: 1; }</pre></div>
   </section>
 
   <section>
@@ -282,12 +299,12 @@
       <div class="t-ar">لوحة المتابعة</div>
     </div>
     <div class="notes">
-      <div class="note"><b><span class="num">1</span>الأرضية</b>كحلي <code>#0B3954</code> والزخرفة فوقه. الحشو <code>26px 28px 24px</code>.</div>
+      <div class="note"><b><span class="num">1</span>الأرضية</b>تدرّج من الكحلي <code>#0B3954</code> للأزرق <code>#14618A</code>، ونقط بيضا 12% على النص اليمين. الحشو <code>26px 28px 24px</code>.</div>
       <div class="note"><b><span class="num">2</span>الخط الذهبي</b>border-bottom بسُمك 4px ولون <code>#C29A2E</code>. ده توقيع الهوية، ما تشيلوش.</div>
       <div class="note"><b><span class="num">3</span>اللوجو</b>جوه مربع أبيض بزوايا 14px وحشو 8 × 14px وظل خفيف. ارتفاع اللوجو 64px.</div>
-      <div class="note"><b><span class="num">4</span>العنوانين</b>الإنجليزي على الشمال 22px، والعربي على اليمين 26px، والاتنين أبيض 600.</div>
+      <div class="note"><b><span class="num">4</span>العنوانين</b>الإنجليزي على الشمال 24px، والعربي على اليمين 28px، والاتنين أبيض 700.</div>
       <div class="note"><b><span class="num">5</span>البيانات تحت العنوان</b>أبيض 78% بحجم 13px، والحالة في كبسولة أبيض 14%.</div>
-      <div class="note"><b><span class="num">6</span>الزوايا</b>14px من فوق بس، والجسم الأبيض اللي تحته بيكمّل الكارت.</div>
+      <div class="note"><b><span class="num">6</span>الزوايا</b>18px من فوق بس، والجسم الأبيض اللي تحته بيكمّل الكارت.</div>
     </div>
   </section>
 
@@ -320,15 +337,15 @@
     <h2>اعمل / ما تعملش</h2>
     <div class="rules">
       <div class="card do"><b style="color:#2E7D5B">اعمل</b><ul>
-        <li>الكحلي بالزخرفة للهيدر أو الشريط الجانبي أو كارت واحد مميز بس.</li>
+        <li>خلفية الهيدر (التدرّج والنقط) للهيدر أو الشريط الجانبي أو كارت واحد مميز بس.</li>
         <li>الخط الذهبي يفضل رفيع: 3 أو 4px.</li>
         <li>اللوجو دايمًا على أرضية بيضا.</li>
         <li>خط Readex Pro في كل حتة، عربي وإنجليزي.</li>
       </ul></div>
       <div class="card dont"><b style="color:#B3261E">ما تعملش</b><ul>
-        <li>ما تعليش شفافية الزخرفة عن 10%، عشان هي خلفية مش بطل.</li>
+        <li>ما تعليش شفافية النقط عن 12%، عشان هي خلفية مش بطل.</li>
         <li>ما تستخدمش الذهبي كخلفية كبيرة أو لون نص طويل.</li>
-        <li>ما تحطش الزخرفة البيضا على أرضية فاتحة.</li>
+        <li>ما تحطش النقط البيضا على أرضية فاتحة.</li>
         <li>ما تدخلش ألوان زرقا من برة الباليتة.</li>
       </ul></div>
     </div>
@@ -338,21 +355,23 @@
     <h2>الملفات اللي معاك</h2>
     <div class="card files-scroll" style="padding:6px 14px">
       <table class="files">
-        <tr><td>brand-tokens.css</td><td>كل الألوان والخط والزخرفة كمتغيرات CSS، ومعاهم هيدر جاهز (<code>.isb-hdr</code>).</td></tr>
+        <tr><td>brand-tokens.css</td><td>كل الألوان والخط وخلفية الهيدر كمتغيرات CSS، ومعاهم هيدر جاهز (<code>.isb-hdr</code>).</td></tr>
+        <tr><td>isb-header.css</td><td>الهيدر لوحده بألوان صريحة (من غير var())، يتلزق زي ما هو في Laserfiche أو أي صفحة.</td></tr>
+        <tr><td>isb-header.html</td><td>معاينة الهيدر والألوان والكود الجاهز للنسخ.</td></tr>
         <tr><td>assets/isb logo.jpg</td><td>اللوجو الأصلي.</td></tr>
         <tr><td>font/ReadexPro-*.ttf</td><td>ملفات الخط بكل الأوزان (200 لحد 700). الـ CSS بيحملها لوحده.</td></tr>
-        <tr><td>assets/header-pattern-tile.svg</td><td>بلاطة الزخرفة 64px. بتتكرر كـ background.</td></tr>
-        <tr><td>assets/header-pattern-tile.png</td><td>نفس البلاطة PNG بخلفية شفافة.</td></tr>
-        <tr><td>assets/header-background.svg / .png</td><td>خلفية هيدر كاملة 1600×200: كحلي وزخرفة وخط ذهبي.</td></tr>
-        <tr><td>assets/header-background-3200x400-no-line.png</td><td>خلفية عريضة من غير الخط الذهبي، للبانرات أو الشريط الجانبي.</td></tr>
-        <tr><td>assets/header-pattern-tile-gold.svg</td><td>نسخة ذهبي 22% لو احتجت الزخرفة على أرضية فاتحة جدًا (استخدام نادر).</td></tr>
+        <tr><td>assets/header-background-gradient-dots.svg</td><td>خلفية هيدر كاملة 1600×200: تدرّج ونقط وخط ذهبي، للإيميلات والـ Word والعروض.</td></tr>
+        <tr><td>assets/header-background-gradient-dots-no-line.svg</td><td>خلفية عريضة 3200×400 من غير الخط الذهبي، للبانرات أو الشريط الجانبي.</td></tr>
+        <tr><td>assets/header-pattern-tile*.svg/.png<br>assets/header-background.svg/.png<br>assets/header-background-3200x400-no-line.png</td><td>الزخرفة القديمة (النجمة الثمانية). مش مستخدمة في v2، ومتسابة بس للرجوع ليها.</td></tr>
       </table>
     </div>
     <div style="margin-top:14px"><pre>&lt;!-- الخط بيتحمل من فولدر font أوتوماتيك --&gt;
 &lt;link rel="stylesheet" href="brand-tokens.css"&gt;
 
+/* أسهل حاجة: class="isb-hdr" جاهزة بالتدرّج والنقط والخط الذهبي.
+   ولو هتعمل هيدر بنفسك: */
 .my-header {
-  background: var(--isb-deep-sea) var(--isb-pattern) right top / 64px 64px;
+  background: var(--isb-deep-sea) var(--isb-hdr-gradient);
   border-bottom: 4px solid var(--isb-gold);
   font-family: var(--isb-font);
   color: #fff;

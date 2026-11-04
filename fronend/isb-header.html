@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ISB Header v2</title>
+<link rel="stylesheet" href="isb-header.css">
+<style>
+  body { margin: 0; padding: 32px 16px; background: #E9EEF2; color: #142633; font-family: 'Readex Pro', 'Segoe UI', Tahoma, sans-serif; line-height: 1.7; }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 32px 0 10px; }
+  p { margin: 0 0 12px; color: #4A5C69; }
+  .card { background: #FFFFFF; border-radius: 18px; box-shadow: 0 18px 40px -18px rgba(20, 38, 51, 0.28); }
+  .card .body { padding: 22px 28px; color: #8595A2; font-size: 14px; }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .sw { background: #FFFFFF; border: 1px solid #D4DEE6; border-radius: 12px; overflow: hidden; font-size: 13px; }
+  .sw div { height: 56px; }
+  .sw span { display: block; padding: 8px 12px; }
+  .sw b { display: block; direction: ltr; text-align: right; }
+  .side { display: flex; gap: 12px; }
+  .side .isb-dark-surface { flex: 0 0 200px; min-height: 140px; border-radius: 14px; padding: 18px; font-size: 14px; }
+  pre { direction: ltr; text-align: left; background: #FFFFFF; border: 1px solid #D4DEE6; border-radius: 12px; padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
+  table { width: 100%; border-collapse: collapse; background: #FFFFFF; border: 1px solid #D4DEE6; border-radius: 12px; overflow: hidden; font-size: 14px; }
+  td { padding: 10px 14px; border-bottom: 1px solid #E3EAF0; vertical-align: top; }
+  td:first-child { direction: ltr; text-align: right; white-space: nowrap; color: #14618A; }
+  @media (max-width: 600px) { .side { flex-direction: column; } .side .isb-dark-surface { flex-basis: auto; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>هيدر نشر الوثائق (v2)</h1>
+  <p>تدرّج من الكحلي للأزرق، ونقط بيضا خفيفة على اليمين بتبهت ناحية الشمال، وخط ذهبي تحت. ده نفس هيدر فورم طلب نشر وثيقة.</p>
+
+  <div class="card">
+    <header class="isb-hdr">
+      <div class="isb-logo"><img src="assets/isb logo.jpg" alt="isb"></div>
+      <div class="isb-titles">
+        <div class="isb-title">Document Publishing Request</div>
+        <div class="isb-meta"><span class="isb-no">DP-2026-0001</span><span class="isb-pill">Draft - مسودة</span></div>
+      </div>
+      <div class="isb-title-ar">طلب نشر وثيقة</div>
+    </header>
+    <div class="body">محتوى الصفحة بيبدأ هنا</div>
+  </div>
+
+  <h2>الألوان</h2>
+  <div class="swatches">
+    <div class="sw"><div style="background:#0B3954"></div><span>الكحلي: أول التدرّج<b>#0B3954</b></span></div>
+    <div class="sw"><div style="background:#14618A"></div><span>الأزرق: آخر التدرّج<b>#14618A</b></span></div>
+    <div class="sw"><div style="background:#C29A2E"></div><span>الذهبي: الخط اللي تحت<b>#C29A2E</b></span></div>
+    <div class="sw"><div style="background:#0B3954;background-image:radial-gradient(rgba(255,255,255,0.5) 1.2px,transparent 1.4px);background-size:14px 14px"></div><span>النقط: أبيض 12% كل 14px<b>rgba(255,255,255,0.12)</b></span></div>
+  </div>
+
+  <h2>مساحة كحلي تانية (من غير الخط الذهبي)</h2>
+  <div class="side">
+    <div class="isb-dark-surface">شريط جانبي أو بانر أو كارت مميز</div>
+    <p style="margin:0">أي حتة كحلي تانية في الشاشة تاخد <code>class="isb-dark-surface"</code>، فتبقى بنفس خلفية الهيدر.</p>
+  </div>
+
+  <h2>إزاي تستخدمه</h2>
+  <pre>&lt;link rel="stylesheet" href="isb-header.css"&gt;
+
+&lt;header class="isb-hdr"&gt;
+  &lt;div class="isb-logo"&gt;&lt;img src="assets/isb logo.jpg" alt="isb"&gt;&lt;/div&gt;
+  &lt;div class="isb-titles"&gt;
+    &lt;div class="isb-title"&gt;Document Publishing Request&lt;/div&gt;
+    &lt;div class="isb-meta"&gt;&lt;span class="isb-no"&gt;DP-2026-0001&lt;/span&gt;&lt;span class="isb-pill"&gt;Draft - مسودة&lt;/span&gt;&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class="isb-title-ar"&gt;طلب نشر وثيقة&lt;/div&gt;
+&lt;/header&gt;</pre>
+
+  <h2>الملفات</h2>
+  <table>
+    <tr><td>isb-header.css</td><td>الهيدر بألوان صريحة (من غير var())، يتلزق زي ما هو في Laserfiche أو أي صفحة.</td></tr>
+    <tr><td>brand-tokens.css</td><td>نفس الهيدر (<code>.isb-hdr</code>) بالمتغيرات، مع باقي ألوان الهوية. استخدم واحد من الملفين بس في الصفحة.</td></tr>
+    <tr><td>assets/header-background-gradient-dots.svg</td><td>خلفية هيدر كاملة 1600×200 للإيميلات والـ Word والعروض.</td></tr>
+  </table>
+</div>
+</body>
+</html>
